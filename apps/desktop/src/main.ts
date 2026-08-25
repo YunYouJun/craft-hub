@@ -12,6 +12,8 @@ const applicationIcon = resolve(
   '../assets/icon.png',
 )
 
+app.setName('Craft Hub')
+
 async function loadUrlWithRetry(window: BrowserWindowType, url: string): Promise<void> {
   let lastError: unknown
   for (let attempt = 0; attempt < 20; attempt++) {

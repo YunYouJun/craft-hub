@@ -1,0 +1,23 @@
+:root[data-desktop-platform='darwin'] body::before {
+  position: fixed;
+  z-index: 100;
+  top: 0;
+  right: 0;
+  left: 0;
+  display: grid;
+  height: 38px;
+  place-items: center;
+  border-bottom: 1px solid var(--border);
+  background: #fbfcfd;
+  color: #4f5867;
+  content: 'Craft Hub';
+  font-size: 12px;
+  font-weight: 600;
+  user-select: none;
+  -webkit-app-region: drag;
+}
+
+:root[data-desktop-platform='darwin'] .app-shell {
+  box-sizing: border-box;
+  padding-top: 38px;
+}

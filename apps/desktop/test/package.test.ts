@@ -29,4 +29,25 @@ describe('desktop package scripts', () => {
     expect(mainSource).toContain('app.dock?.setIcon(applicationIcon)')
     expect(packageMacSource).toContain('icon: resolve(repositoryRoot, \'apps/desktop/assets/icon.icns\')')
   })
+
+  it('brands the desktop shell and reserves the macOS title-bar safe area', async () => {
+    const desktopMainUrl = new URL('../src/main.ts', import.meta.url)
+    const webIndexUrl = new URL('../../web/index.html', import.meta.url)
+    const webMainUrl = new URL('../../web/src/main.ts', import.meta.url)
+    const desktopStylesUrl = new URL('../../web/src/desktop.css', import.meta.url)
+    const [desktopMain, webIndex, webMain, desktopStyles] = await Promise.all([
+      readFile(desktopMainUrl, 'utf8'),
+      readFile(webIndexUrl, 'utf8'),
+      readFile(webMainUrl, 'utf8'),
+      readFile(desktopStylesUrl, 'utf8'),
+    ])
+
+    expect(desktopMain).toContain('app.setName(\'Craft Hub\')')
+    expect(desktopMain).toContain('title: \'Craft Hub\'')
+    expect(webIndex).toContain('<title>Craft Hub</title>')
+    expect(webMain).toContain('import \'./desktop.css\'')
+    expect(webMain).toContain('document.documentElement.dataset.desktopPlatform')
+    expect(desktopStyles).toContain(':root[data-desktop-platform=\'darwin\'] .app-shell')
+    expect(desktopStyles).toContain('-webkit-app-region: drag')
+  })
 })
