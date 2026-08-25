@@ -8,7 +8,7 @@ Craft Hub is a local, cross-project developer workbench. Project Palette discove
 - `apps/web`: Vue UI that consumes the local API. Keep it usable in a normal browser.
 - `apps/desktop`: thin Electron host. Keep domain logic out of this package.
 - `examples/sample-project`: deterministic manual-test fixture.
-- `docs/design/workbench-concept.png`: visual baseline for the workbench.
+- `docs/design/workbench-concept.webp`: visual baseline for the workbench.
 
 Keep the runtime vendor-neutral. Agent integrations belong behind adapters; editor or desktop clients consume public runtime contracts.
 
