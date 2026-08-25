@@ -1,0 +1,46 @@
+{
+  "name": "craft-hub",
+  "type": "module",
+  "version": "0.0.1-alpha.0",
+  "private": true,
+  "description": "A local, cross-project workbench for project commands and agent skills.",
+  "author": "YunYouJun",
+  "license": "MIT",
+  "funding": "https://github.com/sponsors/YunYouJun",
+  "homepage": "https://github.com/YunYouJun/craft-hub#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/YunYouJun/craft-hub.git"
+  },
+  "bugs": "https://github.com/YunYouJun/craft-hub/issues",
+  "keywords": [
+    "developer-tools",
+    "command-palette",
+    "agent-skills"
+  ],
+  "sideEffects": false,
+  "exports": {
+    ".": "./dist/index.mjs",
+    "./cli": "./dist/cli.mjs",
+    "./package.json": "./package.json"
+  },
+  "types": "./dist/index.d.mts",
+  "bin": {
+    "craft-hub": "./dist/cli.mjs"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsdown",
+    "dev": "tsdown --watch --no-clean",
+    "dev:server": "tsx src/cli.ts ui",
+    "prepack": "nr build",
+    "start": "tsx src/cli.ts",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "cac": "catalog:",
+    "yaml": "catalog:"
+  }
+}

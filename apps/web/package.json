@@ -1,0 +1,25 @@
+{
+  "name": "@craft-hub/web",
+  "type": "module",
+  "version": "0.0.1-alpha.0",
+  "private": true,
+  "scripts": {
+    "build": "vite build",
+    "dev": "vite",
+    "typecheck": "vue-tsc --noEmit"
+  },
+  "dependencies": {
+    "@vueuse/core": "catalog:",
+    "craft-hub": "workspace:*",
+    "pinia": "catalog:",
+    "reka-ui": "catalog:",
+    "vue": "catalog:",
+    "vue-router": "catalog:"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "catalog:",
+    "unocss": "catalog:",
+    "vite": "catalog:",
+    "vue-tsc": "catalog:"
+  }
+}

@@ -1,0 +1,26 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      github-actions:
+        patterns:
+          - '*'
+
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    ignore:
+      # TypeScript 7 is not supported by TypeDoc, typescript-eslint, or Twoslash yet.
+      - dependency-name: typescript
+        update-types:
+          - version-update:semver-major
+    groups:
+      node-dependencies:
+        dependency-type: development
+        patterns:
+          - '*'

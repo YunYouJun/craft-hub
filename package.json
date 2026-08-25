@@ -1,0 +1,53 @@
+{
+  "name": "craft-hub-workspace",
+  "type": "module",
+  "version": "0.0.1-alpha.0",
+  "private": true,
+  "packageManager": "pnpm@11.21.0",
+  "engines": {
+    "node": "^22.18.0 || ^24.11.0 || >=26.0.0"
+  },
+  "scripts": {
+    "build": "nr -r build",
+    "dev": "pnpm --filter craft-hub build && pnpm --parallel --filter craft-hub --filter @craft-hub/web --filter @craft-hub/desktop dev",
+    "dev:web": "pnpm --filter craft-hub build && tsx scripts/dev-web.ts",
+    "lint": "eslint --cache .",
+    "package:mac": "tsx scripts/package-macos.ts",
+    "prepublishOnly": "nr build",
+    "predocs": "typedoc",
+    "docs:dev": "pnpm -C docs run docs:dev",
+    "docs:build": "pnpm build && pnpm predocs && pnpm -C docs run docs:build",
+    "docs:preview": "pnpm -C docs run docs:preview",
+    "release": "bumpp -r && pnpm -r publish",
+    "test": "vitest",
+    "typecheck": "tsc --noEmit",
+    "prepare": "simple-git-hooks"
+  },
+  "devDependencies": {
+    "@antfu/eslint-config": "catalog:",
+    "@antfu/ni": "catalog:",
+    "@antfu/utils": "catalog:",
+    "@electron/packager": "catalog:",
+    "@types/node": "catalog:",
+    "bumpp": "catalog:",
+    "craft-hub": "workspace:*",
+    "eslint": "catalog:",
+    "lint-staged": "catalog:",
+    "publint": "catalog:",
+    "simple-git-hooks": "catalog:",
+    "tsdown": "catalog:",
+    "tsx": "catalog:",
+    "typedoc": "catalog:",
+    "typedoc-plugin-markdown": "catalog:",
+    "typedoc-vitepress-theme": "catalog:",
+    "typescript": "catalog:",
+    "vite": "catalog:",
+    "vitest": "catalog:"
+  },
+  "simple-git-hooks": {
+    "pre-commit": "pnpm lint-staged"
+  },
+  "lint-staged": {
+    "*": "eslint --fix"
+  }
+}

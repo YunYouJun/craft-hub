@@ -1,0 +1,20 @@
+{
+  "name": "@craft-hub/desktop",
+  "type": "module",
+  "version": "0.0.1-alpha.0",
+  "private": true,
+  "main": "dist/main.mjs",
+  "scripts": {
+    "build": "tsdown",
+    "dev": "CRAFT_HUB_DEV_URL=http://127.0.0.1:5173 electron --import=tsx src/main.ts",
+    "start": "electron ."
+  },
+  "dependencies": {
+    "craft-hub": "workspace:*"
+  },
+  "devDependencies": {
+    "electron": "catalog:",
+    "tsdown": "catalog:",
+    "tsx": "catalog:"
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "name": "craft-hub-sample-project",
+  "private": true,
+  "scripts": {
+    "hello": "node -e \"console.log('Hello from Craft Hub')\"",
+    "verify": "node -e \"console.log('Checks passed')\""
+  }
+}
