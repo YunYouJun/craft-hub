@@ -7,8 +7,10 @@ trustPolicy: no-downgrade
 trustPolicyExclude:
   - semver@6.3.1
 allowBuilds:
+  core-js-pure: true
   electron: true
   esbuild: true
+  node-pty: true
   simple-git-hooks: true
   vue-demi: true
 
@@ -18,26 +20,44 @@ packages:
   - docs
   - packages/*
   - examples/*
+  - cloudfunctions/*
 overrides:
   esbuild: ^0.28.1
+patchedDependencies:
+  node-pty@1.1.0: patches/node-pty@1.1.0.patch
 catalog:
   '@antfu/eslint-config': ^9.3.0
   '@antfu/ni': ^30.5.0
   '@antfu/utils': ^9.3.0
+  '@cloudbase/js-sdk': 3.8.1
+  '@cloudbase/node-sdk': ^3.18.3
   '@electron/packager': ^20.3.0
+  '@iconify-json/ri': ^1.2.10
   '@iconify-json/svg-spinners': ^1.2.4
+  '@modelcontextprotocol/sdk': ^1.30.0
+  '@openai/codex-sdk': ^0.149.1
   '@shikijs/vitepress-twoslash': ^4.4.3
   '@types/node': ^26.2.0
   '@unocss/reset': ^66.7.5
   '@vitejs/plugin-vue': ^6.0.5
+  '@vue/test-utils': ^2.4.6
   '@vueuse/core': ^14.4.0
+  '@xterm/addon-fit': ^0.11.0
+  '@xterm/addon-web-links': ^0.12.0
+  '@xterm/xterm': ^6.0.0
+  '@yunlefun/server-session': ^0.2.0
+  '@yunlefun/server-session-cloudbase': ^0.2.0
+  '@yunlefun/sso': ^0.6.2
   '@yunyoujun/docs': ^0.1.14
   bumpp: ^12.2.0
   cac: ^6.7.14
+  chokidar: ^5.0.0
   electron: ^41.0.2
   eslint: ^10.8.1
   floating-vue: ^5.2.2
+  happy-dom: ^20.6.1
   lint-staged: ^17.3.0
+  node-pty: ^1.1.0
   pinia: ^4.0.2
   publint: ^0.3.23
   reka-ui: ^2.10.3
@@ -59,3 +79,4 @@ catalog:
   vue-router: ^5.0.4
   vue-tsc: ^3.2.6
   yaml: ^2.8.2
+  zod: ^4.4.3

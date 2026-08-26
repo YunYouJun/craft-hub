@@ -15,3 +15,8 @@ export function getCraftHubDataDir(env: NodeJS.ProcessEnv = process.env, applica
 
   return join(env.XDG_DATA_HOME ?? join(homedir(), '.local', 'share'), applicationName.toLowerCase().replaceAll(/[^a-z0-9]+/g, '-').replaceAll(/^-|-$/g, ''))
 }
+
+/** Return the user-editable portable configuration directory. */
+export function getCraftHubConfigDir(env: NodeJS.ProcessEnv = process.env): string {
+  return env.CRAFT_HUB_CONFIG_DIR ?? join(homedir(), '.craft-hub')
+}

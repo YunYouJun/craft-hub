@@ -41,6 +41,9 @@
   },
   "dependencies": {
     "cac": "catalog:",
-    "yaml": "catalog:"
+    "chokidar": "catalog:",
+    "node-pty": "catalog:",
+    "yaml": "catalog:",
+    "zod": "catalog:"
   }
 }

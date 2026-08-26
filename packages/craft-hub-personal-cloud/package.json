@@ -1,0 +1,23 @@
+{
+  "name": "@craft-hub/personal-cloud",
+  "type": "module",
+  "version": "0.0.1-alpha.0",
+  "private": true,
+  "description": "Private personal cloud adapter for Craft Hub.",
+  "exports": {
+    ".": "./dist/index.mjs"
+  },
+  "types": "./dist/index.d.mts",
+  "scripts": {
+    "build": "tsdown",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "craft-hub": "workspace:*"
+  },
+  "devDependencies": {
+    "tsdown": "catalog:",
+    "typescript": "catalog:"
+  }
+}

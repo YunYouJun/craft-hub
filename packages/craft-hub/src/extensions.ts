@@ -1,4 +1,7 @@
+import type { AgentTaskProvider } from './agent-tasks'
+import type { MarketplaceSource, PluginPackageInstaller } from './marketplace'
 import type { CraftHubPlugin } from './plugins'
+import type { WorkbenchLocale } from './settings'
 import type { Capability, ProjectRecord } from './types'
 import { discoverCapabilities } from './discovery'
 
@@ -7,9 +10,12 @@ export interface DistributionConfig {
   name: string
   appId?: string
   dataDirectoryName?: string
+  /** Marketplace sources managed by this distribution. */
+  marketplaceSources?: MarketplaceSource[]
 }
 
 export interface CapabilityProviderContext {
+  locale: WorkbenchLocale
   project: Readonly<ProjectRecord>
 }
 
@@ -21,9 +27,14 @@ export interface CapabilityProvider {
 
 export interface CraftHubOptions {
   dataDir?: string
+  configDir?: string
   distribution?: DistributionConfig
+  /** Override npm package installation, primarily for embedded hosts and tests. */
+  pluginPackageInstaller?: PluginPackageInstaller
   /** Plugins installed by the host distribution or application. */
   plugins?: CraftHubPlugin[]
+  /** External agent adapter supplied by an embedding host. */
+  agentTaskProvider?: AgentTaskProvider
   /** @deprecated Wrap providers in a Craft Hub plugin instead. */
   capabilityProviders?: CapabilityProvider[]
 }
@@ -33,11 +44,18 @@ export const communityDistribution: DistributionConfig = {
   name: 'Craft Hub',
   appId: 'com.yunyoujun.craft-hub',
   dataDirectoryName: 'Craft Hub',
+  marketplaceSources: [{
+    id: 'craft-hub',
+    name: 'Craft Hub',
+    kind: 'builtin',
+    enabled: true,
+    catalog: { schemaVersion: 1, id: 'craft-hub', name: 'Craft Hub', plugins: [] },
+  }],
 }
 
 export const builtinCapabilityProvider: CapabilityProvider = {
   id: 'builtin',
-  discover: context => discoverCapabilities(context.project.path),
+  discover: context => discoverCapabilities(context.project.path, context.locale),
 }
 
 /** Preserve type inference while defining a third-party capability provider. */

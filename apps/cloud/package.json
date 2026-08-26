@@ -1,0 +1,22 @@
+{
+  "name": "@craft-hub/cloud-web",
+  "type": "module",
+  "version": "0.0.1-alpha.0",
+  "private": true,
+  "scripts": {
+    "build": "vite build",
+    "dev": "vite",
+    "typecheck": "vue-tsc --noEmit"
+  },
+  "dependencies": {
+    "@cloudbase/js-sdk": "catalog:",
+    "@yunlefun/sso": "catalog:",
+    "vue": "catalog:"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "catalog:",
+    "typescript": "catalog:",
+    "vite": "catalog:",
+    "vue-tsc": "catalog:"
+  }
+}

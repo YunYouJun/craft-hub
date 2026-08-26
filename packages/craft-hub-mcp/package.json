@@ -1,0 +1,22 @@
+{
+  "name": "@craft-hub/mcp",
+  "type": "module",
+  "version": "0.0.1-alpha.0",
+  "private": true,
+  "description": "Local MCP adapter for Craft Hub.",
+  "scripts": {
+    "build": "tsdown",
+    "dev": "tsx src/server.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "catalog:",
+    "craft-hub": "workspace:*",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "tsdown": "catalog:",
+    "tsx": "catalog:",
+    "typescript": "catalog:"
+  }
+}

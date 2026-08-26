@@ -1,15 +1,20 @@
-import type { Buffer } from 'node:buffer'
-import type { ChildProcess } from 'node:child_process'
 import type { CraftHubStore } from './store'
 import type { CommandCapability, ProjectRecord, RunOutputEvent, RunRecord } from './types'
-import { spawn } from 'node:child_process'
+import { Buffer } from 'node:buffer'
 import { randomUUID } from 'node:crypto'
 import process from 'node:process'
+import { spawn } from 'node-pty'
+
+const persistedOutputLimit = 10 * 1024 * 1024
+const persistedOutputHead = persistedOutputLimit / 2
+const persistedOutputTail = persistedOutputLimit - persistedOutputHead
 
 export interface RunHandle {
   run: RunRecord
   completion: Promise<RunRecord>
   cancel: () => void
+  resize: (columns: number, rows: number) => void
+  write: (data: string) => void
 }
 
 /** Execute only a structured command capability after project trust is established. */
@@ -28,6 +33,7 @@ export function executeCommand(
     id: randomUUID(),
     projectId: project.id,
     capabilityId: capability.id,
+    capabilitySource: capability.source,
     command: capability.invocation.command,
     args: capability.invocation.args,
     cwd: capability.invocation.cwd,
@@ -38,40 +44,30 @@ export function executeCommand(
   }
   void store.saveRun(run)
 
-  const child: ChildProcess = spawn(run.command, run.args, {
+  const terminal = spawn(run.command, run.args, {
     cwd: run.cwd,
+    cols: 120,
     env: process.env,
-    shell: false,
-    stdio: ['ignore', 'pipe', 'pipe'],
+    name: 'xterm-256color',
+    rows: 30,
   })
   let cancelled = false
-  child.stdout?.on('data', (chunk: Buffer) => {
-    const text = chunk.toString()
-    run.stdout += text
+  let closed = false
+  terminal.onData((text) => {
+    const next = appendPersistedOutput(run.stdout, text)
+    run.stdout = next.output
+    run.truncated ||= next.truncated
     onOutput?.({ stream: 'stdout', chunk: text })
-  })
-  child.stderr?.on('data', (chunk: Buffer) => {
-    const text = chunk.toString()
-    run.stderr += text
-    onOutput?.({ stream: 'stderr', chunk: text })
   })
 
   const completion = new Promise<RunRecord>((resolve) => {
-    child.on('error', async (error) => {
-      run.stderr += `${error.message}\n`
-      run.status = 'failed'
-      run.finishedAt = new Date().toISOString()
-      await store.saveRun(run)
-      resolve(run)
-    })
-    child.on('close', async (exitCode, signal) => {
-      if (run.status === 'failed')
-        return
+    terminal.onExit(async ({ exitCode }) => {
+      closed = true
       run.exitCode = exitCode
-      run.signal = signal
-      run.status = cancelled ? 'cancelled' : 'completed'
+      run.status = cancelled ? 'cancelled' : exitCode === 0 ? 'completed' : 'failed'
       run.finishedAt = new Date().toISOString()
       await store.saveRun(run)
+      void store.applyDefaultRunRetention().catch(() => {})
       resolve(run)
     })
   })
@@ -80,8 +76,31 @@ export function executeCommand(
     run,
     completion,
     cancel: () => {
+      if (closed)
+        return
       cancelled = true
-      child.kill('SIGTERM')
+      terminal.kill(process.platform === 'win32' ? undefined : 'SIGTERM')
+      const forceKill = setTimeout(() => {
+        if (!closed)
+          terminal.kill(process.platform === 'win32' ? undefined : 'SIGKILL')
+      }, 2_000)
+      forceKill.unref()
     },
+    resize: (columns, rows) => terminal.resize(columns, rows),
+    write: data => terminal.write(data),
   }
+}
+
+function appendPersistedOutput(current: string, chunk: string): { output: string, truncated: boolean } {
+  const combined = current + chunk
+  if (Buffer.byteLength(combined, 'utf8') <= persistedOutputLimit)
+    return { output: combined, truncated: false }
+  const buffer = Buffer.from(combined)
+  const marker = Buffer.from('\n\n[Craft Hub truncated persisted output]\n\n')
+  const output = Buffer.concat([
+    buffer.subarray(0, persistedOutputHead),
+    marker,
+    buffer.subarray(Math.max(persistedOutputHead, buffer.length - persistedOutputTail)),
+  ]).toString('utf8')
+  return { output, truncated: true }
 }

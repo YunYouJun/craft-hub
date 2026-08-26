@@ -6,10 +6,14 @@
   "scripts": {
     "build": "vite build",
     "dev": "vite",
+    "test": "vitest run --config vite.config.ts",
     "typecheck": "vue-tsc --noEmit"
   },
   "dependencies": {
     "@vueuse/core": "catalog:",
+    "@xterm/addon-fit": "catalog:",
+    "@xterm/addon-web-links": "catalog:",
+    "@xterm/xterm": "catalog:",
     "craft-hub": "workspace:*",
     "pinia": "catalog:",
     "reka-ui": "catalog:",
@@ -17,9 +21,13 @@
     "vue-router": "catalog:"
   },
   "devDependencies": {
+    "@iconify-json/ri": "catalog:",
     "@vitejs/plugin-vue": "catalog:",
+    "@vue/test-utils": "catalog:",
+    "happy-dom": "catalog:",
     "unocss": "catalog:",
     "vite": "catalog:",
+    "vitest": "catalog:",
     "vue-tsc": "catalog:"
   }
 }

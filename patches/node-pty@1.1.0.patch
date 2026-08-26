@@ -1,0 +1,12 @@
+diff --git a/scripts/prebuild.js b/scripts/prebuild.js
+index 17f1d980e62e017d77058627a7a15c4c29f9470c..16855ccbf3c84e5f358d206d1631e9a0c40f92c5 100644
+--- a/scripts/prebuild.js
++++ b/scripts/prebuild.js
+@@ -31,2 +31,7 @@ if (!fs.existsSync(PREBUILD_DIR)) {
+   process.exit(1);
+ }
++
++const spawnHelper = path.join(PREBUILD_DIR, 'spawn-helper');
++if (process.platform !== 'win32' && fs.existsSync(spawnHelper)) {
++  fs.chmodSync(spawnHelper, 0o755);
++}

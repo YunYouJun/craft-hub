@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -18,6 +18,8 @@ async function fixture(): Promise<string> {
     'capabilities:',
     '  hidden:',
     '    - package.json:hidden',
+    '  descriptions:',
+    '    package.json:hello: Print a friendly greeting.',
   ].join('\n'))
   await mkdir(join(root, '.agents', 'skills', 'release'), { recursive: true })
   await writeFile(join(root, '.agents', 'skills', 'release', 'SKILL.md'), [
@@ -51,6 +53,198 @@ describe('capability discovery', () => {
       ['command', 'hello'],
       ['skill', 'release'],
     ])
+    expect(capabilities.find(item => item.name === 'hello')?.description).toBe('Print a friendly greeting.')
+    expect(capabilities.find(item => item.name === 'hello')).toMatchObject({
+      source: 'package.json',
+      sourcePath: join(root, 'package.json'),
+      sourceLine: 1,
+    })
+  })
+
+  it('records declaration lines for package, Makefile, and Taskfile commands', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'craft-hub-lines-'))
+    await writeFile(join(root, 'package.json'), [
+      '{',
+      '  "scripts": {',
+      '    "package-build": "vite build"',
+      '  }',
+      '}',
+    ].join('\n'))
+    await writeFile(join(root, 'Makefile'), [
+      '.PHONY: make-build',
+      'make-build:',
+      '\t@echo build',
+    ].join('\n'))
+    await writeFile(join(root, 'Taskfile.yml'), [
+      'version: "3"',
+      'tasks:',
+      '  task-build:',
+      '    desc: Build with Task',
+      '    cmds:',
+      '      - echo build',
+    ].join('\n'))
+
+    const capabilities = await discoverCapabilities(root)
+    expect(capabilities.find(item => item.name === 'package-build')).toMatchObject({ sourceLine: 3 })
+    expect(capabilities.find(item => item.name === 'make-build')).toMatchObject({ sourceLine: 2 })
+    expect(capabilities.find(item => item.name === 'task-build')).toMatchObject({ sourceLine: 3 })
+  })
+
+  it('resolves localized descriptions with locale, parent, default, and legacy fallbacks', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'craft-hub-localized-'))
+    await writeFile(join(root, 'package.json'), JSON.stringify({
+      scripts: {
+        exact: 'echo exact',
+        parent: 'echo parent',
+        fallback: 'echo fallback',
+        legacy: 'echo legacy',
+      },
+    }))
+    await mkdir(join(root, '.craft-hub'), { recursive: true })
+    await writeFile(join(root, '.craft-hub', 'project.yaml'), [
+      'version: 1',
+      'capabilities:',
+      '  descriptions:',
+      '    package.json:exact:',
+      '      zh-Hans-CN: 精确描述',
+      '      default: Exact description',
+      '    package.json:parent:',
+      '      zh-Hans: 上级语言描述',
+      '      default: Parent description',
+      '    package.json:fallback:',
+      '      default: Default description',
+      '    package.json:legacy: Legacy description',
+    ].join('\n'))
+
+    const descriptions = Object.fromEntries((await discoverCapabilities(root, 'zh-Hans-CN'))
+      .map(capability => [capability.name, capability.description]))
+
+    expect(descriptions).toMatchObject({
+      exact: '精确描述',
+      parent: '上级语言描述',
+      fallback: 'Default description',
+      legacy: 'Legacy description',
+    })
+  })
+
+  it('follows the global locale when listing runtime capabilities', async () => {
+    const root = await fixture()
+    await writeFile(join(root, '.craft-hub', 'project.yaml'), [
+      'version: 1',
+      'capabilities:',
+      '  descriptions:',
+      '    package.json:hello:',
+      '      default: Print a friendly greeting.',
+      '      zh-CN: 打印一条友好的问候。',
+    ].join('\n'))
+    const runtime = new CraftHubRuntime(join(root, '.localized-data'))
+    const project = await runtime.addProject(root)
+
+    expect((await runtime.capabilities(project.id)).find(item => item.name === 'hello')?.description)
+      .toBe('Print a friendly greeting.')
+
+    const settings = await runtime.settings.get()
+    await runtime.settings.update({ 'workbench.locale': 'zh-CN' }, settings.revision)
+
+    expect((await runtime.capabilities(project.id)).find(item => item.name === 'hello')?.description)
+      .toBe('打印一条友好的问候。')
+  })
+
+  it('refreshes persisted project metadata from local config', async () => {
+    const root = await fixture()
+    await writeFile(join(root, 'renamed.svg'), '<svg xmlns="http://www.w3.org/2000/svg"/>')
+    const runtime = new CraftHubRuntime(join(root, '.data'))
+    await runtime.addProject(root)
+    await writeFile(join(root, '.craft-hub', 'project.yaml'), [
+      'version: 1',
+      'project:',
+      '  name: Renamed Project',
+      '  icon: ./renamed.svg',
+      '  color: purple',
+    ].join('\n'))
+
+    await expect(runtime.projects.list()).resolves.toEqual([
+      expect.objectContaining({ name: 'Renamed Project', icon: './renamed.svg', color: 'purple' }),
+    ])
+  })
+
+  it('updates project visual metadata through the registry', async () => {
+    const root = await fixture()
+    const runtime = new CraftHubRuntime(join(root, '.visual-update-data'))
+    const project = await runtime.addProject(root)
+
+    await expect(runtime.projects.setVisual(project.id, { icon: 'emoji:🚀', color: 'cyan' }))
+      .resolves
+      .toMatchObject({ icon: 'emoji:🚀', color: 'cyan' })
+
+    const config = await readFile(join(root, '.craft-hub', 'project.yaml'), 'utf8')
+    expect(config).toContain('icon: emoji:🚀')
+    expect(config).toContain('color: cyan')
+    expect(config).toContain('capabilities:')
+  })
+
+  it('persists an explicit project order', async () => {
+    const root = await fixture()
+    const second = await mkdtemp(join(tmpdir(), 'craft-hub-second-'))
+    await writeFile(join(second, 'package.json'), JSON.stringify({ scripts: {} }))
+    const runtime = new CraftHubRuntime(join(root, '.project-order-data'))
+    const firstProject = await runtime.addProject(root)
+    const secondProject = await runtime.addProject(second)
+
+    await expect(runtime.projects.reorder([secondProject.id, firstProject.id]))
+      .resolves
+      .toEqual([expect.objectContaining({ id: secondProject.id }), expect.objectContaining({ id: firstProject.id })])
+    expect((await runtime.projects.list()).map(project => project.id)).toEqual([secondProject.id, firstProject.id])
+  })
+
+  it('falls back from invalid visual metadata without blocking project discovery', async () => {
+    const root = await fixture()
+    await writeFile(join(root, '.craft-hub', 'project.yaml'), [
+      'version: 1',
+      'project:',
+      '  icon: /tmp/outside.svg',
+      '  color: chartreuse',
+    ].join('\n'))
+    const runtime = new CraftHubRuntime(join(root, '.visual-data'))
+
+    const project = await runtime.addProject(root)
+    expect(project).toMatchObject({
+      iconWarning: expect.stringContaining('repository-relative path'),
+    })
+    expect(project).not.toHaveProperty('icon')
+    expect(project).not.toHaveProperty('color')
+  })
+
+  it('persists a mixed capability pin order and follows a skill across content changes', async () => {
+    const root = await fixture()
+    const runtime = new CraftHubRuntime(join(root, '.pin-data'))
+    const project = await runtime.addProject(root)
+    const initial = await runtime.capabilities(project.id)
+    const command = initial.find(item => item.kind === 'command')!
+    const skill = initial.find(item => item.kind === 'skill')!
+
+    await expect(runtime.updateCapabilityPins(project.id, [skill.id, command.id])).resolves.toEqual({
+      projectId: project.id,
+      capabilityIds: [skill.id, command.id],
+    })
+    await writeFile(join(root, '.agents', 'skills', 'release', 'SKILL.md'), [
+      '---',
+      'name: release',
+      'description: Prepare an updated safe release.',
+      '---',
+      '# Updated release',
+    ].join('\n'))
+    const updatedSkill = (await runtime.capabilities(project.id)).find(item => item.kind === 'skill')!
+
+    expect(updatedSkill.id).not.toBe(skill.id)
+    await expect(runtime.capabilityPins(project.id)).resolves.toEqual({
+      projectId: project.id,
+      capabilityIds: [updatedSkill.id, command.id],
+    })
+    await expect(runtime
+      .updateCapabilityPins(project.id, [command.id, command.id]))
+      .rejects
+      .toThrow('must be unique')
   })
 })
 
@@ -70,6 +264,72 @@ describe('trusted execution', () => {
     expect(run.status).toBe('completed')
     expect(run.exitCode).toBe(0)
     expect(run.stdout).toContain('hello')
+  })
+
+  it('forwards input and resize events through an active PTY run', async () => {
+    const root = await fixture()
+    await writeFile(join(root, 'package.json'), JSON.stringify({
+      scripts: {
+        interactive: `node -e "process.stdin.once('data', data => { console.log('echo:' + data.toString().trim()); process.exit(0) })"`,
+      },
+    }))
+    const runtime = new CraftHubRuntime(join(root, '.interactive-data'))
+    const project = await runtime.addProject(root)
+    await runtime.projects.setTrust(project.id, 'trusted')
+    const command = (await runtime.capabilities(project.id)).find(item => item.name === 'interactive')!
+
+    const handle = await runtime.run(project.id, command.id)
+    runtime.resizeRun(handle.run.id, 100, 24)
+    runtime.writeRun(handle.run.id, 'hello from pty\r')
+    const run = await handle.completion
+
+    expect(run.status).toBe('completed')
+    expect(run.stdout).toContain('echo:hello from pty')
+  })
+
+  it('cancels an active PTY run', async () => {
+    const root = await fixture()
+    await writeFile(join(root, 'package.json'), JSON.stringify({
+      scripts: { watch: `node -e "setInterval(() => {}, 1000)"` },
+    }))
+    const runtime = new CraftHubRuntime(join(root, '.cancel-data'))
+    const project = await runtime.addProject(root)
+    await runtime.projects.setTrust(project.id, 'trusted')
+    const command = (await runtime.capabilities(project.id)).find(item => item.name === 'watch')!
+
+    const summaries: Array<{ running: number, lastStatus?: string }> = []
+    const stopListening = runtime.onRunsChanged(summary => summaries.push(summary))
+    const handle = await runtime.run(project.id, command.id)
+    expect(runtime.projectRunSummaries()).toEqual([
+      expect.objectContaining({ projectId: project.id, running: 1 }),
+    ])
+    const run = await runtime.cancelRun(handle.run.id)
+
+    expect(run.status).toBe('cancelled')
+    expect(summaries).toEqual([
+      expect.objectContaining({ running: 1 }),
+      expect.objectContaining({ running: 0, lastStatus: 'cancelled' }),
+    ])
+    stopListening()
+    await expect(runtime.cancelRun(handle.run.id)).rejects.toThrow('Unknown active run')
+  })
+
+  it('marks non-zero command exits as failed', async () => {
+    const root = await fixture()
+    await writeFile(join(root, 'package.json'), JSON.stringify({
+      scripts: { fail: `node -e "process.exit(7)"` },
+    }))
+    const runtime = new CraftHubRuntime(join(root, '.failure-data'))
+    const project = await runtime.addProject(root)
+    await runtime.projects.setTrust(project.id, 'trusted')
+    const command = (await runtime.capabilities(project.id)).find(item => item.name === 'fail')!
+
+    const run = await (await runtime.run(project.id, command.id)).completion
+
+    expect(run).toMatchObject({ status: 'failed', exitCode: 7 })
+    expect(runtime.projectRunSummaries()).toEqual([
+      expect.objectContaining({ projectId: project.id, running: 0, lastStatus: 'failed' }),
+    ])
   })
 })
 

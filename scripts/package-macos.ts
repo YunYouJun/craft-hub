@@ -123,7 +123,7 @@ async function main(): Promise<void> {
       appBundleId: 'com.yunyoujun.craft-hub',
       appCategoryType: 'public.app-category.developer-tools',
       arch: architectures,
-      asar: true,
+      asar: { unpack: '**/node-pty/**' },
       dir: stagingDirectory,
       electronVersion: electronPackage.version,
       icon: resolve(repositoryRoot, 'apps/desktop/assets/icon.icns'),

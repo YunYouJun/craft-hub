@@ -1,0 +1,112 @@
+import type { FSWatcher } from 'chokidar'
+import type { ProjectRecord } from './types'
+import { relative, sep } from 'node:path'
+import chokidar from 'chokidar'
+
+/** Semantic area affected by a project file change. */
+export type ProjectChangeScope = 'capabilities' | 'project'
+
+/** Coalesced project change notification. */
+export interface ProjectChangeEvent {
+  projectId: string
+  scopes: ProjectChangeScope[]
+}
+
+/** Listener notified after project changes are coalesced. */
+export type ProjectChangeListener = (event: ProjectChangeEvent) => void
+
+const rootCapabilityFiles = new Set(['Makefile', 'Taskfile.yaml', 'Taskfile.yml', 'package.json'])
+const skillRoots = ['.agents/skills', '.claude/skills', '.codex/skills']
+
+function normalizedRelativePath(root: string, path: string): string {
+  return relative(root, path).split(sep).join('/')
+}
+
+function isRelevantPath(path: string): boolean {
+  if (!path)
+    return true
+  if (rootCapabilityFiles.has(path) || path === '.craft-hub' || path === '.craft-hub/project.yaml')
+    return true
+  return skillRoots.some(root => path === root || path.startsWith(`${root}/`) || root.startsWith(`${path}/`))
+}
+
+function scopesForPath(path: string): ProjectChangeScope[] {
+  return path === '.craft-hub/project.yaml' ? ['project', 'capabilities'] : ['capabilities']
+}
+
+/** Watch registered projects and emit coalesced semantic change events. */
+export class ProjectWatcher {
+  private readonly watchers = new Map<string, FSWatcher>()
+  private readonly pending = new Map<string, Set<ProjectChangeScope>>()
+  private readonly timers = new Map<string, ReturnType<typeof setTimeout>>()
+
+  constructor(
+    private readonly listener: ProjectChangeListener,
+    private readonly debounceMs = 200,
+  ) {}
+
+  /** Begin watching a project. Repeated calls for the same project are ignored. */
+  async watch(project: ProjectRecord): Promise<void> {
+    if (this.watchers.has(project.id))
+      return
+
+    const watcher = chokidar.watch(project.path, {
+      atomic: true,
+      followSymlinks: false,
+      ignoreInitial: true,
+      ignored: path => !isRelevantPath(normalizedRelativePath(project.path, path)),
+    })
+    this.watchers.set(project.id, watcher)
+    watcher.on('all', (_event, path) => this.queue(project.id, normalizedRelativePath(project.path, path)))
+    watcher.on('error', () => {})
+    await new Promise<void>((resolvePromise) => {
+      watcher.once('ready', resolvePromise)
+    })
+  }
+
+  /** Stop every watcher and discard pending events. */
+  async close(): Promise<void> {
+    for (const timer of this.timers.values())
+      clearTimeout(timer)
+    this.timers.clear()
+    this.pending.clear()
+    await Promise.all([...this.watchers.values()].map(watcher => watcher.close()))
+    this.watchers.clear()
+  }
+
+  /** Stop watching one registered project. */
+  async unwatch(projectId: string): Promise<void> {
+    const watcher = this.watchers.get(projectId)
+    if (!watcher)
+      return
+    const timer = this.timers.get(projectId)
+    if (timer)
+      clearTimeout(timer)
+    this.timers.delete(projectId)
+    this.pending.delete(projectId)
+    this.watchers.delete(projectId)
+    await watcher.close()
+  }
+
+  private queue(projectId: string, path: string): void {
+    if (!isRelevantPath(path))
+      return
+    const scopes = this.pending.get(projectId) ?? new Set<ProjectChangeScope>()
+    for (const scope of scopesForPath(path))
+      scopes.add(scope)
+    this.pending.set(projectId, scopes)
+
+    const currentTimer = this.timers.get(projectId)
+    if (currentTimer)
+      clearTimeout(currentTimer)
+    this.timers.set(projectId, setTimeout(() => this.flush(projectId), this.debounceMs))
+  }
+
+  private flush(projectId: string): void {
+    const scopes = this.pending.get(projectId)
+    this.pending.delete(projectId)
+    this.timers.delete(projectId)
+    if (scopes?.size)
+      this.listener({ projectId, scopes: [...scopes].sort() })
+  }
+}

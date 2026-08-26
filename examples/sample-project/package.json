@@ -3,6 +3,8 @@
   "private": true,
   "scripts": {
     "hello": "node -e \"console.log('Hello from Craft Hub')\"",
+    "stream": "node -e \"console.log('Starting sample task'); setTimeout(() => console.log('Sample task complete'), 1000)\"",
+    "terminal": "node -e \"console.log('\\x1b[36mPTY ready\\x1b[0m https://example.com'); process.stdin.on('data', data => { const value = data.toString().trim(); console.log('\\x1b[35mecho:' + value + '\\x1b[0m'); if (value === 'exit') process.exit(0) })\"",
     "verify": "node -e \"console.log('Checks passed')\""
   }
 }

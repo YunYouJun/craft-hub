@@ -6,10 +6,12 @@
   "main": "dist/main.mjs",
   "scripts": {
     "build": "tsdown",
-    "dev": "CRAFT_HUB_DEV_URL=http://127.0.0.1:5173 electron --import=tsx src/main.ts",
+    "dev": "electron --import=tsx src/main.ts",
     "start": "electron ."
   },
   "dependencies": {
+    "@craft-hub/personal-cloud": "workspace:*",
+    "@openai/codex-sdk": "catalog:",
     "craft-hub": "workspace:*"
   },
   "devDependencies": {

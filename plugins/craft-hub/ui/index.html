@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Craft Hub MCP UI Prototype</title>
+  <style>
+    :root { color-scheme: light; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #27231f; background: #f4f1eb; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; background: radial-gradient(circle at 12% 5%, #fff9ef 0, transparent 31%), #f4f1eb; }
+    button { font: inherit; }
+    .shell { width: min(960px, 100%); margin: 0 auto; padding: 18px 18px 92px; }
+    .prototype { display: inline-flex; gap: 7px; align-items: center; margin-bottom: 12px; padding: 5px 9px; border: 1px solid #ddcdbb; border-radius: 999px; color: #756557; background: #fffaf2; font-size: 10px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; }
+    .prototype::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: #f26a3d; }
+    .card { overflow: hidden; border: 1px solid #dcd5ca; border-radius: 22px; background: rgba(255,255,255,.88); box-shadow: 0 20px 60px rgba(73,58,41,.11); backdrop-filter: blur(18px); }
+    .eyebrow { color: #8a796b; font-size: 11px; font-weight: 750; letter-spacing: .11em; text-transform: uppercase; }
+    h1, h2, h3, p { margin: 0; }
+    h1 { margin-top: 4px; font-size: clamp(23px, 4vw, 34px); letter-spacing: -.04em; }
+    h2 { font-size: 19px; letter-spacing: -.025em; }
+    h3 { font-size: 14px; }
+    .muted { color: #81776e; }
+    .mono { font-family: "SFMono-Regular", Consolas, monospace; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: #3caa71; box-shadow: 0 0 0 4px #dff3e8; }
+    .pill { display: inline-flex; align-items: center; gap: 7px; padding: 6px 9px; border-radius: 999px; color: #516559; background: #eaf5ee; font-size: 11px; font-weight: 700; }
+    .primary, .ghost { border-radius: 11px; padding: 9px 12px; cursor: pointer; font-weight: 750; }
+    .primary { border: 1px solid #c8512a; color: white; background: #e85e31; box-shadow: inset 0 1px rgba(255,255,255,.26); }
+    .ghost { border: 1px solid #d9d2c8; color: #51483f; background: #fff; }
+    .switcher { position: fixed; z-index: 10; left: 50%; bottom: 18px; display: flex; align-items: center; gap: 5px; padding: 6px; border: 1px solid rgba(79,65,52,.18); border-radius: 16px; background: rgba(39,35,31,.93); box-shadow: 0 14px 30px rgba(42,34,27,.24); transform: translateX(-50%); backdrop-filter: blur(12px); }
+    .switcher button { width: 34px; height: 34px; border: 0; border-radius: 10px; color: #f8f3ed; background: transparent; cursor: pointer; }
+    .switcher button:hover { background: rgba(255,255,255,.12); }
+    .switch-label { min-width: 154px; color: #fff; text-align: center; font-size: 12px; font-weight: 700; }
+    .switch-label small { display: block; margin-top: 1px; color: #baa99b; font-size: 9px; letter-spacing: .11em; text-transform: uppercase; }
+
+    /* A — compact command deck */
+    .a-head { display: flex; justify-content: space-between; gap: 20px; padding: 24px; border-bottom: 1px solid #e5ded5; }
+    .a-summary { display: flex; align-items: flex-start; gap: 13px; }
+    .project-mark { display: grid; flex: 0 0 auto; place-items: center; width: 44px; height: 44px; border-radius: 13px; color: white; background: #303f37; font-weight: 850; }
+    .a-list { padding: 10px; }
+    .cap-row { display: grid; grid-template-columns: 34px 1fr auto; gap: 12px; align-items: center; width: 100%; padding: 12px; border: 0; border-radius: 13px; color: inherit; background: transparent; text-align: left; cursor: pointer; }
+    .cap-row:hover, .cap-row.active { background: #f6f1e9; }
+    .cap-icon { display: grid; place-items: center; width: 34px; height: 34px; border: 1px solid #ded7cd; border-radius: 10px; color: #c4522d; background: white; font-family: monospace; font-weight: 800; }
+    .cap-meta { color: #91867c; font-size: 11px; }
+    .a-preview { display: grid; grid-template-columns: 1fr auto; gap: 16px; align-items: center; padding: 17px 22px; border-top: 1px solid #ddd5c9; background: #2e2b27; color: #f7f0e8; }
+    .command { margin-top: 6px; color: #ffd0b7; font-size: 12px; overflow-wrap: anywhere; }
+
+    /* B — focused project panel */
+    .b-card { border-color: #e4e6e8; border-radius: 16px; background: #fff; box-shadow: 0 10px 32px rgba(31, 35, 40, .08); }
+    .b-layout { display: grid; grid-template-columns: 232px minmax(0, 1fr); min-height: 430px; }
+    .b-projects { padding: 20px 14px; border-right: 1px solid #e9eaec; background: #fafafa; }
+    .b-brand { display: flex; align-items: center; justify-content: space-between; padding: 0 6px; }
+    .b-brand h2 { font-size: 16px; letter-spacing: -.02em; }
+    .project-count { color: #8b9298; font-size: 11px; font-weight: 650; }
+    .search-wrap { position: relative; margin: 16px 0 12px; }
+    .search-wrap svg { position: absolute; top: 50%; left: 10px; width: 14px; color: #8b9298; transform: translateY(-50%); }
+    .search { width: 100%; padding: 9px 10px 9px 32px; border: 1px solid #e1e3e5; border-radius: 9px; outline: none; color: #272b2f; background: #fff; font-size: 12px; }
+    .search:focus { border-color: #aeb4ba; box-shadow: 0 0 0 3px rgba(39, 43, 47, .06); }
+    .project-list { display: grid; gap: 3px; }
+    .project-item { display: grid; grid-template-columns: 8px minmax(0, 1fr); gap: 10px; align-items: center; width: 100%; padding: 10px; border: 0; border-radius: 9px; color: inherit; background: transparent; text-align: left; cursor: default; }
+    .project-item[hidden] { display: none; }
+    .project-item.active { background: #eceeef; }
+    .project-item strong { display: block; overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+    .project-item .cap-meta { margin-top: 2px; }
+    .trust-dot { width: 7px; height: 7px; border-radius: 50%; background: #c4c8cc; }
+    .trust-dot.trusted { background: #37a66b; }
+    .b-detail { min-width: 0; padding: 26px 28px 22px; }
+    .detail-top { display: flex; justify-content: space-between; gap: 18px; align-items: flex-start; padding-bottom: 22px; border-bottom: 1px solid #eceeef; }
+    .detail-top h1 { margin-top: 0; font-size: 25px; }
+    .project-path { max-width: 480px; margin-top: 7px; overflow: hidden; color: #858b90; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+    .b-card .pill { padding: 5px 8px; color: #32734f; background: #edf7f1; font-size: 10px; }
+    .b-card .dot { width: 6px; height: 6px; box-shadow: none; }
+    .section-heading { display: flex; align-items: baseline; justify-content: space-between; margin: 22px 0 7px; }
+    .section-heading h2 { font-size: 13px; }
+    .section-heading span { color: #969ca1; font-size: 10px; }
+    .b-command { display: flex; justify-content: space-between; gap: 14px; align-items: center; padding: 12px 2px; border-bottom: 1px solid #f0f1f2; }
+    .b-command h3 { font-size: 12px; }
+    .b-command .cap-meta { margin-top: 4px; }
+    .b-card .ghost { padding: 6px 9px; border-color: #e0e2e4; border-radius: 8px; color: #555b60; font-size: 10px; font-weight: 700; }
+    .b-card .ghost:hover { border-color: #c9cdd0; background: #f7f8f8; }
+    .b-footer { margin-top: 20px; color: #969ca1; font-size: 10px; line-height: 1.5; }
+    .b-empty { display: grid; min-height: 360px; place-items: center; text-align: center; }
+    .b-empty-mark { display: grid; width: 42px; height: 42px; margin: 0 auto 14px; place-items: center; border: 1px solid #e4e6e8; border-radius: 12px; color: #777e84; background: #fafafa; }
+    .b-empty-mark svg { width: 19px; }
+    .b-empty h1 { font-size: 19px; }
+    .b-empty p { max-width: 300px; margin-top: 8px; color: #858b90; font-size: 12px; line-height: 1.55; }
+
+    /* C — run-first pulse */
+    .c-card { color: #f8f4ed; background: #222a26; border-color: #38423d; }
+    .c-head { display: flex; justify-content: space-between; gap: 20px; padding: 25px; border-bottom: 1px solid rgba(255,255,255,.1); }
+    .c-card .eyebrow, .c-card .muted { color: #aebcb4; }
+    .live { display: inline-flex; gap: 8px; align-items: center; color: #bcf4d4; font-size: 12px; font-weight: 750; }
+    .live::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: #66da99; box-shadow: 0 0 0 5px rgba(102,218,153,.12); }
+    .c-body { display: grid; grid-template-columns: minmax(0, 1fr) 250px; }
+    .run-core { padding: 30px; }
+    .run-title { display: flex; justify-content: space-between; align-items: end; gap: 18px; }
+    .elapsed { color: #f5946d; font-size: 30px; font-weight: 760; letter-spacing: -.04em; }
+    .progress { overflow: hidden; height: 7px; margin: 26px 0 28px; border-radius: 20px; background: #3a433f; }
+    .progress > div { width: 68%; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #f26a3d, #ffad6e); }
+    .timeline { display: grid; grid-template-columns: 20px 1fr; column-gap: 13px; }
+    .timeline-mark { position: relative; width: 10px; height: 10px; margin-top: 4px; border: 2px solid #8b9991; border-radius: 50%; }
+    .timeline-mark.done { border-color: #65d494; background: #65d494; }
+    .timeline-mark.active { border-color: #f58a5f; box-shadow: 0 0 0 5px rgba(245,138,95,.12); }
+    .timeline-line { width: 1px; height: 34px; margin: 3px 0 3px 4px; background: #46514b; }
+    .timeline-copy { min-height: 50px; color: #e9edea; font-size: 13px; }
+    .timeline-copy small { display: block; margin-top: 3px; color: #8f9d95; }
+    .c-side { padding: 26px 22px; border-left: 1px solid rgba(255,255,255,.1); background: rgba(255,255,255,.025); }
+    .context-row { padding: 13px 0; border-bottom: 1px solid rgba(255,255,255,.09); }
+    .context-row small { display: block; margin-bottom: 5px; color: #849189; }
+    .notice { margin-top: 25px; padding: 13px; border: 1px solid rgba(245,148,109,.22); border-radius: 12px; color: #efb9a3; background: rgba(242,106,61,.08); font-size: 11px; line-height: 1.5; }
+    @media (max-width: 680px) {
+      .shell { padding-inline: 10px; }
+      .a-head, .detail-top, .c-head { flex-direction: column; }
+      .a-preview, .c-body { grid-template-columns: 1fr; }
+      .b-layout { grid-template-columns: 1fr; }
+      .b-projects { display: none; }
+      .b-detail { padding: 19px; }
+      .c-side { border-top: 1px solid rgba(255,255,255,.1); border-left: 0; }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <div class="prototype">Interactive prototype · read only</div>
+    <div id="app"></div>
+  </main>
+  <nav class="switcher" aria-label="Prototype variant switcher">
+    <button id="previous" aria-label="Previous variant">←</button>
+    <div class="switch-label"><span id="variant-label"></span><small>Use arrow keys</small></div>
+    <button id="next" aria-label="Next variant">→</button>
+  </nav>
+  <script>
+    const variants = ['A', 'B', 'C']
+    const names = { A: 'A · Command Deck', B: 'B · Mini Workbench', C: 'C · Run Pulse' }
+    const fallback = {
+      project: { id: 'craft-hub', name: 'craft-hub', root: '/Users/you/Developer/craft-hub', trust: 'trusted' },
+      projects: [
+        { id: 'craft-hub', name: 'craft-hub', trust: 'trusted' },
+        { id: 'sample-project', name: 'sample-project', trust: 'untrusted' },
+        { id: 'docs-site', name: 'docs-site', trust: 'trusted' },
+      ],
+      capabilities: [
+        { id: 'dev', kind: 'command', name: 'dev', invocation: { command: 'pnpm', args: ['dev'], cwd: '/Users/you/Developer/craft-hub' } },
+        { id: 'test', kind: 'command', name: 'test', invocation: { command: 'pnpm', args: ['test', '--run'], cwd: '/Users/you/Developer/craft-hub' } },
+        { id: 'build', kind: 'command', name: 'build', invocation: { command: 'pnpm', args: ['build'], cwd: '/Users/you/Developer/craft-hub' } },
+        { id: 'release', kind: 'skill', name: 'release-checklist' },
+      ],
+      preview: { name: 'test', command: 'pnpm', args: ['test', '--run'], cwd: '/Users/you/Developer/craft-hub' },
+      run: { status: 'running', title: 'pnpm test --run', elapsed: '01:42', progress: 68 },
+    }
+    let data = { ...fallback }
+    let selectedId = 'test'
+    let searchQuery = ''
+    let variant = getVariant()
+
+    function getVariant() {
+      const requested = new URLSearchParams(location.search).get('variant')?.toUpperCase()
+      return variants.includes(requested) ? requested : 'A'
+    }
+    function esc(value = '') {
+      return String(value).replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' })[char])
+    }
+    function commands() { return (data.capabilities || []).filter(item => item.kind === 'command') }
+    function invocation(item) {
+      if (!item?.invocation) return ''
+      return [item.invocation.command, ...(item.invocation.args || [])].join(' ')
+    }
+    function activeCommand() { return commands().find(item => item.id === selectedId) || commands()[0] }
+    function render() {
+      document.getElementById('variant-label').textContent = names[variant]
+      document.getElementById('app').innerHTML = variant === 'A' ? renderA() : variant === 'B' ? renderB() : renderC()
+      document.querySelectorAll('[data-command]').forEach(button => button.addEventListener('click', () => {
+        selectedId = button.dataset.command
+        render()
+      }))
+      document.querySelector('.search')?.addEventListener('input', event => {
+        searchQuery = event.currentTarget.value
+        document.querySelectorAll('[data-project-name]').forEach(item => {
+          item.hidden = !item.dataset.projectName.includes(searchQuery.toLowerCase())
+        })
+      })
+    }
+    function renderA() {
+      const project = data.project || fallback.project
+      const selected = activeCommand()
+      return `<section class="card">
+        <header class="a-head"><div class="a-summary"><div class="project-mark">CH</div><div><div class="eyebrow">Active project</div><h1>${esc(project.name)}</h1><p class="muted mono">${esc(project.root || '')}</p></div></div><span class="pill"><span class="dot"></span>${esc(project.trust || 'untrusted')}</span></header>
+        <div class="a-list">${(data.capabilities || []).map(item => `<button class="cap-row ${item.id === selectedId ? 'active' : ''}" data-command="${esc(item.id)}"><span class="cap-icon">${item.kind === 'command' ? '›_' : '✦'}</span><span><strong>${esc(item.name)}</strong><span class="cap-meta">${item.kind === 'command' ? esc(invocation(item)) : 'Agent skill'}</span></span><span class="cap-meta">${esc(item.kind)}</span></button>`).join('')}</div>
+        <footer class="a-preview"><div><div class="eyebrow">Safe preview · nothing executed</div><div class="command mono">${esc(invocation(selected))}</div></div><button class="primary">Hand off to Codex ↗</button></footer>
+      </section>`
+    }
+    function renderB() {
+      const projects = data.projects || []
+      const project = data.project
+      const detail = project ? `<div class="detail-top"><div><h1>${esc(project.name)}</h1><p class="project-path mono">${esc(project.root || '')}</p></div><span class="pill"><span class="dot"></span>${esc(project.trust || 'untrusted')}</span></div>
+          <div class="section-heading"><h2>Commands</h2><span>${commands().length}</span></div>
+          ${commands().map(item => `<div class="b-command"><div><h3>${esc(item.name)}</h3><div class="cap-meta mono">${esc(invocation(item))}</div></div><button class="ghost" data-command="${esc(item.id)}">Preview</button></div>`).join('') || '<p class="b-footer">No commands discovered for this project.</p>'}
+          <p class="b-footer">Read-only preview · Commands require project trust and explicit confirmation.</p>` : `<div class="b-empty"><div><div class="b-empty-mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 7.5h6l2-2h9v13h-17z"/><path d="M3.5 10h17"/></svg></div><h1>No projects yet</h1><p>Add a local project to Craft Hub to discover its commands and agent skills.</p></div></div>`
+      return `<section class="card b-card b-layout">
+        <aside class="b-projects"><div class="b-brand"><h2>Projects</h2><span class="project-count">${projects.length}</span></div><label class="search-wrap"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4.5 4.5"/></svg><input class="search" aria-label="Search projects" placeholder="Search" value="${esc(searchQuery)}"></label><div class="project-list">${projects.map(item => `<button class="project-item ${item.id === project?.id ? 'active' : ''}" data-project-name="${esc(item.name.toLowerCase())}" ${item.name.toLowerCase().includes(searchQuery.toLowerCase()) ? '' : 'hidden'}><span class="trust-dot ${item.trust === 'trusted' ? 'trusted' : ''}"></span><span><strong>${esc(item.name)}</strong><span class="cap-meta">${esc(item.trust || 'untrusted')}</span></span></button>`).join('')}</div></aside>
+        <article class="b-detail">${detail}</article>
+      </section>`
+    }
+    function renderC() {
+      const project = data.project || fallback.project
+      const run = data.run || fallback.run
+      return `<section class="card c-card"><header class="c-head"><div><div class="eyebrow">Live run monitor</div><h1>${esc(run.title)}</h1></div><span class="live">${esc(run.status)}</span></header>
+        <div class="c-body"><article class="run-core"><div class="run-title"><div><p class="muted">${esc(project.name)} · test suite</p><h2>Verification in progress</h2></div><div class="elapsed mono">${esc(run.elapsed)}</div></div><div class="progress"><div style="width:${Number(run.progress) || 68}%"></div></div>
+          <div class="timeline"><div><div class="timeline-mark done"></div><div class="timeline-line"></div></div><div class="timeline-copy">Project resolved<small>${esc(project.root || 'Local Craft Hub registry')}</small></div><div><div class="timeline-mark done"></div><div class="timeline-line"></div></div><div class="timeline-copy">Command approved<small>Trust and arguments checked by Craft Hub</small></div><div><div class="timeline-mark active"></div></div><div class="timeline-copy">Running tests<small>68% · watching structured run events</small></div></div>
+        </article><aside class="c-side"><div class="eyebrow">Run context</div><div class="context-row"><small>Project</small>${esc(project.name)}</div><div class="context-row"><small>Command</small><span class="mono">pnpm test --run</span></div><div class="context-row"><small>Trust</small>${esc(project.trust || 'trusted')}</div><div class="context-row"><small>Owner</small>Craft Hub runtime</div><div class="notice">Prototype status only. This view did not start a process or bypass command confirmation.</div></aside></div>
+      </section>`
+    }
+    function changeVariant(offset) {
+      variant = variants[(variants.indexOf(variant) + offset + variants.length) % variants.length]
+      const url = new URL(location.href)
+      url.searchParams.set('variant', variant)
+      history.replaceState({}, '', url)
+      render()
+    }
+    function acceptToolData(incoming) {
+      return {
+        ...fallback,
+        ...incoming,
+        project: incoming.project || incoming.projects?.[0] || null,
+        capabilities: incoming.capabilities || [],
+      }
+    }
+    document.getElementById('previous').addEventListener('click', () => changeVariant(-1))
+    document.getElementById('next').addEventListener('click', () => changeVariant(1))
+    addEventListener('keydown', event => {
+      if (['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName) || document.activeElement?.isContentEditable) return
+      if (event.key === 'ArrowLeft') changeVariant(-1)
+      if (event.key === 'ArrowRight') changeVariant(1)
+    })
+    addEventListener('message', event => {
+      if (event.data?.method !== 'ui/notifications/tool-result') return
+      const incoming = event.data.params?.structuredContent
+      if (incoming) {
+        data = acceptToolData(incoming)
+        if (variants.includes(incoming.variant)) variant = incoming.variant
+        render()
+      }
+    })
+    if (window.openai?.toolOutput) data = acceptToolData(window.openai.toolOutput)
+    render()
+  </script>
+</body>
+</html>

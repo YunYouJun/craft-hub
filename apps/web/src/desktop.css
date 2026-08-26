@@ -8,8 +8,8 @@
   height: 38px;
   place-items: center;
   border-bottom: 1px solid var(--border);
-  background: #fbfcfd;
-  color: #4f5867;
+  background: var(--surface-subtle);
+  color: var(--text-secondary);
   content: 'Craft Hub';
   font-size: 12px;
   font-weight: 600;
@@ -20,4 +20,8 @@
 :root[data-desktop-platform='darwin'] .app-shell {
   box-sizing: border-box;
   padding-top: 38px;
+}
+
+:root[data-desktop-platform='darwin'] .marketplace-page {
+  top: 38px;
 }

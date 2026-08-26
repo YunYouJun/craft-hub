@@ -1,0 +1,14 @@
+{
+  "functionRoot": "cloudfunctions",
+  "functions": [
+    {
+      "name": "craft-hub-personal-cloud",
+      "dir": "personal-cloud",
+      "runtime": "Nodejs18.15",
+      "timeout": 60,
+      "memorySize": 512,
+      "isHTTP": true,
+      "ignore": ["test/**"]
+    }
+  ]
+}

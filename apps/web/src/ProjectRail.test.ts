@@ -1,0 +1,427 @@
+// @vitest-environment happy-dom
+/// <reference lib="dom" />
+
+import { flushPromises, mount } from '@vue/test-utils'
+import { createPinia, setActivePinia } from 'pinia'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { useI18n } from './i18n'
+import ProjectRail from './ProjectRail.vue'
+import { useWorkbenchStore } from './store'
+
+describe('project rail', () => {
+  beforeEach(() => {
+    document.body.innerHTML = ''
+    delete window.craftHubDesktop
+    setActivePinia(createPinia())
+    useI18n().setLocale('en')
+  })
+
+  it('opens an in-app project path dialog when Add project is clicked', async () => {
+    const wrapper = mount(ProjectRail, { attachTo: document.body })
+
+    await wrapper.get('[data-testid="add-project"]').trigger('click')
+
+    expect(document.body.querySelector('[role="dialog"]')).not.toBeNull()
+    expect(document.body.querySelector('input[name="project-path"]')).not.toBeNull()
+  })
+
+  it('renders each unassigned project once', () => {
+    const store = useWorkbenchStore()
+    store.projects = [{
+      id: 'docs',
+      name: 'Docs',
+      path: '/docs',
+      trust: 'trusted',
+      addedAt: '2026-01-01T00:00:00.000Z',
+    }]
+
+    const wrapper = mount(ProjectRail, { attachTo: document.body })
+
+    expect(wrapper.findAll('.project-row').filter(row => row.text().includes('Docs'))).toHaveLength(1)
+    expect(wrapper.find('.system-workspace').exists()).toBe(false)
+    expect(wrapper.get('.unassigned-group').text()).toContain('Docs')
+  })
+
+  it('explains the unassigned bucket', () => {
+    const store = useWorkbenchStore()
+    store.projects = [{
+      id: 'docs',
+      name: 'Docs',
+      path: '/docs',
+      trust: 'trusted',
+      addedAt: '2026-01-01T00:00:00.000Z',
+    }]
+
+    const wrapper = mount(ProjectRail, { attachTo: document.body })
+
+    expect(wrapper.get('.unassigned-group .project-row').classes()).toContain('rail-root-entry')
+    expect(wrapper.get('.unassigned-heading').attributes('title')).toBe('Projects not in any workspace')
+    expect(wrapper.get('.unassigned-heading small').text()).toBe('1')
+  })
+
+  it('opens an in-app workspace dialog and creates the submitted workspace', async () => {
+    const store = useWorkbenchStore()
+    const createWorkspace = vi.fn(async () => {})
+    store.createWorkspace = createWorkspace
+    const wrapper = mount(ProjectRail, { attachTo: document.body })
+
+    await wrapper.get('[data-testid="add-workspace"]').trigger('click')
+
+    const input = document.body.querySelector<HTMLInputElement>('input[name="workspace-name"]')
+    expect(input).not.toBeNull()
+    input!.value = '  Client work  '
+    input!.dispatchEvent(new Event('input', { bubbles: true }))
+    document.body.querySelector<HTMLFormElement>('[data-testid="add-workspace-form"]')!
+      .dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+    await flushPromises()
+
+    expect(createWorkspace).toHaveBeenCalledWith('Client work', [], {})
+  })
+
+  it('associates multiple selected folders while creating a workspace', async () => {
+    const store = useWorkbenchStore()
+    const createWorkspace = vi.fn(async () => {})
+    store.createWorkspace = createWorkspace
+    window.craftHubDesktop = {
+      platform: 'darwin',
+      selectProjectDirectories: async () => ['/projects/client', '/projects/shared'],
+    }
+    const wrapper = mount(ProjectRail, { attachTo: document.body })
+
+    await wrapper.get('[data-testid="add-workspace"]').trigger('click')
+    await document.body.querySelector<HTMLButtonElement>('[data-testid="choose-workspace-folders"]')!.click()
+    await flushPromises()
+
+    expect([...document.body.querySelectorAll('.workspace-folder-item')].map(item => item.textContent)).toEqual([
+      expect.stringContaining('client'),
+      expect.stringContaining('shared'),
+    ])
+    expect(document.body.querySelectorAll('.workspace-folder-copy')).toHaveLength(2)
+    const remark = document.body.querySelector<HTMLInputElement>('.workspace-folder-label .compact-editable-input')!
+    remark.value = '客户端'
+    remark.dispatchEvent(new Event('input', { bubbles: true }))
+    remark.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'Enter' }))
+    await wrapper.vm.$nextTick()
+    const input = document.body.querySelector<HTMLInputElement>('input[name="workspace-name"]')!
+    input.value = 'Client work'
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    document.body.querySelector<HTMLFormElement>('[data-testid="add-workspace-form"]')!
+      .dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+    await flushPromises()
+
+    expect(createWorkspace).toHaveBeenCalledWith('Client work', ['/projects/client', '/projects/shared'], {
+      '/projects/client': '客户端',
+      '/projects/shared': '',
+    })
+  })
+
+  it('renders workspace children as an indented tree with an empty state', () => {
+    const store = useWorkbenchStore()
+    store.workspaces = [{
+      schemaVersion: 1,
+      id: 'client-work',
+      name: 'Client work',
+      members: [],
+      revision: 'revision',
+    }]
+    store.expandedWorkspaceIds = ['client-work']
+
+    const wrapper = mount(ProjectRail, { attachTo: document.body })
+
+    expect(wrapper.get('.workspace-group .workspace-select').classes()).toContain('rail-root-entry')
+    expect(wrapper.get('.workspace-group .workspace-row').element.firstElementChild).toBe(wrapper.get('.workspace-group .workspace-select').element)
+    expect(wrapper.get('.workspace-disclosure .app-icon').classes()).toContain('i-ri-arrow-right-s-line')
+    expect(wrapper.get('.workspace-disclosure .app-icon').classes()).toContain('expanded')
+    expect(wrapper.get('.workspace-empty').text()).toBe('No projects in this workspace')
+  })
+
+  it('searches workspace names, project names, paths, and workspace remarks', async () => {
+    const store = useWorkbenchStore()
+    store.projects = [
+      { id: 'docs', name: 'Docs', path: '/projects/docs', trust: 'trusted', addedAt: '2026-01-01T00:00:00.000Z' },
+      { id: 'api', name: 'Backend', path: '/services/api', trust: 'trusted', addedAt: '2026-01-01T00:00:00.000Z' },
+    ]
+    store.workspaces = [{
+      schemaVersion: 1,
+      id: 'client',
+      name: 'Client',
+      members: [{ project: 'docs', projectId: 'docs', resolved: true, label: '中文文档' }],
+      revision: 'revision',
+    }]
+    const wrapper = mount(ProjectRail, { attachTo: document.body })
+    const search = wrapper.get<HTMLInputElement>('.rail-search input')
+
+    await search.setValue('中文')
+    expect(wrapper.findAll('.workspace-group')).toHaveLength(1)
+    expect(wrapper.get('.workspace-project').text()).toContain('中文文档')
+    expect(wrapper.find('.unassigned-group').exists()).toBe(false)
+    expect(wrapper.get('.workspace-group').attributes('draggable')).toBe('false')
+
+    await search.setValue('/services')
+    expect(wrapper.find('.workspace-group').exists()).toBe(false)
+    expect(wrapper.get('.unassigned-group').text()).toContain('Backend')
+
+    await search.setValue('missing')
+    expect(wrapper.get('.rail-search-empty').text()).toBe('No matching workspaces or projects.')
+  })
+
+  it('reorders workspaces, workspace projects, and unassigned projects by drag and drop', async () => {
+    const store = useWorkbenchStore()
+    store.projects = [
+      { id: 'one', name: 'One', path: '/one', trust: 'trusted', addedAt: '2026-01-01T00:00:00.000Z' },
+      { id: 'two', name: 'Two', path: '/two', trust: 'trusted', addedAt: '2026-01-01T00:00:00.000Z' },
+      { id: 'free-one', name: 'Free one', path: '/free-one', trust: 'trusted', addedAt: '2026-01-01T00:00:00.000Z' },
+      { id: 'free-two', name: 'Free two', path: '/free-two', trust: 'trusted', addedAt: '2026-01-01T00:00:00.000Z' },
+    ]
+    store.workspaces = [
+      { schemaVersion: 1, id: 'first', name: 'First', members: [{ project: 'one', projectId: 'one', resolved: true }, { project: 'two', projectId: 'two', resolved: true }], revision: 'first' },
+      { schemaVersion: 1, id: 'second', name: 'Second', members: [], revision: 'second' },
+    ]
+    store.expandedWorkspaceIds = ['first']
+    const reorderWorkspace = vi.fn(async () => {})
+    const reorderWorkspaceProject = vi.fn(async () => {})
+    const reorderProject = vi.fn(async () => {})
+    store.reorderWorkspace = reorderWorkspace
+    store.reorderWorkspaceProject = reorderWorkspaceProject
+    store.reorderProject = reorderProject
+    const wrapper = mount(ProjectRail, { attachTo: document.body })
+
+    const workspaces = wrapper.findAll('.workspace-group')
+    await workspaces[0]!.trigger('dragstart')
+    await workspaces[1]!.trigger('drop')
+    expect(reorderWorkspace).toHaveBeenCalledWith('first', 'second')
+
+    const workspaceProjects = wrapper.findAll('.workspace-project')
+    await workspaceProjects[0]!.get('.project-row').trigger('dragstart')
+    await workspaceProjects[1]!.trigger('drop')
+    expect(reorderWorkspaceProject).toHaveBeenCalledWith(expect.objectContaining({ id: 'first' }), 'one', 'two')
+
+    const unassigned = wrapper.findAll('.unassigned-group .project-row')
+    await unassigned[0]!.trigger('dragstart')
+    await unassigned[1]!.trigger('drop')
+    expect(reorderProject).toHaveBeenCalledWith('free-one', 'free-two')
+  })
+
+  it('adds registered projects from a workspace context menu', async () => {
+    const store = useWorkbenchStore()
+    store.projects = [{ id: 'docs', name: 'Docs', path: '/docs', trust: 'trusted', addedAt: '2026-01-01T00:00:00.000Z' }]
+    store.workspaces = [{ schemaVersion: 1, id: 'client', name: 'Client', members: [], revision: 'revision' }]
+    const addProjectToWorkspace = vi.fn(async () => {})
+    store.addProjectToWorkspace = addProjectToWorkspace
+    const wrapper = mount(ProjectRail, { attachTo: document.body })
+
+    await wrapper.get('.workspace-group').trigger('contextmenu', { clientX: 120, clientY: 90 })
+    expect(document.body.querySelector('[data-testid="rail-context-menu"]')).not.toBeNull()
+    const addExisting = [...document.body.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
+      .find(button => button.textContent?.includes('Add existing projects'))
+    await addExisting!.click()
+    await wrapper.vm.$nextTick()
+    document.body.querySelector<HTMLInputElement>('.existing-project-list input')!.click()
+    document.body.querySelector<HTMLFormElement>('[data-testid="add-existing-projects-form"]')!
+      .dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+    await flushPromises()
+
+    expect(addProjectToWorkspace).toHaveBeenCalledWith('client', 'docs')
+  })
+
+  it('customizes workspace and project visuals from context menus', async () => {
+    const store = useWorkbenchStore()
+    store.projects = [{ id: 'docs', name: 'Docs', path: '/docs', trust: 'trusted', addedAt: '2026-01-01T00:00:00.000Z' }]
+    store.workspaces = [{ schemaVersion: 1, id: 'client', name: 'Client', members: [{ project: 'docs', projectId: 'docs', resolved: true }], revision: 'revision' }]
+    store.expandedWorkspaceIds = ['client']
+    const setWorkspaceAppearance = vi.fn(async () => {})
+    const setProjectVisual = vi.fn(async () => {})
+    const setWorkspaceProjectLabel = vi.fn(async () => {})
+    store.setWorkspaceAppearance = setWorkspaceAppearance
+    store.setProjectVisual = setProjectVisual
+    store.setWorkspaceProjectLabel = setWorkspaceProjectLabel
+    const wrapper = mount(ProjectRail, { attachTo: document.body })
+
+    await wrapper.get('.workspace-group').trigger('contextmenu', { clientX: 120, clientY: 90 })
+    const workspaceAppearance = [...document.body.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
+      .find(button => button.textContent?.includes('Appearance'))
+    await workspaceAppearance!.click()
+    await wrapper.vm.$nextTick()
+    const workspaceName = document.body.querySelector<HTMLInputElement>('.appearance-name-field .compact-editable-input')!
+    workspaceName.value = 'Client apps'
+    workspaceName.dispatchEvent(new Event('input', { bubbles: true }))
+    workspaceName.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'Enter' }))
+    document.body.querySelector<HTMLButtonElement>('.appearance-icon-choice[aria-label="emoji:🛠️"]')!.click()
+    document.body.querySelector<HTMLButtonElement>('.appearance-color-choice.purple')!.click()
+    document.body.querySelector<HTMLButtonElement>('[data-testid="save-appearance"]')!.click()
+    await flushPromises()
+    expect(setWorkspaceAppearance).toHaveBeenCalledWith(expect.objectContaining({ id: 'client' }), { name: 'Client apps', icon: 'emoji:🛠️', color: 'purple' })
+
+    await wrapper.get('.workspace-project .project-row').trigger('contextmenu', { clientX: 120, clientY: 180 })
+    const projectAppearance = [...document.body.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
+      .find(button => button.textContent?.includes('Appearance'))
+    await projectAppearance!.click()
+    await wrapper.vm.$nextTick()
+    const remark = document.body.querySelector<HTMLInputElement>('.appearance-note-field .compact-editable-input')!
+    remark.value = '中文文档'
+    remark.dispatchEvent(new Event('input', { bubbles: true }))
+    remark.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'Enter' }))
+    document.body.querySelector<HTMLButtonElement>('.appearance-icon-choice[aria-label="emoji:📚"]')!.click()
+    document.body.querySelector<HTMLButtonElement>('.appearance-color-choice.green')!.click()
+    document.body.querySelector<HTMLButtonElement>('[data-testid="save-appearance"]')!.click()
+    await flushPromises()
+    expect(setProjectVisual).toHaveBeenCalledWith('docs', 'emoji:📚', 'green')
+    expect(setWorkspaceProjectLabel).toHaveBeenCalledWith(expect.objectContaining({ id: 'client' }), 'docs', '中文文档')
+  })
+
+  it('exposes a visible settings entry', async () => {
+    const wrapper = mount(ProjectRail, { attachTo: document.body })
+    const settings = wrapper.get('[data-testid="open-settings"]')
+
+    expect(settings.element.closest('.activity-rail')).not.toBeNull()
+    expect(settings.attributes('aria-label')).toBe('Settings')
+    await settings.trigger('click')
+
+    expect(wrapper.emitted('openSettings')).toHaveLength(1)
+  })
+
+  it('separates persistent trust from transient project run status', async () => {
+    const store = useWorkbenchStore()
+    store.projects = [{
+      id: 'docs',
+      name: 'Docs',
+      path: '/docs',
+      trust: 'trusted',
+      addedAt: '2026-01-01T00:00:00.000Z',
+    }]
+    store.applyRunSummary({ projectId: 'docs', running: 2 })
+
+    const wrapper = mount(ProjectRail, { attachTo: document.body })
+
+    expect(wrapper.get('.project-trust').attributes('aria-label')).toBe('Trusted')
+    expect(wrapper.get('.project-trust .app-icon').classes()).toContain('i-ri-shield-check-line')
+    const runState = wrapper.get('[data-testid="project-run-state-docs"]')
+    expect(runState.classes()).toContain('running')
+    expect(runState.attributes('aria-label')).toBe('2 command(s) running')
+    expect(runState.text()).toBe('2')
+
+    store.applyRunSummary({
+      projectId: 'docs',
+      running: 0,
+      lastStatus: 'failed',
+      lastFinishedAt: new Date().toISOString(),
+    })
+    await wrapper.vm.$nextTick()
+    expect(wrapper.get('[data-testid="project-run-state-docs"]').classes()).toContain('failed')
+    expect(wrapper.get('[data-testid="project-run-state-docs"]').attributes('aria-label')).toBe('Command failed')
+  })
+
+  it('uses a keyhole shield for projects that still require trust', () => {
+    const store = useWorkbenchStore()
+    store.projects = [{
+      id: 'untrusted-project',
+      name: 'Untrusted project',
+      path: '/untrusted',
+      trust: 'untrusted',
+      addedAt: '2026-01-01T00:00:00.000Z',
+    }]
+
+    const wrapper = mount(ProjectRail, { attachTo: document.body })
+
+    expect(wrapper.get('.project-trust').attributes('aria-label')).toBe('Untrusted')
+    expect(wrapper.get('.project-trust .app-icon').classes()).toContain('i-ri-shield-keyhole-line')
+  })
+
+  it('renders a project emoji and constrained accent color', () => {
+    const store = useWorkbenchStore()
+    store.projects = [{
+      id: 'visual-project',
+      name: 'Visual project',
+      path: '/visual',
+      icon: 'emoji:🛠️',
+      color: 'purple',
+      trust: 'trusted',
+      addedAt: '2026-01-01T00:00:00.000Z',
+    }]
+    store.selectedProjectId = 'visual-project'
+
+    const wrapper = mount(ProjectRail, { attachTo: document.body })
+
+    expect(wrapper.get('.project-icon-emoji').text()).toBe('🛠️')
+    expect(wrapper.get('.project-row').attributes('style')).toContain('--project-accent: #7252c7')
+  })
+
+  it('uses the desktop folder picker and adds the selected directory', async () => {
+    const store = useWorkbenchStore()
+    const paths: string[] = []
+    store.addProject = async (path: string) => {
+      paths.push(path)
+    }
+    window.craftHubDesktop = {
+      platform: 'darwin',
+      selectProjectDirectory: async () => '/tmp/chosen-project',
+    }
+    const wrapper = mount(ProjectRail, { attachTo: document.body })
+
+    await wrapper.get('[data-testid="add-project"]').trigger('click')
+    await flushPromises()
+
+    expect(paths).toEqual(['/tmp/chosen-project'])
+    expect(document.body.querySelector('[role="dialog"]')).toBeNull()
+  })
+
+  it('does nothing when the desktop folder picker is cancelled', async () => {
+    const store = useWorkbenchStore()
+    const paths: string[] = []
+    store.addProject = async (path: string) => {
+      paths.push(path)
+    }
+    window.craftHubDesktop = {
+      platform: 'darwin',
+      selectProjectDirectory: async () => undefined,
+    }
+    const wrapper = mount(ProjectRail, { attachTo: document.body })
+
+    await wrapper.get('[data-testid="add-project"]').trigger('click')
+    await flushPromises()
+
+    expect(paths).toEqual([])
+    expect(document.body.querySelector('[role="dialog"]')).toBeNull()
+  })
+
+  it('submits the trimmed path and closes the dialog', async () => {
+    const store = useWorkbenchStore()
+    const paths: string[] = []
+    store.addProject = async (path: string) => {
+      paths.push(path)
+    }
+    const wrapper = mount(ProjectRail, { attachTo: document.body })
+
+    await wrapper.get('[data-testid="add-project"]').trigger('click')
+    const pathInput = document.body.querySelector<HTMLInputElement>('input[name="project-path"]')!
+    pathInput.value = '  /tmp/example  '
+    pathInput.dispatchEvent(new Event('input', { bubbles: true }))
+    document.body.querySelector<HTMLFormElement>('[data-testid="add-project-form"]')!
+      .dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+    await flushPromises()
+    await wrapper.vm.$nextTick()
+
+    expect(paths).toEqual(['/tmp/example'])
+    const dialog = document.body.querySelector('[role="dialog"]')
+    expect(dialog === null || dialog.getAttribute('data-state') === 'closed').toBe(true)
+  })
+
+  it('keeps the dialog open and reports an add failure', async () => {
+    const store = useWorkbenchStore()
+    store.addProject = async () => {
+      throw new Error('Unknown folder')
+    }
+    const wrapper = mount(ProjectRail, { attachTo: document.body })
+
+    await wrapper.get('[data-testid="add-project"]').trigger('click')
+    const pathInput = document.body.querySelector<HTMLInputElement>('input[name="project-path"]')!
+    pathInput.value = '/missing'
+    pathInput.dispatchEvent(new Event('input', { bubbles: true }))
+    document.body.querySelector<HTMLFormElement>('[data-testid="add-project-form"]')!
+      .dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+    await flushPromises()
+
+    expect(document.body.querySelector('[role="dialog"]')?.getAttribute('data-state')).toBe('open')
+    expect(document.body.textContent).toContain('Could not add project: Unknown folder')
+  })
+})

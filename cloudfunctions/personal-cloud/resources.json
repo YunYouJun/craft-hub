@@ -1,0 +1,42 @@
+{
+  "collections": [
+    {
+      "name": "craft_hub_device_bootstrap_codes",
+      "access": "server-only",
+      "indexes": [{ "name": "expiresAt_ttl", "fields": [{ "field": "expiresAt", "order": "asc" }], "ttl": true }]
+    },
+    {
+      "name": "craft_hub_devices",
+      "access": "server-only",
+      "indexes": [{ "name": "user_revoked", "fields": [{ "field": "userId", "order": "asc" }, { "field": "revokedAt", "order": "asc" }] }]
+    },
+    {
+      "name": "craft_hub_sync_documents",
+      "access": "server-only",
+      "indexes": [{ "name": "user_key", "unique": true, "fields": [{ "field": "userId", "order": "asc" }, { "field": "key", "order": "asc" }] }]
+    },
+    {
+      "name": "craft_hub_sync_conflicts",
+      "access": "server-only",
+      "indexes": [{ "name": "user_created", "fields": [{ "field": "userId", "order": "asc" }, { "field": "createdAt", "order": "desc" }] }]
+    },
+    {
+      "name": "craft_hub_remote_requests",
+      "access": "server-only",
+      "indexes": [
+        { "name": "device_status_created", "fields": [{ "field": "userId", "order": "asc" }, { "field": "targetDeviceId", "order": "asc" }, { "field": "status", "order": "asc" }, { "field": "createdAt", "order": "asc" }] },
+        { "name": "user_created", "fields": [{ "field": "userId", "order": "asc" }, { "field": "createdAt", "order": "desc" }] }
+      ]
+    },
+    {
+      "name": "craft_hub_device_nonces",
+      "access": "server-only",
+      "indexes": [{ "name": "expiresAt_ttl", "fields": [{ "field": "expiresAt", "order": "asc" }], "ttl": true }]
+    },
+    {
+      "name": "ylf_app_sessions",
+      "access": "server-only",
+      "source": "@yunlefun/server-session-cloudbase"
+    }
+  ]
+}

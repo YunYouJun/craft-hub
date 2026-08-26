@@ -7,6 +7,7 @@ Craft Hub is a local, cross-project developer workbench. Its Project Palette dis
 ## What works
 
 - Register and switch between local projects
+- Register projects and organize portable workspaces from the Craft Hub MCP adapter
 - Discover `package.json` scripts, Makefile targets, and Taskfile tasks
 - Discover project-local skills from `.agents`, `.claude`, and `.codex`
 - Preview command, arguments, working directory, and required environment
@@ -29,7 +30,7 @@ For the browser workbench without Electron:
 pnpm dev:web
 ```
 
-`pnpm dev` starts the runtime watcher, Vite renderer, local API, and Electron shell. `pnpm dev:web` starts the local API and Vite renderer at `http://127.0.0.1:5173`.
+`pnpm dev` starts the runtime watcher, Vite renderer, local API, and Electron shell. `pnpm dev:web` starts the local API and Vite renderer. Both commands prefer `http://127.0.0.1:5173` and report the actual URL when that port is occupied.
 
 Quality checks:
 
@@ -60,6 +61,8 @@ pnpm run package:mac
 ## CLI
 
 ```bash
+craft-hub app .
+craft-hub app /absolute/path/to/project --no-open
 pnpm --filter craft-hub start -- project:add /absolute/path/to/project
 pnpm --filter craft-hub start -- project:list
 pnpm --filter craft-hub start -- list <project-id>
@@ -67,7 +70,15 @@ pnpm --filter craft-hub start -- project:trust <project-id>
 pnpm --filter craft-hub start -- run <project-id> <capability-id> --yes
 ```
 
+`craft-hub app [path]` registers the directory as untrusted, starts the workbench on a random available port, selects that project, and opens the system browser. The path defaults to the current directory; pass `--no-open` to print the URL without opening it or `--port <port>` to choose a fixed port.
+
 Projects are untrusted by default. Listing and inspecting capabilities never executes project code.
+
+## MCP
+
+The bundled Craft Hub MCP adapter exposes the same runtime state as the CLI and workbench. Agents can list or register local projects by absolute path, list or create portable workspaces, add an already registered project to a workspace, and initialize optional project config through a preview/apply flow. Registration is idempotent, never executes project code, and leaves every newly registered project untrusted.
+
+Project registration and local workspace bindings stay in the operating-system Craft Hub data directory. Portable workspace manifests are written under `~/.craft-hub/workspaces/`. `init_project_config` previews the exact `.craft-hub/project.yaml` content without writing; apply requires a trusted project and the matching preview revision, creates only a missing file, and never overwrites existing repository configuration.
 
 ## Optional project config
 
@@ -82,6 +93,10 @@ defaults:
   agent: codex
 capabilities:
   hidden: []
+  descriptions:
+    package.json:dev:
+      default: Start the local development environment.
+      zh-CN: 启动本地开发环境。
 ```
 
 ## Repository layout
