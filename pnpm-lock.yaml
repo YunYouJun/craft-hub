@@ -80,8 +80,8 @@ catalogs:
       specifier: ^12.2.0
       version: 12.2.0
     cac:
-      specifier: ^6.7.14
-      version: 6.7.14
+      specifier: ^7.0.0
+      version: 7.0.0
     chokidar:
       specifier: ^5.0.0
       version: 5.0.0
@@ -406,7 +406,7 @@ importers:
     dependencies:
       cac:
         specifier: 'catalog:'
-        version: 6.7.14
+        version: 7.0.0
       chokidar:
         specifier: 'catalog:'
         version: 5.0.0
@@ -2290,10 +2290,6 @@ packages:
   bytes@3.1.2:
     resolution: {integrity: sha512-/Nf7TyzTx6S3yRJObOAV7956r8cr2+Oj8AC5dt8wSP3BQAoeX58NoHyCU8P8zGkNXStjTSi6fzO6F0pBdcYbEg==}
     engines: {node: '>= 0.8'}
-
-  cac@6.7.14:
-    resolution: {integrity: sha512-b6Ilus+c3RrdDk+JhLKUAQfzzgLEPy6wcXqS7f/xe1EETvsDP6GORG7SFuOs6cID5YkqchW/LXZbX5bc8j7ZcQ==}
-    engines: {node: '>=8'}
 
   cac@7.0.0:
     resolution: {integrity: sha512-tixWYgm5ZoOD+3g6UTea91eow5z6AAHaho3g0V9CNSNb45gM8SmflpAc+GRd1InC4AqN/07Unrgp56Y94N9hJQ==}
@@ -6747,8 +6743,6 @@ snapshots:
       run-applescript: 7.1.0
 
   bytes@3.1.2: {}
-
-  cac@6.7.14: {}
 
   cac@7.0.0: {}
 
