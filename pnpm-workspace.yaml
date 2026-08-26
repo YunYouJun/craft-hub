@@ -38,7 +38,7 @@ catalog:
   '@openai/codex-sdk': ^0.149.1
   '@shikijs/vitepress-twoslash': ^4.4.3
   '@types/node': ^26.2.0
-  '@unocss/reset': ^66.7.5
+  '@unocss/reset': ^66.8.1
   '@vitejs/plugin-vue': ^6.0.5
   '@vue/test-utils': ^2.4.6
   '@vueuse/core': ^14.4.0
