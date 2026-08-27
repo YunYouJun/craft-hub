@@ -18,11 +18,17 @@ describe('workspace import', () => {
     }`)
     const runtime = new CraftHubRuntime({ dataDir: join(root, 'data'), configDir: join(root, 'config') })
 
-    const imported = await runtime.workspaceImports.importVscodeDirectory(sourceProject)
+    const preview = await runtime.workspaceImports.previewVscodeDirectory(sourceProject)
+
+    expect(preview).toMatchObject({ canImport: true, groupName: 'hub' })
+    expect(preview.workspaces[0]?.members[0]).toMatchObject({ status: 'available' })
+    await expect(runtime.workspaces.list()).resolves.toEqual([])
+    const imported = await runtime.workspaceImports.importVscodeDirectory(sourceProject, undefined, preview.revision)
 
     expect(imported.group).toMatchObject({ name: 'hub' })
     expect(imported.workspaces).toHaveLength(1)
     expect(imported.workspaces[0]).toMatchObject({ name: 'full', groupId: imported.group.id })
+    expect(imported.validation).toMatchObject({ valid: true, workspaceCount: 1, memberCount: 1 })
     const canonicalMemberPath = await realpath(memberPath)
     expect(imported.workspaces[0]?.members[0]).toMatchObject({ label: 'Member', resolved: false, path: canonicalMemberPath })
     const manifest = await readFile(join(root, 'config', 'workspaces', 'full.yaml'), 'utf8')
@@ -41,7 +47,8 @@ describe('workspace import', () => {
     await writeFile(join(sourceDirectory, 'empty.code-workspace'), '{ "folders": [] }')
     const runtime = new CraftHubRuntime({ dataDir: join(root, 'data'), configDir: join(root, 'config') })
 
-    const imported = await runtime.workspaceImports.importVscodeDirectory(sourceDirectory, 'Imported')
+    const preview = await runtime.workspaceImports.previewVscodeDirectory(sourceDirectory, 'Imported')
+    const imported = await runtime.workspaceImports.importVscodeDirectory(sourceDirectory, 'Imported', preview.revision)
 
     expect(imported.workspaces).toHaveLength(1)
     expect(imported.diagnostics).toEqual([expect.objectContaining({ path: join(await realpath(sourceDirectory), 'broken.code-workspace') })])
@@ -55,7 +62,8 @@ describe('workspace import', () => {
     await mkdir(replacementPath)
     await writeFile(join(sourceDirectory, 'moved.code-workspace'), JSON.stringify({ folders: [{ path: '../original' }] }))
     const runtime = new CraftHubRuntime({ dataDir: join(root, 'data'), configDir: join(root, 'config') })
-    const imported = await runtime.workspaceImports.importVscodeDirectory(sourceDirectory)
+    const preview = await runtime.workspaceImports.previewVscodeDirectory(sourceDirectory)
+    const imported = await runtime.workspaceImports.importVscodeDirectory(sourceDirectory, undefined, preview.revision)
     const workspace = imported.workspaces[0]!
     const member = workspace.members[0]!
 
@@ -66,5 +74,25 @@ describe('workspace import', () => {
       members: [expect.objectContaining({ resolved: false, path: await realpath(replacementPath) })],
     })
     expect(member.path).toBe(join(await realpath(root), 'original'))
+  })
+
+  it('rejects stale previews and reports duplicate import conflicts without writing', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'craft-hub-workspace-import-validation-'))
+    const sourceDirectory = join(root, 'workspaces')
+    await mkdir(sourceDirectory)
+    await writeFile(join(sourceDirectory, 'one.code-workspace'), JSON.stringify({ folders: [] }))
+    const runtime = new CraftHubRuntime({ dataDir: join(root, 'data'), configDir: join(root, 'config') })
+
+    const preview = await runtime.workspaceImports.previewVscodeDirectory(sourceDirectory, 'Imported')
+    await expect(runtime.workspaceImports.importVscodeDirectory(sourceDirectory, 'Imported', 'stale')).rejects.toThrow('changed after preview')
+    await expect(runtime.workspaces.list()).resolves.toEqual([])
+
+    await runtime.workspaceImports.importVscodeDirectory(sourceDirectory, 'Imported', preview.revision)
+    const duplicate = await runtime.workspaceImports.previewVscodeDirectory(sourceDirectory, 'Imported')
+    expect(duplicate).toMatchObject({ canImport: false })
+    expect(duplicate.conflicts).toEqual(expect.arrayContaining([
+      'Workspace group already exists: Imported',
+      'Workspace already exists: one',
+    ]))
   })
 })

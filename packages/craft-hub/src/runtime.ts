@@ -1,11 +1,12 @@
 import type { RunHandle } from './executor'
 import type { CapabilityProvider, CraftHubOptions, DistributionConfig } from './extensions'
 import type { CraftHubPlugin, PluginDiagnostic } from './plugins'
-import type { Capability, CapabilityDiscoveryDiagnostic, CapabilityDiscoveryResult, CapabilityPins, CapabilityReference, CommandCapability, ProjectConfigInitializationMode, ProjectConfigInitializationResult, ProjectRecord, ProjectRunSummary, RunCleanupOptions, RunCleanupResult, RunOutputEvent, RunRecord } from './types'
+import type { Capability, CapabilityDiscoveryDiagnostic, CapabilityDiscoveryResult, CapabilityPins, CapabilityReference, CommandCapability, CommandInputValues, CommandInvocation, CommandPackage, ProjectConfigInitializationMode, ProjectConfigInitializationResult, ProjectRecord, ProjectRunSummary, RunCleanupOptions, RunCleanupResult, RunOutputEvent, RunRecord } from './types'
 import { resolve } from 'node:path'
 import process from 'node:process'
 import { AgentActionService } from './agent-actions'
 import { AgentTaskManager } from './agent-tasks'
+import { resolveCommandInvocation } from './command-inputs'
 import { applyProjectConfigInitialization, previewProjectConfigInitialization } from './config'
 import { executeCommand } from './executor'
 import { builtinCapabilityProvider, communityDistribution } from './extensions'
@@ -107,14 +108,18 @@ export class CraftHubRuntime {
     this.diagnostics = []
     const capabilities: Capability[] = []
     const diagnostics: CapabilityDiscoveryDiagnostic[] = []
+    const packages = new Map<string, CommandPackage>()
     const ids = new Set<string>()
     for (const entry of this.capabilityProviders) {
       try {
         const result = await entry.provider.discover({ locale, project })
         const discovered = Array.isArray(result) ? result : result.capabilities
         await validateCapabilities(discovered, ids, project.path)
-        if (!Array.isArray(result))
+        if (!Array.isArray(result)) {
           diagnostics.push(...result.diagnostics)
+          for (const commandPackage of result.packages ?? [])
+            packages.set(commandPackage.relativePath, commandPackage)
+        }
         for (const capability of discovered) {
           ids.add(capability.id)
           capabilities.push(capability)
@@ -130,7 +135,7 @@ export class CraftHubRuntime {
         })
       }
     }
-    return { capabilities, diagnostics }
+    return { capabilities, diagnostics, packages: [...packages.values()] }
   }
 
   /** Return the current capability ids represented by this project's machine-local pin order. */
@@ -168,15 +173,26 @@ export class CraftHubRuntime {
     return this.diagnostics
   }
 
-  /** Execute a discovered command capability after rechecking project trust. */
-  async run(projectId: string, capabilityId: string, onOutput?: (event: RunOutputEvent) => void): Promise<RunHandle> {
+  /** Resolve and validate one command invocation without executing it. */
+  async previewCommand(projectId: string, capabilityId: string, inputs: CommandInputValues = {}): Promise<CommandInvocation> {
+    const capability = (await this.capabilities(projectId)).find(item => item.id === capabilityId)
+    if (!capability)
+      throw new Error(`Unknown capability: ${capabilityId}`)
+    if (capability.kind !== 'command')
+      throw new Error('Skills are inspected or handed to an agent; they are not shell commands')
+    return resolveCommandInvocation(capability, inputs)
+  }
+
+  /** Execute a discovered command capability after rechecking project trust and resolving inputs. */
+  async run(projectId: string, capabilityId: string, onOutput?: (event: RunOutputEvent) => void, inputs: CommandInputValues = {}): Promise<RunHandle> {
     const project = await this.projects.get(projectId)
     const capability = (await this.capabilities(projectId)).find(item => item.id === capabilityId)
     if (!capability)
       throw new Error(`Unknown capability: ${capabilityId}`)
     if (capability.kind !== 'command')
       throw new Error('Skills are inspected or handed to an agent; they are not shell commands')
-    const handle = await executeCommand(this.store, project, capability as CommandCapability, onOutput)
+    const invocation = resolveCommandInvocation(capability, inputs)
+    const handle = await executeCommand(this.store, project, { ...capability, invocation } as CommandCapability, onOutput)
     this.activeRuns.set(handle.run.id, handle)
     this.emitRunSummary(projectId)
     void handle.completion.then((run) => {

@@ -63,7 +63,7 @@ describe('project agent action dialog', () => {
     expect(document.body.textContent).toContain('.craft-hub/project.yaml')
     expect(document.body.textContent).toContain('有 3 个命令')
     expect(document.body.querySelector('.agent-action-trust')?.textContent).toContain('workspace-write')
-    expect(document.body.querySelector('.primary-button')?.textContent).toContain('信任并启动')
+    expect(document.body.querySelector('.primary-button')?.textContent).toContain('授权并启动')
 
     document.body.querySelector<HTMLButtonElement>('.primary-button')!.click()
     await flushPromises()

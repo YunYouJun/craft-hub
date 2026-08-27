@@ -1,13 +1,14 @@
 import type { IncomingMessage, Server, ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import type { PersonalGitSyncResolution } from './personal-git-sync'
-import type { ProjectAccentColor, ProjectRecord, WorkspaceManifest } from './types'
+import type { CommandInputValues, ProjectAccentColor, ProjectRecord, WorkspaceManifest } from './types'
 import { Buffer } from 'node:buffer'
 import { createReadStream } from 'node:fs'
 import { access } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { extname, join, normalize } from 'node:path'
 import { ZodError } from 'zod'
+import { CommandInputValidationError } from './command-inputs'
 import { CraftHubRuntime } from './runtime'
 import { SettingsConflictError, SettingsValidationError } from './settings'
 import { projectAccentColors } from './types'
@@ -28,6 +29,17 @@ async function jsonBody(request: IncomingMessage): Promise<Record<string, unknow
   for await (const chunk of request)
     chunks.push(Buffer.from(chunk))
   return chunks.length ? JSON.parse(Buffer.concat(chunks).toString('utf8')) as Record<string, unknown> : {}
+}
+
+function commandInputValues(value: unknown): CommandInputValues {
+  if (value === undefined)
+    return {}
+  if (!value || typeof value !== 'object' || Array.isArray(value))
+    throw new CommandInputValidationError('inputs must be an object of strings')
+  const entries = Object.entries(value)
+  if (!entries.every(([, input]) => typeof input === 'string'))
+    throw new CommandInputValidationError('inputs must be an object of strings')
+  return Object.fromEntries(entries) as CommandInputValues
 }
 
 function sendJson(response: ServerResponse, status: number, value: unknown): void {
@@ -140,13 +152,24 @@ export async function startCraftHubServer(options: CraftHubServerOptions = {}): 
         return sendJson(response, 201, await runtime.workspaces.createGroup(body.name))
       }
 
-      if (request.method === 'POST' && url.pathname === '/api/workspaces/import/vscode') {
+      if (request.method === 'POST' && url.pathname === '/api/workspaces/import/vscode/preview') {
         const body = await jsonBody(request)
         if (typeof body.sourceDirectory !== 'string' || !body.sourceDirectory.trim())
           return sendJson(response, 400, { error: 'sourceDirectory is required' })
+        return sendJson(response, 200, await runtime.workspaceImports.previewVscodeDirectory(
+          body.sourceDirectory,
+          typeof body.groupName === 'string' ? body.groupName : undefined,
+        ))
+      }
+
+      if (request.method === 'POST' && url.pathname === '/api/workspaces/import/vscode') {
+        const body = await jsonBody(request)
+        if (typeof body.sourceDirectory !== 'string' || !body.sourceDirectory.trim() || typeof body.expectedRevision !== 'string')
+          return sendJson(response, 400, { error: 'sourceDirectory and expectedRevision are required' })
         return sendJson(response, 201, await runtime.workspaceImports.importVscodeDirectory(
           body.sourceDirectory,
           typeof body.groupName === 'string' ? body.groupName : undefined,
+          body.expectedRevision,
         ))
       }
 
@@ -409,6 +432,11 @@ export async function startCraftHubServer(options: CraftHubServerOptions = {}): 
 
       if (parts[0] === 'api' && parts[1] === 'workspace-groups' && parts[2]) {
         const groupId = parts[2]
+        if (request.method === 'PATCH' && parts.length === 3) {
+          const body = await jsonBody(request)
+          const icon = typeof body.icon === 'string' && body.icon.trim() ? body.icon.trim() : undefined
+          return sendJson(response, 200, await runtime.workspaces.setGroupIcon(groupId, icon))
+        }
         if (request.method === 'PUT' && parts.length === 3) {
           const body = await jsonBody(request)
           if (typeof body.name !== 'string' || !body.name.trim())
@@ -472,6 +500,12 @@ export async function startCraftHubServer(options: CraftHubServerOptions = {}): 
         }
         if (request.method === 'POST' && parts[3] === 'trust')
           return sendJson(response, 200, await runtime.projects.setTrust(projectId, 'trusted'))
+        if (request.method === 'POST' && parts[3] === 'preview-command') {
+          const body = await jsonBody(request)
+          if (typeof body.capabilityId !== 'string')
+            return sendJson(response, 400, { error: 'capabilityId is required' })
+          return sendJson(response, 200, await runtime.previewCommand(projectId, body.capabilityId, commandInputValues(body.inputs)))
+        }
         if (request.method === 'POST' && parts[3] === 'run') {
           const body = await jsonBody(request)
           if (typeof body.capabilityId !== 'string')
@@ -484,7 +518,7 @@ export async function startCraftHubServer(options: CraftHubServerOptions = {}): 
               response.write(line)
             else
               pendingOutput.push(line)
-          })
+          }, commandInputValues(body.inputs))
           response.writeHead(200, {
             'cache-control': 'no-cache, no-transform',
             'content-type': 'application/x-ndjson; charset=utf-8',
@@ -509,7 +543,7 @@ export async function startCraftHubServer(options: CraftHubServerOptions = {}): 
         return sendJson(response, 409, { error: error.message, actualRevision: error.actualRevision })
       if (error instanceof WorkspaceConflictError)
         return sendJson(response, 409, { error: error.message, actualRevision: error.actualRevision })
-      if (error instanceof SettingsValidationError || error instanceof ZodError || error instanceof SyntaxError)
+      if (error instanceof CommandInputValidationError || error instanceof SettingsValidationError || error instanceof ZodError || error instanceof SyntaxError)
         return sendJson(response, 400, { error: error.message })
       sendJson(response, 500, { error: error instanceof Error ? error.message : String(error) })
     }

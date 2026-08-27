@@ -85,10 +85,15 @@ describe('app startup', () => {
     const projectRequests = (): number => fetchMock.mock.calls
       .filter(([input]) => (typeof input === 'string' ? input : input.toString()) === '/api/projects')
       .length
+    const workspaceRequests = (): number => fetchMock.mock.calls
+      .filter(([input]) => (typeof input === 'string' ? input : input.toString()) === '/api/workspaces')
+      .length
     expect(projectRequests()).toBe(1)
+    expect(workspaceRequests()).toBe(1)
     window.dispatchEvent(new Event('focus'))
     await flushPromises()
     expect(projectRequests()).toBe(2)
+    expect(workspaceRequests()).toBe(2)
 
     wrapper.unmount()
     expect(FakeEventSource.instances[0]?.closed).toBe(true)

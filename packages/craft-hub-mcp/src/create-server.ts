@@ -1,4 +1,4 @@
-import type { CommandCapability, ProjectRecord } from 'craft-hub'
+import type { CommandCapability, CommandInvocation, ProjectRecord } from 'craft-hub'
 import { readFileSync } from 'node:fs'
 import { isAbsolute } from 'node:path'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
@@ -13,9 +13,14 @@ export function createCraftHubMcpServer(runtime = new CraftHubRuntime()): McpSer
   const server = new McpServer(
     { name: 'craft-hub', version: '0.1.0' },
     {
-      instructions: 'Treat Craft Hub as authoritative for projects, workspaces, trust, project configuration initialization, and working directories. Resolve existing projects and workspaces before changing them. Newly added projects remain untrusted. Preview project configuration before applying it, and preview commands before execution.',
+      instructions: 'Treat Craft Hub as authoritative for projects, workspaces, Craft Hub execution authorization, project configuration initialization, and working directories. Resolve existing projects and workspaces before changing them. Registration and discovery do not authorize execution. Preview project configuration before applying it, and preview commands before execution.',
     },
   )
+  let closingRuntime: Promise<void> | undefined
+  server.server.onclose = () => {
+    closingRuntime ??= runtime.close()
+    void closingRuntime.catch(() => {})
+  }
 
   server.registerResource('craft-hub-project-panel', PANEL_URI, {}, async () => ({
     contents: [{
@@ -30,7 +35,7 @@ export function createCraftHubMcpServer(runtime = new CraftHubRuntime()): McpSer
     'list_projects',
     {
       title: 'List Craft Hub projects',
-      description: 'List local projects registered with Craft Hub, including their trust state.',
+      description: 'List local projects registered with Craft Hub, including whether Craft Hub execution is authorized.',
       inputSchema: {},
       annotations: { readOnlyHint: true },
     },
@@ -44,7 +49,7 @@ export function createCraftHubMcpServer(runtime = new CraftHubRuntime()): McpSer
     'add_project',
     {
       title: 'Add a Craft Hub project',
-      description: 'Register an existing local directory as a Craft Hub project. Registration is idempotent and a newly registered project is always untrusted.',
+      description: 'Register an existing local directory as a Craft Hub project. Registration is idempotent and does not authorize Craft Hub execution.',
       inputSchema: { path: z.string().min(1).refine(isAbsolute, 'Project path must be absolute') },
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
@@ -55,8 +60,8 @@ export function createCraftHubMcpServer(runtime = new CraftHubRuntime()): McpSer
       return result(
         { project, created },
         created
-          ? `Added ${project.name} as an untrusted Craft Hub project. No project code was run.`
-          : `${project.name} is already registered with ${project.trust} trust.`,
+          ? `Added ${project.name} without authorizing Craft Hub execution. No project code was run.`
+          : `${project.name} is already registered. Craft Hub execution state: ${project.trust}.`,
       )
     },
   )
@@ -65,7 +70,7 @@ export function createCraftHubMcpServer(runtime = new CraftHubRuntime()): McpSer
     'init_project_config',
     {
       title: 'Initialize Craft Hub project config',
-      description: 'Preview or create .craft-hub/project.yaml for a registered project. Preview never writes. Apply requires a trusted project and the exact revision returned by preview, and never overwrites an existing file.',
+      description: 'Preview or create .craft-hub/project.yaml for a registered project. Preview never writes. Apply requires Craft Hub execution authorization and the exact revision returned by preview, and never overwrites an existing file.',
       inputSchema: {
         projectId: z.string().min(1),
         mode: z.enum(['preview', 'apply']),
@@ -80,13 +85,13 @@ export function createCraftHubMcpServer(runtime = new CraftHubRuntime()): McpSer
           { initialization },
           initialization.exists
             ? `${initialization.targetPath} already exists. Returned its current content; no file was written.`
-            : `Previewed ${initialization.targetPath}; no file was written. Apply with this revision after the project is trusted.`,
+            : `Previewed ${initialization.targetPath}; no file was written. Apply with this revision after Craft Hub execution is authorized.`,
         )
       }
       return result(
         { initialization },
         initialization.outcome === 'created'
-          ? `Created ${initialization.targetPath}. Project trust remains ${initialization.trust}.`
+          ? `Created ${initialization.targetPath}. Craft Hub execution state remains ${initialization.trust}.`
           : `${initialization.targetPath} already exists and was left unchanged.`,
       )
     },
@@ -138,7 +143,7 @@ export function createCraftHubMcpServer(runtime = new CraftHubRuntime()): McpSer
     'assign_workspace_group',
     {
       title: 'Assign a Craft Hub workspace group',
-      description: 'Move a workspace into a navigation group, or omit groupId to leave it ungrouped. This does not change project trust.',
+      description: 'Move a workspace into a navigation group, or omit groupId to leave it ungrouped. This does not change Craft Hub execution authorization.',
       inputSchema: {
         workspaceId: z.string().min(1),
         groupId: z.string().min(1).optional(),
@@ -231,6 +236,25 @@ export function createCraftHubMcpServer(runtime = new CraftHubRuntime()): McpSer
   )
 
   server.registerTool(
+    'preview_vscode_workspace_import',
+    {
+      title: 'Preview VS Code workspace import',
+      description: 'Read and validate .code-workspace files, member paths, registrations, and naming conflicts without changing Craft Hub state.',
+      inputSchema: {
+        sourceDirectory: z.string().min(1).refine(isAbsolute, 'Source directory must be absolute'),
+        groupName: z.string().trim().min(1).optional(),
+      },
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    async ({ sourceDirectory, groupName }) => {
+      const preview = await runtime.workspaceImports.previewVscodeDirectory(sourceDirectory, groupName)
+      return result({ preview }, preview.canImport
+        ? `Validated ${preview.workspaces.length} workspace${preview.workspaces.length === 1 ? '' : 's'}. Pass revision ${preview.revision} to import_vscode_workspaces.`
+        : `Import cannot continue: ${[...preview.conflicts, ...preview.diagnostics.map(item => item.message)].join('; ')}`)
+    },
+  )
+
+  server.registerTool(
     'import_vscode_workspaces',
     {
       title: 'Import VS Code workspaces',
@@ -238,12 +262,13 @@ export function createCraftHubMcpServer(runtime = new CraftHubRuntime()): McpSer
       inputSchema: {
         sourceDirectory: z.string().min(1).refine(isAbsolute, 'Source directory must be absolute'),
         groupName: z.string().trim().min(1).optional(),
+        expectedRevision: z.string().min(1),
       },
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     },
-    async ({ sourceDirectory, groupName }) => {
-      const imported = await runtime.workspaceImports.importVscodeDirectory(sourceDirectory, groupName)
-      return result({ imported }, `Imported ${imported.workspaces.length} editable workspace${imported.workspaces.length === 1 ? '' : 's'} into ${imported.group.name}.`)
+    async ({ sourceDirectory, groupName, expectedRevision }) => {
+      const imported = await runtime.workspaceImports.importVscodeDirectory(sourceDirectory, groupName, expectedRevision)
+      return result({ imported }, `Imported and verified ${imported.workspaces.length} editable workspace${imported.workspaces.length === 1 ? '' : 's'} into ${imported.group.name}.`)
     },
   )
 
@@ -251,7 +276,7 @@ export function createCraftHubMcpServer(runtime = new CraftHubRuntime()): McpSer
     'register_workspace_member',
     {
       title: 'Register an imported workspace member',
-      description: 'Register an unresolved imported workspace member as an untrusted Craft Hub project using its retained local path or an explicit replacement path.',
+      description: 'Register an unresolved imported workspace member without authorizing Craft Hub execution, using its retained local path or an explicit replacement path.',
       inputSchema: {
         workspaceId: z.string().min(1),
         project: z.string().min(1),
@@ -263,7 +288,7 @@ export function createCraftHubMcpServer(runtime = new CraftHubRuntime()): McpSer
       const workspace = await runtime.workspaces.registerImportedProject(workspaceId, project, path)
       const member = workspace.members.find(item => item.project === project)!
       const registered = await runtime.projects.get(member.projectId!)
-      return result({ workspace, project: registered }, `Registered ${registered.name} with ${registered.trust} trust. No project code was run.`)
+      return result({ workspace, project: registered }, `Registered ${registered.name}. Craft Hub execution state: ${registered.trust}. No project code was run.`)
     },
   )
 
@@ -271,7 +296,7 @@ export function createCraftHubMcpServer(runtime = new CraftHubRuntime()): McpSer
     'create_workspace',
     {
       title: 'Create a Craft Hub workspace',
-      description: 'Create an empty portable Craft Hub workspace. This does not register or trust any project.',
+      description: 'Create an empty portable Craft Hub workspace. This does not register projects or authorize Craft Hub execution.',
       inputSchema: { name: z.string().trim().min(1) },
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     },
@@ -285,7 +310,7 @@ export function createCraftHubMcpServer(runtime = new CraftHubRuntime()): McpSer
     'add_workspace_member',
     {
       title: 'Add a project to a Craft Hub workspace',
-      description: 'Add an already registered project to a portable workspace. This is idempotent and does not change project trust.',
+      description: 'Add an already registered project to a portable workspace. This is idempotent and does not change Craft Hub execution authorization.',
       inputSchema: {
         workspaceId: z.string().min(1),
         projectId: z.string().min(1),
@@ -300,8 +325,8 @@ export function createCraftHubMcpServer(runtime = new CraftHubRuntime()): McpSer
       return result(
         { workspace, project, added: !alreadyMember },
         alreadyMember
-          ? `${project.name} is already a member of ${workspace.name}. Project trust remains ${project.trust}.`
-          : `Added ${project.name} to ${workspace.name}. Project trust remains ${project.trust}.`,
+          ? `${project.name} is already a member of ${workspace.name}. Craft Hub execution state remains ${project.trust}.`
+          : `Added ${project.name} to ${workspace.name}. Craft Hub execution state remains ${project.trust}.`,
       )
     },
   )
@@ -325,21 +350,23 @@ export function createCraftHubMcpServer(runtime = new CraftHubRuntime()): McpSer
     'preview_command',
     {
       title: 'Preview a project command',
-      description: 'Return the exact command, arguments, working directory, environment requirements, and project trust state without running it.',
+      description: 'Return the exact command, arguments, working directory, environment requirements, and Craft Hub execution-authorization state without running it.',
       inputSchema: {
         projectId: z.string().min(1),
         capabilityId: z.string().min(1),
+        inputs: z.record(z.string()).optional(),
       },
       annotations: { readOnlyHint: true },
     },
-    async ({ projectId, capabilityId }) => {
+    async ({ projectId, capabilityId, inputs }) => {
       const project = await runtime.projects.get(projectId)
       const capability = (await runtime.capabilities(projectId)).find(item => item.id === capabilityId)
       if (!capability)
         throw new Error(`Unknown capability: ${capabilityId}`)
       if (capability.kind !== 'command')
         throw new Error(`${capability.name} is a skill, not a command`)
-      return result({ project, preview: commandPreview(capability) }, `Previewed ${capability.name}. No command was run.`)
+      const invocation = await runtime.previewCommand(projectId, capabilityId, inputs)
+      return result({ project, preview: commandPreview(capability, invocation) }, `Previewed ${capability.name}. No command was run.`)
     },
   )
 
@@ -377,7 +404,7 @@ export function createCraftHubMcpServer(runtime = new CraftHubRuntime()): McpSer
   return server
 }
 
-function commandPreview(capability: CommandCapability): {
+function commandPreview(capability: CommandCapability, invocation: CommandInvocation = capability.invocation): {
   id: string
   name: string
   command: string
@@ -390,10 +417,10 @@ function commandPreview(capability: CommandCapability): {
   return {
     id: capability.id,
     name: capability.name,
-    command: capability.invocation.command,
-    args: capability.invocation.args,
-    cwd: capability.invocation.cwd,
-    requiredEnv: capability.invocation.requiredEnv,
+    command: invocation.command,
+    args: invocation.args,
+    cwd: invocation.cwd,
+    requiredEnv: invocation.requiredEnv,
     category: capability.category,
     package: capability.package,
   }

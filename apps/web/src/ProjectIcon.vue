@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { ProjectRecord } from 'craft-hub'
 import { computed, ref, watch } from 'vue'
-import { Icon, type IconName } from './icons'
+import { Icon, type IconName, visualIconNames } from './icons'
 
 const props = defineProps<{ project: ProjectRecord }>()
 const failed = ref(false)
@@ -10,7 +10,7 @@ const builtin = computed<IconName | undefined>(() => {
   if (!props.project.icon?.startsWith('builtin:'))
     return undefined
   const name = props.project.icon.slice('builtin:'.length)
-  return ['folder', 'hub', 'skill', 'terminal'].includes(name) ? name as IconName : undefined
+  return visualIconNames.includes(name as typeof visualIconNames[number]) ? name as IconName : undefined
 })
 const fileIcon = computed(() => props.project.icon
   && !props.project.icon.startsWith('emoji:')

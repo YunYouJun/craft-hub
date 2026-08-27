@@ -20,11 +20,40 @@ capabilities:
 
 ## MCP initialization
 
-Agents may initialize the optional file with the MCP `init_project_config` tool. `preview` returns the exact proposed YAML and a content revision without writing. `apply` requires the project to be trusted and the unchanged revision returned by preview.
+Agents may initialize the optional file with the MCP `init_project_config` tool. `preview` returns the exact proposed YAML and a content revision without writing. `apply` requires Craft Hub execution authorization for the project and the unchanged revision returned by preview.
 
 Initialization only creates a missing `.craft-hub/project.yaml`. If the file already exists, Craft Hub returns its current content and leaves it byte-for-byte unchanged, including comments and downstream fields.
 
 Hidden entries may be a capability name, capability id, or a source-qualified name such as `package.json:release`.
+
+## Parameterized commands
+
+Use `capabilities.inputs` to add form fields to a discovered command. Craft Hub renders `select`
+inputs as dropdowns and `text` inputs as text fields. The runtime validates every value and appends
+it as an individual argv entry instead of constructing a shell string.
+
+```yaml
+capabilities:
+  inputs:
+    apps/liteapp/package.json:deploy:
+      environment:
+        type: select
+        label: Environment
+        options: [dev, rdm]
+        default: dev
+        flag: --env
+      uin:
+        type: text
+        label: UIN
+        pattern: '^\d+$'
+        flag: --uin
+        visibleWhen: {input: environment, equals: dev}
+        requiredWhen: {input: environment, equals: dev}
+```
+
+`argumentStyle` accepts `equals` (the default, producing `--env=dev`) or `separate` (producing
+`--env dev`). Select inputs require `options`; text inputs may use `pattern`. `visibleWhen` and
+`requiredWhen` provide conditional form behavior and are enforced again by the runtime.
 
 ## Portable workspaces
 
@@ -41,9 +70,9 @@ members:
   - project: dotfiles
 ```
 
-The member keys, order, pins, and primary project are portable and suitable for a private dotfiles repository. Absolute paths, trust, local bindings, active selection, run history, credentials, and Codex thread IDs remain in the operating-system data directory and must not be synced. On a new device unresolved members stay visible until they are bound to a local registered project; binding never transfers trust.
+The member keys, order, pins, and primary project are portable and suitable for a private dotfiles repository. Absolute paths, Craft Hub execution authorizations, local bindings, active selection, run history, credentials, and Codex thread IDs remain in the operating-system data directory and must not be synced. On a new device unresolved members stay visible until they are bound to a local registered project; binding never transfers execution authorization.
 
-Project icons may use a repository-relative SVG or PNG path, `emoji:<character>`, or one of the built-ins `builtin:folder`, `builtin:hub`, `builtin:skill`, and `builtin:terminal`. File paths are resolved inside the project directory; invalid or escaping paths fall back to the folder icon and produce a non-blocking warning. `color` is optional and accepts `blue`, `cyan`, `green`, `orange`, `pink`, `purple`, `red`, or `yellow`. Accent colors identify projects without changing trust or execution status colors.
+Project icons may use a repository-relative SVG or PNG path, `emoji:<character>`, or one of the built-ins `builtin:folder`, `builtin:hub`, `builtin:skill`, and `builtin:terminal`. File paths are resolved inside the project directory; invalid or escaping paths fall back to the folder icon and produce a non-blocking warning. `color` is optional and accepts `blue`, `cyan`, `green`, `orange`, `pink`, `purple`, `red`, or `yellow`. Accent colors identify projects without changing execution-authorization or run-status colors.
 
 Descriptions use the same keys and are shown below command names in the capability list. A description may be a legacy string or a locale map using BCP 47 language tags. Craft Hub tries the active locale, its parent tags, and `default` in that order. Source-qualified keys are recommended when commands from different sources share a name.
 
@@ -65,7 +94,7 @@ User preferences are separate from project configuration. Craft Hub stores stric
 }
 ```
 
-The Settings dialog can open this file in the desktop app and import or export portable JSON. Minimal exports include explicitly changed values; full snapshots include every effective, non-sensitive setting. Project trust, registered projects, run history, usernames, and machine paths are never exported. Replace imports create a backup and retain the five most recent backups.
+The Settings dialog can open this file in the desktop app and import or export portable JSON. Minimal exports include explicitly changed values; full snapshots include every effective, non-sensitive setting. Craft Hub execution authorizations, registered projects, run history, usernames, and machine paths are never exported. Replace imports create a backup and retain the five most recent backups.
 
 Pinned commands and skills are direct, machine-local workbench state. Their mixed order is stored in `workspace-state.json` beside the other Craft Hub data and is intentionally excluded from settings import and export.
 

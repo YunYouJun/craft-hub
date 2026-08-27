@@ -1,4 +1,4 @@
-import type { AgentActionId, AgentActionSummary, AgentTaskRecord, Capability, CapabilityDiscoveryDiagnostic, ProjectAccentColor, ProjectChangeEvent, ProjectRecord, ProjectRunSummary, RunRecord, SettingsSnapshot, WorkbenchLocale, WorkbenchTheme, WorkspaceGroup, WorkspaceManifest, WorkspaceRecord } from 'craft-hub'
+import type { AgentActionId, AgentActionSummary, AgentTaskRecord, Capability, CapabilityDiscoveryDiagnostic, CommandInputValues, CommandInvocation, CommandPackage, ProjectAccentColor, ProjectChangeEvent, ProjectRecord, ProjectRunSummary, RunRecord, SettingsSnapshot, WorkbenchLocale, WorkbenchTheme, WorkspaceGroup, WorkspaceManifest, WorkspaceRecord } from 'craft-hub'
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { api } from './api'
@@ -11,12 +11,17 @@ export const useWorkbenchStore = defineStore('workbench', () => {
   const workspaceGroups = ref<WorkspaceGroup[]>([])
   const selectedWorkspaceId = ref('')
   const expandedWorkspaceIds = ref<string[]>([])
+  const workspaceLoading = ref(false)
+  const workspaceError = ref('')
+  const workspaceCapabilityProjectId = ref('')
+  const workspaceCapabilityId = ref('')
   const agentTasks = ref<AgentTaskRecord[]>([])
   const agentActions = ref<AgentActionSummary[]>([])
   const agentActionDialogOpen = ref(false)
   const selectedProjectId = ref('')
   const capabilities = ref<Capability[]>([])
   const capabilityDiagnosticsByProject = ref<Record<string, CapabilityDiscoveryDiagnostic[]>>({})
+  const commandPackagesByProject = ref<Record<string, CommandPackage[]>>({})
   const paletteItems = ref<Array<{ project: ProjectRecord, capability: Capability }>>([])
   const capabilityPinsByProject = ref<Record<string, string[]>>({})
   const selectedCapabilityId = ref('')
@@ -31,6 +36,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
   const settings = ref<SettingsSnapshot>()
   let snapshot = ''
   let refreshTail: Promise<void> = Promise.resolve()
+  let projectsRefresh: Promise<boolean> | undefined
   let workspaceStateTail: Promise<void> = Promise.resolve()
   let updatedTimer: ReturnType<typeof setTimeout> | undefined
   const runStatusTimers = new Map<string, ReturnType<typeof setTimeout>>()
@@ -43,7 +49,13 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     return projects.value.filter(project => !assigned.has(project.id))
   })
   const selectedCapability = computed(() => capabilities.value.find(item => item.id === selectedCapabilityId.value))
+  const workspaceCapabilityProject = computed(() => projects.value.find(item => item.id === workspaceCapabilityProjectId.value))
+  const workspaceCapability = computed(() => paletteItems.value.find(item => item.project.id === workspaceCapabilityProjectId.value
+    && item.capability.id === workspaceCapabilityId.value)?.capability)
+  const activeProject = computed(() => selectedProject.value ?? workspaceCapabilityProject.value)
+  const activeCapability = computed(() => selectedCapability.value ?? workspaceCapability.value)
   const capabilityDiagnostics = computed(() => capabilityDiagnosticsByProject.value[selectedProjectId.value] ?? [])
+  const commandPackages = computed(() => commandPackagesByProject.value[selectedProjectId.value] ?? [])
   const pinnedCapabilityIds = computed(() => capabilityPinsByProject.value[selectedProjectId.value] ?? [])
   const pinnedCapabilities = computed(() => pinnedCapabilityIds.value
     .map(id => capabilities.value.find(capability => capability.id === id))
@@ -111,6 +123,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
         capabilityIds: capabilityPinsByProject.value[project.id] ?? [],
       },
       diagnostics: capabilityDiagnosticsByProject.value[project.id] ?? [],
+      packages: commandPackagesByProject.value[project.id] ?? [],
     })))
   }
 
@@ -119,9 +132,24 @@ export const useWorkbenchStore = defineStore('workbench', () => {
   }
 
   async function loadWorkspaces(): Promise<void> {
-    const [nextWorkspaces, nextGroups] = await Promise.all([api.workspaces(), api.workspaceGroups()])
-    workspaces.value = nextWorkspaces
-    workspaceGroups.value = nextGroups
+    workspaceLoading.value = true
+    workspaceError.value = ''
+    try {
+      const [nextWorkspaces, nextGroups] = await Promise.all([api.workspaces(), api.workspaceGroups()])
+      workspaces.value = nextWorkspaces
+      workspaceGroups.value = nextGroups
+      if (selectedWorkspaceId.value && !nextWorkspaces.some(workspace => workspace.id === selectedWorkspaceId.value)) {
+        selectedWorkspaceId.value = ''
+        clearWorkspaceCapability()
+      }
+    }
+    catch (caught) {
+      workspaceError.value = caught instanceof Error ? caught.message : String(caught)
+      throw caught
+    }
+    finally {
+      workspaceLoading.value = false
+    }
   }
 
   async function loadWorkspaceState(preferredProjectId?: string): Promise<void> {
@@ -184,7 +212,21 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     agentActions.value = []
     selectedCapabilityId.value = ''
     run.value = undefined
+    clearWorkspaceCapability()
     persistWorkspaceState()
+  }
+
+  function selectWorkspaceCapability(projectId: string, capabilityId: string): void {
+    workspaceCapabilityProjectId.value = projectId
+    workspaceCapabilityId.value = capabilityId
+    run.value = undefined
+    terminalVisible.value = true
+  }
+
+  function clearWorkspaceCapability(): void {
+    workspaceCapabilityProjectId.value = ''
+    workspaceCapabilityId.value = ''
+    run.value = undefined
   }
 
   function toggleWorkspaceExpanded(id: string): void {
@@ -357,10 +399,17 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     await Promise.all([loadProjects(), loadWorkspaces()])
   }
 
-  async function importVscodeWorkspaces(sourceDirectory: string, groupName?: string): Promise<void> {
-    const imported = await api.importVscodeWorkspaces(sourceDirectory, groupName)
+  async function previewVscodeWorkspaces(sourceDirectory: string, groupName?: string): Promise<import('craft-hub').WorkspaceImportPreview> {
+    return api.previewVscodeWorkspaces(sourceDirectory, groupName)
+  }
+
+  async function importVscodeWorkspaces(sourceDirectory: string, groupName: string | undefined, expectedRevision: string): Promise<import('craft-hub').WorkspaceImportResult> {
+    const imported = await api.importVscodeWorkspaces(sourceDirectory, groupName, expectedRevision)
+    if (!imported.validation.valid)
+      throw new Error(imported.validation.issues.join('; '))
     await loadWorkspaces()
     selectWorkspace(imported.workspaces[0]!.id)
+    return imported
   }
 
   async function createWorkspaceGroup(name: string): Promise<WorkspaceGroup> {
@@ -376,6 +425,11 @@ export const useWorkbenchStore = defineStore('workbench', () => {
 
   async function renameWorkspaceGroup(groupId: string, name: string): Promise<void> {
     await api.renameWorkspaceGroup(groupId, name)
+    await loadWorkspaces()
+  }
+
+  async function setWorkspaceGroupAppearance(groupId: string, icon?: string): Promise<void> {
+    await api.updateWorkspaceGroupAppearance(groupId, icon)
     await loadWorkspaces()
   }
 
@@ -464,19 +518,35 @@ export const useWorkbenchStore = defineStore('workbench', () => {
   }
 
   function refreshProjects(initialProjectId?: string, announce = true): Promise<boolean> {
-    return enqueueRefresh(() => performProjectsRefresh(initialProjectId, announce))
+    if (projectsRefresh)
+      return projectsRefresh
+    projectsRefresh = enqueueRefresh(() => performProjectsRefresh(initialProjectId, announce))
+    projectsRefresh.then(
+      () => { projectsRefresh = undefined },
+      () => { projectsRefresh = undefined },
+    )
+    return projectsRefresh
   }
 
   async function performProjectsRefresh(initialProjectId?: string, announce = true): Promise<boolean> {
     refreshing.value = true
     try {
       const nextProjects = await api.projects()
+      projects.value = nextProjects
       const groups = await Promise.all(nextProjects.map(async (project) => {
         const [discovery, pins] = await Promise.all([
-          api.capabilityDiscovery(project.id),
-          api.capabilityPins(project.id),
+          api.capabilityDiscovery(project.id).catch(caught => ({
+            capabilities: [],
+            packages: [],
+            diagnostics: [{
+              source: 'project' as const,
+              path: project.path,
+              message: caught instanceof Error ? caught.message : String(caught),
+            }],
+          })),
+          api.capabilityPins(project.id).catch(() => ({ projectId: project.id, capabilityIds: [] })),
         ])
-        return { project, capabilities: discovery.capabilities, diagnostics: discovery.diagnostics, pins }
+        return { project, capabilities: discovery.capabilities, diagnostics: discovery.diagnostics, packages: discovery.packages ?? [], pins }
       }))
       const nextSnapshot = JSON.stringify(groups)
       const changed = snapshot !== '' && snapshot !== nextSnapshot
@@ -485,14 +555,14 @@ export const useWorkbenchStore = defineStore('workbench', () => {
         ?? nextProjects[0]
       const nextCapabilities = groups.find(group => group.project.id === nextProject?.id)?.capabilities ?? []
 
-      projects.value = nextProjects
       paletteItems.value = groups.flatMap(group => group.capabilities.map(capability => ({ project: group.project, capability })))
       capabilityPinsByProject.value = Object.fromEntries(groups.map(group => [group.project.id, group.pins.capabilityIds]))
       capabilityDiagnosticsByProject.value = Object.fromEntries(groups.map(group => [group.project.id, group.diagnostics]))
+      commandPackagesByProject.value = Object.fromEntries(groups.map(group => [group.project.id, group.packages]))
       selectedProjectId.value = nextProject?.id ?? ''
       capabilities.value = nextCapabilities
       agentActions.value = nextProject
-        ? await api.agentActions(nextProject.id, settings.value?.settings['workbench.locale'] ?? 'en')
+        ? await api.agentActions(nextProject.id, settings.value?.settings['workbench.locale'] ?? 'en').catch(() => [])
         : []
       selectFrom(nextCapabilities)
       snapshot = nextSnapshot
@@ -547,6 +617,10 @@ export const useWorkbenchStore = defineStore('workbench', () => {
             ...capabilityDiagnosticsByProject.value,
             [project.id]: discovery.diagnostics,
           }
+          commandPackagesByProject.value = {
+            ...commandPackagesByProject.value,
+            [project.id]: discovery.packages ?? [],
+          }
           if (selectedProjectId.value === project.id) {
             capabilities.value = nextCapabilities
             selectFrom(nextCapabilities)
@@ -565,6 +639,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
   }
 
   async function selectProject(id: string): Promise<void> {
+    clearWorkspaceCapability()
     selectedWorkspaceId.value = ''
     selectedProjectId.value = id
     const [discovery, pins, nextAgentActions] = await Promise.all([
@@ -575,6 +650,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     const nextCapabilities = discovery.capabilities
     capabilities.value = nextCapabilities
     capabilityDiagnosticsByProject.value = { ...capabilityDiagnosticsByProject.value, [id]: discovery.diagnostics }
+    commandPackagesByProject.value = { ...commandPackagesByProject.value, [id]: discovery.packages ?? [] }
     agentActions.value = nextAgentActions
     capabilityPinsByProject.value = { ...capabilityPinsByProject.value, [id]: pins.capabilityIds }
     selectedCapabilityId.value = capabilities.value[0]?.id ?? ''
@@ -589,9 +665,9 @@ export const useWorkbenchStore = defineStore('workbench', () => {
   }
 
   async function trustProject(): Promise<void> {
-    if (!selectedProject.value)
+    if (!activeProject.value)
       return
-    const updated = await api.trust(selectedProject.value.id)
+    const updated = await api.trust(activeProject.value.id)
     projects.value = projects.value.map(project => project.id === updated.id ? updated : project)
   }
 
@@ -625,17 +701,24 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     return setCapabilityPinOrder(next, projectId)
   }
 
-  async function runSelected(): Promise<void> {
-    if (!selectedProject.value || selectedCapability.value?.kind !== 'command')
+  async function previewSelectedCommand(inputs: CommandInputValues = {}): Promise<CommandInvocation | undefined> {
+    if (!activeProject.value || activeCapability.value?.kind !== 'command')
+      return undefined
+    return api.previewCommand(activeProject.value.id, activeCapability.value.id, inputs)
+  }
+
+  async function runSelected(inputs: CommandInputValues = {}): Promise<void> {
+    if (!activeProject.value || activeCapability.value?.kind !== 'command')
       return
-    const projectId = selectedProject.value.id
+    const projectId = activeProject.value.id
+    const capabilityId = activeCapability.value.id
     busy.value = true
     startingProjectIds.value = [...new Set([...startingProjectIds.value, projectId])]
     terminalVisible.value = true
     error.value = ''
     run.value = undefined
     try {
-      run.value = await api.run(selectedProject.value.id, selectedCapability.value.id, (nextRun) => {
+      run.value = await api.run(projectId, capabilityId, inputs, (nextRun) => {
         run.value = nextRun
         startingProjectIds.value = startingProjectIds.value.filter(id => id !== projectId)
       })
@@ -705,6 +788,14 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     selectedWorkspaceId,
     selectedWorkspace,
     expandedWorkspaceIds,
+    workspaceLoading,
+    workspaceError,
+    workspaceCapabilityProjectId,
+    workspaceCapabilityId,
+    workspaceCapabilityProject,
+    workspaceCapability,
+    activeProject,
+    activeCapability,
     unassignedProjects,
     agentTasks,
     agentActions,
@@ -713,6 +804,8 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     capabilities,
     capabilityDiagnostics,
     capabilityDiagnosticsByProject,
+    commandPackages,
+    commandPackagesByProject,
     paletteItems,
     capabilityPinsByProject,
     selectedCapabilityId,
@@ -738,6 +831,8 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     loadWorkspaceState,
     createWorkspace,
     selectWorkspace,
+    selectWorkspaceCapability,
+    clearWorkspaceCapability,
     toggleWorkspaceExpanded,
     workspaceProjects,
     addProjectToWorkspace,
@@ -757,10 +852,12 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     reorderProject,
     makePrimaryProject,
     registerWorkspaceMember,
+    previewVscodeWorkspaces,
     importVscodeWorkspaces,
     createWorkspaceGroup,
     assignWorkspaceGroup,
     renameWorkspaceGroup,
+    setWorkspaceGroupAppearance,
     deleteWorkspaceGroup,
     loadAgentTasks,
     loadAgentActions,
@@ -779,6 +876,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     isCapabilityPinned,
     setCapabilityPinOrder,
     toggleCapabilityPin,
+    previewSelectedCommand,
     runSelected,
     stopRun,
     closeTerminal,

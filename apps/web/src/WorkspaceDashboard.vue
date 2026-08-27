@@ -32,11 +32,6 @@ watch(workspace, (value) => {
     ?? ''
 }, { immediate: true })
 
-watch(selectedProjectIds, (ids) => {
-  if (!ids.includes(primaryProjectId.value))
-    primaryProjectId.value = ids[0] ?? ''
-})
-
 async function startInCodex(): Promise<void> {
   if (!workspace.value || !primaryProjectId.value || !prompt.value.trim())
     return
@@ -45,14 +40,15 @@ async function startInCodex(): Promise<void> {
   notice.value = ''
   try {
     const value = prompt.value.trim()
+    const workspacePrompt = `Use Craft Hub workspace ${workspace.value.id}.\n\n${value}`
     const primaryProject = projects.value.find(project => project.id === primaryProjectId.value)
     if (!primaryProject)
       throw new Error('Primary project is unavailable')
     if (window.craftHubDesktop?.startProjectInCodex) {
-      await window.craftHubDesktop.startProjectInCodex(primaryProject.id, value)
+      await window.craftHubDesktop.startProjectInCodex(primaryProject.id, workspacePrompt)
     }
     else {
-      await navigator.clipboard.writeText(value)
+      await navigator.clipboard.writeText(workspacePrompt)
       const query = new URLSearchParams({ path: primaryProject.path })
       window.location.href = `codex://threads/new?${query}`
     }
@@ -68,7 +64,7 @@ async function startInCodex(): Promise<void> {
 }
 
 async function startInBackground(): Promise<void> {
-  if (!workspace.value || !primaryProjectId.value || !prompt.value.trim())
+  if (!workspace.value || !primaryProjectId.value || !selectedProjectIds.value.includes(primaryProjectId.value) || !prompt.value.trim())
     return
   taskMenuOpen.value = false
   startingInBackground.value = true
@@ -163,7 +159,7 @@ async function openThread(threadId: string): Promise<void> {
           <span class="project-trust" :class="project.trust" :aria-label="t(project.trust === 'trusted' ? 'trusted' : 'untrusted')" :title="t(project.trust === 'trusted' ? 'trusted' : 'untrusted')"><Icon :name="project.trust" /></span>
         </label>
         <label class="primary-choice">
-          <input v-model="primaryProjectId" type="radio" name="primary-project" :value="project.id" :disabled="!selectedProjectIds.includes(project.id)" @change="savePrimary">
+          <input v-model="primaryProjectId" type="radio" name="primary-project" :value="project.id" @change="savePrimary">
           {{ t('primary') }}
         </label>
       </div>
@@ -196,7 +192,7 @@ async function openThread(threadId: string): Promise<void> {
         <details :open="taskMenuOpen" class="agent-task-action-menu" @toggle="taskMenuOpen = ($event.target as HTMLDetailsElement).open">
           <summary role="button" :aria-expanded="taskMenuOpen" :aria-label="t('moreCodexTaskActions')" :title="t('moreCodexTaskActions')"><Icon name="arrowDown" /></summary>
           <div>
-            <button type="button" data-testid="start-in-background" :disabled="openingCodex || startingInBackground || !prompt.trim() || !primaryProjectId || !selectedProjectIds.length" @click="startInBackground">
+            <button type="button" data-testid="start-in-background" :disabled="openingCodex || startingInBackground || !prompt.trim() || !primaryProjectId || !selectedProjectIds.includes(primaryProjectId)" @click="startInBackground">
               <Icon name="refresh" /> {{ startingInBackground ? t('startingTask') : t('runInCraftHubBackground') }}
             </button>
             <small>{{ t('codexTaskPermission') }}</small>

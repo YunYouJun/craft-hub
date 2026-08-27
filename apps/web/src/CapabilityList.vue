@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { CommandCategory } from 'craft-hub'
+import type { CommandCapability, CommandCategory, CommandPackage } from 'craft-hub'
 import { computed, ref, watch } from 'vue'
 import CapabilityRow from './CapabilityRow.vue'
 import { Icon } from './icons'
@@ -9,14 +9,46 @@ import { useWorkbenchStore } from './store'
 const store = useWorkbenchStore()
 const { t } = useI18n()
 const query = ref('')
-const filter = ref<'all' | 'command' | 'skill'>('all')
+const filter = ref<'all' | 'command' | 'skill' | 'package'>('all')
 const categoryFilter = ref<'all' | CommandCategory>('all')
+const selectedPackagePath = ref('')
 const categories: Array<'all' | CommandCategory> = ['all', 'develop', 'build', 'test', 'quality', 'preview', 'deploy', 'other']
 const draggingId = ref('')
 const filtered = computed(() => store.capabilities.filter(matchesFilter))
 const pinned = computed(() => store.pinnedCapabilities.filter(matchesFilter))
 const pinnedIds = computed(() => new Set(store.pinnedCapabilityIds))
 const unpinned = computed(() => filtered.value.filter(capability => !pinnedIds.value.has(capability.id)))
+interface PackageOverviewRow extends CommandPackage {
+  capabilities: CommandCapability[]
+}
+const packageRows = computed<PackageOverviewRow[]>(() => {
+  const rows = new Map<string, PackageOverviewRow>(store.commandPackages.map(commandPackage => [
+    commandPackage.relativePath,
+    { ...commandPackage, capabilities: [] },
+  ]))
+  for (const capability of store.capabilities) {
+    if (capability.kind !== 'command')
+      continue
+    const commandPackage = capability.package ?? { relativePath: '.', root: true }
+    const row = rows.get(commandPackage.relativePath) ?? { ...commandPackage, capabilities: [] }
+    row.name ??= commandPackage.name
+    row.description ??= commandPackage.description
+    row.capabilities.push(capability)
+    rows.set(commandPackage.relativePath, row)
+  }
+  return [...rows.values()].sort(comparePackages)
+})
+const visiblePackageRows = computed(() => {
+  const normalizedQuery = query.value.trim().toLowerCase()
+  if (!normalizedQuery)
+    return packageRows.value
+  return packageRows.value.filter(row => `${row.relativePath} ${row.name ?? ''} ${row.description ?? ''} ${row.capabilities.map(capability => capability.name).join(' ')}`.toLowerCase().includes(normalizedQuery))
+})
+const packageSections = computed(() => (['root', 'apps', 'packages', 'other'] as const).map(section => ({
+  section,
+  rows: visiblePackageRows.value.filter(row => packageSection(row.relativePath) === section),
+})).filter(group => group.rows.length))
+const packageCommandCount = computed(() => packageRows.value.reduce((count, row) => count + row.capabilities.length, 0))
 const commandGroups = computed(() => {
   const groups = new Map<string, typeof store.capabilities>()
   for (const capability of unpinned.value.filter(item => item.kind === 'command')) {
@@ -51,6 +83,7 @@ watch(() => [store.selectedProjectId, improveAction.value?.commandFingerprint] a
 }, { immediate: true })
 
 watch(() => store.selectedProjectId, (projectId) => {
+  selectedPackagePath.value = ''
   if (!projectId) {
     collapsedGroups.value = []
     return
@@ -65,15 +98,56 @@ watch(() => store.selectedProjectId, (projectId) => {
 }, { immediate: true })
 
 watch(filter, (value) => {
-  if (value === 'skill')
+  if (value === 'skill' || value === 'package')
     categoryFilter.value = 'all'
 })
 
 function matchesFilter(item: typeof store.capabilities[number]): boolean {
   const packageText = item.kind === 'command' ? `${item.package?.relativePath ?? ''} ${item.package?.name ?? ''}` : ''
-  return (filter.value === 'all' || item.kind === filter.value)
+  const packagePath = item.kind === 'command' ? item.package?.relativePath ?? '.' : ''
+  return filter.value !== 'package'
+    && (filter.value === 'all' || item.kind === filter.value)
+    && (!selectedPackagePath.value || packagePath === selectedPackagePath.value)
     && (categoryFilter.value === 'all' || (item.kind === 'command' && (item.category ?? 'other') === categoryFilter.value))
     && `${item.name} ${item.description ?? ''} ${item.source} ${packageText}`.toLowerCase().includes(query.value.toLowerCase())
+}
+
+function comparePackages(left: CommandPackage, right: CommandPackage): number {
+  if (left.root !== right.root)
+    return left.root ? -1 : 1
+  return left.relativePath.localeCompare(right.relativePath, undefined, { numeric: true })
+}
+
+function packageSection(relativePath: string): 'root' | 'apps' | 'packages' | 'other' {
+  if (relativePath === '.')
+    return 'root'
+  if (relativePath.startsWith('apps/'))
+    return 'apps'
+  if (relativePath.startsWith('packages/'))
+    return 'packages'
+  return 'other'
+}
+
+function packageSubtitle(row: CommandPackage): string {
+  return [row.name, row.description].filter(Boolean).join(' · ')
+}
+
+function selectFilter(value: typeof filter.value): void {
+  filter.value = value
+  if (value !== 'command')
+    selectedPackagePath.value = ''
+}
+
+function selectPackage(relativePath: string): void {
+  selectedPackagePath.value = relativePath
+  filter.value = 'command'
+  categoryFilter.value = 'all'
+  query.value = ''
+}
+
+function clearPackageScope(): void {
+  selectedPackagePath.value = ''
+  categoryFilter.value = 'all'
 }
 
 function categoryLabel(category: 'all' | CommandCategory): string {
@@ -131,27 +205,65 @@ function dismissDescriptionHint(): void {
       <input v-model="query" :placeholder="t('searchCapabilities')">
     </label>
     <nav class="filters" :aria-label="t('capabilityFilters')">
-      <button v-for="item in ['all', 'command', 'skill'] as const" :key="item" :class="{ active: filter === item }" @click="filter = item">
+      <button v-for="item in ['all', 'command', 'skill'] as const" :key="item" :class="{ active: filter === item }" @click="selectFilter(item)">
         {{ item === 'all' ? t('all') : item === 'command' ? t('commands') : t('skills') }}
       </button>
-    </nav>
-    <nav v-if="filter !== 'skill'" class="category-filters" :aria-label="t('commandCategoryFilters')">
-      <button v-for="category in categories" :key="category" :class="{ active: categoryFilter === category }" @click="categoryFilter = category">
-        {{ categoryLabel(category) }}
+      <button v-if="packageRows.length > 1" :class="{ active: filter === 'package' }" @click="selectFilter('package')">
+        {{ t('packages') }} <small>{{ packageRows.length }}</small>
       </button>
     </nav>
-    <details v-if="store.capabilityDiagnostics.length" class="capability-diagnostics">
-      <summary><Icon name="error" /> {{ t('capabilityDiagnostics', { count: String(store.capabilityDiagnostics.length) }) }}</summary>
-      <ul><li v-for="diagnostic in store.capabilityDiagnostics" :key="`${diagnostic.path}:${diagnostic.message}`"><strong>{{ diagnostic.path }}</strong> — {{ diagnostic.message }}</li></ul>
-    </details>
-    <aside v-if="showDescriptionHint" class="agent-action-hint">
-      <button class="agent-action-hint-main" @click="store.agentActionDialogOpen = true">
-        <Icon name="codex" />
-        <span>{{ t('missingDescriptionsHint', { count: String(improveAction?.missingCommandCount ?? 0) }) }} <strong>{{ t('configureWithCodex') }}</strong></span>
-      </button>
-      <button class="agent-action-hint-dismiss" :aria-label="t('dismissHint')" :title="t('dismissHint')" @click="dismissDescriptionHint"><Icon name="close" /></button>
-    </aside>
-    <div class="capability-list">
+    <div class="capability-filter-row">
+      <nav v-if="filter !== 'skill' && filter !== 'package'" class="category-filters" :aria-label="t('commandCategoryFilters')">
+        <button v-if="selectedPackagePath" class="package-scope-filter" :title="t('clearPackageFilter')" @click="clearPackageScope">
+          <Icon name="folder" /> {{ selectedPackagePath === '.' ? t('projectRoot') : selectedPackagePath }} <Icon name="close" />
+        </button>
+        <button v-for="category in categories" :key="category" :class="{ active: categoryFilter === category }" @click="categoryFilter = category">
+          {{ categoryLabel(category) }}
+        </button>
+      </nav>
+    </div>
+    <div class="capability-notices">
+      <details v-if="store.capabilityDiagnostics.length" class="capability-diagnostics">
+        <summary><Icon name="error" /> {{ t('capabilityDiagnostics', { count: String(store.capabilityDiagnostics.length) }) }}</summary>
+        <ul><li v-for="diagnostic in store.capabilityDiagnostics" :key="`${diagnostic.path}:${diagnostic.message}`"><strong>{{ diagnostic.path }}</strong> — {{ diagnostic.message }}</li></ul>
+      </details>
+      <aside v-if="showDescriptionHint" class="agent-action-hint">
+        <button class="agent-action-hint-main" @click="store.agentActionDialogOpen = true">
+          <Icon name="codex" />
+          <span>{{ t('missingDescriptionsHint', { count: String(improveAction?.missingCommandCount ?? 0) }) }} <strong>{{ t('configureWithCodex') }}</strong></span>
+        </button>
+        <button class="agent-action-hint-dismiss" :aria-label="t('dismissHint')" :title="t('dismissHint')" @click="dismissDescriptionHint"><Icon name="close" /></button>
+      </aside>
+    </div>
+    <div v-if="filter === 'package'" class="package-overview">
+      <div class="package-overview-summary">
+        <Icon name="collection" />
+        <span>{{ t('packageOverviewSummary', { packages: String(packageRows.length), commands: String(packageCommandCount) }) }}</span>
+      </div>
+      <section v-for="group in packageSections" :key="group.section" class="package-overview-section">
+        <h3>{{ t(`packageSection_${group.section}`) }}</h3>
+        <button
+          v-for="row in group.rows"
+          :key="row.relativePath"
+          class="package-overview-row"
+          :aria-label="t('openPackageCommands', { package: row.relativePath === '.' ? t('projectRoot') : row.relativePath, count: String(row.capabilities.length) })"
+          :aria-description="row.description"
+          @click="selectPackage(row.relativePath)"
+        >
+          <Icon name="folder" />
+          <span>
+            <strong>{{ row.relativePath === '.' ? t('projectRoot') : row.relativePath }}</strong>
+            <small v-if="packageSubtitle(row)" :title="packageSubtitle(row)">
+              <b v-if="row.name">{{ row.name }}</b><template v-if="row.name && row.description"> · </template>{{ row.description }}
+            </small>
+          </span>
+          <em>{{ row.capabilities.length }}</em>
+          <Icon name="arrowRight" />
+        </button>
+      </section>
+      <div v-if="!visiblePackageRows.length" class="empty">{{ t('noMatchingPackages') }}</div>
+    </div>
+    <div v-else class="capability-list">
       <section v-if="pinned.length" class="capability-section">
         <h3><Icon name="starFilled" /> {{ t('pinned') }}</h3>
         <CapabilityRow

@@ -1,4 +1,4 @@
-import type { AgentActionId, AgentActionSummary, AgentTaskRecord, Capability, CapabilityDiscoveryResult, CapabilityPins, CatalogPluginV1, InstalledPlugin, MarketplaceSource, PersonalGitSyncResolution, PersonalGitSyncStatus, ProjectChangeEvent, ProjectRecord, ProjectRunSummary, ProjectVisualInput, RunCleanupOptions, RunCleanupResult, RunRecord, RunStreamEvent, SettingsExportEnvelope, SettingsExportMode, SettingsImportPreview, SettingsImportStrategy, SettingsSnapshot, WorkbenchLocale, WorkspaceCatalog, WorkspaceGroup, WorkspaceImportResult, WorkspaceManifest, WorkspaceRecord, WorkspaceUiState } from 'craft-hub'
+import type { AgentActionId, AgentActionSummary, AgentTaskRecord, Capability, CapabilityDiscoveryResult, CapabilityPins, CatalogPluginV1, CommandInputValues, CommandInvocation, InstalledPlugin, MarketplaceSource, PersonalGitSyncResolution, PersonalGitSyncStatus, ProjectChangeEvent, ProjectRecord, ProjectRunSummary, ProjectVisualInput, RunCleanupOptions, RunCleanupResult, RunRecord, RunStreamEvent, SettingsExportEnvelope, SettingsExportMode, SettingsImportPreview, SettingsImportStrategy, SettingsSnapshot, WorkbenchLocale, WorkspaceCatalog, WorkspaceGroup, WorkspaceImportPreview, WorkspaceImportResult, WorkspaceManifest, WorkspaceRecord, WorkspaceUiState } from 'craft-hub'
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
@@ -21,11 +21,11 @@ async function capabilityDiscovery(projectId: string): Promise<CapabilityDiscove
   }
 }
 
-async function runCommand(projectId: string, capabilityId: string, onUpdate: (run: RunRecord) => void): Promise<RunRecord> {
+async function runCommand(projectId: string, capabilityId: string, inputs: CommandInputValues, onUpdate: (run: RunRecord) => void): Promise<RunRecord> {
   const response = await fetch(`/api/projects/${projectId}/run`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ capabilityId }),
+    body: JSON.stringify({ capabilityId, inputs }),
   })
   if (!response.ok) {
     const body = await response.json() as { error?: string }
@@ -89,11 +89,16 @@ export const api = {
   synchronizePersonalGit: (resolution: PersonalGitSyncResolution = 'auto') => request<PersonalGitSyncStatus>('/api/personal-git-sync/synchronize', { method: 'POST', body: JSON.stringify({ resolution }) }),
   createWorkspaceGroup: (name: string) => request<WorkspaceGroup>('/api/workspace-groups', { method: 'POST', body: JSON.stringify({ name }) }),
   renameWorkspaceGroup: (groupId: string, name: string) => request<WorkspaceGroup>(`/api/workspace-groups/${groupId}`, { method: 'PUT', body: JSON.stringify({ name }) }),
+  updateWorkspaceGroupAppearance: (groupId: string, icon?: string) => request<WorkspaceGroup>(`/api/workspace-groups/${groupId}`, { method: 'PATCH', body: JSON.stringify({ icon }) }),
   deleteWorkspaceGroup: (groupId: string) => request<{ deleted: true }>(`/api/workspace-groups/${groupId}`, { method: 'DELETE' }),
   assignWorkspaceGroup: (workspaceId: string, groupId?: string) => request<WorkspaceRecord>(`/api/workspaces/${workspaceId}/group`, { method: 'PUT', body: JSON.stringify({ groupId }) }),
-  importVscodeWorkspaces: (sourceDirectory: string, groupName?: string) => request<WorkspaceImportResult>('/api/workspaces/import/vscode', {
+  previewVscodeWorkspaces: (sourceDirectory: string, groupName?: string) => request<WorkspaceImportPreview>('/api/workspaces/import/vscode/preview', {
     method: 'POST',
     body: JSON.stringify({ sourceDirectory, groupName }),
+  }),
+  importVscodeWorkspaces: (sourceDirectory: string, groupName: string | undefined, expectedRevision: string) => request<WorkspaceImportResult>('/api/workspaces/import/vscode', {
+    method: 'POST',
+    body: JSON.stringify({ sourceDirectory, groupName, expectedRevision }),
   }),
   registerWorkspaceMember: (workspaceId: string, project: string, path?: string) => request<WorkspaceRecord>('/api/workspaces/register-member', {
     method: 'POST',
@@ -125,6 +130,10 @@ export const api = {
   updateCapabilityPins: (projectId: string, capabilityIds: string[]) => request<CapabilityPins>(`/api/projects/${projectId}/pins`, {
     method: 'PUT',
     body: JSON.stringify({ capabilityIds }),
+  }),
+  previewCommand: (projectId: string, capabilityId: string, inputs: CommandInputValues) => request<CommandInvocation>(`/api/projects/${projectId}/preview-command`, {
+    method: 'POST',
+    body: JSON.stringify({ capabilityId, inputs }),
   }),
   runSummaries: () => request<ProjectRunSummary[]>('/api/runs/summary'),
   runs: () => request<RunRecord[]>('/api/runs'),

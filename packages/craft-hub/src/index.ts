@@ -1,6 +1,7 @@
 export * from './agent-actions'
 export * from './agent-tasks'
 export * from './app'
+export * from './command-inputs'
 export * from './config'
 export * from './discovery'
 export * from './executor'

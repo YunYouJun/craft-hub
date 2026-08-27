@@ -8,11 +8,34 @@ const projectConfigTargetPath = '.craft-hub/project.yaml' as const
 
 export type LocalizedText = string | Record<string, string | undefined>
 
+export interface ProjectCommandInputOptionConfig {
+  value: string
+  label?: LocalizedText
+}
+
+export interface ProjectCommandInputConfig {
+  type: 'select' | 'text'
+  label?: LocalizedText
+  description?: LocalizedText
+  options?: Array<string | ProjectCommandInputOptionConfig>
+  default?: string
+  required?: boolean
+  requiredWhen?: { input: string, equals: string }
+  visibleWhen?: { input: string, equals: string }
+  pattern?: string
+  flag: string
+  argumentStyle?: 'equals' | 'separate'
+}
+
 export interface ProjectConfig {
   version: 1
   project?: { name?: string, icon?: string, color?: ProjectAccentColor }
   defaults?: { agent?: string }
-  capabilities?: { hidden?: string[], descriptions?: Record<string, LocalizedText> }
+  capabilities?: {
+    hidden?: string[]
+    descriptions?: Record<string, LocalizedText>
+    inputs?: Record<string, Record<string, ProjectCommandInputConfig>>
+  }
 }
 
 export interface ProjectConfigInitialization {

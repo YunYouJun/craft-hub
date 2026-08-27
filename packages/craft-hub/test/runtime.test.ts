@@ -50,17 +50,20 @@ describe('capability discovery', () => {
     const root = await mkdtemp(join(tmpdir(), 'craft-hub-monorepo-'))
     const liteapp = join(root, 'apps', 'liteapp')
     const broken = join(root, 'packages', 'broken')
+    const empty = join(root, 'packages', 'empty')
     const ignored = join(root, 'packages', 'ignored')
     await Promise.all([
       mkdir(liteapp, { recursive: true }),
       mkdir(broken, { recursive: true }),
+      mkdir(empty, { recursive: true }),
       mkdir(ignored, { recursive: true }),
       mkdir(join(root, '.craft-hub'), { recursive: true }),
     ])
-    await writeFile(join(root, 'package.json'), JSON.stringify({ name: 'root', packageManager: 'pnpm@10.0.0', scripts: { dev: 'vite' } }))
+    await writeFile(join(root, 'package.json'), JSON.stringify({ name: 'root', description: 'Root workspace', packageManager: 'pnpm@10.0.0', scripts: { dev: 'vite' } }))
     await writeFile(join(root, 'pnpm-workspace.yaml'), ['packages:', '  - apps/*', '  - packages/*', '  - "!packages/ignored"'].join('\n'))
-    await writeFile(join(liteapp, 'package.json'), JSON.stringify({ name: '@scope/liteapp', private: true, scripts: { 'build:liteapp': 'liteapp compile', 'deploy': 'liteapp deploy', 'prepublishOnly': 'echo prepare' } }))
+    await writeFile(join(liteapp, 'package.json'), JSON.stringify({ name: '@scope/liteapp', description: 'LiteApp package', private: true, scripts: { 'build:liteapp': 'liteapp compile', 'deploy': 'liteapp deploy', 'prepublishOnly': 'echo prepare' } }))
     await writeFile(join(broken, 'package.json'), '{ broken json')
+    await writeFile(join(empty, 'package.json'), JSON.stringify({ name: '@scope/empty', description: '_description_', private: true }))
     await writeFile(join(ignored, 'package.json'), JSON.stringify({ scripts: { hidden: 'echo hidden' } }))
     await writeFile(join(root, '.craft-hub', 'project.yaml'), [
       'version: 1',
@@ -81,11 +84,16 @@ describe('capability discovery', () => {
       category: 'deploy',
       description: 'Deploy the LiteApp package.',
       source: 'apps/liteapp/package.json',
-      package: { name: '@scope/liteapp', relativePath: 'apps/liteapp', root: false },
+      package: { name: '@scope/liteapp', description: 'LiteApp package', relativePath: 'apps/liteapp', root: false },
       invocation: { command: 'pnpm', args: ['run', 'deploy'], cwd: await realpath(liteapp) },
     })
     expect(commands.find(command => command.name === 'build:liteapp')?.category).toBe('build')
     expect(commands.find(command => command.name === 'prepublishOnly')?.category).toBe('deploy')
+    expect(discovery.packages).toEqual([
+      { name: 'root', description: 'Root workspace', relativePath: '.', root: true },
+      { name: '@scope/liteapp', description: 'LiteApp package', relativePath: 'apps/liteapp', root: false },
+      { name: '@scope/empty', description: undefined, relativePath: 'packages/empty', root: false },
+    ])
     expect(discovery.diagnostics).toEqual([
       expect.objectContaining({ source: 'pnpm-workspace', path: 'packages/broken/package.json' }),
     ])
@@ -97,6 +105,20 @@ describe('capability discovery', () => {
     await writeFile(join(root, 'pnpm-workspace.yaml'), 'packages: apps/*\n')
 
     await expect(discoverCapabilitiesWithDiagnostics(root)).rejects.toThrow('packages as an array')
+  })
+
+  it('treats pnpm-workspace.yaml without packages as a root-only workspace', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'craft-hub-root-only-workspace-'))
+    await writeFile(join(root, 'package.json'), JSON.stringify({ scripts: { dev: 'vite' } }))
+    await writeFile(join(root, 'pnpm-workspace.yaml'), [
+      'ignoredBuiltDependencies:',
+      '  - esbuild',
+    ].join('\n'))
+
+    await expect(discoverCapabilitiesWithDiagnostics(root)).resolves.toMatchObject({
+      capabilities: [expect.objectContaining({ name: 'dev', source: 'package.json' })],
+      diagnostics: [],
+    })
   })
 
   it('discovers package scripts and project skills', async () => {
@@ -178,6 +200,44 @@ describe('capability discovery', () => {
       fallback: 'Default description',
       legacy: 'Legacy description',
     })
+  })
+
+  it('discovers project-owned command inputs and localizes their form labels', async () => {
+    const root = await fixture()
+    await writeFile(join(root, '.craft-hub', 'project.yaml'), [
+      'version: 1',
+      'capabilities:',
+      '  inputs:',
+      '    package.json:hello:',
+      '      environment:',
+      '        type: select',
+      '        label:',
+      '          default: Environment',
+      '          zh-CN: 环境',
+      '        options:',
+      '          - dev',
+      '          - value: rdm',
+      '            label: Random test',
+      '        default: dev',
+      '        flag: --env',
+      '      uin:',
+      '        type: text',
+      '        label: UIN',
+      '        pattern: "^\\\\d+$"',
+      '        flag: --uin',
+      '        visibleWhen:',
+      '          input: environment',
+      '          equals: dev',
+      '        requiredWhen:',
+      '          input: environment',
+      '          equals: dev',
+    ].join('\n'))
+
+    const command = (await discoverCapabilities(root, 'zh-CN')).find(item => item.kind === 'command')!
+    expect(command.inputs).toEqual([
+      expect.objectContaining({ id: 'environment', type: 'select', label: '环境', default: 'dev', flag: '--env' }),
+      expect.objectContaining({ id: 'uin', type: 'text', label: 'UIN', pattern: '^\\d+$', flag: '--uin' }),
+    ])
   })
 
   it('follows the global locale when listing runtime capabilities', async () => {
@@ -302,6 +362,43 @@ describe('capability discovery', () => {
 })
 
 describe('trusted execution', () => {
+  it('previews validated command inputs as structured arguments', async () => {
+    const root = await fixture()
+    await writeFile(join(root, '.craft-hub', 'project.yaml'), [
+      'version: 1',
+      'capabilities:',
+      '  inputs:',
+      '    package.json:hello:',
+      '      environment:',
+      '        type: select',
+      '        options: [dev, rdm]',
+      '        default: dev',
+      '        flag: --env',
+      '      uin:',
+      '        type: text',
+      '        pattern: "^\\\\d+$"',
+      '        flag: --uin',
+      '        visibleWhen: { input: environment, equals: dev }',
+      '        requiredWhen: { input: environment, equals: dev }',
+    ].join('\n'))
+    const runtime = new CraftHubRuntime(join(root, '.input-data'))
+    const project = await runtime.addProject(root)
+    const command = (await runtime.capabilities(project.id)).find(item => item.kind === 'command')!
+
+    await expect(runtime.previewCommand(project.id, command.id, { environment: 'dev', uin: '12345' }))
+      .resolves
+      .toMatchObject({ args: ['run', 'hello', '--', '--env=dev', '--uin=12345'] })
+    await expect(runtime.previewCommand(project.id, command.id, { environment: 'rdm', uin: '12345' }))
+      .resolves
+      .toMatchObject({ args: ['run', 'hello', '--', '--env=rdm'] })
+    await expect(runtime.previewCommand(project.id, command.id, { environment: 'release' }))
+      .rejects
+      .toThrow('must be one of')
+    await expect(runtime.previewCommand(project.id, command.id, { environment: 'dev' }))
+      .rejects
+      .toThrow('uin is required')
+  })
+
   it('blocks untrusted projects and captures output after trust', async () => {
     const root = await fixture()
     const runtime = new CraftHubRuntime(join(root, '.data'))

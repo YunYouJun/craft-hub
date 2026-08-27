@@ -1,35 +1,52 @@
 import type { VNode } from 'vue'
 import { h } from 'vue'
 
-export type IconName = 'arrowDown' | 'arrowRight' | 'check' | 'close' | 'codex' | 'collection' | 'drag' | 'edit' | 'error' | 'folder' | 'hub' | 'palette' | 'plugins' | 'plus' | 'search' | 'settings' | 'source' | 'star' | 'starFilled' | 'stop' | 'terminal' | 'terminalApp' | 'skill' | 'play' | 'trusted' | 'untrusted' | 'refresh' | 'vscode' | 'workspace'
+export type IconName = 'arrowDown' | 'arrowRight' | 'calendar' | 'chart' | 'check' | 'close' | 'cloud' | 'code' | 'codex' | 'collection' | 'database' | 'design' | 'docs' | 'drag' | 'edit' | 'error' | 'experiment' | 'folder' | 'hub' | 'mobile' | 'more' | 'package' | 'palette' | 'plugins' | 'plus' | 'rocket' | 'search' | 'security' | 'settings' | 'source' | 'star' | 'starFilled' | 'stop' | 'team' | 'terminal' | 'terminalApp' | 'skill' | 'play' | 'trusted' | 'untrusted' | 'refresh' | 'vscode' | 'web' | 'workspace'
 
-const iconClasses: Record<Exclude<IconName, 'codex' | 'plugins' | 'vscode'>, string> = {
+export const visualIconNames = ['workspace', 'folder', 'hub', 'code', 'docs', 'design', 'database', 'package', 'rocket', 'team', 'experiment', 'security', 'cloud', 'mobile', 'web', 'terminal', 'skill', 'settings', 'calendar', 'chart'] as const satisfies readonly IconName[]
+
+export const iconClasses: Record<Exclude<IconName, 'codex' | 'plugins' | 'vscode'>, string> = {
   arrowDown: 'i-ri-arrow-down-s-line',
   arrowRight: 'i-ri-arrow-right-s-line',
+  calendar: 'i-ri-calendar-line',
+  chart: 'i-ri-bar-chart-2-line',
   check: 'i-ri-checkbox-circle-fill',
   close: 'i-ri-close-line',
+  cloud: 'i-ri-cloud-line',
+  code: 'i-ri-code-s-slash-line',
   collection: 'i-ri-stack-line',
+  database: 'i-ri-database-2-line',
+  design: 'i-ri-brush-line',
+  docs: 'i-ri-file-text-line',
   drag: 'i-ri-draggable',
   edit: 'i-ri-edit-line',
   error: 'i-ri-error-warning-fill',
+  experiment: 'i-ri-flask-line',
   folder: 'i-ri-folder-3-line',
   hub: 'i-ri-node-tree',
+  mobile: 'i-ri-smartphone-line',
+  more: 'i-ri-more-2-fill',
+  package: 'i-ri-box-3-line',
   palette: 'i-ri-palette-line',
   plus: 'i-ri-add-line',
+  rocket: 'i-ri-rocket-line',
   search: 'i-ri-search-line',
+  security: 'i-ri-shield-keyhole-line',
   settings: 'i-ri-settings-3-line',
   source: 'i-ri-file-search-line',
   star: 'i-ri-star-line',
   starFilled: 'i-ri-star-fill',
   stop: 'i-ri-stop-fill',
+  team: 'i-ri-team-line',
   terminal: 'i-ri-terminal-box-line',
   terminalApp: 'i-ri-terminal-window-line',
   skill: 'i-ri-sparkling-2-line',
   play: 'i-ri-play-fill',
   trusted: 'i-ri-shield-check-line',
   untrusted: 'i-ri-shield-keyhole-line',
+  web: 'i-ri-global-line',
   refresh: 'i-ri-loader-4-line',
-  workspace: 'i-ri-layout-grid-line',
+  workspace: 'i-ri-folders-line',
 }
 
 export function Icon(props: { name: IconName }): VNode {

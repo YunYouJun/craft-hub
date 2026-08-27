@@ -4,7 +4,7 @@ Craft Hub 有意保留两种不同的 Codex 启动方式。**在 Codex 中启动
 
 ## 在 Codex 中启动
 
-Craft Hub 会在 Codex 中打开工作空间的主要项目，并把提示词复制到剪贴板。用户检查后，将提示词粘贴到新任务中并手动发送。
+Craft Hub 会在 Codex 中打开工作空间的主要项目，并把提示词复制到剪贴板。复制的提示词包含明确的 Craft Hub Workspace ID，让全局安装的 Craft Hub Plugin 无需依赖隐藏的“当前工作空间”状态即可解析同一工作空间。用户检查后，将提示词粘贴到新任务中并手动发送。
 
 这是默认方式，因为任务从一开始就由 Codex App 持有。对话历史、审批、diff、进度和后续对话都留在原生客户端中，不需要在两个进程之间转移一个仍在运行的任务。
 
@@ -14,7 +14,7 @@ Codex 目前没有公开并文档化的桌面自动化接口，不能让第三�
 
 ## 在 Craft Hub 后台运行
 
-次级操作通过 Codex SDK，让提示词在全部已选择且受信任的项目根目录中运行。Craft Hub 会记录任务、展示状态，并保存对应的 Codex thread ID。
+次级操作通过 Codex SDK，让提示词在全部已选择且已授权 Craft Hub 执行的项目根目录中运行。Craft Hub 会记录任务、展示状态，并保存对应的 Codex thread ID。
 
 这种方式适合无人值守或跨项目任务。turn 仍在执行时，本地 thread 由 SDK 进程持有；此时在 Codex 中打开同一任务，可能出现“已在另一个应用中打开”。因此 Craft Hub 应在任务完成或停止、执行进程释放 thread 后，再提供**在 Codex 中打开**。
 
@@ -33,7 +33,8 @@ Codex App Server 是用于构建 Codex 富客户端的协议；单独启动的 A
 ## 安全边界
 
 - 打开 Codex 不会自动执行提示词。
-- 写入剪贴板的内容仅限用户输入的提示词。
-- 后台执行仍要求显式信任全部所选项目。
+- 写入剪贴板的内容仅限明确的 Craft Hub Workspace ID 和用户输入的提示词。
+- 在 Codex 中打开项目不要求 Craft Hub 执行授权；工作区访问、sandbox 和审批由 Codex 负责。
+- 后台执行仍要求全部所选项目显式授权 Craft Hub 执行。
 - 项目启动使用结构化命令参数并设置 `shell: false`。
 - Craft Hub 不使用 AppleScript、辅助功能自动化或未公开的桌面 IPC 点击“发送”。

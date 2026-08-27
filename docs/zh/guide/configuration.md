@@ -20,11 +20,41 @@ capabilities:
 
 ## MCP 初始化
 
-Agent 可以通过 MCP 的 `init_project_config` 工具初始化这个可选文件。`preview` 返回建议写入的完整 YAML 和内容 revision，但不会写文件；`apply` 要求项目已受信任，并携带该次预览返回且未发生变化的 revision。
+Agent 可以通过 MCP 的 `init_project_config` 工具初始化这个可选文件。`preview` 返回建议写入的完整 YAML 和内容 revision，但不会写文件；`apply` 要求项目已授权 Craft Hub 执行，并携带该次预览返回且未发生变化的 revision。
 
 初始化只会创建缺失的 `.craft-hub/project.yaml`。如果文件已经存在，Craft Hub 会返回当前内容并保持逐字节不变，包括注释和下游扩展字段。
 
 `hidden` 条目可以填写能力名称、能力 ID，或 `package.json:release` 这样的“来源:名称”。`descriptions` 使用同样的键，并会在命令列表的命令名下方显示简介。描述既可以沿用单个字符串，也可以使用以 BCP 47 语言标签为键的多语言映射；Craft Hub 会依次匹配当前语言、上级语言标签和 `default`。当不同来源存在同名命令时，建议使用“来源:名称”。
+
+## 参数化命令
+
+`capabilities.inputs` 可以为已发现的命令声明表单字段。Craft Hub 在界面中把
+`select` 渲染为下拉框、把 `text` 渲染为文本框；runtime 会校验值并将其作为独立
+argv 参数追加，不会拼装 shell 字符串。
+
+```yaml
+capabilities:
+  inputs:
+    apps/liteapp/package.json:deploy:
+      environment:
+        type: select
+        label: 部署环境
+        options: [dev, rdm]
+        default: dev
+        flag: --env
+      uin:
+        type: text
+        label: UIN
+        pattern: '^\d+$'
+        flag: --uin
+        visibleWhen: {input: environment, equals: dev}
+        requiredWhen: {input: environment, equals: dev}
+```
+
+输入项支持 `equals`（默认，生成 `--env=dev`）与 `separate`（生成 `--env dev`）
+两种 `argumentStyle`。下拉框必须声明 `options`；文本框可以通过 `pattern` 校验。
+`visibleWhen` 控制条件显示，`requiredWhen` 控制条件必填。所有输入在预览和实际执行时
+都会由 runtime 再次校验。
 
 ## 可移植工作空间
 
@@ -41,9 +71,9 @@ members:
   - project: dotfiles
 ```
 
-成员 key、顺序、置顶和主要项目可以通过私有 dotfiles 仓库同步。绝对路径、trust、本机 binding、当前选择、运行历史、凭证和 Codex thread ID 仍保存在操作系统数据目录中，不应同步。新设备上无法解析的成员会继续显示，直到绑定本机已注册项目；binding 不会转移 trust。
+成员 key、顺序、置顶和主要项目可以通过私有 dotfiles 仓库同步。绝对路径、Craft Hub 执行授权、本机 binding、当前选择、运行历史、凭证和 Codex thread ID 仍保存在操作系统数据目录中，不应同步。新设备上无法解析的成员会继续显示，直到绑定本机已注册项目；binding 不会转移执行授权。
 
-项目图标可以填写仓库内的 SVG/PNG 相对路径、`emoji:<字符>`，或 `builtin:folder`、`builtin:hub`、`builtin:skill`、`builtin:terminal`。文件路径只能解析到项目目录内；无效或越界路径会回退为文件夹图标，并显示非阻塞警告。可选的 `color` 只接受 `blue`、`cyan`、`green`、`orange`、`pink`、`purple`、`red`、`yellow`。强调色用于识别项目，不会覆盖信任或运行状态的语义色。
+项目图标可以填写仓库内的 SVG/PNG 相对路径、`emoji:<字符>`，或 `builtin:folder`、`builtin:hub`、`builtin:skill`、`builtin:terminal`。文件路径只能解析到项目目录内；无效或越界路径会回退为文件夹图标，并显示非阻塞警告。可选的 `color` 只接受 `blue`、`cyan`、`green`、`orange`、`pink`、`purple`、`red`、`yellow`。强调色用于识别项目，不会覆盖执行授权或运行状态的语义色。
 
 ## 全局用户设置
 
@@ -63,7 +93,7 @@ members:
 }
 ```
 
-桌面端的设置弹窗可以打开此文件，也可以导入或导出便携 JSON。精简导出只包含用户明确修改的值，完整快照包含全部有效且非敏感的设置。项目信任、项目注册记录、运行历史、用户名和机器路径永远不会导出。替换导入前会自动备份，并保留最近五份。
+桌面端的设置弹窗可以打开此文件，也可以导入或导出便携 JSON。精简导出只包含用户明确修改的值，完整快照包含全部有效且非敏感的设置。Craft Hub 执行授权、项目注册记录、运行历史、用户名和机器路径永远不会导出。替换导入前会自动备份，并保留最近五份。
 
 置顶的命令与 Skill 属于直接操作产生的本机工作台状态。混合排序保存在同一数据目录下的 `workspace-state.json` 中，不参与设置导入或导出。
 

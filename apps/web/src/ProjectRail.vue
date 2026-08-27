@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { ProjectAccentColor, ProjectRecord, WorkspaceRecord } from 'craft-hub'
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { DialogContent, DialogDescription, DialogOverlay, DialogPortal, DialogRoot, DialogTitle } from 'reka-ui'
 import AppearanceDialog from './AppearanceDialog.vue'
 import CompactEditableField from './CompactEditableField.vue'
@@ -31,15 +31,17 @@ const workspaceGroupError = ref('')
 const workspaceGroupSubmitting = ref(false)
 const path = ref('')
 const error = ref('')
+const railActionError = ref('')
 const submitting = ref(false)
 const searchQuery = ref('')
 const groupFilter = ref('all')
 const collapsedGroupIds = ref<string[]>([])
+const workspaceGroupUiStorageKey = 'craft-hub-workspace-group-ui'
 const draggedWorkspaceId = ref('')
 const normalizedSearch = computed(() => searchQuery.value.trim().toLocaleLowerCase())
-const contextMenu = ref<{ kind: 'workspace' | 'project', id: string, workspaceId?: string, x: number, y: number }>()
+const contextMenu = ref<{ kind: 'workspace-group' | 'workspace' | 'workspace-member' | 'project', id: string, workspaceId?: string, x: number, y: number }>()
 const appearanceOpen = ref(false)
-const appearanceTarget = ref<{ kind: 'workspace' | 'project', id: string, workspaceId?: string, title: string, note?: string, icon?: string, color?: ProjectAccentColor }>()
+const appearanceTarget = ref<{ kind: 'workspace-group' | 'workspace' | 'project', id: string, workspaceId?: string, title: string, note?: string, icon?: string, color?: ProjectAccentColor }>()
 const addExistingOpen = ref(false)
 const addExistingWorkspaceId = ref('')
 const selectedExistingProjectIds = ref<string[]>([])
@@ -106,7 +108,11 @@ function ungroupedWorkspaceCount(): number {
 }
 
 function workspaceGroupName(groupId: string): string {
-  return store.workspaceGroups.find(group => group.id === groupId)?.name ?? groupId
+  return workspaceGroup(groupId)?.name ?? groupId
+}
+
+function workspaceGroup(groupId: string) {
+  return store.workspaceGroups.find(group => group.id === groupId)
 }
 
 function isGroupCollapsed(groupId: string): boolean {
@@ -119,7 +125,21 @@ function toggleGroup(groupId: string): void {
     : [...collapsedGroupIds.value, groupId]
 }
 
+watch([groupFilter, collapsedGroupIds], () => {
+  window.localStorage.setItem(workspaceGroupUiStorageKey, JSON.stringify({
+    filter: groupFilter.value,
+    collapsed: collapsedGroupIds.value,
+  }))
+}, { deep: true })
+
+watch(() => store.workspaceGroups.map(group => group.id), (groupIds) => {
+  collapsedGroupIds.value = collapsedGroupIds.value.filter(id => groupIds.includes(id))
+  if (groupFilter.value !== 'all' && groupFilter.value !== 'ungrouped' && !groupIds.includes(groupFilter.value))
+    groupFilter.value = 'all'
+})
+
 async function deleteWorkspaceGroup(groupId: string): Promise<void> {
+  closeContextMenu()
   if (!window.confirm(t('confirmDeleteWorkspaceGroup', { name: workspaceGroupName(groupId) })))
     return
   if (groupFilter.value === groupId)
@@ -135,6 +155,7 @@ function openCreateWorkspaceGroup(): void {
 }
 
 function openRenameWorkspaceGroup(groupId: string): void {
+  closeContextMenu()
   workspaceGroupEditingId.value = groupId
   workspaceGroupDraft.value = workspaceGroupName(groupId)
   workspaceGroupError.value = ''
@@ -179,6 +200,17 @@ function closeContextMenu(): void {
   contextMenu.value = undefined
 }
 
+async function removeContextProject(workspaceId: string, projectIdOrKey: string): Promise<void> {
+  closeContextMenu()
+  railActionError.value = ''
+  try {
+    await store.removeProjectFromWorkspace(workspaceId, projectIdOrKey)
+  }
+  catch (caught) {
+    railActionError.value = t('removeFromWorkspaceFailed', { message: caught instanceof Error ? caught.message : String(caught) })
+  }
+}
+
 function openWorkspaceContextMenu(event: MouseEvent, workspace: WorkspaceRecord): void {
   contextMenu.value = {
     kind: 'workspace',
@@ -198,16 +230,66 @@ function openProjectContextMenu(event: MouseEvent, project: ProjectRecord, works
   }
 }
 
-function openAppearance(kind: 'workspace' | 'project', id: string, workspaceId?: string): void {
-  const target = kind === 'workspace'
-    ? store.workspaces.find(item => item.id === id)
-    : store.projects.find(item => item.id === id)
+function openWorkspaceMemberContextMenu(event: MouseEvent, workspace: WorkspaceRecord, member: WorkspaceRecord['members'][number]): void {
+  contextMenu.value = {
+    kind: 'workspace-member',
+    id: member.project,
+    workspaceId: workspace.id,
+    x: Math.min(event.clientX, window.innerWidth - 232),
+    y: Math.min(event.clientY, window.innerHeight - 180),
+  }
+}
+
+function contextWorkspaceMember() {
+  const menu = contextMenu.value
+  if ((menu?.kind !== 'project' && menu?.kind !== 'workspace-member') || !menu.workspaceId)
+    return undefined
+  const workspace = store.workspaces.find(item => item.id === menu.workspaceId)
+  return menu.kind === 'project'
+    ? workspace?.members.find(member => member.projectId === menu.id)
+    : workspace?.members.find(member => member.project === menu.id)
+}
+
+async function toggleContextProjectPin(): Promise<void> {
+  const menu = contextMenu.value
+  if (menu?.kind !== 'project' || !menu.workspaceId)
+    return
+  const workspace = store.workspaces.find(item => item.id === menu.workspaceId)
+  if (!workspace || !workspace.members.some(member => member.projectId === menu.id))
+    return
+  closeContextMenu()
+  await store.toggleWorkspaceProjectPin(workspace, menu.id)
+}
+
+function openWorkspaceGroupContextMenu(event: MouseEvent, groupId: string): void {
+  const target = event.currentTarget as HTMLElement
+  const rect = target.getBoundingClientRect()
+  const anchored = event.type === 'click' || (event.clientX === 0 && event.clientY === 0)
+  contextMenu.value = {
+    kind: 'workspace-group',
+    id: groupId,
+    x: Math.min(anchored ? rect.right - 220 : event.clientX, window.innerWidth - 232),
+    y: Math.min(anchored ? rect.bottom + 4 : event.clientY, window.innerHeight - 180),
+  }
+}
+
+function openAppearance(kind: 'workspace-group' | 'workspace' | 'project', id: string, workspaceId?: string): void {
+  const target = kind === 'workspace-group'
+    ? workspaceGroup(id)
+    : kind === 'workspace'
+      ? store.workspaces.find(item => item.id === id)
+      : store.projects.find(item => item.id === id)
   if (!target)
     return
   const note = kind === 'project' && workspaceId
     ? store.workspaces.find(item => item.id === workspaceId)?.members.find(member => member.projectId === id)?.label
     : undefined
-  appearanceTarget.value = { kind, id, workspaceId, title: target.name, note, icon: target.icon, color: target.color }
+  const color = kind === 'workspace-group'
+    ? undefined
+    : kind === 'workspace'
+      ? store.workspaces.find(item => item.id === id)?.color
+      : store.projects.find(item => item.id === id)?.color
+  appearanceTarget.value = { kind, id, workspaceId, title: target.name, note, icon: target.icon, color }
   appearanceOpen.value = true
   closeContextMenu()
 }
@@ -216,7 +298,10 @@ async function saveAppearance(appearance: { name?: string, note?: string, icon?:
   const target = appearanceTarget.value
   if (!target)
     return
-  if (target.kind === 'workspace') {
+  if (target.kind === 'workspace-group') {
+    await store.setWorkspaceGroupAppearance(target.id, appearance.icon)
+  }
+  else if (target.kind === 'workspace') {
     const workspace = store.workspaces.find(item => item.id === target.id)
     if (workspace)
       await store.setWorkspaceAppearance(workspace, { name: appearance.name ?? workspace.name, icon: appearance.icon, color: appearance.color })
@@ -255,6 +340,17 @@ async function addProjectFoldersToWorkspace(workspaceId: string): Promise<void> 
 }
 
 onMounted(() => {
+  try {
+    const stored = JSON.parse(window.localStorage.getItem(workspaceGroupUiStorageKey) ?? '{}') as { filter?: unknown, collapsed?: unknown }
+    const groupIds = store.workspaceGroups.map(group => group.id)
+    if (stored.filter === 'all' || stored.filter === 'ungrouped' || (typeof stored.filter === 'string' && groupIds.includes(stored.filter)))
+      groupFilter.value = stored.filter
+    if (Array.isArray(stored.collapsed) && stored.collapsed.every(id => typeof id === 'string'))
+      collapsedGroupIds.value = stored.collapsed.filter(id => groupIds.includes(id))
+  }
+  catch {
+    window.localStorage.removeItem(workspaceGroupUiStorageKey)
+  }
   window.addEventListener('click', closeContextMenu)
   window.addEventListener('blur', closeContextMenu)
 })
@@ -377,7 +473,19 @@ async function importVscodeWorkspaces(): Promise<void> {
   if (!sourceDirectory)
     return
   try {
-    await store.importVscodeWorkspaces(sourceDirectory)
+    const preview = await store.previewVscodeWorkspaces(sourceDirectory)
+    if (!preview.canImport)
+      throw new Error([...preview.conflicts, ...preview.diagnostics.map(item => item.message)].join('; '))
+    const members = preview.workspaces.flatMap(workspace => workspace.members)
+    const confirmed = window.confirm(t('workspaceImportPreview', {
+      workspaces: String(preview.workspaces.length),
+      registered: String(members.filter(member => member.status === 'registered').length),
+      available: String(members.filter(member => member.status === 'available').length),
+      missing: String(members.filter(member => member.status === 'missing').length),
+    }))
+    if (!confirmed)
+      return
+    await store.importVscodeWorkspaces(sourceDirectory, preview.groupName, preview.revision)
     workspaceDialogOpen.value = false
   }
   catch (caught) {
@@ -494,16 +602,20 @@ async function addProjectPath(projectPath: string): Promise<void> {
           <input v-model="searchQuery" type="search" :placeholder="t('searchProjectsWorkspaces')" :aria-label="t('searchProjectsWorkspaces')">
           <button v-if="searchQuery" type="button" :aria-label="t('clearSearch')" @click="searchQuery = ''"><Icon name="close" /></button>
         </label>
-        <label v-if="store.workspaceGroups.length" class="collection-filter">
-          <Icon name="collection" />
-          <span class="sr-only">{{ t('workspaceGroupFilter') }}</span>
-          <select v-model="groupFilter" :aria-label="t('workspaceGroupFilter')">
-            <option value="all">{{ t('allWorkspaceGroups') }}</option>
-            <option value="ungrouped">{{ t('ungroupedWorkspaces') }}</option>
-            <option v-for="group in store.workspaceGroups" :key="group.id" :value="group.id">{{ group.name }}</option>
-          </select>
-        </label>
-        <button class="rail-icon-action" type="button" data-testid="add-workspace-group" :aria-label="t('createWorkspaceGroup')" :title="t('createWorkspaceGroup')" @click="openCreateWorkspaceGroup"><Icon name="collection" /></button>
+        <div class="workspace-group-toolbar">
+          <label v-if="store.workspaceGroups.length" class="collection-filter">
+            <Icon name="collection" />
+            <span class="sr-only">{{ t('workspaceGroupFilter') }}</span>
+            <select v-model="groupFilter" :aria-label="t('workspaceGroupFilter')">
+              <option value="all">{{ t('allWorkspaceGroups') }}</option>
+              <option value="ungrouped">{{ t('ungroupedWorkspaces') }}</option>
+              <option v-for="group in store.workspaceGroups" :key="group.id" :value="group.id">{{ group.name }}</option>
+            </select>
+          </label>
+          <button class="rail-icon-action workspace-group-create" :class="{ labelled: !store.workspaceGroups.length }" type="button" data-testid="add-workspace-group" :aria-label="t('createWorkspaceGroup')" :title="t('createWorkspaceGroup')" @click="openCreateWorkspaceGroup">
+            <Icon name="collection" /><span v-if="!store.workspaceGroups.length">{{ t('createWorkspaceGroup') }}</span>
+          </button>
+        </div>
       </div>
       <div class="rail-list">
       <div
@@ -512,15 +624,14 @@ async function addProjectPath(projectPath: string): Promise<void> {
         class="unassigned-heading collection-heading empty-workspace-group"
         @dragover.prevent
         @drop.prevent="dropWorkspaceIntoGroup(group.id)"
+        @contextmenu.prevent="openWorkspaceGroupContextMenu($event, group.id)"
       >
         <button class="collection-toggle" aria-expanded="false" @click="toggleGroup(group.id)">
           <Icon name="arrowRight" />
-          <span class="collection-icon"><Icon name="collection" /></span>
+          <span class="collection-icon"><VisualIcon :icon="group.icon" fallback="collection" /></span>
           <span class="collection-copy"><strong>{{ group.name }}</strong></span>
           <small class="collection-count">0</small>
         </button>
-        <button class="rail-icon-action" :aria-label="t('renameWorkspaceGroup')" :title="t('renameWorkspaceGroup')" @click="openRenameWorkspaceGroup(group.id)"><Icon name="edit" /></button>
-        <button class="rail-icon-action workspace-group-delete" :aria-label="t('deleteWorkspaceGroup')" :title="t('deleteWorkspaceGroup')" @click="deleteWorkspaceGroup(group.id)"><Icon name="close" /></button>
       </div>
       <template v-for="(workspace, workspaceIndex) in filteredWorkspaces" :key="workspace.id">
         <div
@@ -528,17 +639,16 @@ async function addProjectPath(projectPath: string): Promise<void> {
           class="unassigned-heading collection-heading"
           @dragover.prevent
           @drop.prevent="dropWorkspaceIntoGroup(workspace.groupId)"
+          @contextmenu.prevent="openWorkspaceGroupContextMenu($event, workspace.groupId)"
         >
           <button class="collection-toggle" :aria-expanded="!isGroupCollapsed(workspace.groupId)" @click="toggleGroup(workspace.groupId)">
             <Icon name="arrowRight" :class="{ expanded: !isGroupCollapsed(workspace.groupId) }" />
-            <span class="collection-icon"><Icon name="collection" /></span>
+            <span class="collection-icon"><VisualIcon :icon="workspaceGroup(workspace.groupId)?.icon" fallback="collection" /></span>
             <span class="collection-copy">
               <strong>{{ workspaceGroupName(workspace.groupId) }}</strong>
             </span>
             <small class="collection-count">{{ groupWorkspaceCount(workspace.groupId) }}</small>
           </button>
-          <button class="rail-icon-action" :aria-label="t('renameWorkspaceGroup')" :title="t('renameWorkspaceGroup')" @click="openRenameWorkspaceGroup(workspace.groupId)"><Icon name="edit" /></button>
-          <button class="rail-icon-action workspace-group-delete" :aria-label="t('deleteWorkspaceGroup')" :title="t('deleteWorkspaceGroup')" @click="deleteWorkspaceGroup(workspace.groupId)"><Icon name="close" /></button>
         </div>
         <div
           v-if="groupFilter === 'all' && store.workspaceGroups.length && isFirstUngroupedWorkspace(workspace, workspaceIndex)"
@@ -592,12 +702,8 @@ async function addProjectPath(projectPath: string): Promise<void> {
                   :title="t(store.projects.find(project => project.id === member.projectId)!.trust === 'trusted' ? 'trusted' : 'untrusted')"
                 ><Icon :name="store.projects.find(project => project.id === member.projectId)!.trust" /></span>
               </button>
-              <button class="member-pin" :aria-label="t(member.pinned ? 'unpinProject' : 'pinProject')" @click="store.toggleWorkspaceProjectPin(workspace, member.projectId)">
-                <Icon :name="member.pinned ? 'starFilled' : 'star'" />
-              </button>
-              <button class="member-pin danger-hover" :aria-label="t('removeFromWorkspace')" @click="store.removeProjectFromWorkspace(workspace.id, member.projectId)"><Icon name="close" /></button>
             </template>
-            <div v-else class="project-row nested unresolved">
+            <div v-else class="project-row nested unresolved" @contextmenu.stop.prevent="openWorkspaceMemberContextMenu($event, workspace, member)">
               <span
                 class="member-source-status"
                 :class="{ available: member.path }"
@@ -608,7 +714,6 @@ async function addProjectPath(projectPath: string): Promise<void> {
             </div>
             <template v-if="!member.projectId">
               <button class="member-pin" :aria-label="t(member.path ? 'addProject' : 'locateProject')" :title="t(member.path ? 'addProject' : 'locateProject')" @click="locateProject(workspace, member)"><Icon :name="member.path ? 'plus' : 'folder'" /></button>
-              <button class="member-pin danger-hover" :aria-label="t('removeFromWorkspace')" @click="store.removeProjectFromWorkspace(workspace.id, member.project)"><Icon name="close" /></button>
             </template>
           </div>
         </div>
@@ -641,6 +746,7 @@ async function addProjectPath(projectPath: string): Promise<void> {
         </button>
       </section>
       <p v-if="normalizedSearch && !hasSearchResults" class="rail-search-empty">{{ t('noProjectWorkspaceMatches') }}</p>
+      <p v-if="railActionError" class="error-message rail-action-error" role="alert">{{ railActionError }}</p>
       <button class="add-project" data-testid="add-project" @click="openAddProject">
         <Icon name="plus" /> {{ t('addProject') }}
       </button>
@@ -772,7 +878,14 @@ async function addProjectPath(projectPath: string): Promise<void> {
     @click.stop
     @contextmenu.prevent
   >
-    <template v-if="contextMenu.kind === 'workspace'">
+    <template v-if="contextMenu.kind === 'workspace-group'">
+      <strong>{{ workspaceGroupName(contextMenu.id) }}</strong>
+      <button role="menuitem" @click="openRenameWorkspaceGroup(contextMenu!.id)"><Icon name="edit" />{{ t('renameWorkspaceGroup') }}</button>
+      <button role="menuitem" @click="openAppearance('workspace-group', contextMenu!.id)"><Icon name="palette" />{{ t('appearance') }}</button>
+      <span class="context-menu-separator" />
+      <button class="danger-menu-item" role="menuitem" @click="deleteWorkspaceGroup(contextMenu!.id)"><Icon name="close" />{{ t('deleteWorkspaceGroup') }}</button>
+    </template>
+    <template v-else-if="contextMenu.kind === 'workspace'">
       <strong>{{ store.workspaces.find(workspace => workspace.id === contextMenu!.id)?.name }}</strong>
       <button role="menuitem" @click="openAddExisting(contextMenu!.id)"><Icon name="plus" />{{ t('addExistingProjects') }}</button>
       <button role="menuitem" @click="addProjectFoldersToWorkspace(contextMenu!.id)"><Icon name="folder" />{{ t('addProjectFolders') }}</button>
@@ -802,14 +915,27 @@ async function addProjectPath(projectPath: string): Promise<void> {
         @click="confirmDeleteWorkspace(store.workspaces.find(workspace => workspace.id === contextMenu!.id)!); closeContextMenu()"
       ><Icon name="close" />{{ t('deleteWorkspace') }}</button>
     </template>
-    <template v-else>
+    <template v-else-if="contextMenu.kind === 'project'">
       <strong>{{ store.projects.find(project => project.id === contextMenu!.id)?.name }}</strong>
       <button role="menuitem" @click="openAppearance('project', contextMenu!.id, contextMenu!.workspaceId)"><Icon name="palette" />{{ t('appearance') }}</button>
+      <button
+        v-if="contextWorkspaceMember()"
+        role="menuitem"
+        @click="toggleContextProjectPin"
+      ><Icon :name="contextWorkspaceMember()!.pinned ? 'starFilled' : 'star'" />{{ t(contextWorkspaceMember()!.pinned ? 'unpinProject' : 'pinProject') }}</button>
       <button
         v-if="contextMenu.workspaceId"
         class="danger-menu-item"
         role="menuitem"
-        @click="store.removeProjectFromWorkspace(contextMenu!.workspaceId!, contextMenu!.id); closeContextMenu()"
+        @click="removeContextProject(contextMenu!.workspaceId!, contextMenu!.id)"
+      ><Icon name="close" />{{ t('removeFromWorkspace') }}</button>
+    </template>
+    <template v-else>
+      <strong>{{ contextWorkspaceMember()?.label || contextWorkspaceMember()?.project }}</strong>
+      <button
+        class="danger-menu-item"
+        role="menuitem"
+        @click="removeContextProject(contextMenu!.workspaceId!, contextMenu!.id)"
       ><Icon name="close" />{{ t('removeFromWorkspace') }}</button>
     </template>
   </div>
@@ -848,6 +974,8 @@ async function addProjectPath(projectPath: string): Promise<void> {
     :editable-note="appearanceTarget.kind === 'project' && Boolean(appearanceTarget.workspaceId)"
     :icon="appearanceTarget.icon"
     :color="appearanceTarget.color"
+    :fallback-icon="appearanceTarget.kind === 'workspace-group' ? 'collection' : 'workspace'"
+    :show-color="appearanceTarget.kind !== 'workspace-group'"
     @update:open="appearanceOpen = $event"
     @save="saveAppearance"
   />

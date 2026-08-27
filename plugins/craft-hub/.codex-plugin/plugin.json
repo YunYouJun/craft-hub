@@ -1,7 +1,7 @@
 {
   "name": "craft-hub",
   "version": "0.1.0",
-  "description": "Register and inspect local projects, organize workspaces, initialize project configuration, and hand trusted project commands to Craft Hub from Codex.",
+  "description": "Register and inspect local projects, organize workspaces, initialize project configuration, and hand authorized project commands to Craft Hub from Codex.",
   "author": {
     "name": "YunYouJun",
     "url": "https://github.com/YunYouJun"
@@ -13,7 +13,7 @@
   "skills": "./skills/",
   "interface": {
     "displayName": "Craft Hub",
-    "shortDescription": "Organize projects and preview trusted commands.",
+    "shortDescription": "Organize projects and preview authorized commands.",
     "longDescription": "Use Craft Hub as a thin project control plane from Codex. Register local projects, organize portable workspaces, safely initialize project configuration, inspect discovered capabilities, preview commands, and hand off execution without recreating the Codex client.",
     "developerName": "YunYouJun",
     "category": "Productivity",

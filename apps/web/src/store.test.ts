@@ -72,6 +72,66 @@ describe('workbench refresh', () => {
     expect(capabilityRequests).toBe(2)
   })
 
+  it('coalesces concurrent full refresh requests', async () => {
+    let releaseProjects!: () => void
+    const projectsReady = new Promise<void>((resolve) => {
+      releaseProjects = resolve
+    })
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const path = typeof input === 'string' ? input : input.toString()
+      if (path === '/api/projects') {
+        projectRequests += 1
+        await projectsReady
+        return new Response(JSON.stringify([project]), { status: 200 })
+      }
+      if (path.includes('/agent-actions'))
+        return new Response(JSON.stringify([]), { status: 200 })
+      if (path.endsWith('/pins'))
+        return new Response(JSON.stringify({ projectId: project.id, capabilityIds: [] }), { status: 200 })
+      return new Response(JSON.stringify({ capabilities, diagnostics: [] }), { status: 200 })
+    }))
+    const store = useWorkbenchStore()
+
+    const first = store.refreshProjects()
+    const second = store.refreshProjects()
+    await Promise.resolve()
+
+    expect(projectRequests).toBe(1)
+
+    releaseProjects()
+    await Promise.all([first, second])
+    expect(projectRequests).toBe(1)
+  })
+
+  it('keeps workspace projects available when another project capability scan fails', async () => {
+    const brokenProject = { ...project, id: 'broken', name: 'Broken', path: '/broken' }
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const path = typeof input === 'string' ? input : input.toString()
+      if (path === '/api/projects')
+        return new Response(JSON.stringify([project, brokenProject]), { status: 200 })
+      if (path.includes('/agent-actions'))
+        return new Response(JSON.stringify([]), { status: 200 })
+      if (path.includes('/projects/broken/'))
+        return new Response(JSON.stringify({ error: 'broken workspace metadata' }), { status: 500 })
+      if (path.endsWith('/pins'))
+        return new Response(JSON.stringify({ projectId: project.id, capabilityIds: [] }), { status: 200 })
+      return new Response(JSON.stringify({ capabilities, diagnostics: [] }), { status: 200 })
+    }))
+    const store = useWorkbenchStore()
+    store.workspaces = [{
+      schemaVersion: 1,
+      id: 'workspace',
+      name: 'Workspace',
+      members: [{ project: 'project', projectId: project.id, resolved: true }],
+      revision: 'revision',
+    }]
+
+    await expect(store.loadProjects()).resolves.toBeUndefined()
+
+    expect(store.projects.map(item => item.id)).toEqual(['project', 'broken'])
+    expect(store.workspaceProjects(store.workspaces[0]!)).toEqual([project])
+  })
+
   it('migrates the legacy locale only when the file has no explicit locale', async () => {
     window.localStorage.setItem('craft-hub-locale', 'zh-CN')
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -400,5 +460,31 @@ describe('owned workspace groups', () => {
       { method: 'POST', path: '/api/workspace-groups' },
       { method: 'PUT', path: '/api/workspaces/pair/group' },
     ]))
+  })
+
+  it('updates a workspace group icon as portable appearance', async () => {
+    const requests: Array<{ body?: string, method: string, path: string }> = []
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = typeof input === 'string' ? input : input.toString()
+      const method = init?.method ?? 'GET'
+      requests.push({ body: init?.body?.toString(), method, path })
+      if (path === '/api/workspace-groups/product-group' && method === 'PATCH')
+        return new Response(JSON.stringify({ id: 'product-group', name: 'Product group', icon: 'emoji:📦' }))
+      if (path === '/api/workspaces')
+        return new Response(JSON.stringify([]))
+      if (path === '/api/workspace-groups')
+        return new Response(JSON.stringify([{ id: 'product-group', name: 'Product group', icon: 'emoji:📦' }]))
+      throw new Error(`Unexpected request: ${method} ${path}`)
+    }))
+    const store = useWorkbenchStore()
+
+    await store.setWorkspaceGroupAppearance('product-group', 'emoji:📦')
+
+    expect(requests).toContainEqual({
+      body: JSON.stringify({ icon: 'emoji:📦' }),
+      method: 'PATCH',
+      path: '/api/workspace-groups/product-group',
+    })
+    expect(store.workspaceGroups).toEqual([{ id: 'product-group', name: 'Product group', icon: 'emoji:📦' }])
   })
 })

@@ -103,6 +103,73 @@ describe('capability list', () => {
     expect(window.localStorage.getItem(`craft-hub-capability-groups:${project.id}`)).toContain('apps/liteapp')
   })
 
+  it('summarizes monorepo packages and scopes commands when a package is selected', async () => {
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    const store = useWorkbenchStore()
+    store.selectedProjectId = 'monorepo'
+    store.commandPackagesByProject = {
+      monorepo: [
+        { name: 'root', relativePath: '.', root: true },
+        { name: '@scope/web', description: 'Web application for Craft Hub.', relativePath: 'apps/web', root: false },
+        { name: '@scope/config', description: 'Shared lint config.', relativePath: 'packages/config', root: false },
+      ],
+    }
+    store.capabilities = [
+      {
+        id: 'root-dev',
+        kind: 'command',
+        name: 'dev',
+        source: 'package.json',
+        category: 'develop',
+        package: { name: 'root', relativePath: '.', root: true },
+        invocation: { command: 'pnpm', args: ['run', 'dev'], cwd: '/project', requiredEnv: [] },
+      },
+      {
+        id: 'app-build',
+        kind: 'command',
+        name: 'build',
+        source: 'apps/web/package.json',
+        category: 'build',
+        package: { name: '@scope/web', relativePath: 'apps/web', root: false },
+        invocation: { command: 'pnpm', args: ['run', 'build'], cwd: '/project/apps/web', requiredEnv: [] },
+      },
+      {
+        id: 'app-test',
+        kind: 'command',
+        name: 'test',
+        source: 'apps/web/package.json',
+        category: 'test',
+        package: { name: '@scope/web', relativePath: 'apps/web', root: false },
+        invocation: { command: 'pnpm', args: ['run', 'test'], cwd: '/project/apps/web', requiredEnv: [] },
+      },
+    ]
+    const wrapper = mount(CapabilityList, { global: { plugins: [pinia] } })
+
+    const packagesTab = wrapper.findAll('.filters button').find(button => button.text().includes('Packages'))!
+    await packagesTab.trigger('click')
+    expect(wrapper.get('.package-overview-summary').text()).toContain('3 packages · 3 commands')
+    expect(wrapper.findAll('.package-overview-row').map(row => row.text())).toEqual([
+      expect.stringContaining('Project root'),
+      expect.stringContaining('apps/web'),
+      expect.stringContaining('packages/config'),
+    ])
+    expect(wrapper.findAll('.package-overview-row')[1]!.get('small').text()).toBe('@scope/web · Web application for Craft Hub.')
+
+    await wrapper.get('.search-box input').setValue('Shared lint config')
+    expect(wrapper.findAll('.package-overview-row').map(row => row.text())).toEqual([
+      expect.stringContaining('packages/config'),
+    ])
+    await wrapper.get('.search-box input').setValue('')
+
+    await wrapper.findAll('.package-overview-row')[1]!.trigger('click')
+    expect(wrapper.get('.package-scope-filter').text()).toContain('apps/web')
+    expect(wrapper.findAll('.capability-row strong').map(row => row.text())).toEqual(['build', 'test'])
+
+    await wrapper.get('.package-scope-filter').trigger('click')
+    expect(wrapper.findAll('.capability-row strong').map(row => row.text())).toEqual(['dev', 'build', 'test'])
+  })
+
   it('shows mixed pins first and supports direct and keyboard reordering controls', async () => {
     const project: ProjectRecord = {
       id: 'project',
@@ -169,6 +236,8 @@ describe('capability list', () => {
     const wrapper = mount(CapabilityList, { global: { plugins: [pinia] } })
 
     expect(wrapper.get('.agent-action-hint').text()).toContain('2 command(s)')
+    expect(wrapper.get('.capability-notices').element.children[0]).toBe(wrapper.get('.agent-action-hint').element)
+    expect(wrapper.get('.capability-list').element.previousElementSibling).toBe(wrapper.get('.capability-notices').element)
     await wrapper.get('.agent-action-hint-main').trigger('click')
     expect(store.agentActionDialogOpen).toBe(true)
     await wrapper.get('.agent-action-hint-dismiss').trigger('click')

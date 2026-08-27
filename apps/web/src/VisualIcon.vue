@@ -1,14 +1,14 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { Icon, type IconName } from './icons'
+import { Icon, type IconName, visualIconNames } from './icons'
 
-const props = withDefaults(defineProps<{ icon?: string, fallback?: IconName }>(), { fallback: 'hub' })
+const props = withDefaults(defineProps<{ icon?: string, fallback?: IconName }>(), { fallback: 'workspace' })
 const emoji = computed(() => props.icon?.startsWith('emoji:') ? props.icon.slice('emoji:'.length) : '')
 const builtin = computed<IconName | undefined>(() => {
   if (!props.icon?.startsWith('builtin:'))
     return undefined
   const name = props.icon.slice('builtin:'.length)
-  return ['folder', 'hub', 'skill', 'terminal', 'workspace'].includes(name) ? name as IconName : undefined
+  return visualIconNames.includes(name as typeof visualIconNames[number]) ? name as IconName : undefined
 })
 </script>
 

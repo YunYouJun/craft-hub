@@ -24,6 +24,7 @@ describe('project watcher', () => {
     const root = await mkdtemp(join(tmpdir(), 'craft-hub-watcher-'))
     await writeFile(join(root, 'package.json'), JSON.stringify({ scripts: { test: 'vitest' } }))
     await mkdir(join(root, 'apps', 'liteapp'), { recursive: true })
+    await mkdir(join(root, 'dist', 'generated'), { recursive: true })
     const project: ProjectRecord = {
       id: 'project',
       name: 'Project',
@@ -32,19 +33,23 @@ describe('project watcher', () => {
       addedAt: new Date().toISOString(),
     }
     const events: ProjectChangeEvent[] = []
-    const watcher = new ProjectWatcher(event => events.push(event), 30)
+    const watcher = new ProjectWatcher(event => events.push(event))
 
     try {
       await watcher.watch(project)
       const capabilityEvent = nextEvent(events, 0)
       await writeFile(join(root, 'package.json'), JSON.stringify({ scripts: { test: 'vitest --run' } }))
       await expect(capabilityEvent).resolves.toEqual({ projectId: 'project', scopes: ['capabilities'] })
+      // Let macOS FSEvents settle before creating a file in an existing nested directory.
+      await new Promise(resolve => setTimeout(resolve, 150))
 
       const workspaceCapabilityEvent = nextEvent(events, 1)
       await writeFile(join(root, 'apps', 'liteapp', 'package.json'), JSON.stringify({ scripts: { deploy: 'liteapp deploy' } }))
       await expect(workspaceCapabilityEvent).resolves.toEqual({ projectId: 'project', scopes: ['capabilities'] })
 
       await mkdir(join(root, '.craft-hub'), { recursive: true })
+      await new Promise(resolve => setTimeout(resolve, 250))
+      expect(events).toHaveLength(2)
       const projectEvent = nextEvent(events, 2)
       await writeFile(join(root, '.craft-hub', 'project.yaml'), 'version: 1\nproject:\n  name: Renamed\n')
       await writeFile(join(root, '.craft-hub', 'project.yaml'), 'version: 1\nproject:\n  name: Renamed Again\n')
@@ -54,6 +59,10 @@ describe('project watcher', () => {
       await writeFile(join(root, 'workspaces', 'pair.code-workspace'), '{ "folders": [] }')
 
       await writeFile(join(root, 'README.md'), 'not a capability source')
+      await new Promise(resolve => setTimeout(resolve, 80))
+      expect(events).toHaveLength(3)
+
+      await writeFile(join(root, 'dist', 'generated', 'package.json'), JSON.stringify({ scripts: { generated: 'true' } }))
       await new Promise(resolve => setTimeout(resolve, 80))
       expect(events).toHaveLength(3)
     }

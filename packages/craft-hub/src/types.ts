@@ -81,6 +81,7 @@ export interface WorkspaceRecord extends WorkspaceManifest {
 export interface WorkspaceGroup {
   id: string
   name: string
+  icon?: string
 }
 
 /** Portable workspace ordering and grouping catalog. */
@@ -115,13 +116,52 @@ export interface WorkspaceImportDiagnostic {
   message: string
 }
 
+/** One machine-local folder that would become an imported workspace member. */
+export interface WorkspaceImportMemberPreview {
+  name: string
+  path: string
+  projectId?: string
+  status: 'registered' | 'available' | 'missing'
+}
+
+/** One external workspace document validated for a pending import. */
+export interface WorkspaceImportWorkspacePreview {
+  name: string
+  path: string
+  members: WorkspaceImportMemberPreview[]
+}
+
+/** Read-only validation result for an external workspace import. */
+export interface WorkspaceImportPreview {
+  format: 'vscode-workspace'
+  sourceDirectory: string
+  groupName: string
+  workspaces: WorkspaceImportWorkspacePreview[]
+  diagnostics: WorkspaceImportDiagnostic[]
+  conflicts: string[]
+  revision: string
+  canImport: boolean
+}
+
+/** Post-write verification for a completed workspace import. */
+export interface WorkspaceImportValidation {
+  valid: boolean
+  issues: string[]
+  workspaceCount: number
+  memberCount: number
+  resolvedMemberCount: number
+  unresolvedMemberCount: number
+}
+
 /** Result of a user-initiated, one-time external workspace import. */
 export interface WorkspaceImportResult {
   format: 'vscode-workspace'
   sourceDirectory: string
+  sourceRevision: string
   group: WorkspaceGroup
   workspaces: WorkspaceRecord[]
   diagnostics: WorkspaceImportDiagnostic[]
+  validation: WorkspaceImportValidation
 }
 
 /** Human-readable source label for a capability. */
@@ -134,6 +174,8 @@ export type CommandCategory = 'build' | 'deploy' | 'develop' | 'other' | 'previe
 export interface CommandPackage {
   /** Package name declared in package.json, when present. */
   name?: string
+  /** Human-readable package summary declared in package.json, when present. */
+  description?: string
   /** Project-relative package directory. The project root is represented by '.'. */
   relativePath: string
   root: boolean
@@ -143,13 +185,15 @@ export interface CommandPackage {
 export interface CapabilityDiscoveryDiagnostic {
   message: string
   path: string
-  source: 'pnpm-workspace'
+  source: 'pnpm-workspace' | 'project'
 }
 
 /** Capabilities and non-fatal diagnostics produced by one discovery pass. */
 export interface CapabilityDiscoveryResult {
   capabilities: Capability[]
   diagnostics: CapabilityDiscoveryDiagnostic[]
+  /** Package boundaries found in a workspace, including packages without commands. */
+  packages?: CommandPackage[]
 }
 
 /** Structured command invocation discovered from a project. */
@@ -159,6 +203,37 @@ export interface CommandInvocation {
   cwd: string
   requiredEnv: string[]
 }
+
+/** Conditional visibility or requiredness for one command input. */
+export interface CommandInputCondition {
+  input: string
+  equals: string
+}
+
+/** One allowed value for a select command input. */
+export interface CommandInputOption {
+  value: string
+  label?: string
+}
+
+/** Project-owned form input that is resolved into structured command arguments. */
+export interface CommandInputDefinition {
+  id: string
+  type: 'select' | 'text'
+  label?: string
+  description?: string
+  options?: CommandInputOption[]
+  default?: string
+  required?: boolean
+  requiredWhen?: CommandInputCondition
+  visibleWhen?: CommandInputCondition
+  pattern?: string
+  flag: string
+  argumentStyle?: 'equals' | 'separate'
+}
+
+/** User-provided values for a parameterized command capability. */
+export type CommandInputValues = Record<string, string>
 
 /** Executable command capability. */
 export interface CommandCapability {
@@ -176,6 +251,9 @@ export interface CommandCapability {
   /** Built-in commands declare their package boundary; third-party providers may omit it. */
   package?: CommandPackage
   invocation: CommandInvocation
+  inputs?: CommandInputDefinition[]
+  /** Separator inserted before resolved inputs for package-manager script invocations. */
+  inputArgSeparator?: '--'
 }
 
 /** Agent-readable skill capability. */

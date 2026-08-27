@@ -52,9 +52,30 @@ describe('workspace Codex tasks', () => {
     await wrapper.get('form').trigger('submit')
     await flushPromises()
 
-    expect(startProjectInCodex).toHaveBeenCalledWith(project.id, 'Implement the feature')
+    expect(startProjectInCodex).toHaveBeenCalledWith(project.id, 'Use Craft Hub workspace workspace-id.\n\nImplement the feature')
     expect(wrapper.text()).toContain('prompt was copied')
     expect((wrapper.get('textarea').element as HTMLTextAreaElement).value).toBe('')
+  })
+
+  it('opens an execution-unauthorized primary project in Codex without enabling background execution', async () => {
+    const startProjectInCodex = vi.fn(async () => {})
+    window.craftHubDesktop = { startProjectInCodex }
+    const store = useWorkbenchStore()
+    store.projects = [{ ...project, trust: 'untrusted' }]
+    store.workspaces = [workspace]
+    store.selectedWorkspaceId = workspace.id
+    const wrapper = mount(WorkspaceDashboard)
+    await flushPromises()
+
+    await wrapper.get('textarea').setValue('Inspect the project')
+
+    expect(wrapper.get('[data-testid="start-in-codex"]').attributes('disabled')).toBeUndefined()
+    expect(wrapper.get('[data-testid="start-in-background"]').attributes('disabled')).toBeDefined()
+
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+
+    expect(startProjectInCodex).toHaveBeenCalledWith(project.id, 'Use Craft Hub workspace workspace-id.\n\nInspect the project')
   })
 
   it('keeps unattended SDK execution in the secondary menu', async () => {
@@ -110,6 +131,6 @@ describe('workspace Codex tasks', () => {
     expect(wrapper.text()).not.toContain('missing')
     expect(wrapper.get('.member-source-status.available').attributes('title')).toBe('Available to add')
     expect(wrapper.findAll('.member-source-status')[1]!.attributes('title')).toBe('Not found on this device')
-    expect(wrapper.get('.workspace-member-card .project-trust').attributes('title')).toBe('Trusted')
+    expect(wrapper.get('.workspace-member-card .project-trust').attributes('title')).toBe('Craft Hub execution allowed')
   })
 })

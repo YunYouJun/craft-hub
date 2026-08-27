@@ -4,7 +4,7 @@ Craft Hub supports two intentionally different ways to start Codex work. **Start
 
 ## Start in Codex
 
-Craft Hub opens the workspace's Primary project in Codex and copies the prompt to the clipboard. The user pastes the prompt into the new Codex task and sends it after reviewing it.
+Craft Hub opens the workspace's Primary project in Codex and copies the prompt to the clipboard. The copied prompt includes the explicit Craft Hub Workspace ID so the globally installed Craft Hub plugin can resolve the same workspace without relying on hidden active-workspace state. The user pastes the prompt into the new Codex task and sends it after reviewing it.
 
 This is the default because the Codex app owns the task from the beginning. Conversation history, approvals, diffs, progress, and follow-up turns remain visible in the native client without transferring a live task between processes.
 
@@ -14,7 +14,7 @@ For a multi-project workspace, the Primary project is the directory opened in Co
 
 ## Run in the Craft Hub background
 
-The secondary action uses the Codex SDK to run the prompt against all selected trusted project roots. Craft Hub records the task, streams its status, and retains the resulting Codex thread ID.
+The secondary action uses the Codex SDK to run the prompt against all selected project roots for which Craft Hub execution is authorized. Craft Hub records the task, streams its status, and retains the resulting Codex thread ID.
 
 Use this mode for unattended or multi-project work. While its turn is active, the SDK process owns the local thread. Opening that same thread in Codex may therefore report that it is already open in another application. Craft Hub should offer **Open in Codex** after the task finishes or is stopped and the runner has released it.
 
@@ -33,7 +33,8 @@ Codex App Server is a protocol for building a rich Codex client; it does not tur
 ## Safety boundary
 
 - Opening Codex never executes the prompt automatically.
-- Clipboard content is limited to the prompt the user entered.
-- Background execution still requires explicit trust for every selected project.
+- Clipboard content is limited to the explicit Craft Hub Workspace ID and the prompt the user entered.
+- Opening a project in Codex does not require Craft Hub execution authorization; Codex owns its workspace access, sandbox, and approvals.
+- Background execution still requires explicit Craft Hub execution authorization for every selected project.
 - Project launch uses structured command arguments with `shell: false`.
 - Craft Hub does not use AppleScript, accessibility automation, or undocumented desktop IPC to click Send.

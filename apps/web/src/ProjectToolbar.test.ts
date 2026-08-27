@@ -40,7 +40,7 @@ describe('project toolbar', () => {
     const pinia = createPinia()
     setActivePinia(pinia)
     const store = useWorkbenchStore()
-    store.projects = [project]
+    store.projects = [{ ...project, trust: 'untrusted' }]
     store.selectedProjectId = project.id
 
     const wrapper = mount(ProjectToolbar, { global: { plugins: [pinia] } })

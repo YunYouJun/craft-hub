@@ -6,7 +6,7 @@ import { promisify } from 'node:util'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import { CraftHubRuntime } from 'craft-hub'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { createCraftHubMcpServer } from './create-server'
 
 const execFileAsync = promisify(execFile)
@@ -34,6 +34,16 @@ async function setup() {
 }
 
 describe('craft hub MCP write tools', () => {
+  it('closes the runtime when the MCP connection closes', async () => {
+    const fixture = await setup()
+    const closeRuntime = vi.spyOn(fixture.runtime, 'close')
+
+    await fixture.client.close()
+
+    await vi.waitFor(() => expect(closeRuntime).toHaveBeenCalledTimes(1))
+    await fixture.server.close()
+  })
+
   it('registers an untrusted project and adds it to a portable workspace', async () => {
     const fixture = await setup()
     try {
@@ -49,6 +59,7 @@ describe('craft hub MCP write tools', () => {
         expect.objectContaining({ name: 'personal_git_sync_status', annotations: expect.objectContaining({ readOnlyHint: true }) }),
         expect.objectContaining({ name: 'configure_personal_git_sync', annotations: expect.objectContaining({ idempotentHint: true }) }),
         expect.objectContaining({ name: 'synchronize_personal_git', annotations: expect.objectContaining({ destructiveHint: true }) }),
+        expect.objectContaining({ name: 'preview_vscode_workspace_import', annotations: expect.objectContaining({ readOnlyHint: true, idempotentHint: true }) }),
         expect.objectContaining({ name: 'import_vscode_workspaces', annotations: expect.objectContaining({ destructiveHint: false, idempotentHint: false }) }),
         expect.objectContaining({ name: 'register_workspace_member', annotations: expect.objectContaining({ destructiveHint: false, idempotentHint: true }) }),
         expect.objectContaining({ name: 'create_workspace', annotations: expect.objectContaining({ destructiveHint: false, idempotentHint: false }) }),
@@ -165,7 +176,12 @@ describe('craft hub MCP write tools', () => {
       await mkdir(memberPath)
       await mkdir(join(fixture.projectPath, 'workspaces'))
       await writeFile(join(fixture.projectPath, 'workspaces', 'pair.code-workspace'), JSON.stringify({ folders: [{ path: '../../member' }] }))
-      const result = await callTool(fixture.client, 'import_vscode_workspaces', { sourceDirectory: join(fixture.projectPath, 'workspaces') })
+      const sourceDirectory = join(fixture.projectPath, 'workspaces')
+      const previewed = await callTool(fixture.client, 'preview_vscode_workspace_import', { sourceDirectory })
+      const preview = previewed.preview as { revision: string, canImport: boolean }
+      expect(preview.canImport).toBe(true)
+      await expect(fixture.runtime.workspaces.list()).resolves.toEqual([])
+      const result = await callTool(fixture.client, 'import_vscode_workspaces', { sourceDirectory, expectedRevision: preview.revision })
       const imported = result.imported as { group: { id: string }, workspaces: Array<{ id: string, groupId: string, members: Array<{ project: string, path: string }> }> }
       expect(imported.workspaces[0]).toMatchObject({ groupId: imported.group.id, members: [expect.objectContaining({ path: await realpath(memberPath) })] })
 
@@ -258,10 +274,21 @@ describe('craft hub MCP write tools', () => {
     try {
       await mkdir(join(fixture.projectPath, 'apps', 'web'), { recursive: true })
       await mkdir(join(fixture.projectPath, 'packages', 'broken'), { recursive: true })
+      await mkdir(join(fixture.projectPath, '.craft-hub'), { recursive: true })
       await writeFile(join(fixture.projectPath, 'package.json'), JSON.stringify({ packageManager: 'pnpm@10.0.0', scripts: { dev: 'vite' } }))
       await writeFile(join(fixture.projectPath, 'pnpm-workspace.yaml'), 'packages:\n  - apps/*\n  - packages/*\n')
       await writeFile(join(fixture.projectPath, 'apps', 'web', 'package.json'), JSON.stringify({ name: '@scope/web', scripts: { deploy: 'vite deploy' } }))
       await writeFile(join(fixture.projectPath, 'packages', 'broken', 'package.json'), '{ invalid')
+      await writeFile(join(fixture.projectPath, '.craft-hub', 'project.yaml'), [
+        'version: 1',
+        'capabilities:',
+        '  inputs:',
+        '    apps/web/package.json:deploy:',
+        '      environment:',
+        '        type: select',
+        '        options: [dev, rdm]',
+        '        flag: --env',
+      ].join('\n'))
       const added = await callTool(fixture.client, 'add_project', { path: fixture.projectPath })
       const project = added.project as { id: string }
 
@@ -276,8 +303,9 @@ describe('craft hub MCP write tools', () => {
       ]))
       expect(listed.diagnostics).toEqual([expect.objectContaining({ path: 'packages/broken/package.json' })])
       const deploy = (listed.capabilities as Array<{ id: string, name: string }>).find(item => item.name === 'deploy')!
-      await expect(callTool(fixture.client, 'preview_command', { projectId: project.id, capabilityId: deploy.id })).resolves.toMatchObject({
+      await expect(callTool(fixture.client, 'preview_command', { projectId: project.id, capabilityId: deploy.id, inputs: { environment: 'rdm' } })).resolves.toMatchObject({
         preview: {
+          args: ['run', 'deploy', '--', '--env=rdm'],
           category: 'deploy',
           package: { relativePath: 'apps/web' },
           cwd: await realpath(join(fixture.projectPath, 'apps', 'web')),

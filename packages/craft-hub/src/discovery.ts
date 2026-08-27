@@ -1,5 +1,5 @@
-import type { LocalizedText } from './config'
-import type { Capability, CapabilityDiscoveryDiagnostic, CapabilityDiscoveryResult, CapabilitySource, CommandCapability, CommandCategory, CommandPackage, SkillCapability } from './types'
+import type { LocalizedText, ProjectCommandInputConfig } from './config'
+import type { Capability, CapabilityDiscoveryDiagnostic, CapabilityDiscoveryResult, CapabilitySource, CommandCapability, CommandCategory, CommandInputDefinition, CommandPackage, SkillCapability } from './types'
 import { createHash } from 'node:crypto'
 import { access, readdir, readFile, realpath } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, join, relative, sep } from 'node:path'
@@ -22,6 +22,55 @@ function localizedText(value: LocalizedText | undefined, locale: string): string
   candidates.push('default')
 
   return candidates.map(candidate => value[candidate]).find(description => typeof description === 'string')
+}
+
+function configuredValue<T>(values: Record<string, T>, capability: CommandCapability): T | undefined {
+  return values[capability.id]
+    ?? values[`${capability.source}:${capability.name}`]
+    ?? values[capability.name]
+}
+
+function commandInputs(config: Record<string, ProjectCommandInputConfig>, locale: string): CommandInputDefinition[] {
+  const entries = Object.entries(config)
+  const ids = new Set(entries.map(([input]) => input))
+  return entries.map(([input, definition]) => {
+    if (!/^[a-z][\w-]*$/i.test(input))
+      throw new Error(`Invalid command input id: ${input}`)
+    if (!definition || !['select', 'text'].includes(definition.type))
+      throw new Error(`Command input ${input} must use type select or text`)
+    if (typeof definition.flag !== 'string' || !definition.flag.startsWith('-') || /\s/.test(definition.flag))
+      throw new Error(`Command input ${input} must declare a flag without whitespace`)
+    if (definition.argumentStyle && !['equals', 'separate'].includes(definition.argumentStyle))
+      throw new Error(`Command input ${input} has an invalid argumentStyle`)
+    for (const condition of [definition.requiredWhen, definition.visibleWhen]) {
+      if (condition && (!ids.has(condition.input) || typeof condition.equals !== 'string'))
+        throw new Error(`Command input ${input} references an unknown condition input`)
+    }
+    const pattern = definition.pattern ? new RegExp(definition.pattern) : undefined
+
+    const options = definition.options?.map(option => typeof option === 'string'
+      ? { value: option }
+      : { value: option.value, label: localizedText(option.label, locale) })
+    if (definition.type === 'select' && (!options?.length || options.some(option => !option.value)))
+      throw new Error(`Select command input ${input} must declare non-empty options`)
+    if (definition.default && definition.type === 'select' && !options?.some(option => option.value === definition.default))
+      throw new Error(`Default value for command input ${input} must match an option`)
+
+    return {
+      id: input,
+      type: definition.type,
+      label: localizedText(definition.label, locale),
+      description: localizedText(definition.description, locale),
+      options,
+      default: definition.default,
+      required: definition.required,
+      requiredWhen: definition.requiredWhen,
+      visibleWhen: definition.visibleWhen,
+      pattern: pattern ? definition.pattern : undefined,
+      flag: definition.flag,
+      argumentStyle: definition.argumentStyle,
+    }
+  })
 }
 
 function id(...parts: string[]): string {
@@ -50,7 +99,14 @@ async function packageManager(cwd: string, packageJson: Record<string, unknown>)
   return 'npm'
 }
 
-const rootCommandPackage = (name?: string): CommandPackage => ({ name, relativePath: '.', root: true })
+function packageDescription(value: unknown): string | undefined {
+  if (typeof value !== 'string')
+    return undefined
+  const description = value.trim()
+  return description && description !== '_description_' ? description : undefined
+}
+
+const rootCommandPackage = (name?: string, description?: string): CommandPackage => ({ name, description, relativePath: '.', root: true })
 
 /** Infer a stable presentation category from a package script or task name. */
 export function commandCategory(name: string): CommandCategory {
@@ -134,13 +190,15 @@ function isInside(root: string, target: string): boolean {
   return relativePath === '' || (!relativePath.startsWith('..') && !isAbsolute(relativePath))
 }
 
-async function discoverPnpmWorkspacePackages(projectRoot: string): Promise<{ capabilities: CommandCapability[], diagnostics: CapabilityDiscoveryDiagnostic[] }> {
+async function discoverPnpmWorkspacePackages(projectRoot: string): Promise<{ capabilities: CommandCapability[], diagnostics: CapabilityDiscoveryDiagnostic[], packages: CommandPackage[] }> {
   const workspacePath = join(projectRoot, 'pnpm-workspace.yaml')
   if (!await exists(workspacePath))
-    return { capabilities: [], diagnostics: [] }
+    return { capabilities: [], diagnostics: [], packages: [] }
 
   const document = parseYaml(await readFile(workspacePath, 'utf8')) as { packages?: unknown } | undefined
-  if (!document || !Array.isArray(document.packages) || !document.packages.every(pattern => typeof pattern === 'string'))
+  if (!document || document.packages === undefined)
+    return { capabilities: [], diagnostics: [], packages: [] }
+  if (!Array.isArray(document.packages) || !document.packages.every(pattern => typeof pattern === 'string'))
     throw new Error('pnpm-workspace.yaml must declare packages as an array of glob patterns')
 
   const root = await realpath(projectRoot)
@@ -153,6 +211,7 @@ async function discoverPnpmWorkspacePackages(projectRoot: string): Promise<{ cap
   })
   const diagnostics: CapabilityDiscoveryDiagnostic[] = []
   const capabilities: CommandCapability[] = []
+  const packages: CommandPackage[] = []
   const seen = new Set<string>()
 
   for (const relativeManifest of manifests.sort()) {
@@ -175,17 +234,23 @@ async function discoverPnpmWorkspacePackages(projectRoot: string): Promise<{ cap
       continue
     seen.add(canonicalDirectory)
     try {
-      capabilities.push(...await discoverPackageScripts(projectRoot, canonicalDirectory, {
+      const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as Record<string, unknown>
+      const commandPackage: CommandPackage = {
+        name: typeof manifest.name === 'string' ? manifest.name : undefined,
+        description: packageDescription(manifest.description),
         relativePath: relativeDirectory,
         root: false,
-      }, 'pnpm'))
+      }
+      const packageCapabilities = await discoverPackageScripts(projectRoot, canonicalDirectory, commandPackage, 'pnpm')
+      packages.push(commandPackage)
+      capabilities.push(...packageCapabilities)
     }
     catch (error) {
       diagnostics.push({ source: 'pnpm-workspace', path: portablePath(relativeManifest), message: error instanceof Error ? error.message : String(error) })
     }
   }
 
-  return { capabilities, diagnostics }
+  return { capabilities, diagnostics, packages }
 }
 
 async function discoverMakeTargets(cwd: string, commandPackage: CommandPackage): Promise<CommandCapability[]> {
@@ -305,7 +370,10 @@ export async function discoverCapabilitiesWithDiagnostics(cwd: string, locale = 
   const rootManifest = await exists(rootPackagePath)
     ? JSON.parse(await readFile(rootPackagePath, 'utf8')) as Record<string, unknown>
     : {}
-  const commandPackage = rootCommandPackage(typeof rootManifest.name === 'string' ? rootManifest.name : undefined)
+  const commandPackage = rootCommandPackage(
+    typeof rootManifest.name === 'string' ? rootManifest.name : undefined,
+    packageDescription(rootManifest.description),
+  )
   const workspace = await discoverPnpmWorkspacePackages(cwd)
   const groups = await Promise.all([
     discoverPackageScripts(cwd, cwd, commandPackage),
@@ -316,17 +384,28 @@ export async function discoverCapabilitiesWithDiagnostics(cwd: string, locale = 
   const capabilityConfig = (await loadProjectConfig(cwd))?.capabilities
   const hidden = new Set(capabilityConfig?.hidden ?? [])
   const descriptions = capabilityConfig?.descriptions ?? {}
+  const inputs = capabilityConfig?.inputs ?? {}
   const capabilities = [...groups.flat(), ...workspace.capabilities]
     .filter(capability => !hidden.has(capability.id) && !hidden.has(capability.name) && !hidden.has(`${capability.source}:${capability.name}`))
     .map((capability) => {
-      const configuredDescription = descriptions[capability.id]
-        ?? descriptions[`${capability.source}:${capability.name}`]
-        ?? descriptions[capability.name]
+      const configuredDescription = configuredValue(descriptions, capability as CommandCapability)
       const description = localizedText(configuredDescription, locale)
-      return description ? { ...capability, description } : capability
+      if (capability.kind !== 'command')
+        return description ? { ...capability, description } : capability
+      const configuredInputs = configuredValue(inputs, capability)
+      return {
+        ...capability,
+        ...(description ? { description } : {}),
+        ...(configuredInputs
+          ? {
+              inputs: commandInputs(configuredInputs, locale),
+              ...(capability.source.endsWith('package.json') ? { inputArgSeparator: '--' as const } : {}),
+            }
+          : {}),
+      }
     })
     .sort(compareCapabilities)
-  return { capabilities, diagnostics: workspace.diagnostics }
+  return { capabilities, diagnostics: workspace.diagnostics, packages: [commandPackage, ...workspace.packages] }
 }
 
 /** Discover built-in command and skill capabilities for one project. */

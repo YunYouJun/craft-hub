@@ -26,6 +26,7 @@ export interface ImportedWorkspaceMemberInput {
   name: string
   path: string
   projectId?: string
+  available?: boolean
 }
 
 /** Raised when a workspace changes after the caller read it. */
@@ -114,9 +115,21 @@ export class WorkspaceService {
     if (!name.trim())
       throw new Error('Workspace group name is required')
     const catalog = await this.catalog()
-    if (!catalog.groups.some(group => group.id === id))
+    const existing = catalog.groups.find(group => group.id === id)
+    if (!existing)
       throw new Error(`Unknown workspace group: ${id}`)
-    const group = { id, name: name.trim() }
+    const group = { ...existing, name: name.trim() }
+    await this.saveCatalog({ ...catalog, groups: catalog.groups.map(item => item.id === id ? group : item) })
+    return group
+  }
+
+  /** Set the optional portable icon or emoji for one workspace group. */
+  async setGroupIcon(id: string, icon?: string): Promise<WorkspaceGroup> {
+    const catalog = await this.catalog()
+    const existing = catalog.groups.find(group => group.id === id)
+    if (!existing)
+      throw new Error(`Unknown workspace group: ${id}`)
+    const group = { ...existing, icon: icon?.trim() || undefined }
     await this.saveCatalog({ ...catalog, groups: catalog.groups.map(item => item.id === id ? group : item) })
     return group
   }

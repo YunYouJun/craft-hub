@@ -24,7 +24,9 @@ describe('portable workspaces', () => {
     const group = await fixture.workspaces.createGroup('Cover')
 
     await expect(fixture.workspaces.assignGroup(workspace.id, group.id)).resolves.toMatchObject({ groupId: group.id })
-    await expect(fixture.workspaces.renameGroup(group.id, 'Cover Hub')).resolves.toEqual({ id: group.id, name: 'Cover Hub' })
+    await expect(fixture.workspaces.setGroupIcon(group.id, 'emoji:🧧')).resolves.toEqual({ id: group.id, name: 'Cover', icon: 'emoji:🧧' })
+    await expect(fixture.workspaces.renameGroup(group.id, 'Cover Hub')).resolves.toEqual({ id: group.id, name: 'Cover Hub', icon: 'emoji:🧧' })
+    expect(await readFile(join(fixture.configDir, 'config.yaml'), 'utf8')).toContain('icon: emoji:🧧')
     expect(await readFile(join(fixture.configDir, 'workspaces', 'grouped.yaml'), 'utf8')).not.toContain(group.id)
 
     await fixture.workspaces.deleteGroup(group.id)

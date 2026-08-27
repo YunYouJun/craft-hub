@@ -1,12 +1,19 @@
 // @vitest-environment happy-dom
 /// <reference lib="dom" />
 
+import { existsSync, readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useI18n } from './i18n'
 import ProjectRail from './ProjectRail.vue'
 import { useWorkbenchStore } from './store'
+
+const stylesPath = ['apps/web/src/styles.css', 'src/styles.css']
+  .map(candidate => resolve(process.cwd(), candidate))
+  .find(existsSync)
+const styles = readFileSync(stylesPath!, 'utf8')
 
 describe('project rail', () => {
   beforeEach(() => {
@@ -160,15 +167,100 @@ describe('project rail', () => {
 
     expect(wrapper.get('.collection-heading').text()).toContain('红包封面')
     expect(wrapper.get('.collection-heading .collection-icon .app-icon').classes()).toContain('i-ri-stack-line')
-    expect(wrapper.get('.collection-heading .workspace-group-delete').attributes('aria-label')).toBe('Delete workspace group')
+    expect(wrapper.find('.collection-heading .workspace-group-more').exists()).toBe(false)
     expect(wrapper.get('.workspace-group').text()).toContain('封面审核台')
-    expect(wrapper.get('.workspace-group .i-ri-node-tree').classes()).toContain('app-icon')
+    expect(wrapper.get('.workspace-group .i-ri-folders-line').classes()).toContain('app-icon')
     expect(wrapper.find('.workspace-group .vscode-icon').exists()).toBe(false)
     expect(wrapper.get('.workspace-group').attributes('draggable')).toBe('true')
     expect(wrapper.findAll('.workspace-project').map(item => item.text())).toEqual(['HubPrimary', 'API', 'Missing'])
     expect(wrapper.find('.workspace-project .member-source-status.available').attributes('title')).toBe('Available to add')
     expect(wrapper.findAll('.workspace-project .member-source-status')[1]!.attributes('title')).toBe('Not found on this device')
-    expect(wrapper.find('.workspace-group .danger-hover').exists()).toBe(true)
+    expect(wrapper.findAll('.workspace-project > .member-pin')).toHaveLength(2)
+    expect(wrapper.find('.workspace-group .danger-hover').exists()).toBe(false)
+  })
+
+  it('keeps unresolved project recovery actions in layout so they cannot cover project status', () => {
+    const actionRule = styles.match(/\.workspace-group:not\(\.source\) \.workspace-project > \.member-pin \{([^}]*)\}/)?.[1]
+
+    expect(actionRule).toBeDefined()
+    expect(actionRule).not.toContain('position: absolute')
+    expect(styles).toMatch(/\.member-pin \{[^}]*flex: 0 0 26px;/)
+  })
+
+  it('keeps project pin and remove actions in the context menu only', async () => {
+    const store = useWorkbenchStore()
+    store.projects = [{ id: 'docs', name: 'Docs', path: '/docs', trust: 'trusted', addedAt: '2026-01-01T00:00:00.000Z' }]
+    const workspace = {
+      schemaVersion: 1 as const,
+      id: 'client',
+      name: 'Client',
+      members: [{ project: 'docs', projectId: 'docs', resolved: true }],
+      revision: 'revision',
+    }
+    store.workspaces = [workspace]
+    store.expandedWorkspaceIds = ['client']
+    const toggleWorkspaceProjectPin = vi.fn(async () => {})
+    store.toggleWorkspaceProjectPin = toggleWorkspaceProjectPin
+    const wrapper = mount(ProjectRail, { attachTo: document.body })
+
+    expect(wrapper.find('.workspace-project > .member-pin').exists()).toBe(false)
+    await wrapper.get('.workspace-project .project-row').trigger('contextmenu', { clientX: 120, clientY: 180 })
+    const menuItems = [...document.body.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
+    expect(menuItems.map(button => button.textContent?.trim())).toEqual([
+      'Appearance…',
+      'Pin project',
+      'Remove from workspace',
+    ])
+
+    await menuItems[1]!.click()
+    await flushPromises()
+    expect(toggleWorkspaceProjectPin).toHaveBeenCalledWith(workspace, 'docs')
+  })
+
+  it('keeps unresolved project removal in its context menu', async () => {
+    const store = useWorkbenchStore()
+    store.workspaces = [{
+      schemaVersion: 1,
+      id: 'client',
+      name: 'Client',
+      members: [{ project: 'missing', label: 'Missing', resolved: false }],
+      revision: 'revision',
+    }]
+    store.expandedWorkspaceIds = ['client']
+    const removeProjectFromWorkspace = vi.fn(async () => {})
+    store.removeProjectFromWorkspace = removeProjectFromWorkspace
+    const wrapper = mount(ProjectRail, { attachTo: document.body })
+
+    expect(wrapper.find('.workspace-project .danger-hover').exists()).toBe(false)
+    await wrapper.get('.workspace-project .project-row').trigger('contextmenu', { clientX: 120, clientY: 180 })
+    const remove = document.body.querySelector<HTMLButtonElement>('[role="menuitem"]')!
+    expect(remove.textContent?.trim()).toBe('Remove from workspace')
+    await remove.click()
+    await flushPromises()
+    expect(removeProjectFromWorkspace).toHaveBeenCalledWith('client', 'missing')
+  })
+
+  it('shows an actionable error when removing a project from a workspace fails', async () => {
+    const store = useWorkbenchStore()
+    store.projects = [{ id: 'docs', name: 'Docs', path: '/docs', trust: 'trusted', addedAt: '2026-01-01T00:00:00.000Z' }]
+    store.workspaces = [{
+      schemaVersion: 1,
+      id: 'client',
+      name: 'Client',
+      members: [{ project: 'docs', projectId: 'docs', resolved: true }],
+      revision: 'revision',
+    }]
+    store.expandedWorkspaceIds = ['client']
+    store.removeProjectFromWorkspace = vi.fn(async () => {
+      throw new Error('Failed to fetch')
+    })
+    const wrapper = mount(ProjectRail, { attachTo: document.body })
+
+    await wrapper.get('.workspace-project .project-row').trigger('contextmenu', { clientX: 120, clientY: 180 })
+    await document.body.querySelector<HTMLButtonElement>('.danger-menu-item')!.click()
+    await flushPromises()
+
+    expect(wrapper.get('[role="alert"]').text()).toContain('Failed to fetch')
   })
 
   it('collapses and filters editable workspace groups', async () => {
@@ -192,6 +284,60 @@ describe('project rail', () => {
     expect(wrapper.findAll('.collection-heading')).toHaveLength(1)
     expect(wrapper.text()).toContain('支付后台')
     expect(wrapper.text()).not.toContain('Personal docs')
+  })
+
+  it('opens workspace group actions from right click and customizes its icon without a color option', async () => {
+    const store = useWorkbenchStore()
+    store.workspaceGroups = [{ id: 'cover', name: '红包封面', icon: 'emoji:🧧' }]
+    store.workspaces = [{ schemaVersion: 1, id: 'cover-workspace', name: '封面审核台', groupId: 'cover', members: [], revision: 'revision' }]
+    const setWorkspaceGroupAppearance = vi.fn(async () => {})
+    store.setWorkspaceGroupAppearance = setWorkspaceGroupAppearance
+    const wrapper = mount(ProjectRail, { attachTo: document.body })
+
+    expect(wrapper.get('.collection-heading .collection-icon').text()).toBe('🧧')
+    expect(wrapper.find('.collection-heading [aria-label="Rename workspace group"]').exists()).toBe(false)
+    expect(wrapper.find('.collection-heading [aria-label="Delete workspace group"]').exists()).toBe(false)
+
+    await wrapper.get('.collection-heading').trigger('contextmenu', { clientX: 120, clientY: 90 })
+    const menuItems = [...document.body.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
+    expect(menuItems.map(button => button.textContent?.trim())).toEqual([
+      'Rename workspace group',
+      'Appearance…',
+      'Delete workspace group',
+    ])
+    await menuItems[1]!.click()
+    await wrapper.vm.$nextTick()
+
+    expect(document.body.querySelector('.appearance-color-choice')).toBeNull()
+    expect(document.body.querySelector('[role="dialog"]')?.textContent).toContain('Choose an icon or emoji for quick visual recognition.')
+    expect(document.body.querySelector('.appearance-icon-choice[aria-label="Default"] .i-ri-stack-line')).not.toBeNull()
+    expect(document.body.querySelectorAll('.appearance-icon-choice')).toHaveLength(33)
+    expect(document.body.querySelectorAll('.appearance-emoji-choice')).toHaveLength(12)
+    document.body.querySelector<HTMLButtonElement>('.appearance-icon-choice[aria-label="Emoji 📦"]')!.click()
+    document.body.querySelector<HTMLButtonElement>('[data-testid="save-appearance"]')!.click()
+    await flushPromises()
+
+    expect(setWorkspaceGroupAppearance).toHaveBeenCalledWith('cover', 'emoji:📦')
+  })
+
+  it('deletes a workspace group from its context menu with an ungrouping warning', async () => {
+    const store = useWorkbenchStore()
+    store.workspaceGroups = [{ id: 'cover', name: '红包封面' }]
+    store.workspaces = [{ schemaVersion: 1, id: 'cover-workspace', name: '封面审核台', groupId: 'cover', members: [], revision: 'revision' }]
+    const deleteWorkspaceGroup = vi.fn(async () => {})
+    store.deleteWorkspaceGroup = deleteWorkspaceGroup
+    const confirm = vi.fn(() => true)
+    window.confirm = confirm
+    const wrapper = mount(ProjectRail, { attachTo: document.body })
+
+    await wrapper.get('.collection-heading').trigger('contextmenu', { clientX: 120, clientY: 90 })
+    const deleteAction = [...document.body.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
+      .find(button => button.textContent?.includes('Delete workspace group'))!
+    await deleteAction.click()
+    await flushPromises()
+
+    expect(confirm).toHaveBeenCalledWith('Delete the “红包封面” group? Its workspaces will remain ungrouped.')
+    expect(deleteWorkspaceGroup).toHaveBeenCalledWith('cover')
   })
 
   it('creates groups, renders empty groups, and explicitly moves workspaces between groups', async () => {
@@ -327,7 +473,7 @@ describe('project rail', () => {
     workspaceName.value = 'Client apps'
     workspaceName.dispatchEvent(new Event('input', { bubbles: true }))
     workspaceName.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'Enter' }))
-    document.body.querySelector<HTMLButtonElement>('.appearance-icon-choice[aria-label="emoji:🛠️"]')!.click()
+    document.body.querySelector<HTMLButtonElement>('.appearance-icon-choice[aria-label="Emoji 🛠️"]')!.click()
     document.body.querySelector<HTMLButtonElement>('.appearance-color-choice.purple')!.click()
     document.body.querySelector<HTMLButtonElement>('[data-testid="save-appearance"]')!.click()
     await flushPromises()
@@ -342,7 +488,7 @@ describe('project rail', () => {
     remark.value = '中文文档'
     remark.dispatchEvent(new Event('input', { bubbles: true }))
     remark.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'Enter' }))
-    document.body.querySelector<HTMLButtonElement>('.appearance-icon-choice[aria-label="emoji:📚"]')!.click()
+    document.body.querySelector<HTMLButtonElement>('.appearance-icon-choice[aria-label="Emoji 📚"]')!.click()
     document.body.querySelector<HTMLButtonElement>('.appearance-color-choice.green')!.click()
     document.body.querySelector<HTMLButtonElement>('[data-testid="save-appearance"]')!.click()
     await flushPromises()
@@ -374,7 +520,7 @@ describe('project rail', () => {
 
     const wrapper = mount(ProjectRail, { attachTo: document.body })
 
-    expect(wrapper.get('.project-trust').attributes('aria-label')).toBe('Trusted')
+    expect(wrapper.get('.project-trust').attributes('aria-label')).toBe('Craft Hub execution allowed')
     expect(wrapper.get('.project-trust .app-icon').classes()).toContain('i-ri-shield-check-line')
     const runState = wrapper.get('[data-testid="project-run-state-docs"]')
     expect(runState.classes()).toContain('running')
@@ -404,7 +550,7 @@ describe('project rail', () => {
 
     const wrapper = mount(ProjectRail, { attachTo: document.body })
 
-    expect(wrapper.get('.project-trust').attributes('aria-label')).toBe('Untrusted')
+    expect(wrapper.get('.project-trust').attributes('aria-label')).toBe('Craft Hub execution not authorized')
     expect(wrapper.get('.project-trust .app-icon').classes()).toContain('i-ri-shield-keyhole-line')
   })
 

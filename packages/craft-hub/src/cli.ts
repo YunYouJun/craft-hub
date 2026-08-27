@@ -19,8 +19,16 @@ cli.command('project:list', 'List registered projects').action(async () => {
   console.log(JSON.stringify(await runtime.projects.list(), null, 2))
 })
 
-cli.command('workspace:import <directory>', 'Import VS Code workspace files into editable Craft Hub workspaces').action(async (directory: string) => {
-  console.log(JSON.stringify(await runtime.workspaceImports.importVscodeDirectory(resolve(directory)), null, 2))
+cli.command('workspace:import-preview <directory>', 'Validate a VS Code workspace import without writing').action(async (directory: string) => {
+  console.log(JSON.stringify(await runtime.workspaceImports.previewVscodeDirectory(resolve(directory)), null, 2))
+})
+
+cli.command('workspace:import <directory>', 'Validate and import VS Code workspace files into editable Craft Hub workspaces').action(async (directory: string) => {
+  const sourceDirectory = resolve(directory)
+  const preview = await runtime.workspaceImports.previewVscodeDirectory(sourceDirectory)
+  if (!preview.canImport)
+    throw new Error([...preview.conflicts, ...preview.diagnostics.map(item => item.message)].join('; '))
+  console.log(JSON.stringify(await runtime.workspaceImports.importVscodeDirectory(sourceDirectory, undefined, preview.revision), null, 2))
 })
 
 cli.command('workspace-group:list', 'List workspace groups').action(async () => {

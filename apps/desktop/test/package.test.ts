@@ -83,6 +83,8 @@ describe('desktop package scripts', () => {
     const desktopMain = await readFile(new URL('../src/main.ts', import.meta.url), 'utf8')
 
     expect(desktopMain).toContain('app.requestSingleInstanceLock()')
+    expect(desktopMain).toContain('if (!hasSingleInstanceLock) {\n  process.exit(0)\n}')
+    expect(desktopMain).toContain('app.setPath(\'userData\', resolve(app.getPath(\'appData\'), \'Craft Hub Dev\'))')
     expect(desktopMain).toContain('app.on(\'second-instance\', () => void showMainWindow())')
     expect(desktopMain).toContain('mainWindow.restore()')
     expect(desktopMain).toContain('mainWindow.focus()')
@@ -93,8 +95,19 @@ describe('desktop package scripts', () => {
     const desktopMain = await readFile(new URL('../src/main.ts', import.meta.url), 'utf8')
 
     expect(desktopMain).toContain('app.on(\'before-quit\'')
+    expect(desktopMain).toContain('window.destroy()')
     expect(desktopMain).toContain('await craftHubServer?.close()')
     expect(desktopMain).toContain('process.platform !== \'darwin\' || developmentUrl')
+  })
+
+  it('persists desktop lifecycle failures to a discoverable application log', async () => {
+    const desktopMain = await readFile(new URL('../src/main.ts', import.meta.url), 'utf8')
+
+    expect(desktopMain).toContain('app.setAppLogsPath()')
+    expect(desktopMain).toContain('craft-hub.log')
+    expect(desktopMain).toContain('Local server started at')
+    expect(desktopMain).toContain('render-process-gone')
+    expect(desktopMain).toContain('unresponsive')
   })
 
   it('exposes a sandboxed folder picker through Electron IPC', async () => {

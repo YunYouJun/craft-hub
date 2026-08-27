@@ -13,6 +13,7 @@ import ProjectAgentActionDialog from './ProjectAgentActionDialog.vue'
 import ProjectToolbar from './ProjectToolbar.vue'
 import SettingsDialog from './SettingsDialog.vue'
 import WorkspaceDashboard from './WorkspaceDashboard.vue'
+import WorkspaceProjectList from './WorkspaceProjectList.vue'
 import { useWorkbenchStore } from './store'
 
 const store = useWorkbenchStore()
@@ -32,7 +33,7 @@ function onKeydown(event: KeyboardEvent) {
 
 function refreshWhenVisible(): void {
   if (document.visibilityState === 'visible')
-    void store.refreshProjects().catch(() => {})
+    void Promise.all([store.refreshProjects(), store.loadWorkspaces()]).catch(() => {})
 }
 
 onBeforeMount(async () => {
@@ -90,7 +91,8 @@ onBeforeUnmount(() => {
         <span class="splitter-grip" aria-hidden="true" />
       </SplitterResizeHandle>
       <SplitterPanel id="capabilities-panel" size-unit="px" :default-size="320" :min-size="230" :max-size="540" :aria-hidden="marketplaceOpen" :inert="marketplaceOpen">
-        <CapabilityList />
+        <WorkspaceProjectList v-if="store.selectedWorkspace" />
+        <CapabilityList v-else />
       </SplitterPanel>
       <SplitterResizeHandle id="capabilities-resize-handle" class="workbench-resize-handle" :aria-label="t('resizeCapabilities')" :aria-hidden="marketplaceOpen" :inert="marketplaceOpen" :title="t('resizeCapabilities')">
         <span class="splitter-grip" aria-hidden="true" />
@@ -98,7 +100,8 @@ onBeforeUnmount(() => {
       <SplitterPanel id="detail-panel" size-unit="px" :min-size="350" :aria-hidden="marketplaceOpen" :inert="marketplaceOpen">
         <section class="detail-workspace">
           <ProjectToolbar />
-          <WorkspaceDashboard v-if="store.selectedWorkspace" />
+          <DetailPanel v-if="store.workspaceCapability" />
+          <WorkspaceDashboard v-else-if="store.selectedWorkspace" />
           <DetailPanel v-else />
         </section>
       </SplitterPanel>

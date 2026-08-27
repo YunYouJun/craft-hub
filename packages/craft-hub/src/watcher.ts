@@ -17,6 +17,26 @@ export type ProjectChangeListener = (event: ProjectChangeEvent) => void
 
 const rootCapabilityFiles = new Set(['Makefile', 'Taskfile.yaml', 'Taskfile.yml', 'package.json', 'pnpm-workspace.yaml'])
 const skillRoots = ['.agents/skills', '.claude/skills', '.codex/skills']
+const ignoredDirectoryNames = new Set([
+  '.cache',
+  '.git',
+  '.next',
+  '.nuxt',
+  '.output',
+  '.turbo',
+  '.venv',
+  'DerivedData',
+  'Pods',
+  'build',
+  'coverage',
+  'dist',
+  'node_modules',
+  'out',
+  'target',
+  'vendor',
+  'venv',
+])
+const projectWatchDepth = 4
 
 function normalizedRelativePath(root: string, path: string): string {
   return relative(root, path).split(sep).join('/')
@@ -52,11 +72,12 @@ export class ProjectWatcher {
 
     const watcher = chokidar.watch(project.path, {
       atomic: true,
+      depth: projectWatchDepth,
       followSymlinks: false,
       ignoreInitial: true,
       ignored: (path, stats) => {
         const relativePath = normalizedRelativePath(project.path, path)
-        if (relativePath.split('/').some(part => part === '.git' || part === 'node_modules'))
+        if (relativePath.split('/').some(part => ignoredDirectoryNames.has(part)))
           return true
         if (stats?.isDirectory() || (!stats && !extname(relativePath)))
           return false
@@ -64,7 +85,11 @@ export class ProjectWatcher {
       },
     })
     this.watchers.set(project.id, watcher)
-    watcher.on('all', (_event, path) => this.queue(project.id, normalizedRelativePath(project.path, path)))
+    watcher.on('all', (event, path) => {
+      if (event === 'addDir' || event === 'unlinkDir')
+        return
+      this.queue(project.id, normalizedRelativePath(project.path, path))
+    })
     watcher.on('error', () => {})
     await new Promise<void>((resolvePromise) => {
       watcher.once('ready', resolvePromise)

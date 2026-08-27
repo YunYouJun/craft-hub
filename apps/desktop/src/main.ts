@@ -1,5 +1,6 @@
 import type { CraftHubServer } from 'craft-hub'
 import type { BrowserWindow as BrowserWindowType, MenuItemConstructorOptions, OpenDialogOptions } from 'electron'
+import { appendFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
@@ -24,6 +25,8 @@ const applicationIcon = resolve(
   '../assets/icon.png',
 )
 const developmentUrl = process.env.CRAFT_HUB_DEV_URL
+if (developmentUrl)
+  app.setPath('userData', resolve(app.getPath('appData'), 'Craft Hub Dev'))
 const windowTitle = developmentUrl ? 'Craft Hub — Dev' : 'Craft Hub'
 
 type DesktopTheme = 'system' | 'light' | 'dark'
@@ -106,6 +109,19 @@ function installApplicationMenu(): void {
 }
 
 app.setName('Craft Hub')
+app.setAppLogsPath()
+const applicationLogPath = resolve(app.getPath('logs'), 'craft-hub.log')
+
+function writeApplicationLog(level: 'info' | 'error', message: string): void {
+  const line = `${new Date().toISOString()} ${level.toUpperCase()} ${message}\n`
+  try {
+    appendFileSync(applicationLogPath, line, 'utf8')
+  }
+  catch {
+    process.stderr.write(line)
+  }
+}
+
 app.setAboutPanelOptions(aboutPanelOptions(app.getVersion(), applicationIcon))
 const hasSingleInstanceLock = app.requestSingleInstanceLock()
 
@@ -316,6 +332,7 @@ async function createWindow(): Promise<void> {
   if (!craftHubServer) {
     const runtime = new CraftHubRuntime({ agentTaskProvider: new CodexAgentTaskProvider() })
     craftHubServer = await startCraftHubServer({ port: developmentUrl ? 4318 : 0, runtime, staticDir })
+    writeApplicationLog('info', `Local server started at ${craftHubServer.url}`)
     await initializePersonalCloud()
   }
   applyDesktopTheme((await craftHubServer.runtime.settings.get()).settings['workbench.theme'])
@@ -336,6 +353,13 @@ async function createWindow(): Promise<void> {
     },
   })
   mainWindow.on('page-title-updated', event => event.preventDefault())
+  mainWindow.on('unresponsive', () => writeApplicationLog('error', 'Main window became unresponsive'))
+  mainWindow.webContents.on('render-process-gone', (_event, details) => {
+    writeApplicationLog('error', `Renderer process exited: ${details.reason} (${details.exitCode})`)
+  })
+  mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedUrl) => {
+    writeApplicationLog('error', `Page load failed: ${errorCode} ${errorDescription} ${validatedUrl}`)
+  })
   mainWindow.once('closed', () => {
     mainWindow = undefined
   })
@@ -376,11 +400,11 @@ async function startDesktopApp(): Promise<void> {
 }
 
 if (!hasSingleInstanceLock) {
-  app.quit()
+  process.exit(0)
 }
 else {
   void startDesktopApp().catch((error) => {
-    process.stderr.write(`Craft Hub failed to start: ${error instanceof Error ? error.message : String(error)}\n`)
+    writeApplicationLog('error', `Craft Hub failed to start: ${error instanceof Error ? error.message : String(error)}`)
     app.quit()
   })
 }
@@ -391,13 +415,17 @@ app.on('before-quit', (event) => {
   event.preventDefault()
   shutdown ??= (async () => {
     try {
+      writeApplicationLog('info', 'Shutdown requested')
+      for (const window of BrowserWindow.getAllWindows())
+        window.destroy()
       personalCloud?.close()
       await craftHubServer?.close()
     }
     catch (error) {
-      process.stderr.write(`Craft Hub failed to shut down cleanly: ${error instanceof Error ? error.message : String(error)}\n`)
+      writeApplicationLog('error', `Craft Hub failed to shut down cleanly: ${error instanceof Error ? error.message : String(error)}`)
     }
     finally {
+      writeApplicationLog('info', 'Shutdown complete')
       craftHubServer = undefined
       personalCloud = undefined
       readyToQuit = true
