@@ -1,8 +1,8 @@
-import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, realpath, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { CraftHubRuntime, createCraftHub, defineCapabilityProvider, defineCraftHubPlugin, discoverCapabilities, loadCraftHubPlugins } from '../src/index'
+import { CraftHubRuntime, createCraftHub, defineCapabilityProvider, defineCraftHubPlugin, discoverCapabilities, discoverCapabilitiesWithDiagnostics, loadCraftHubPlugins } from '../src/index'
 
 async function fixture(): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), 'craft-hub-'))
@@ -46,6 +46,59 @@ async function downstreamFixture(): Promise<string> {
 }
 
 describe('capability discovery', () => {
+  it('discovers, classifies, and scopes pnpm workspace package scripts', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'craft-hub-monorepo-'))
+    const liteapp = join(root, 'apps', 'liteapp')
+    const broken = join(root, 'packages', 'broken')
+    const ignored = join(root, 'packages', 'ignored')
+    await Promise.all([
+      mkdir(liteapp, { recursive: true }),
+      mkdir(broken, { recursive: true }),
+      mkdir(ignored, { recursive: true }),
+      mkdir(join(root, '.craft-hub'), { recursive: true }),
+    ])
+    await writeFile(join(root, 'package.json'), JSON.stringify({ name: 'root', packageManager: 'pnpm@10.0.0', scripts: { dev: 'vite' } }))
+    await writeFile(join(root, 'pnpm-workspace.yaml'), ['packages:', '  - apps/*', '  - packages/*', '  - "!packages/ignored"'].join('\n'))
+    await writeFile(join(liteapp, 'package.json'), JSON.stringify({ name: '@scope/liteapp', private: true, scripts: { 'build:liteapp': 'liteapp compile', 'deploy': 'liteapp deploy', 'prepublishOnly': 'echo prepare' } }))
+    await writeFile(join(broken, 'package.json'), '{ broken json')
+    await writeFile(join(ignored, 'package.json'), JSON.stringify({ scripts: { hidden: 'echo hidden' } }))
+    await writeFile(join(root, '.craft-hub', 'project.yaml'), [
+      'version: 1',
+      'capabilities:',
+      '  descriptions:',
+      '    apps/liteapp/package.json:deploy: Deploy the LiteApp package.',
+    ].join('\n'))
+
+    const discovery = await discoverCapabilitiesWithDiagnostics(root)
+    const commands = discovery.capabilities.filter(item => item.kind === 'command')
+    expect(commands.map(command => [command.package?.relativePath, command.name])).toEqual([
+      ['.', 'dev'],
+      ['apps/liteapp', 'build:liteapp'],
+      ['apps/liteapp', 'deploy'],
+      ['apps/liteapp', 'prepublishOnly'],
+    ])
+    expect(commands.find(command => command.name === 'deploy')).toMatchObject({
+      category: 'deploy',
+      description: 'Deploy the LiteApp package.',
+      source: 'apps/liteapp/package.json',
+      package: { name: '@scope/liteapp', relativePath: 'apps/liteapp', root: false },
+      invocation: { command: 'pnpm', args: ['run', 'deploy'], cwd: await realpath(liteapp) },
+    })
+    expect(commands.find(command => command.name === 'build:liteapp')?.category).toBe('build')
+    expect(commands.find(command => command.name === 'prepublishOnly')?.category).toBe('deploy')
+    expect(discovery.diagnostics).toEqual([
+      expect.objectContaining({ source: 'pnpm-workspace', path: 'packages/broken/package.json' }),
+    ])
+  })
+
+  it('fails clearly when pnpm workspace package globs are invalid', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'craft-hub-invalid-workspace-'))
+    await writeFile(join(root, 'package.json'), JSON.stringify({ scripts: { dev: 'vite' } }))
+    await writeFile(join(root, 'pnpm-workspace.yaml'), 'packages: apps/*\n')
+
+    await expect(discoverCapabilitiesWithDiagnostics(root)).rejects.toThrow('packages as an array')
+  })
+
   it('discovers package scripts and project skills', async () => {
     const root = await fixture()
     const capabilities = await discoverCapabilities(root)
@@ -362,6 +415,34 @@ describe('downstream distributions', () => {
     const project = await runtime.addProject(root)
     expect(runtime.distribution.name).toBe('Craft Hub Test')
     expect((await runtime.capabilities(project.id)).map(item => item.name)).toContain('inspect-test-project')
+  })
+
+  it('allows command working directories inside a project and rejects paths outside it', async () => {
+    const root = await fixture()
+    const child = join(root, 'apps', 'web')
+    const outside = await mkdtemp(join(tmpdir(), 'craft-hub-outside-'))
+    await mkdir(child, { recursive: true })
+    const provider = (cwd: string) => defineCapabilityProvider({
+      id: `cwd:${cwd}`,
+      async discover() {
+        return [{
+          id: `cwd:${cwd}`,
+          kind: 'command' as const,
+          name: 'cwd-check',
+          source: 'provider',
+          invocation: { command: 'node', args: ['--version'], cwd, requiredEnv: [] },
+        }]
+      },
+    })
+    const allowed = createCraftHub({ dataDir: join(root, '.child-cwd-data'), capabilityProviders: [provider(child)] })
+    const allowedProject = await allowed.addProject(root)
+    await expect(allowed.capabilities(allowedProject.id)).resolves.toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: 'cwd-check', invocation: expect.objectContaining({ cwd: child }) }),
+    ]))
+
+    const rejected = createCraftHub({ dataDir: join(root, '.outside-cwd-data'), capabilityProviders: [provider(outside)] })
+    const rejectedProject = await rejected.addProject(root)
+    await expect(rejected.capabilities(rejectedProject.id)).rejects.toThrow('must stay inside')
   })
 
   it('isolates a broken plugin while keeping healthy capabilities available', async () => {

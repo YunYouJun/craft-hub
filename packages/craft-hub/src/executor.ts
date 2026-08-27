@@ -4,6 +4,7 @@ import { Buffer } from 'node:buffer'
 import { randomUUID } from 'node:crypto'
 import process from 'node:process'
 import { spawn } from 'node-pty'
+import { assertCommandWorkingDirectory } from './path-security'
 
 const persistedOutputLimit = 10 * 1024 * 1024
 const persistedOutputHead = persistedOutputLimit / 2
@@ -18,16 +19,15 @@ export interface RunHandle {
 }
 
 /** Execute only a structured command capability after project trust is established. */
-export function executeCommand(
+export async function executeCommand(
   store: CraftHubStore,
   project: ProjectRecord,
   capability: CommandCapability,
   onOutput?: (event: RunOutputEvent) => void,
-): RunHandle {
+): Promise<RunHandle> {
   if (project.trust !== 'trusted')
     throw new Error(`Project ${project.name} is untrusted. Trust it before running commands.`)
-  if (capability.invocation.cwd !== project.path)
-    throw new Error('Command working directory does not match its project')
+  await assertCommandWorkingDirectory(project.path, capability.invocation.cwd)
 
   const run: RunRecord = {
     id: randomUUID(),

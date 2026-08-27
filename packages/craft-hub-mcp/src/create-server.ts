@@ -107,6 +107,167 @@ export function createCraftHubMcpServer(runtime = new CraftHubRuntime()): McpSer
   )
 
   server.registerTool(
+    'list_workspace_groups',
+    {
+      title: 'List Craft Hub workspace groups',
+      description: 'List editable, user-owned workspace navigation groups.',
+      inputSchema: {},
+      annotations: { readOnlyHint: true },
+    },
+    async () => {
+      const groups = await runtime.workspaces.groups()
+      return result({ groups }, `${groups.length} Craft Hub workspace group${groups.length === 1 ? '' : 's'} found.`)
+    },
+  )
+
+  server.registerTool(
+    'create_workspace_group',
+    {
+      title: 'Create a Craft Hub workspace group',
+      description: 'Create an editable, non-nesting navigation group for Craft Hub workspaces.',
+      inputSchema: { name: z.string().trim().min(1) },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    },
+    async ({ name }) => {
+      const group = await runtime.workspaces.createGroup(name)
+      return result({ group }, `Created the workspace group ${group.name}.`)
+    },
+  )
+
+  server.registerTool(
+    'assign_workspace_group',
+    {
+      title: 'Assign a Craft Hub workspace group',
+      description: 'Move a workspace into a navigation group, or omit groupId to leave it ungrouped. This does not change project trust.',
+      inputSchema: {
+        workspaceId: z.string().min(1),
+        groupId: z.string().min(1).optional(),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    async ({ workspaceId, groupId }) => {
+      const workspace = await runtime.workspaces.assignGroup(workspaceId, groupId)
+      return result({ workspace }, groupId ? `Assigned ${workspace.name} to workspace group ${groupId}.` : `Left ${workspace.name} ungrouped.`)
+    },
+  )
+
+  server.registerTool(
+    'rename_workspace_group',
+    {
+      title: 'Rename a Craft Hub workspace group',
+      description: 'Rename an existing workspace navigation group without changing its workspaces.',
+      inputSchema: {
+        groupId: z.string().min(1),
+        name: z.string().trim().min(1),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    async ({ groupId, name }) => {
+      const group = await runtime.workspaces.renameGroup(groupId, name)
+      return result({ group }, `Renamed the workspace group to ${group.name}.`)
+    },
+  )
+
+  server.registerTool(
+    'delete_workspace_group',
+    {
+      title: 'Delete a Craft Hub workspace group',
+      description: 'Delete a navigation group without deleting its workspaces; its workspaces become ungrouped.',
+      inputSchema: { groupId: z.string().min(1) },
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+    },
+    async ({ groupId }) => {
+      const group = (await runtime.workspaces.groups()).find(item => item.id === groupId)
+      if (!group)
+        throw new Error(`Unknown workspace group: ${groupId}`)
+      await runtime.workspaces.deleteGroup(groupId)
+      return result({ deleted: group }, `Deleted ${group.name}; its workspaces remain ungrouped.`)
+    },
+  )
+
+  server.registerTool(
+    'personal_git_sync_status',
+    {
+      title: 'Inspect Personal Git sync',
+      description: 'Inspect whether allowlisted Personal configuration is synchronized with the selected local Git checkout. This does not fetch, commit, or push.',
+      inputSchema: {},
+      annotations: { readOnlyHint: true, openWorldHint: false },
+    },
+    async () => {
+      const status = await runtime.personalGitSync.status()
+      return result({ status }, `Personal Git sync is ${status.state}.`)
+    },
+  )
+
+  server.registerTool(
+    'configure_personal_git_sync',
+    {
+      title: 'Configure Personal Git sync',
+      description: 'Select a local Git checkout and relative directory for allowlisted Personal configuration. Git credentials remain outside Craft Hub.',
+      inputSchema: {
+        repositoryPath: z.string().min(1).refine(isAbsolute, 'Git repository path must be absolute'),
+        directory: z.string().min(1).default('.craft-hub'),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    async ({ repositoryPath, directory }) => {
+      const status = await runtime.personalGitSync.configure({ repositoryPath, directory })
+      return result({ status }, `Configured Personal Git sync at ${status.snapshotPath}.`)
+    },
+  )
+
+  server.registerTool(
+    'synchronize_personal_git',
+    {
+      title: 'Synchronize Personal configuration with Git',
+      description: 'Synchronize allowlisted Personal settings and workspaces with the configured local Git checkout. Conflicts require an explicit resolution. This does not fetch, commit, or push.',
+      inputSchema: { resolution: z.enum(['auto', 'use-local', 'use-repository']).default('auto') },
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+    },
+    async ({ resolution }) => {
+      const status = await runtime.personalGitSync.synchronize(resolution)
+      return result({ status }, `Personal Git sync is ${status.state}. Review and commit repository changes with Git when needed.`)
+    },
+  )
+
+  server.registerTool(
+    'import_vscode_workspaces',
+    {
+      title: 'Import VS Code workspaces',
+      description: 'Convert a directory of .code-workspace files once into editable Craft Hub workspaces and a workspace group. The source is not synchronized afterward.',
+      inputSchema: {
+        sourceDirectory: z.string().min(1).refine(isAbsolute, 'Source directory must be absolute'),
+        groupName: z.string().trim().min(1).optional(),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    },
+    async ({ sourceDirectory, groupName }) => {
+      const imported = await runtime.workspaceImports.importVscodeDirectory(sourceDirectory, groupName)
+      return result({ imported }, `Imported ${imported.workspaces.length} editable workspace${imported.workspaces.length === 1 ? '' : 's'} into ${imported.group.name}.`)
+    },
+  )
+
+  server.registerTool(
+    'register_workspace_member',
+    {
+      title: 'Register an imported workspace member',
+      description: 'Register an unresolved imported workspace member as an untrusted Craft Hub project using its retained local path or an explicit replacement path.',
+      inputSchema: {
+        workspaceId: z.string().min(1),
+        project: z.string().min(1),
+        path: z.string().min(1).refine(isAbsolute, 'Project path must be absolute').optional(),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    async ({ workspaceId, project, path }) => {
+      const workspace = await runtime.workspaces.registerImportedProject(workspaceId, project, path)
+      const member = workspace.members.find(item => item.project === project)!
+      const registered = await runtime.projects.get(member.projectId!)
+      return result({ workspace, project: registered }, `Registered ${registered.name} with ${registered.trust} trust. No project code was run.`)
+    },
+  )
+
+  server.registerTool(
     'create_workspace',
     {
       title: 'Create a Craft Hub workspace',
@@ -155,8 +316,8 @@ export function createCraftHubMcpServer(runtime = new CraftHubRuntime()): McpSer
     },
     async ({ projectId }) => {
       const project = await runtime.projects.get(projectId)
-      const capabilities = await runtime.capabilities(projectId)
-      return result({ project, capabilities }, `${capabilities.length} capabilities found for ${project.name}.`)
+      const discovery = await runtime.capabilityDiscovery(projectId)
+      return result({ project, ...discovery }, `${discovery.capabilities.length} capabilities found for ${project.name}.`)
     },
   )
 
@@ -223,6 +384,8 @@ function commandPreview(capability: CommandCapability): {
   args: string[]
   cwd: string
   requiredEnv: string[]
+  category?: CommandCapability['category']
+  package?: CommandCapability['package']
 } {
   return {
     id: capability.id,
@@ -231,6 +394,8 @@ function commandPreview(capability: CommandCapability): {
     args: capability.invocation.args,
     cwd: capability.invocation.cwd,
     requiredEnv: capability.invocation.requiredEnv,
+    category: capability.category,
+    package: capability.package,
   }
 }
 

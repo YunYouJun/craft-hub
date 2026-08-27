@@ -18,6 +18,19 @@ async function setup() {
 }
 
 describe('portable workspaces', () => {
+  it('owns editable groups separately from workspace manifests', async () => {
+    const fixture = await setup()
+    const workspace = await fixture.workspaces.create('Grouped')
+    const group = await fixture.workspaces.createGroup('Cover')
+
+    await expect(fixture.workspaces.assignGroup(workspace.id, group.id)).resolves.toMatchObject({ groupId: group.id })
+    await expect(fixture.workspaces.renameGroup(group.id, 'Cover Hub')).resolves.toEqual({ id: group.id, name: 'Cover Hub' })
+    expect(await readFile(join(fixture.configDir, 'workspaces', 'grouped.yaml'), 'utf8')).not.toContain(group.id)
+
+    await fixture.workspaces.deleteGroup(group.id)
+    await expect(fixture.workspaces.list()).resolves.toEqual([expect.objectContaining({ id: workspace.id, groupId: undefined })])
+  })
+
   it('keeps portable membership separate from machine-local project bindings', async () => {
     const fixture = await setup()
     const created = await fixture.workspaces.create('My Workspace')

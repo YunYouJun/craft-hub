@@ -3,7 +3,7 @@ import type { Capability } from 'craft-hub'
 import { Icon } from './icons'
 import { useI18n } from './i18n'
 
-defineProps<{ capability: Capability, pinned: boolean, selected: boolean }>()
+defineProps<{ capability: Capability, pinned: boolean, selected: boolean, packageContext?: boolean }>()
 defineEmits<{
   dragstart: [event: DragEvent]
   drop: [event: DragEvent]
@@ -32,7 +32,7 @@ const { t } = useI18n()
       <span class="capability-copy">
         <strong>{{ capability.name }}</strong>
         <small v-if="capability.description" class="capability-description">{{ capability.description }}</small>
-        <small class="capability-source">{{ capability.source }}</small>
+        <small class="capability-source">{{ packageContext && capability.kind === 'command' && capability.package?.relativePath !== '.' ? `${capability.package?.relativePath} · ${capability.source}` : capability.source }}</small>
       </span>
     </button>
     <button

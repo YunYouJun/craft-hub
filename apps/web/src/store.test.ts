@@ -42,7 +42,7 @@ describe('workbench refresh', () => {
       const path = typeof input === 'string' ? input : input.toString()
       if (path === '/api/projects')
         projectRequests += 1
-      else if (path.endsWith('/capabilities'))
+      else if (path.endsWith('/capability-discovery'))
         capabilityRequests += 1
       const body = path === '/api/projects'
         ? [project]
@@ -318,6 +318,8 @@ describe('workspace creation', () => {
       }
       if (path === '/api/workspaces/state')
         return new Response(JSON.stringify({ expandedWorkspaceIds: ['client-work'] }), { status: 200 })
+      if (path === '/api/workspace-groups')
+        return new Response(JSON.stringify([]), { status: 200 })
       throw new Error(`Unexpected request: ${String(init?.method ?? 'GET')} ${path}`)
     }))
 
@@ -332,5 +334,71 @@ describe('workspace creation', () => {
     expect(store.workspaces[0]?.members).toHaveLength(2)
     expect(store.expandedWorkspaceIds).toContain('client-work')
     expect(store.selectedWorkspaceId).toBe('client-work')
+  })
+})
+
+describe('owned workspace groups', () => {
+  beforeEach(() => setActivePinia(createPinia()))
+  afterEach(() => vi.unstubAllGlobals())
+
+  it('loads editable groups with their owned workspaces', async () => {
+    const workspace = {
+      schemaVersion: 1 as const,
+      id: 'pair',
+      name: 'Pair',
+      groupId: 'product-group',
+      revision: 'revision',
+      members: [{ project: 'project', label: 'Project label', resolved: true, projectId: project.id }],
+    }
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const path = typeof input === 'string' ? input : input.toString()
+      if (path === '/api/projects')
+        return new Response(JSON.stringify([project]))
+      if (path === '/api/workspaces')
+        return new Response(JSON.stringify([workspace]))
+      if (path === '/api/workspace-groups')
+        return new Response(JSON.stringify([{ id: 'product-group', name: 'Product group' }]))
+      if (path.endsWith('/capabilities') || path.includes('/agent-actions'))
+        return new Response(JSON.stringify([]))
+      if (path.endsWith('/pins'))
+        return new Response(JSON.stringify({ projectId: project.id, capabilityIds: [] }))
+      throw new Error(`Unexpected request: ${path}`)
+    }))
+    const store = useWorkbenchStore()
+    await Promise.all([store.loadProjects(), store.loadWorkspaces()])
+
+    expect(store.allWorkspaces[0]).toMatchObject({
+      id: 'pair',
+      groupId: 'product-group',
+      members: [{ label: 'Project label', resolved: true }],
+    })
+    expect(store.workspaceGroups).toEqual([{ id: 'product-group', name: 'Product group' }])
+  })
+
+  it('creates a group and assigns a workspace through the workspace interface', async () => {
+    const requests: Array<{ method: string, path: string }> = []
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = typeof input === 'string' ? input : input.toString()
+      const method = init?.method ?? 'GET'
+      requests.push({ method, path })
+      if (path === '/api/workspace-groups' && method === 'POST')
+        return new Response(JSON.stringify({ id: 'release', name: 'Release' }))
+      if (path === '/api/workspaces/pair/group' && method === 'PUT')
+        return new Response(JSON.stringify({ id: 'pair', groupId: 'release' }))
+      if (path === '/api/workspaces')
+        return new Response(JSON.stringify([]))
+      if (path === '/api/workspace-groups')
+        return new Response(JSON.stringify([{ id: 'release', name: 'Release' }]))
+      throw new Error(`Unexpected request: ${method} ${path}`)
+    }))
+    const store = useWorkbenchStore()
+
+    await expect(store.createWorkspaceGroup('Release')).resolves.toEqual({ id: 'release', name: 'Release' })
+    await store.assignWorkspaceGroup('pair', 'release')
+
+    expect(requests).toEqual(expect.arrayContaining([
+      { method: 'POST', path: '/api/workspace-groups' },
+      { method: 'PUT', path: '/api/workspaces/pair/group' },
+    ]))
   })
 })

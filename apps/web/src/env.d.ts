@@ -8,6 +8,7 @@ interface Window {
     openProjectInVSCode?: (projectId: string) => Promise<void>
     openCapabilitySourceInVSCode?: (projectId: string, capabilityId: string) => Promise<void>
     openProjectInCodex?: (projectId: string) => Promise<void>
+    openWorkspace?: (workspaceId: string, launcher: 'vscode' | 'codebuddy' | 'codex') => Promise<void>
     startProjectInCodex?: (projectId: string, prompt: string) => Promise<void>
     openCodexThread?: (threadId: string) => Promise<void>
     listTerminalApplications?: () => Promise<string[]>

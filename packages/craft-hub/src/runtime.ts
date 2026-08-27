@@ -1,7 +1,7 @@
 import type { RunHandle } from './executor'
 import type { CapabilityProvider, CraftHubOptions, DistributionConfig } from './extensions'
 import type { CraftHubPlugin, PluginDiagnostic } from './plugins'
-import type { Capability, CapabilityPins, CapabilityReference, CommandCapability, ProjectConfigInitializationMode, ProjectConfigInitializationResult, ProjectRecord, ProjectRunSummary, RunCleanupOptions, RunCleanupResult, RunOutputEvent, RunRecord } from './types'
+import type { Capability, CapabilityDiscoveryDiagnostic, CapabilityDiscoveryResult, CapabilityPins, CapabilityReference, CommandCapability, ProjectConfigInitializationMode, ProjectConfigInitializationResult, ProjectRecord, ProjectRunSummary, RunCleanupOptions, RunCleanupResult, RunOutputEvent, RunRecord } from './types'
 import { resolve } from 'node:path'
 import process from 'node:process'
 import { AgentActionService } from './agent-actions'
@@ -10,10 +10,13 @@ import { applyProjectConfigInitialization, previewProjectConfigInitialization } 
 import { executeCommand } from './executor'
 import { builtinCapabilityProvider, communityDistribution } from './extensions'
 import { PluginManager } from './marketplace'
+import { assertCommandWorkingDirectory } from './path-security'
+import { PersonalGitSyncService } from './personal-git-sync'
 import { getCraftHubConfigDir, getCraftHubDataDir } from './platform'
 import { ProjectRegistry } from './projects'
 import { CraftHubSettingsService } from './settings'
 import { CraftHubStore } from './store'
+import { WorkspaceImportService } from './workspace-import'
 import { WorkspaceService } from './workspaces'
 
 export class CraftHubRuntime {
@@ -21,6 +24,8 @@ export class CraftHubRuntime {
   readonly projects: ProjectRegistry
   readonly settings: CraftHubSettingsService
   readonly workspaces: WorkspaceService
+  readonly workspaceImports: WorkspaceImportService
+  readonly personalGitSync: PersonalGitSyncService
   readonly agentTasks: AgentTaskManager
   readonly agentActions: AgentActionService
   readonly pluginManager: PluginManager
@@ -47,6 +52,8 @@ export class CraftHubRuntime {
     this.projects = new ProjectRegistry(this.store)
     this.settings = new CraftHubSettingsService(this.store.dataDir)
     this.workspaces = new WorkspaceService(normalizedOptions.configDir ?? getCraftHubConfigDir(process.env), this.store.dataDir, this.projects)
+    this.workspaceImports = new WorkspaceImportService(this.projects, this.workspaces)
+    this.personalGitSync = new PersonalGitSyncService(this.store.dataDir, this.settings, this.workspaces)
     this.agentTasks = new AgentTaskManager(this.store, this.projects, normalizedOptions.agentTaskProvider)
     this.agentActions = new AgentActionService(this.agentTasks, this.projects, projectId => this.capabilities(projectId))
   }
@@ -90,15 +97,24 @@ export class CraftHubRuntime {
 
   /** Discover the current capabilities for one registered project. */
   async capabilities(projectId: string): Promise<Capability[]> {
+    return (await this.capabilityDiscovery(projectId)).capabilities
+  }
+
+  /** Discover capabilities and non-fatal diagnostics for one registered project. */
+  async capabilityDiscovery(projectId: string): Promise<CapabilityDiscoveryResult> {
     const project = await this.projects.get(projectId)
     const locale = (await this.settings.get()).settings['workbench.locale']
     this.diagnostics = []
     const capabilities: Capability[] = []
+    const diagnostics: CapabilityDiscoveryDiagnostic[] = []
     const ids = new Set<string>()
     for (const entry of this.capabilityProviders) {
       try {
-        const discovered = await entry.provider.discover({ locale, project })
-        validateCapabilities(discovered, ids, project.path)
+        const result = await entry.provider.discover({ locale, project })
+        const discovered = Array.isArray(result) ? result : result.capabilities
+        await validateCapabilities(discovered, ids, project.path)
+        if (!Array.isArray(result))
+          diagnostics.push(...result.diagnostics)
         for (const capability of discovered) {
           ids.add(capability.id)
           capabilities.push(capability)
@@ -114,7 +130,7 @@ export class CraftHubRuntime {
         })
       }
     }
-    return capabilities.sort((left, right) => left.name.localeCompare(right.name))
+    return { capabilities, diagnostics }
   }
 
   /** Return the current capability ids represented by this project's machine-local pin order. */
@@ -160,7 +176,7 @@ export class CraftHubRuntime {
       throw new Error(`Unknown capability: ${capabilityId}`)
     if (capability.kind !== 'command')
       throw new Error('Skills are inspected or handed to an agent; they are not shell commands')
-    const handle = executeCommand(this.store, project, capability as CommandCapability, onOutput)
+    const handle = await executeCommand(this.store, project, capability as CommandCapability, onOutput)
     this.activeRuns.set(handle.run.id, handle)
     this.emitRunSummary(projectId)
     void handle.completion.then((run) => {
@@ -263,6 +279,7 @@ function capabilityReference(capability: Capability): CapabilityReference {
     kind: capability.kind,
     name: capability.name,
     source: capability.source,
+    packageRelativePath: capability.kind === 'command' ? capability.package?.relativePath : undefined,
   }
 }
 
@@ -270,6 +287,9 @@ function sameCapability(reference: CapabilityReference, capability: Capability):
   return reference.kind === capability.kind
     && reference.name === capability.name
     && reference.source === capability.source
+    && (reference.packageRelativePath === undefined
+      || capability.kind !== 'command'
+      || reference.packageRelativePath === capability.package?.relativePath)
 }
 
 function assertUniquePluginIds(plugins: CraftHubPlugin[]): void {
@@ -283,14 +303,14 @@ function assertUniquePluginIds(plugins: CraftHubPlugin[]): void {
   }
 }
 
-function validateCapabilities(capabilities: Capability[], existingIds: Set<string>, projectPath: string): void {
+async function validateCapabilities(capabilities: Capability[], existingIds: Set<string>, projectPath: string): Promise<void> {
   const providerIds = new Set<string>()
   for (const capability of capabilities) {
     if (existingIds.has(capability.id) || providerIds.has(capability.id))
       throw new Error(`Duplicate capability id: ${capability.id}`)
     providerIds.add(capability.id)
-    if (capability.kind === 'command' && capability.invocation.cwd !== projectPath)
-      throw new Error(`Capability ${capability.id} uses a working directory outside its project`)
+    if (capability.kind === 'command')
+      await assertCommandWorkingDirectory(projectPath, capability.invocation.cwd)
   }
 }
 

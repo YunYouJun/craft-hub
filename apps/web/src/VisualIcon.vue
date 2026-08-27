@@ -8,7 +8,7 @@ const builtin = computed<IconName | undefined>(() => {
   if (!props.icon?.startsWith('builtin:'))
     return undefined
   const name = props.icon.slice('builtin:'.length)
-  return ['folder', 'hub', 'skill', 'terminal'].includes(name) ? name as IconName : undefined
+  return ['folder', 'hub', 'skill', 'terminal', 'workspace'].includes(name) ? name as IconName : undefined
 })
 </script>
 

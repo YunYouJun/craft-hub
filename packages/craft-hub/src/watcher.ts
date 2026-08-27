@@ -1,6 +1,6 @@
 import type { FSWatcher } from 'chokidar'
 import type { ProjectRecord } from './types'
-import { relative, sep } from 'node:path'
+import { extname, relative, sep } from 'node:path'
 import chokidar from 'chokidar'
 
 /** Semantic area affected by a project file change. */
@@ -15,7 +15,7 @@ export interface ProjectChangeEvent {
 /** Listener notified after project changes are coalesced. */
 export type ProjectChangeListener = (event: ProjectChangeEvent) => void
 
-const rootCapabilityFiles = new Set(['Makefile', 'Taskfile.yaml', 'Taskfile.yml', 'package.json'])
+const rootCapabilityFiles = new Set(['Makefile', 'Taskfile.yaml', 'Taskfile.yml', 'package.json', 'pnpm-workspace.yaml'])
 const skillRoots = ['.agents/skills', '.claude/skills', '.codex/skills']
 
 function normalizedRelativePath(root: string, path: string): string {
@@ -25,7 +25,7 @@ function normalizedRelativePath(root: string, path: string): string {
 function isRelevantPath(path: string): boolean {
   if (!path)
     return true
-  if (rootCapabilityFiles.has(path) || path === '.craft-hub' || path === '.craft-hub/project.yaml')
+  if (rootCapabilityFiles.has(path) || path.endsWith('/package.json') || path === '.craft-hub' || path === '.craft-hub/project.yaml')
     return true
   return skillRoots.some(root => path === root || path.startsWith(`${root}/`) || root.startsWith(`${path}/`))
 }
@@ -54,7 +54,14 @@ export class ProjectWatcher {
       atomic: true,
       followSymlinks: false,
       ignoreInitial: true,
-      ignored: path => !isRelevantPath(normalizedRelativePath(project.path, path)),
+      ignored: (path, stats) => {
+        const relativePath = normalizedRelativePath(project.path, path)
+        if (relativePath.split('/').some(part => part === '.git' || part === 'node_modules'))
+          return true
+        if (stats?.isDirectory() || (!stats && !extname(relativePath)))
+          return false
+        return !isRelevantPath(relativePath)
+      },
     })
     this.watchers.set(project.id, watcher)
     watcher.on('all', (_event, path) => this.queue(project.id, normalizedRelativePath(project.path, path)))

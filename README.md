@@ -8,7 +8,7 @@ Craft Hub is a local, cross-project developer workbench. Its Project Palette dis
 
 - Register and switch between local projects
 - Register projects and organize portable workspaces from the Craft Hub MCP adapter
-- Discover `package.json` scripts, Makefile targets, and Taskfile tasks
+- Discover root and pnpm workspace `package.json` scripts, Makefile targets, and Taskfile tasks
 - Discover project-local skills from `.agents`, `.claude`, and `.codex`
 - Preview command, arguments, working directory, and required environment
 - Trust a project explicitly before running anything
@@ -65,6 +65,7 @@ craft-hub app .
 craft-hub app /absolute/path/to/project --no-open
 pnpm --filter craft-hub start -- project:add /absolute/path/to/project
 pnpm --filter craft-hub start -- project:list
+pnpm --filter craft-hub start -- workspace:import /absolute/path/to/workspaces
 pnpm --filter craft-hub start -- list <project-id>
 pnpm --filter craft-hub start -- project:trust <project-id>
 pnpm --filter craft-hub start -- run <project-id> <capability-id> --yes
@@ -74,9 +75,17 @@ pnpm --filter craft-hub start -- run <project-id> <capability-id> --yes
 
 Projects are untrusted by default. Listing and inspecting capabilities never executes project code.
 
+### pnpm workspaces
+
+When a registered Project contains `pnpm-workspace.yaml`, Craft Hub resolves its `packages` glob and exclusion patterns and reads scripts from every matched package manifest. The Project Palette groups commands under `Project root` or their package-relative path, exposes the package name, and provides Develop, Build, Test, Quality, Preview, Deploy/Release, and Other filters.
+
+Workspace commands run with `pnpm run <script>` from the declaring package directory. Craft Hub resolves that directory before preview or execution and rejects commands whose real path leaves the trusted Project boundary. A malformed workspace manifest blocks discovery; a malformed individual package is skipped and reported as a non-fatal discovery diagnostic in the workbench and MCP `list_capabilities` response.
+
+VS Code `.code-workspace` files can be imported explicitly from the CLI or workbench. Craft Hub reads the JSONC `folders[].path` and optional `folders[].name` fields once, converts them into editable user-owned workspaces and a workspace group, and does not synchronize the source afterward. Existing unregistered directories remain available for explicit registration, and every newly registered project remains untrusted.
+
 ## MCP
 
-The bundled Craft Hub MCP adapter exposes the same runtime state as the CLI and workbench. Agents can list or register local projects by absolute path, list or create portable workspaces, add an already registered project to a workspace, and initialize optional project config through a preview/apply flow. Registration is idempotent, never executes project code, and leaves every newly registered project untrusted.
+The bundled Craft Hub MCP adapter exposes the same runtime state as the CLI and workbench. Agents can list or register local projects by absolute path, list or create portable workspaces and groups, import VS Code workspaces once, add or resolve workspace members, and initialize optional project config through a preview/apply flow. Registration is idempotent, never executes project code, and leaves every newly registered project untrusted.
 
 Project registration and local workspace bindings stay in the operating-system Craft Hub data directory. Portable workspace manifests are written under `~/.craft-hub/workspaces/`. `init_project_config` previews the exact `.craft-hub/project.yaml` content without writing; apply requires a trusted project and the matching preview revision, creates only a missing file, and never overwrites existing repository configuration.
 

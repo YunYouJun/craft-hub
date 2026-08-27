@@ -1,7 +1,7 @@
 import type { ChildProcess } from 'node:child_process'
 import { EventEmitter } from 'node:events'
 import { describe, expect, it, vi } from 'vitest'
-import { codexCommand, codexThreadUrl, externalHttpUrl, macTerminalApplication, macTerminalApplications, openCodexProject, openMacTerminalProject, vscodeUrl } from '../src/open-targets.ts'
+import { codexCommand, codexThreadUrl, externalHttpUrl, macTerminalApplication, macTerminalApplications, openCodeBuddyWorkspace, openCodexProject, openMacTerminalProject, vscodeUrl } from '../src/open-targets.ts'
 
 describe('desktop open targets', () => {
   it('encodes local paths for the VS Code URL handler', () => {
@@ -40,6 +40,21 @@ describe('desktop open targets', () => {
       stdio: 'ignore',
     })
     expect(child.unref).toHaveBeenCalled()
+  })
+
+  it('opens a workspace in CodeBuddy with structured arguments and no shell', async () => {
+    const child = new EventEmitter() as ChildProcess
+    child.unref = vi.fn(() => child)
+    const launch = vi.fn(() => child)
+    const opened = openCodeBuddyWorkspace('/project/full.code-workspace', 'darwin', path => path.includes('CodeBuddy CN.app'), launch)
+    child.emit('spawn')
+    await opened
+
+    expect(launch).toHaveBeenCalledWith('open', ['-a', 'CodeBuddy CN', '/project/full.code-workspace'], {
+      detached: true,
+      shell: false,
+      stdio: 'ignore',
+    })
   })
 
   it('prefers iTerm, then Ghostty, then Warp, and falls back to Terminal on macOS', () => {

@@ -19,6 +19,49 @@ cli.command('project:list', 'List registered projects').action(async () => {
   console.log(JSON.stringify(await runtime.projects.list(), null, 2))
 })
 
+cli.command('workspace:import <directory>', 'Import VS Code workspace files into editable Craft Hub workspaces').action(async (directory: string) => {
+  console.log(JSON.stringify(await runtime.workspaceImports.importVscodeDirectory(resolve(directory)), null, 2))
+})
+
+cli.command('workspace-group:list', 'List workspace groups').action(async () => {
+  console.log(JSON.stringify(await runtime.workspaces.groups(), null, 2))
+})
+
+cli.command('workspace-group:create <name>', 'Create a workspace group').action(async (name: string) => {
+  console.log(JSON.stringify(await runtime.workspaces.createGroup(name), null, 2))
+})
+
+cli.command('workspace-group:rename <id> <name>', 'Rename a workspace group').action(async (id: string, name: string) => {
+  console.log(JSON.stringify(await runtime.workspaces.renameGroup(id, name), null, 2))
+})
+
+cli.command('workspace-group:delete <id>', 'Delete a workspace group without deleting its workspaces').action(async (id: string) => {
+  await runtime.workspaces.deleteGroup(id)
+  console.log(JSON.stringify({ deleted: id }, null, 2))
+})
+
+cli.command('workspace-group:assign <workspaceId> [groupId]', 'Assign a workspace to a group, or omit groupId to leave it ungrouped').action(async (workspaceId: string, groupId?: string) => {
+  console.log(JSON.stringify(await runtime.workspaces.assignGroup(workspaceId, groupId), null, 2))
+})
+
+cli.command('git-sync:configure <repositoryPath> [directory]', 'Select a local Git checkout for Personal configuration sync').action(async (repositoryPath: string, directory?: string) => {
+  console.log(JSON.stringify(await runtime.personalGitSync.configure({ repositoryPath, directory }), null, 2))
+})
+
+cli.command('git-sync:status', 'Inspect Personal configuration divergence in the selected Git checkout').action(async () => {
+  console.log(JSON.stringify(await runtime.personalGitSync.status(), null, 2))
+})
+
+cli.command('git-sync:sync', 'Synchronize Personal configuration with the selected Git checkout')
+  .option('--use-local', 'Resolve divergence by writing local configuration')
+  .option('--use-repository', 'Resolve divergence by applying repository configuration')
+  .action(async (options: { useLocal?: boolean, useRepository?: boolean }) => {
+    if (options.useLocal && options.useRepository)
+      throw new Error('Choose either --use-local or --use-repository')
+    const resolution = options.useLocal ? 'use-local' : options.useRepository ? 'use-repository' : 'auto'
+    console.log(JSON.stringify(await runtime.personalGitSync.synchronize(resolution), null, 2))
+  })
+
 cli.command('project:trust <id>', 'Trust a registered project').action(async (id: string) => {
   console.log(JSON.stringify(await runtime.projects.setTrust(id, 'trusted'), null, 2))
 })

@@ -1,0 +1,3 @@
+# Separate workspace ownership from Git synchronization
+
+Craft Hub gives every Workspace and Workspace Group exactly one Owner Scope, either Personal or a Team, while keeping Workspace Group as navigation rather than an access-control boundary. Personal remains local-first with optional Git synchronization; a Team uses a shared Git target for collaboration, but its stable identity remains independent of the selected repository so that repositories can move without changing ownership. Shared Project References resolve to machine-local Projects, and Git synchronization never transfers paths, trust, credentials, or execution history. Organization-level tenancy is deliberately outside the current model.

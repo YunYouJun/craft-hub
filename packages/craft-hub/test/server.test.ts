@@ -1,13 +1,107 @@
 import type { AddressInfo } from 'node:net'
-import { mkdtemp } from 'node:fs/promises'
+import { execFile } from 'node:child_process'
+import { mkdir, mkdtemp, realpath, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { promisify } from 'node:util'
 import { describe, expect, it, vi } from 'vitest'
 import { CraftHubRuntime } from '../src/runtime'
 import { startCraftHubServer } from '../src/server'
 
+const execFileAsync = promisify(execFile)
+
 describe('craft hub server lifecycle', () => {
+  it('configures and synchronizes Personal data through a selected Git checkout', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'craft-hub-server-git-sync-'))
+    const repositoryPath = join(root, 'dotfiles')
+    await execFileAsync('git', ['init', repositoryPath])
+    const canonicalRepositoryPath = await realpath(repositoryPath)
+    const runtime = new CraftHubRuntime({ dataDir: join(root, 'data'), configDir: join(root, 'config') })
+    const app = await startCraftHubServer({ port: 0, runtime })
+    try {
+      const configured = await fetch(`${app.url}/api/personal-git-sync`, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ repositoryPath, directory: 'cover/hub' }),
+      }).then(response => response.json())
+      expect(configured).toMatchObject({ state: 'local-ahead', target: { repositoryPath: canonicalRepositoryPath, directory: 'cover/hub' } })
+
+      const synchronized = await fetch(`${app.url}/api/personal-git-sync/synchronize`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ resolution: 'auto' }),
+      }).then(response => response.json())
+      expect(synchronized).toMatchObject({ state: 'clean' })
+    }
+    finally {
+      await app.close()
+    }
+  })
+
+  it('creates, assigns, renames, and deletes workspace groups without deleting workspaces', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'craft-hub-server-groups-'))
+    const runtime = new CraftHubRuntime({ dataDir: join(root, 'data'), configDir: join(root, 'config') })
+    const workspace = await runtime.workspaces.create('Release')
+    const app = await startCraftHubServer({ port: 0, runtime })
+    try {
+      const created = await fetch(`${app.url}/api/workspace-groups`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: 'Cover' }),
+      }).then(response => response.json()) as { id: string }
+      await expect(fetch(`${app.url}/api/workspaces/${workspace.id}/group`, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ groupId: created.id }),
+      }).then(response => response.json())).resolves.toMatchObject({ groupId: created.id })
+      await expect(fetch(`${app.url}/api/workspace-groups/${created.id}`, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: 'Cover Hub' }),
+      }).then(response => response.json())).resolves.toMatchObject({ name: 'Cover Hub' })
+      await fetch(`${app.url}/api/workspace-groups/${created.id}`, { method: 'DELETE' })
+
+      await expect(runtime.workspaces.list()).resolves.toEqual([expect.objectContaining({ id: workspace.id, groupId: undefined })])
+    }
+    finally {
+      await app.close()
+    }
+  })
+
+  it('imports editable workspaces and explicitly registers retained members as untrusted', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'craft-hub-server-collections-'))
+    const sourcePath = join(root, 'hub')
+    const memberPath = join(root, 'member')
+    await mkdir(join(sourcePath, 'workspaces'), { recursive: true })
+    await mkdir(memberPath)
+    await writeFile(join(sourcePath, 'workspaces', 'pair.code-workspace'), JSON.stringify({ folders: [{ path: '../../member' }] }))
+    const runtime = new CraftHubRuntime({ dataDir: join(root, 'data'), configDir: join(root, 'config') })
+    const app = await startCraftHubServer({ port: 0, runtime })
+    try {
+      const importResponse = await fetch(`${app.url}/api/workspaces/import/vscode`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ sourceDirectory: join(sourcePath, 'workspaces') }),
+      })
+      const imported = await importResponse.json() as { group: { id: string }, workspaces: Array<{ id: string, groupId: string, members: Array<{ project: string, path: string }> }> }
+      const workspace = imported.workspaces[0]!
+      expect(workspace).toMatchObject({ groupId: imported.group.id })
+      expect(workspace.members[0]).toMatchObject({ path: await realpath(memberPath) })
+
+      const response = await fetch(`${app.url}/api/workspaces/register-member`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ workspaceId: workspace.id, project: workspace.members[0]!.project }),
+      })
+      await expect(response.json()).resolves.toMatchObject({ members: [expect.objectContaining({ resolved: true })] })
+      await expect(runtime.projects.list()).resolves.toEqual([expect.objectContaining({ trust: 'untrusted' })])
+    }
+    finally {
+      await app.close()
+    }
+  })
+
   it('exposes marketplace catalog, source, and installed-plugin state', async () => {
     const dataDir = await mkdtemp(join(tmpdir(), 'craft-hub-server-marketplace-'))
     const runtime = new CraftHubRuntime({

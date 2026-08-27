@@ -65,6 +65,8 @@ describe('project rail', () => {
     store.createWorkspace = createWorkspace
     const wrapper = mount(ProjectRail, { attachTo: document.body })
 
+    expect(wrapper.get('[data-testid="add-workspace"]').text()).toBe('')
+    expect(wrapper.get('[data-testid="add-workspace"]').attributes('aria-label')).toBe('Add workspace')
     await wrapper.get('[data-testid="add-workspace"]').trigger('click')
 
     const input = document.body.querySelector<HTMLInputElement>('input[name="workspace-name"]')
@@ -135,6 +137,87 @@ describe('project rail', () => {
     expect(wrapper.get('.workspace-empty').text()).toBe('No projects in this workspace')
   })
 
+  it('renders imported workspaces as editable grouped workspaces with compact member states', () => {
+    const store = useWorkbenchStore()
+    store.projects = [{ id: 'hub', name: 'Hub', path: '/hub', trust: 'untrusted', addedAt: '2026-01-01T00:00:00.000Z' }]
+    store.workspaceGroups = [{ id: 'cover', name: '红包封面' }]
+    store.workspaces = [{
+      schemaVersion: 1,
+      id: 'cover-review',
+      name: '封面审核台',
+      groupId: 'cover',
+      primaryProject: 'hub-member',
+      revision: 'revision',
+      members: [
+        { project: 'hub-member', label: 'Hub', resolved: true, projectId: 'hub' },
+        { project: 'api-member', label: 'API', resolved: false, path: '/api' },
+        { project: 'missing-member', label: 'Missing', resolved: false },
+      ],
+    }]
+    store.expandedWorkspaceIds = ['cover-review']
+
+    const wrapper = mount(ProjectRail, { attachTo: document.body })
+
+    expect(wrapper.get('.collection-heading').text()).toContain('红包封面')
+    expect(wrapper.get('.collection-heading .collection-icon .app-icon').classes()).toContain('i-ri-stack-line')
+    expect(wrapper.get('.collection-heading .workspace-group-delete').attributes('aria-label')).toBe('Delete workspace group')
+    expect(wrapper.get('.workspace-group').text()).toContain('封面审核台')
+    expect(wrapper.get('.workspace-group .i-ri-node-tree').classes()).toContain('app-icon')
+    expect(wrapper.find('.workspace-group .vscode-icon').exists()).toBe(false)
+    expect(wrapper.get('.workspace-group').attributes('draggable')).toBe('true')
+    expect(wrapper.findAll('.workspace-project').map(item => item.text())).toEqual(['HubPrimary', 'API', 'Missing'])
+    expect(wrapper.find('.workspace-project .member-source-status.available').attributes('title')).toBe('Available to add')
+    expect(wrapper.findAll('.workspace-project .member-source-status')[1]!.attributes('title')).toBe('Not found on this device')
+    expect(wrapper.find('.workspace-group .danger-hover').exists()).toBe(true)
+  })
+
+  it('collapses and filters editable workspace groups', async () => {
+    const store = useWorkbenchStore()
+    store.workspaceGroups = [{ id: 'cover', name: '红包封面' }, { id: 'pay', name: '支付' }]
+    store.workspaces = [
+      { schemaVersion: 1, id: 'cover-workspace', name: '封面审核台', groupId: 'cover', members: [], revision: 'cover-revision' },
+      { schemaVersion: 1, id: 'pay-workspace', name: '支付后台', groupId: 'pay', members: [], revision: 'pay-revision' },
+      { schemaVersion: 1, id: 'personal', name: 'Personal docs', members: [], revision: 'revision' },
+    ]
+    const wrapper = mount(ProjectRail, { attachTo: document.body })
+
+    expect(wrapper.get('.collection-filter select').attributes('aria-label')).toBe('Group')
+    expect(wrapper.get<HTMLSelectElement>('.collection-filter select').element.options[0]?.text).toBe('All groups')
+    const coverHeading = wrapper.findAll('.collection-heading').find(item => item.text().includes('红包封面'))!
+    await coverHeading.get('.collection-toggle').trigger('click')
+    expect(coverHeading.get('.collection-toggle').attributes('aria-expanded')).toBe('false')
+    expect(wrapper.findAll('.workspace-group').map(item => item.text())).not.toContain('封面审核台0')
+
+    await wrapper.get<HTMLSelectElement>('.collection-filter select').setValue('pay')
+    expect(wrapper.findAll('.collection-heading')).toHaveLength(1)
+    expect(wrapper.text()).toContain('支付后台')
+    expect(wrapper.text()).not.toContain('Personal docs')
+  })
+
+  it('creates groups, renders empty groups, and explicitly moves workspaces between groups', async () => {
+    const store = useWorkbenchStore()
+    store.workspaceGroups = [{ id: 'cover', name: '红包封面' }]
+    store.workspaces = [{ schemaVersion: 1, id: 'personal', name: 'Personal docs', members: [], revision: 'revision' }]
+    const createGroup = vi.spyOn(store, 'createWorkspaceGroup').mockResolvedValue({ id: 'release', name: 'Release' })
+    const assignGroup = vi.spyOn(store, 'assignWorkspaceGroup').mockResolvedValue()
+    const wrapper = mount(ProjectRail, { attachTo: document.body })
+
+    expect(wrapper.get('.empty-workspace-group').text()).toContain('红包封面')
+    await wrapper.get('[data-testid="add-workspace-group"]').trigger('click')
+    await flushPromises()
+    const groupForm = document.body.querySelector('[data-testid="workspace-group-form"]')!
+    const groupInput = groupForm.querySelector<HTMLInputElement>('input[name="workspace-group-name"]')!
+    groupInput.value = 'Release'
+    groupInput.dispatchEvent(new Event('input', { bubbles: true }))
+    groupForm.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+    await flushPromises()
+    expect(createGroup).toHaveBeenCalledWith('Release')
+
+    await wrapper.get('.workspace-group').trigger('contextmenu')
+    await wrapper.get<HTMLSelectElement>('.context-menu-select select').setValue('cover')
+    expect(assignGroup).toHaveBeenCalledWith('personal', 'cover')
+  })
+
   it('searches workspace names, project names, paths, and workspace remarks', async () => {
     const store = useWorkbenchStore()
     store.projects = [
@@ -155,7 +238,7 @@ describe('project rail', () => {
     expect(wrapper.findAll('.workspace-group')).toHaveLength(1)
     expect(wrapper.get('.workspace-project').text()).toContain('中文文档')
     expect(wrapper.find('.unassigned-group').exists()).toBe(false)
-    expect(wrapper.get('.workspace-group').attributes('draggable')).toBe('false')
+    expect(wrapper.get('.workspace-group').attributes('draggable')).toBe('true')
 
     await search.setValue('/services')
     expect(wrapper.find('.workspace-group').exists()).toBe(false)
@@ -165,7 +248,7 @@ describe('project rail', () => {
     expect(wrapper.get('.rail-search-empty').text()).toBe('No matching workspaces or projects.')
   })
 
-  it('reorders workspaces, workspace projects, and unassigned projects by drag and drop', async () => {
+  it('uses row dragging without separate handles and keeps project rows static', () => {
     const store = useWorkbenchStore()
     store.projects = [
       { id: 'one', name: 'One', path: '/one', trust: 'trusted', addedAt: '2026-01-01T00:00:00.000Z' },
@@ -178,28 +261,11 @@ describe('project rail', () => {
       { schemaVersion: 1, id: 'second', name: 'Second', members: [], revision: 'second' },
     ]
     store.expandedWorkspaceIds = ['first']
-    const reorderWorkspace = vi.fn(async () => {})
-    const reorderWorkspaceProject = vi.fn(async () => {})
-    const reorderProject = vi.fn(async () => {})
-    store.reorderWorkspace = reorderWorkspace
-    store.reorderWorkspaceProject = reorderWorkspaceProject
-    store.reorderProject = reorderProject
     const wrapper = mount(ProjectRail, { attachTo: document.body })
 
-    const workspaces = wrapper.findAll('.workspace-group')
-    await workspaces[0]!.trigger('dragstart')
-    await workspaces[1]!.trigger('drop')
-    expect(reorderWorkspace).toHaveBeenCalledWith('first', 'second')
-
-    const workspaceProjects = wrapper.findAll('.workspace-project')
-    await workspaceProjects[0]!.get('.project-row').trigger('dragstart')
-    await workspaceProjects[1]!.trigger('drop')
-    expect(reorderWorkspaceProject).toHaveBeenCalledWith(expect.objectContaining({ id: 'first' }), 'one', 'two')
-
-    const unassigned = wrapper.findAll('.unassigned-group .project-row')
-    await unassigned[0]!.trigger('dragstart')
-    await unassigned[1]!.trigger('drop')
-    expect(reorderProject).toHaveBeenCalledWith('free-one', 'free-two')
+    expect(wrapper.find('.rail-drag-handle').exists()).toBe(false)
+    expect(wrapper.findAll('.workspace-group').every(item => item.attributes('draggable') === 'true')).toBe(true)
+    expect(wrapper.findAll('.project-row').every(item => item.attributes('draggable') === undefined)).toBe(true)
   })
 
   it('adds registered projects from a workspace context menu', async () => {
@@ -222,6 +288,21 @@ describe('project rail', () => {
     await flushPromises()
 
     expect(addProjectToWorkspace).toHaveBeenCalledWith('client', 'docs')
+  })
+
+  it('keeps workspace pin and delete actions in the context menu only', async () => {
+    const store = useWorkbenchStore()
+    store.workspaces = [{ schemaVersion: 1, id: 'client', name: 'Client', members: [], revision: 'revision' }]
+    const wrapper = mount(ProjectRail, { attachTo: document.body })
+
+    expect(wrapper.find('.workspace-row [aria-label="Pin workspace"]').exists()).toBe(false)
+    expect(wrapper.find('.workspace-row [aria-label="Delete workspace"]').exists()).toBe(false)
+
+    await wrapper.get('.workspace-group').trigger('contextmenu', { clientX: 120, clientY: 90 })
+    const menuItems = [...document.body.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
+      .map(button => button.textContent?.trim())
+    expect(menuItems).toContain('Pin workspace')
+    expect(menuItems).toContain('Delete workspace')
   })
 
   it('customizes workspace and project visuals from context menus', async () => {

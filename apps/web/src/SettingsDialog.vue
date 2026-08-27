@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import type { PersonalGitSyncResolution, PersonalGitSyncStatus } from 'craft-hub'
 import { DialogContent, DialogDescription, DialogOverlay, DialogPortal, DialogRoot, DialogTitle, TabsContent, TabsList, TabsRoot, TabsTrigger } from 'reka-ui'
 import { ref, watch } from 'vue'
 import { api } from './api'
@@ -11,6 +12,7 @@ const emit = defineEmits<{ 'update:open': [value: boolean] }>()
 const { locale, t } = useI18n()
 const store = useWorkbenchStore()
 const canOpenSettingsFile = Boolean(window.craftHubDesktop?.openSettingsFile)
+const canChooseGitRepository = Boolean(window.craftHubDesktop?.selectProjectDirectory)
 const replaceOnImport = ref(false)
 const transferError = ref('')
 const transferring = ref(false)
@@ -23,11 +25,69 @@ interface CloudStatus {
 }
 const cloudStatus = ref<CloudStatus>({ state: 'disabled' })
 const cloudBusy = ref(false)
+const gitSyncStatus = ref<PersonalGitSyncStatus>({ state: 'unconfigured' })
+const gitRepositoryPath = ref('')
+const gitDirectory = ref('.craft-hub')
+const gitSyncBusy = ref(false)
 
 watch(() => props.open, (open) => {
   if (open)
-    void refreshCloudStatus()
+    void Promise.all([refreshCloudStatus(), refreshGitSyncStatus()])
 }, { immediate: true })
+
+async function refreshGitSyncStatus(): Promise<void> {
+  gitSyncStatus.value = await api.personalGitSyncStatus()
+  gitRepositoryPath.value = gitSyncStatus.value.target?.repositoryPath ?? gitRepositoryPath.value
+  gitDirectory.value = gitSyncStatus.value.target?.directory ?? gitDirectory.value
+}
+
+async function configureGitSync(): Promise<void> {
+  gitSyncBusy.value = true
+  transferError.value = ''
+  try {
+    gitSyncStatus.value = await api.configurePersonalGitSync(gitRepositoryPath.value.trim(), gitDirectory.value.trim())
+  }
+  catch (error) {
+    transferError.value = error instanceof Error ? error.message : String(error)
+  }
+  finally {
+    gitSyncBusy.value = false
+  }
+}
+
+async function chooseGitRepository(): Promise<void> {
+  const selected = await window.craftHubDesktop?.selectProjectDirectory?.()
+  if (selected)
+    gitRepositoryPath.value = selected
+}
+
+async function synchronizeGit(resolution: PersonalGitSyncResolution = 'auto'): Promise<void> {
+  gitSyncBusy.value = true
+  transferError.value = ''
+  try {
+    gitSyncStatus.value = await api.synchronizePersonalGit(resolution)
+    await store.loadWorkspaces()
+    await store.loadSettings()
+  }
+  catch (error) {
+    transferError.value = error instanceof Error ? error.message : String(error)
+  }
+  finally {
+    gitSyncBusy.value = false
+  }
+}
+
+function gitSyncStateLabel(): string {
+  if (gitSyncStatus.value.state === 'clean')
+    return t('personalGitSyncState_clean')
+  if (gitSyncStatus.value.state === 'local-ahead')
+    return t('personalGitSyncState_localAhead')
+  if (gitSyncStatus.value.state === 'repository-ahead')
+    return t('personalGitSyncState_repositoryAhead')
+  if (gitSyncStatus.value.state === 'conflict')
+    return t('personalGitSyncState_conflict')
+  return t('personalGitSyncState_unconfigured')
+}
 
 async function refreshCloudStatus(): Promise<void> {
   cloudStatus.value = await window.craftHubDesktop?.cloudStatus?.() ?? { state: 'disabled' }
@@ -256,6 +316,38 @@ async function cleanupRuns(includeAllUnpinned: boolean): Promise<void> {
                     <button v-if="cloudStatus.state === 'disconnected' || cloudStatus.state === 'error'" type="button" :disabled="cloudBusy" @click="cloudAction('connect')">{{ t('connectPersonalCloud') }}</button>
                     <button v-if="cloudStatus.state === 'connected'" type="button" :disabled="cloudBusy" @click="cloudAction('synchronize')">{{ t('syncNow') }}</button>
                     <button v-if="cloudStatus.state === 'connected' || cloudStatus.state === 'connecting'" type="button" :disabled="cloudBusy" @click="cloudAction('disconnect')">{{ t('disconnectPersonalCloud') }}</button>
+                  </div>
+                </div>
+              </section>
+              <section class="settings-section">
+                <h3>{{ t('personalGitSync') }}</h3>
+                <p>{{ t('personalGitSyncDescription') }}</p>
+                <form class="git-sync-form" data-testid="personal-git-sync-form" @submit.prevent="configureGitSync">
+                  <label>
+                    <span>{{ t('gitRepositoryPath') }}</span>
+                    <span class="git-repository-entry">
+                      <input v-model="gitRepositoryPath" name="git-repository-path" :placeholder="t('gitRepositoryPathPlaceholder')">
+                      <button v-if="canChooseGitRepository" type="button" @click="chooseGitRepository">{{ t('chooseGitRepository') }}</button>
+                    </span>
+                  </label>
+                  <label>
+                    <span>{{ t('gitSyncDirectory') }}</span>
+                    <input v-model="gitDirectory" name="git-sync-directory" placeholder=".craft-hub">
+                  </label>
+                  <button type="submit" :disabled="gitSyncBusy || !gitRepositoryPath.trim() || !gitDirectory.trim()">{{ t('saveGitSyncTarget') }}</button>
+                </form>
+                <div class="git-sync-status" :data-state="gitSyncStatus.state">
+                  <div>
+                    <strong>{{ gitSyncStateLabel() }}</strong>
+                    <small v-if="gitSyncStatus.snapshotPath">{{ gitSyncStatus.snapshotPath }}</small>
+                    <small v-if="gitSyncStatus.workingTreeChanged">{{ t('gitSyncPendingCommit') }}</small>
+                  </div>
+                  <div v-if="gitSyncStatus.state !== 'unconfigured'" class="settings-transfer-actions">
+                    <button v-if="gitSyncStatus.state !== 'conflict'" type="button" :disabled="gitSyncBusy" @click="synchronizeGit()">{{ t('syncNow') }}</button>
+                    <template v-else>
+                      <button type="button" :disabled="gitSyncBusy" @click="synchronizeGit('use-local')">{{ t('useLocalConfiguration') }}</button>
+                      <button type="button" :disabled="gitSyncBusy" @click="synchronizeGit('use-repository')">{{ t('useRepositoryConfiguration') }}</button>
+                    </template>
                   </div>
                 </div>
               </section>

@@ -1,14 +1,16 @@
 import type { VNode } from 'vue'
 import { h } from 'vue'
 
-export type IconName = 'arrowDown' | 'arrowRight' | 'check' | 'close' | 'codex' | 'drag' | 'error' | 'folder' | 'hub' | 'palette' | 'plugins' | 'plus' | 'search' | 'settings' | 'source' | 'star' | 'starFilled' | 'stop' | 'terminal' | 'terminalApp' | 'skill' | 'play' | 'trusted' | 'untrusted' | 'refresh' | 'vscode'
+export type IconName = 'arrowDown' | 'arrowRight' | 'check' | 'close' | 'codex' | 'collection' | 'drag' | 'edit' | 'error' | 'folder' | 'hub' | 'palette' | 'plugins' | 'plus' | 'search' | 'settings' | 'source' | 'star' | 'starFilled' | 'stop' | 'terminal' | 'terminalApp' | 'skill' | 'play' | 'trusted' | 'untrusted' | 'refresh' | 'vscode' | 'workspace'
 
 const iconClasses: Record<Exclude<IconName, 'codex' | 'plugins' | 'vscode'>, string> = {
   arrowDown: 'i-ri-arrow-down-s-line',
   arrowRight: 'i-ri-arrow-right-s-line',
   check: 'i-ri-checkbox-circle-fill',
   close: 'i-ri-close-line',
+  collection: 'i-ri-stack-line',
   drag: 'i-ri-draggable',
+  edit: 'i-ri-edit-line',
   error: 'i-ri-error-warning-fill',
   folder: 'i-ri-folder-3-line',
   hub: 'i-ri-node-tree',
@@ -27,6 +29,7 @@ const iconClasses: Record<Exclude<IconName, 'codex' | 'plugins' | 'vscode'>, str
   trusted: 'i-ri-shield-check-line',
   untrusted: 'i-ri-shield-keyhole-line',
   refresh: 'i-ri-loader-4-line',
+  workspace: 'i-ri-layout-grid-line',
 }
 
 export function Icon(props: { name: IconName }): VNode {

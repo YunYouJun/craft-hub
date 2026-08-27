@@ -9,6 +9,7 @@ contextBridge.exposeInMainWorld('craftHubDesktop', {
   openProjectInVSCode: projectId => ipcRenderer.invoke('craft-hub:open-project-in-vscode', projectId),
   openCapabilitySourceInVSCode: (projectId, capabilityId) => ipcRenderer.invoke('craft-hub:open-capability-source-in-vscode', projectId, capabilityId),
   openProjectInCodex: projectId => ipcRenderer.invoke('craft-hub:open-project-in-codex', projectId),
+  openWorkspace: (workspaceId, launcher) => ipcRenderer.invoke('craft-hub:open-workspace', workspaceId, launcher),
   startProjectInCodex: (projectId, prompt) => ipcRenderer.invoke('craft-hub:start-project-in-codex', projectId, prompt),
   openCodexThread: threadId => ipcRenderer.invoke('craft-hub:open-codex-thread', threadId),
   listTerminalApplications: () => ipcRenderer.invoke('craft-hub:list-terminal-applications'),

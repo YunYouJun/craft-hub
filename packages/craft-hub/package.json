@@ -42,7 +42,9 @@
   "dependencies": {
     "cac": "catalog:",
     "chokidar": "catalog:",
+    "jsonc-parser": "catalog:",
     "node-pty": "catalog:",
+    "tinyglobby": "catalog:",
     "yaml": "catalog:",
     "zod": "catalog:"
   }

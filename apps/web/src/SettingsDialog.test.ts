@@ -22,6 +22,16 @@ describe('settings dialog', () => {
       settings: { 'workbench.locale': 'en', 'workbench.theme': 'system' },
     }
     vi.stubGlobal('fetch', vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(_input)
+      if (path === '/api/personal-git-sync') {
+        if (init?.method === 'PUT') {
+          const target = JSON.parse(String(init.body)) as { repositoryPath: string, directory: string }
+          return new Response(JSON.stringify({ state: 'local-ahead', target, snapshotPath: `${target.repositoryPath}/${target.directory}/personal.snapshot.json` }), { status: 200 })
+        }
+        return new Response(JSON.stringify({ state: 'unconfigured' }), { status: 200 })
+      }
+      if (path === '/api/personal-git-sync/synchronize')
+        return new Response(JSON.stringify({ state: 'clean' }), { status: 200 })
       const patch = init?.body ? JSON.parse(String(init.body)).settings as Record<string, string> : {}
       return new Response(JSON.stringify({
         explicitKeys: Object.keys(patch),
@@ -102,5 +112,26 @@ describe('settings dialog', () => {
       body: expect.stringContaining('"workbench.theme":"dark"'),
       method: 'PATCH',
     }))
+  })
+
+  it('configures a Personal Git sync target from the cloud settings panel', async () => {
+    mount(SettingsDialog, { props: { open: true }, attachTo: document.body })
+    await flushPromises()
+    const cloudTab = [...document.body.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find(tab => tab.textContent === 'Personal cloud')!
+    cloudTab.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0 }))
+    await flushPromises()
+
+    const repository = document.body.querySelector<HTMLInputElement>('input[name="git-repository-path"]')!
+    repository.value = '/Users/me/dotfiles'
+    repository.dispatchEvent(new Event('input', { bubbles: true }))
+    document.body.querySelector<HTMLFormElement>('[data-testid="personal-git-sync-form"]')!
+      .dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+    await flushPromises()
+
+    expect(vi.mocked(fetch)).toHaveBeenCalledWith('/api/personal-git-sync', expect.objectContaining({
+      body: JSON.stringify({ repositoryPath: '/Users/me/dotfiles', directory: '.craft-hub' }),
+      method: 'PUT',
+    }))
+    expect(document.body.textContent).toContain('Local configuration has changes to export')
   })
 })

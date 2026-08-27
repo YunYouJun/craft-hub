@@ -18,7 +18,7 @@ const editedNote = ref('')
 const selectedIcon = ref('')
 const customEmoji = ref('')
 const selectedColor = ref<ProjectAccentColor | ''>('')
-const iconOptions = ['', 'builtin:folder', 'builtin:hub', 'builtin:terminal', 'builtin:skill', 'emoji:🚀', 'emoji:📚', 'emoji:🛠️', 'emoji:🎨', 'emoji:📦', 'emoji:💡']
+const iconOptions = ['', 'builtin:workspace', 'builtin:folder', 'builtin:hub', 'builtin:terminal', 'builtin:skill', 'emoji:🚀', 'emoji:📚', 'emoji:🛠️', 'emoji:🎨', 'emoji:📦', 'emoji:💡']
 const colorOptions: Array<ProjectAccentColor | ''> = ['', 'blue', 'cyan', 'green', 'orange', 'pink', 'purple', 'red', 'yellow']
 
 watch(() => props.open, (open) => {

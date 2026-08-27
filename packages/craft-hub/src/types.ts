@@ -66,18 +66,29 @@ export interface WorkspaceManifest {
 export interface ResolvedWorkspaceMember extends WorkspaceMember {
   projectId?: string
   resolved: boolean
+  /** Machine-local path retained from an import until the project is registered. */
+  path?: string
 }
 
 /** Workspace manifest augmented with local resolution metadata. */
 export interface WorkspaceRecord extends WorkspaceManifest {
   revision: string
   members: ResolvedWorkspaceMember[]
+  groupId?: string
 }
 
-/** Portable workspace ordering catalog. */
+/** User-owned, non-nesting navigation group for workspaces. */
+export interface WorkspaceGroup {
+  id: string
+  name: string
+}
+
+/** Portable workspace ordering and grouping catalog. */
 export interface WorkspaceCatalog {
   schemaVersion: 1
   workspaceOrder: string[]
+  groups: WorkspaceGroup[]
+  workspaceGroups: Record<string, string>
 }
 
 /** Portable workspace state that intentionally excludes machine-local bindings and UI state. */
@@ -86,6 +97,8 @@ export interface PortableWorkspaceSnapshot {
   schemaVersion: 1
   workspaces: WorkspaceManifest[]
   workspaceOrder: string[]
+  groups: WorkspaceGroup[]
+  workspaceGroups: Record<string, string>
 }
 
 /** Machine-local workspace navigation state. */
@@ -96,8 +109,48 @@ export interface WorkspaceUiState {
   selectedProjectId?: string
 }
 
+/** Non-fatal problem found while importing an external workspace document. */
+export interface WorkspaceImportDiagnostic {
+  path: string
+  message: string
+}
+
+/** Result of a user-initiated, one-time external workspace import. */
+export interface WorkspaceImportResult {
+  format: 'vscode-workspace'
+  sourceDirectory: string
+  group: WorkspaceGroup
+  workspaces: WorkspaceRecord[]
+  diagnostics: WorkspaceImportDiagnostic[]
+}
+
 /** Human-readable source label for a capability. */
 export type CapabilitySource = string
+
+/** Stable category inferred from a command's script or target name. */
+export type CommandCategory = 'build' | 'deploy' | 'develop' | 'other' | 'preview' | 'quality' | 'test'
+
+/** Package boundary that declared one project command. */
+export interface CommandPackage {
+  /** Package name declared in package.json, when present. */
+  name?: string
+  /** Project-relative package directory. The project root is represented by '.'. */
+  relativePath: string
+  root: boolean
+}
+
+/** Non-fatal issue encountered while discovering project capabilities. */
+export interface CapabilityDiscoveryDiagnostic {
+  message: string
+  path: string
+  source: 'pnpm-workspace'
+}
+
+/** Capabilities and non-fatal diagnostics produced by one discovery pass. */
+export interface CapabilityDiscoveryResult {
+  capabilities: Capability[]
+  diagnostics: CapabilityDiscoveryDiagnostic[]
+}
 
 /** Structured command invocation discovered from a project. */
 export interface CommandInvocation {
@@ -118,6 +171,10 @@ export interface CommandCapability {
   sourcePath?: string
   /** One-based line where this command is declared, when known. */
   sourceLine?: number
+  /** Built-in commands are categorized; third-party providers may omit this for compatibility. */
+  category?: CommandCategory
+  /** Built-in commands declare their package boundary; third-party providers may omit it. */
+  package?: CommandPackage
   invocation: CommandInvocation
 }
 
@@ -142,6 +199,8 @@ export interface CapabilityReference {
   kind: Capability['kind']
   name: string
   source: CapabilitySource
+  /** Project-relative command package path used to disambiguate monorepo scripts. */
+  packageRelativePath?: string
 }
 
 /** Ordered capability pins for one project. */

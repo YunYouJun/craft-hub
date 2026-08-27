@@ -1,11 +1,15 @@
-import { access, mkdir, mkdtemp, readFile, realpath } from 'node:fs/promises'
+import { execFile } from 'node:child_process'
+import { access, mkdir, mkdtemp, readFile, realpath, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { promisify } from 'node:util'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import { CraftHubRuntime } from 'craft-hub'
 import { describe, expect, it } from 'vitest'
 import { createCraftHubMcpServer } from './create-server'
+
+const execFileAsync = promisify(execFile)
 
 async function callTool(client: Client, name: string, args: Record<string, unknown> = {}): Promise<Record<string, unknown>> {
   const response = await client.callTool({ name, arguments: args })
@@ -38,6 +42,15 @@ describe('craft hub MCP write tools', () => {
         expect.objectContaining({ name: 'add_project', annotations: expect.objectContaining({ destructiveHint: false, idempotentHint: true }) }),
         expect.objectContaining({ name: 'init_project_config', annotations: expect.objectContaining({ destructiveHint: false, readOnlyHint: false }) }),
         expect.objectContaining({ name: 'list_workspaces', annotations: expect.objectContaining({ readOnlyHint: true }) }),
+        expect.objectContaining({ name: 'list_workspace_groups', annotations: expect.objectContaining({ readOnlyHint: true }) }),
+        expect.objectContaining({ name: 'create_workspace_group', annotations: expect.objectContaining({ destructiveHint: false }) }),
+        expect.objectContaining({ name: 'assign_workspace_group', annotations: expect.objectContaining({ idempotentHint: true }) }),
+        expect.objectContaining({ name: 'delete_workspace_group', annotations: expect.objectContaining({ destructiveHint: true }) }),
+        expect.objectContaining({ name: 'personal_git_sync_status', annotations: expect.objectContaining({ readOnlyHint: true }) }),
+        expect.objectContaining({ name: 'configure_personal_git_sync', annotations: expect.objectContaining({ idempotentHint: true }) }),
+        expect.objectContaining({ name: 'synchronize_personal_git', annotations: expect.objectContaining({ destructiveHint: true }) }),
+        expect.objectContaining({ name: 'import_vscode_workspaces', annotations: expect.objectContaining({ destructiveHint: false, idempotentHint: false }) }),
+        expect.objectContaining({ name: 'register_workspace_member', annotations: expect.objectContaining({ destructiveHint: false, idempotentHint: true }) }),
         expect.objectContaining({ name: 'create_workspace', annotations: expect.objectContaining({ destructiveHint: false, idempotentHint: false }) }),
         expect.objectContaining({ name: 'add_workspace_member', annotations: expect.objectContaining({ destructiveHint: false, idempotentHint: true }) }),
       ]))
@@ -79,6 +92,88 @@ describe('craft hub MCP write tools', () => {
       expect(manifest).toContain('project: project')
       expect(manifest).not.toContain(project.id)
       expect(manifest).not.toContain(fixture.projectPath)
+    }
+    finally {
+      await fixture.client.close()
+      await fixture.server.close()
+      await fixture.runtime.close()
+    }
+  })
+
+  it('manages workspace groups without deleting grouped workspaces', async () => {
+    const fixture = await setup()
+    try {
+      const createdWorkspace = await callTool(fixture.client, 'create_workspace', { name: 'Release' })
+      const workspace = createdWorkspace.workspace as { id: string }
+      const createdGroup = await callTool(fixture.client, 'create_workspace_group', { name: 'Cover' })
+      const group = createdGroup.group as { id: string }
+
+      await expect(
+        callTool(fixture.client, 'assign_workspace_group', { workspaceId: workspace.id, groupId: group.id }),
+      )
+        .resolves
+        .toMatchObject({
+          workspace: { id: workspace.id, groupId: group.id },
+        })
+      await expect(
+        callTool(fixture.client, 'rename_workspace_group', { groupId: group.id, name: 'Cover Hub' }),
+      )
+        .resolves
+        .toMatchObject({
+          group: { id: group.id, name: 'Cover Hub' },
+        })
+      await expect(
+        callTool(fixture.client, 'delete_workspace_group', { groupId: group.id }),
+      )
+        .resolves
+        .toMatchObject({
+          deleted: { id: group.id, name: 'Cover Hub' },
+        })
+      await expect(fixture.runtime.workspaces.get(workspace.id)).resolves.toMatchObject({ groupId: undefined })
+    }
+    finally {
+      await fixture.client.close()
+      await fixture.server.close()
+      await fixture.runtime.close()
+    }
+  })
+
+  it('configures and synchronizes Personal data into a local Git checkout', async () => {
+    const fixture = await setup()
+    try {
+      const repositoryPath = join(fixture.root, 'dotfiles')
+      await execFileAsync('git', ['init', repositoryPath])
+      await expect(callTool(fixture.client, 'configure_personal_git_sync', { repositoryPath, directory: 'cover/hub' }))
+        .resolves
+        .toMatchObject({ status: { state: 'local-ahead', target: { directory: 'cover/hub' } } })
+      await expect(callTool(fixture.client, 'synchronize_personal_git'))
+        .resolves
+        .toMatchObject({ status: { state: 'clean', workingTreeChanged: true } })
+      await expect(access(join(repositoryPath, 'cover', 'hub', 'personal.snapshot.json'))).resolves.toBeUndefined()
+    }
+    finally {
+      await fixture.client.close()
+      await fixture.server.close()
+      await fixture.runtime.close()
+    }
+  })
+
+  it('imports owned workspaces and explicitly registers a retained member as untrusted', async () => {
+    const fixture = await setup()
+    try {
+      const memberPath = join(fixture.root, 'member')
+      await mkdir(memberPath)
+      await mkdir(join(fixture.projectPath, 'workspaces'))
+      await writeFile(join(fixture.projectPath, 'workspaces', 'pair.code-workspace'), JSON.stringify({ folders: [{ path: '../../member' }] }))
+      const result = await callTool(fixture.client, 'import_vscode_workspaces', { sourceDirectory: join(fixture.projectPath, 'workspaces') })
+      const imported = result.imported as { group: { id: string }, workspaces: Array<{ id: string, groupId: string, members: Array<{ project: string, path: string }> }> }
+      expect(imported.workspaces[0]).toMatchObject({ groupId: imported.group.id, members: [expect.objectContaining({ path: await realpath(memberPath) })] })
+
+      const registered = await callTool(fixture.client, 'register_workspace_member', {
+        workspaceId: imported.workspaces[0]!.id,
+        project: imported.workspaces[0]!.members[0]!.project,
+      })
+      expect(registered).toMatchObject({ project: { path: await realpath(memberPath), trust: 'untrusted' } })
     }
     finally {
       await fixture.client.close()
@@ -150,6 +245,44 @@ describe('craft hub MCP write tools', () => {
         mode: 'apply',
         expectedRevision: existingRevision,
       })).resolves.toMatchObject({ initialization: { outcome: 'unchanged' } })
+    }
+    finally {
+      await fixture.client.close()
+      await fixture.server.close()
+      await fixture.runtime.close()
+    }
+  })
+
+  it('returns pnpm package metadata and discovery diagnostics through MCP', async () => {
+    const fixture = await setup()
+    try {
+      await mkdir(join(fixture.projectPath, 'apps', 'web'), { recursive: true })
+      await mkdir(join(fixture.projectPath, 'packages', 'broken'), { recursive: true })
+      await writeFile(join(fixture.projectPath, 'package.json'), JSON.stringify({ packageManager: 'pnpm@10.0.0', scripts: { dev: 'vite' } }))
+      await writeFile(join(fixture.projectPath, 'pnpm-workspace.yaml'), 'packages:\n  - apps/*\n  - packages/*\n')
+      await writeFile(join(fixture.projectPath, 'apps', 'web', 'package.json'), JSON.stringify({ name: '@scope/web', scripts: { deploy: 'vite deploy' } }))
+      await writeFile(join(fixture.projectPath, 'packages', 'broken', 'package.json'), '{ invalid')
+      const added = await callTool(fixture.client, 'add_project', { path: fixture.projectPath })
+      const project = added.project as { id: string }
+
+      const listed = await callTool(fixture.client, 'list_capabilities', { projectId: project.id })
+      expect(listed.capabilities).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          name: 'deploy',
+          category: 'deploy',
+          package: { name: '@scope/web', relativePath: 'apps/web', root: false },
+          invocation: expect.objectContaining({ cwd: await realpath(join(fixture.projectPath, 'apps', 'web')) }),
+        }),
+      ]))
+      expect(listed.diagnostics).toEqual([expect.objectContaining({ path: 'packages/broken/package.json' })])
+      const deploy = (listed.capabilities as Array<{ id: string, name: string }>).find(item => item.name === 'deploy')!
+      await expect(callTool(fixture.client, 'preview_command', { projectId: project.id, capabilityId: deploy.id })).resolves.toMatchObject({
+        preview: {
+          category: 'deploy',
+          package: { relativePath: 'apps/web' },
+          cwd: await realpath(join(fixture.projectPath, 'apps', 'web')),
+        },
+      })
     }
     finally {
       await fixture.client.close()

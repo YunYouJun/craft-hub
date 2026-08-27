@@ -16,7 +16,7 @@ const matches = computed(() => {
     : ['', query.value.toLowerCase()]
   return store.paletteItems
     .filter(item => (!projectQuery || item.project.name.toLowerCase().includes(projectQuery))
-      && `${item.capability.name} ${item.capability.description ?? ''}`.toLowerCase().includes(capabilityQuery ?? ''))
+      && `${item.capability.name} ${item.capability.description ?? ''} ${item.capability.kind === 'command' ? `${item.capability.package?.relativePath ?? ''} ${item.capability.package?.name ?? ''}` : ''}`.toLowerCase().includes(capabilityQuery ?? ''))
     .sort((left, right) => {
       const matchDifference = matchScore(right.capability.name, right.capability.description, capabilityQuery ?? '')
         - matchScore(left.capability.name, left.capability.description, capabilityQuery ?? '')
@@ -63,7 +63,7 @@ async function select(projectId: string, capabilityId: string): Promise<void> {
         <small>{{ t('currentProjectFirst') }}</small>
         <button v-for="item in matches" :key="`${item.project.id}:${item.capability.id}`" @click="select(item.project.id, item.capability.id)">
           <Icon :name="item.capability.kind === 'command' ? 'terminal' : 'skill'" />
-          <strong>{{ item.capability.name }}</strong><span>{{ item.project.id === store.selectedProjectId ? item.capability.source : `${item.project.name} · ${item.capability.source}` }}</span>
+          <strong>{{ item.capability.name }}</strong><span>{{ [item.project.id === store.selectedProjectId ? '' : item.project.name, item.capability.kind === 'command' ? item.capability.package?.relativePath : '', item.capability.source].filter(Boolean).join(' · ') }}</span>
         </button>
         <footer><kbd>↑</kbd><kbd>↓</kbd> {{ t('navigate') }} <span>↵ {{ t('select') }}</span><span><kbd>esc</kbd> {{ t('close') }}</span></footer>
       </DialogContent>

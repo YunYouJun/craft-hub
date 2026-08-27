@@ -10,7 +10,7 @@ import { aboutDocument, aboutPanelOptions, projectUrl } from './about.ts'
 import { CodexAgentTaskProvider } from './codex-agent-task-provider.ts'
 import { DeviceVault } from './device-vault.ts'
 import { selectedDirectoryPath, selectedDirectoryPaths } from './folder-picker.ts'
-import { codexThreadUrl, externalHttpUrl, macTerminalApplications, openCodexProject, openMacTerminalProject, vscodeUrl } from './open-targets.ts'
+import { codexThreadUrl, externalHttpUrl, macTerminalApplications, openCodeBuddyWorkspace, openCodexProject, openMacTerminalProject, vscodeUrl } from './open-targets.ts'
 
 let mainWindow: BrowserWindowType | undefined
 let aboutWindow: BrowserWindowType | undefined
@@ -145,6 +145,25 @@ async function projectPath(projectId: string): Promise<string> {
   return (await craftHubServer.runtime.projects.get(projectId)).path
 }
 
+type WorkspaceLauncher = 'vscode' | 'codebuddy' | 'codex'
+
+function isWorkspaceLauncher(value: unknown): value is WorkspaceLauncher {
+  return value === 'vscode' || value === 'codebuddy' || value === 'codex'
+}
+
+async function workspaceLaunchTarget(workspaceId: string): Promise<{ editorPath: string, primaryProjectPath: string }> {
+  if (!craftHubServer)
+    throw new Error('Craft Hub is still starting')
+
+  const workspace = (await craftHubServer.runtime.workspaces.list()).find(item => item.id === workspaceId)
+  const primaryMember = workspace?.members.find(member => member.project === workspace.primaryProject && member.projectId)
+    ?? workspace?.members.find(member => member.projectId)
+  if (!workspace || !primaryMember?.projectId)
+    throw new Error(`Workspace has no resolved project: ${workspaceId}`)
+  const primaryProjectPath = await projectPath(primaryMember.projectId)
+  return { editorPath: primaryProjectPath, primaryProjectPath }
+}
+
 ipcMain.handle('craft-hub:open-project-in-vscode', async (_event, projectId: string) => {
   await shell.openExternal(vscodeUrl(await projectPath(projectId)))
 })
@@ -165,6 +184,18 @@ ipcMain.handle('craft-hub:open-capability-source-in-vscode', async (_event, proj
 
 ipcMain.handle('craft-hub:open-project-in-codex', async (_event, projectId: string) => {
   await openCodexProject(await projectPath(projectId))
+})
+
+ipcMain.handle('craft-hub:open-workspace', async (_event, workspaceId: string, launcher: unknown) => {
+  if (!isWorkspaceLauncher(launcher))
+    throw new Error(`Unsupported workspace launcher: ${String(launcher)}`)
+  const target = await workspaceLaunchTarget(workspaceId)
+  if (launcher === 'vscode')
+    await shell.openExternal(vscodeUrl(target.editorPath))
+  else if (launcher === 'codebuddy')
+    await openCodeBuddyWorkspace(target.editorPath)
+  else
+    await openCodexProject(target.primaryProjectPath)
 })
 
 ipcMain.handle('craft-hub:start-project-in-codex', async (_event, projectId: string, prompt: string) => {

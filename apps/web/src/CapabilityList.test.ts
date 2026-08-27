@@ -41,6 +41,68 @@ describe('capability list', () => {
     expect(wrapper.get('.capability-description').text()).toBe(command.description)
   })
 
+  it('groups workspace commands, filters categories, remembers collapse state, and shows diagnostics', async () => {
+    const project: ProjectRecord = {
+      id: 'monorepo',
+      name: 'Monorepo',
+      path: '/project',
+      trust: 'trusted',
+      addedAt: '2026-01-01T00:00:00.000Z',
+    }
+    const commands: CommandCapability[] = [
+      {
+        id: 'root-dev',
+        kind: 'command',
+        name: 'dev',
+        source: 'package.json',
+        category: 'develop',
+        package: { name: 'root', relativePath: '.', root: true },
+        invocation: { command: 'pnpm', args: ['run', 'dev'], cwd: project.path, requiredEnv: [] },
+      },
+      {
+        id: 'liteapp-build',
+        kind: 'command',
+        name: 'build',
+        source: 'apps/liteapp/package.json',
+        category: 'build',
+        package: { name: '@scope/liteapp', relativePath: 'apps/liteapp', root: false },
+        invocation: { command: 'pnpm', args: ['run', 'build'], cwd: '/project/apps/liteapp', requiredEnv: [] },
+      },
+      {
+        id: 'liteapp-deploy',
+        kind: 'command',
+        name: 'deploy',
+        source: 'apps/liteapp/package.json',
+        category: 'deploy',
+        package: { name: '@scope/liteapp', relativePath: 'apps/liteapp', root: false },
+        invocation: { command: 'pnpm', args: ['run', 'deploy'], cwd: '/project/apps/liteapp', requiredEnv: [] },
+      },
+    ]
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    const store = useWorkbenchStore()
+    store.projects = [project]
+    store.selectedProjectId = project.id
+    store.capabilities = commands
+    store.capabilityDiagnosticsByProject = {
+      [project.id]: [{ source: 'pnpm-workspace', path: 'packages/broken/package.json', message: 'Invalid JSON' }],
+    }
+
+    const wrapper = mount(CapabilityList, { global: { plugins: [pinia] } })
+
+    expect(wrapper.findAll('.capability-group-heading strong').map(item => item.text())).toEqual(['Project root', 'apps/liteapp'])
+    expect(wrapper.text()).toContain('@scope/liteapp')
+    expect(wrapper.get('.capability-diagnostics').text()).toContain('packages/broken/package.json')
+
+    const deployFilter = wrapper.findAll('.category-filters button').find(button => button.text() === 'Deploy/Release')!
+    await deployFilter.trigger('click')
+    expect(wrapper.findAll('.capability-row strong').map(item => item.text())).toEqual(['deploy'])
+
+    await wrapper.get('.capability-group-heading').trigger('click')
+    expect(wrapper.find('.capability-row').exists()).toBe(false)
+    expect(window.localStorage.getItem(`craft-hub-capability-groups:${project.id}`)).toContain('apps/liteapp')
+  })
+
   it('shows mixed pins first and supports direct and keyboard reordering controls', async () => {
     const project: ProjectRecord = {
       id: 'project',

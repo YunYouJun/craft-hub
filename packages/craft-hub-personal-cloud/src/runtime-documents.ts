@@ -17,7 +17,12 @@ export class RuntimeDocumentSource implements PersonalCloudDocumentSource {
     const settings = await this.runtime.settings.export('minimal')
     const payloads: Array<[string, unknown]> = [
       ['settings/global', settings],
-      ['workspaces/catalog', { schemaVersion: 1, workspaceOrder: snapshot.workspaceOrder }],
+      ['workspaces/catalog', {
+        schemaVersion: 1,
+        workspaceOrder: snapshot.workspaceOrder,
+        groups: snapshot.groups,
+        workspaceGroups: snapshot.workspaceGroups,
+      }],
       ...snapshot.workspaces.map(workspace => [`workspaces/${workspace.id}`, workspace] as [string, WorkspaceManifest]),
     ]
     return Promise.all(payloads.map(async ([key, payload]) => {
@@ -42,10 +47,14 @@ export class RuntimeDocumentSource implements PersonalCloudDocumentSource {
       return
     }
     if (document.key === 'workspaces/catalog') {
-      const payload = document.payload as { workspaceOrder?: unknown }
+      const payload = document.payload as { workspaceOrder?: unknown, groups?: unknown, workspaceGroups?: unknown }
       if (!Array.isArray(payload.workspaceOrder) || !payload.workspaceOrder.every(id => typeof id === 'string'))
         throw new Error('Cloud workspace order is invalid')
-      await this.runtime.workspaces.applyPortableOrder(payload.workspaceOrder)
+      await this.runtime.workspaces.applyPortableCatalog({
+        workspaceOrder: payload.workspaceOrder,
+        groups: Array.isArray(payload.groups) ? payload.groups as Array<{ id: string, name: string }> : [],
+        workspaceGroups: payload.workspaceGroups && typeof payload.workspaceGroups === 'object' ? payload.workspaceGroups as Record<string, string> : {},
+      })
       return
     }
     if (document.key.startsWith('workspaces/')) {

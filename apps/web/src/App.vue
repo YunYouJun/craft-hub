@@ -75,10 +75,10 @@ onBeforeUnmount(() => {
       id="craft-hub-workbench"
       class="workbench-splitter"
       direction="horizontal"
-      auto-save-id="craft-hub-workbench-layout"
+      auto-save-id="craft-hub-workbench-layout-v2"
       :keyboard-resize-by="16"
     >
-      <SplitterPanel id="projects-panel" size-unit="px" :default-size="300" :min-size="220" :max-size="390">
+      <SplitterPanel id="projects-panel" size-unit="px" :default-size="280" :min-size="252" :max-size="390">
         <ProjectRail
           :active-view="marketplaceOpen ? 'marketplace' : 'workbench'"
           @open-marketplace="marketplaceOpen = true"
@@ -89,13 +89,13 @@ onBeforeUnmount(() => {
       <SplitterResizeHandle id="projects-resize-handle" class="workbench-resize-handle" :aria-label="t('resizeProjects')" :aria-hidden="marketplaceOpen" :inert="marketplaceOpen" :title="t('resizeProjects')">
         <span class="splitter-grip" aria-hidden="true" />
       </SplitterResizeHandle>
-      <SplitterPanel id="capabilities-panel" size-unit="px" :default-size="360" :min-size="280" :max-size="540" :aria-hidden="marketplaceOpen" :inert="marketplaceOpen">
+      <SplitterPanel id="capabilities-panel" size-unit="px" :default-size="320" :min-size="230" :max-size="540" :aria-hidden="marketplaceOpen" :inert="marketplaceOpen">
         <CapabilityList />
       </SplitterPanel>
       <SplitterResizeHandle id="capabilities-resize-handle" class="workbench-resize-handle" :aria-label="t('resizeCapabilities')" :aria-hidden="marketplaceOpen" :inert="marketplaceOpen" :title="t('resizeCapabilities')">
         <span class="splitter-grip" aria-hidden="true" />
       </SplitterResizeHandle>
-      <SplitterPanel id="detail-panel" size-unit="px" :min-size="420" :aria-hidden="marketplaceOpen" :inert="marketplaceOpen">
+      <SplitterPanel id="detail-panel" size-unit="px" :min-size="350" :aria-hidden="marketplaceOpen" :inert="marketplaceOpen">
         <section class="detail-workspace">
           <ProjectToolbar />
           <WorkspaceDashboard v-if="store.selectedWorkspace" />

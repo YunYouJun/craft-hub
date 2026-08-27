@@ -1,5 +1,6 @@
 import type { IncomingMessage, Server, ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
+import type { PersonalGitSyncResolution } from './personal-git-sync'
 import type { ProjectAccentColor, ProjectRecord, WorkspaceManifest } from './types'
 import { Buffer } from 'node:buffer'
 import { createReadStream } from 'node:fs'
@@ -107,6 +108,58 @@ export async function startCraftHubServer(options: CraftHubServerOptions = {}): 
 
       if (request.method === 'GET' && url.pathname === '/api/workspaces')
         return sendJson(response, 200, await runtime.workspaces.list())
+
+      if (request.method === 'GET' && url.pathname === '/api/workspace-groups')
+        return sendJson(response, 200, await runtime.workspaces.groups())
+
+      if (request.method === 'GET' && url.pathname === '/api/personal-git-sync')
+        return sendJson(response, 200, await runtime.personalGitSync.status())
+
+      if (request.method === 'PUT' && url.pathname === '/api/personal-git-sync') {
+        const body = await jsonBody(request)
+        if (typeof body.repositoryPath !== 'string' || (body.directory !== undefined && typeof body.directory !== 'string'))
+          return sendJson(response, 400, { error: 'repositoryPath is required and directory must be a string' })
+        return sendJson(response, 200, await runtime.personalGitSync.configure({
+          repositoryPath: body.repositoryPath,
+          directory: body.directory as string | undefined,
+        }))
+      }
+
+      if (request.method === 'POST' && url.pathname === '/api/personal-git-sync/synchronize') {
+        const body = await jsonBody(request)
+        const resolution = body.resolution ?? 'auto'
+        if (resolution !== 'auto' && resolution !== 'use-local' && resolution !== 'use-repository')
+          return sendJson(response, 400, { error: 'resolution must be auto, use-local, or use-repository' })
+        return sendJson(response, 200, await runtime.personalGitSync.synchronize(resolution as PersonalGitSyncResolution))
+      }
+
+      if (request.method === 'POST' && url.pathname === '/api/workspace-groups') {
+        const body = await jsonBody(request)
+        if (typeof body.name !== 'string' || !body.name.trim())
+          return sendJson(response, 400, { error: 'name is required' })
+        return sendJson(response, 201, await runtime.workspaces.createGroup(body.name))
+      }
+
+      if (request.method === 'POST' && url.pathname === '/api/workspaces/import/vscode') {
+        const body = await jsonBody(request)
+        if (typeof body.sourceDirectory !== 'string' || !body.sourceDirectory.trim())
+          return sendJson(response, 400, { error: 'sourceDirectory is required' })
+        return sendJson(response, 201, await runtime.workspaceImports.importVscodeDirectory(
+          body.sourceDirectory,
+          typeof body.groupName === 'string' ? body.groupName : undefined,
+        ))
+      }
+
+      if (request.method === 'POST' && url.pathname === '/api/workspaces/register-member') {
+        const body = await jsonBody(request)
+        if (typeof body.workspaceId !== 'string' || typeof body.project !== 'string')
+          return sendJson(response, 400, { error: 'workspaceId and project are required' })
+        return sendJson(response, 201, await runtime.workspaces.registerImportedProject(
+          body.workspaceId,
+          body.project,
+          typeof body.path === 'string' ? body.path : undefined,
+        ))
+      }
 
       if (request.method === 'POST' && url.pathname === '/api/workspaces') {
         const body = await jsonBody(request)
@@ -346,6 +399,26 @@ export async function startCraftHubServer(options: CraftHubServerOptions = {}): 
         }
         if (request.method === 'DELETE' && parts[3] === 'members' && parts[4])
           return sendJson(response, 200, await runtime.workspaces.removeProject(workspaceId, parts[4]))
+        if (request.method === 'PUT' && parts[3] === 'group') {
+          const body = await jsonBody(request)
+          if (body.groupId !== undefined && typeof body.groupId !== 'string')
+            return sendJson(response, 400, { error: 'groupId must be a string when provided' })
+          return sendJson(response, 200, await runtime.workspaces.assignGroup(workspaceId, body.groupId || undefined))
+        }
+      }
+
+      if (parts[0] === 'api' && parts[1] === 'workspace-groups' && parts[2]) {
+        const groupId = parts[2]
+        if (request.method === 'PUT' && parts.length === 3) {
+          const body = await jsonBody(request)
+          if (typeof body.name !== 'string' || !body.name.trim())
+            return sendJson(response, 400, { error: 'name is required' })
+          return sendJson(response, 200, await runtime.workspaces.renameGroup(groupId, body.name))
+        }
+        if (request.method === 'DELETE' && parts.length === 3) {
+          await runtime.workspaces.deleteGroup(groupId)
+          return sendJson(response, 200, { deleted: true })
+        }
       }
 
       if (parts[0] === 'api' && parts[1] === 'projects' && parts[2]) {
@@ -365,6 +438,8 @@ export async function startCraftHubServer(options: CraftHubServerOptions = {}): 
         }
         if (request.method === 'GET' && parts[3] === 'capabilities')
           return sendJson(response, 200, await runtime.capabilities(projectId))
+        if (request.method === 'GET' && parts[3] === 'capability-discovery')
+          return sendJson(response, 200, await runtime.capabilityDiscovery(projectId))
         if (parts[3] === 'agent-actions') {
           const locale = url.searchParams.get('locale') ?? (await runtime.settings.get()).settings['workbench.locale']
           if (locale !== 'en' && locale !== 'zh-CN')

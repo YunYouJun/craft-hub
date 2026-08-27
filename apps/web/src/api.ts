@@ -1,4 +1,4 @@
-import type { AgentActionId, AgentActionSummary, AgentTaskRecord, Capability, CapabilityPins, CatalogPluginV1, InstalledPlugin, MarketplaceSource, ProjectChangeEvent, ProjectRecord, ProjectRunSummary, ProjectVisualInput, RunCleanupOptions, RunCleanupResult, RunRecord, RunStreamEvent, SettingsExportEnvelope, SettingsExportMode, SettingsImportPreview, SettingsImportStrategy, SettingsSnapshot, WorkbenchLocale, WorkspaceCatalog, WorkspaceManifest, WorkspaceRecord, WorkspaceUiState } from 'craft-hub'
+import type { AgentActionId, AgentActionSummary, AgentTaskRecord, Capability, CapabilityDiscoveryResult, CapabilityPins, CatalogPluginV1, InstalledPlugin, MarketplaceSource, PersonalGitSyncResolution, PersonalGitSyncStatus, ProjectChangeEvent, ProjectRecord, ProjectRunSummary, ProjectVisualInput, RunCleanupOptions, RunCleanupResult, RunRecord, RunStreamEvent, SettingsExportEnvelope, SettingsExportMode, SettingsImportPreview, SettingsImportStrategy, SettingsSnapshot, WorkbenchLocale, WorkspaceCatalog, WorkspaceGroup, WorkspaceImportResult, WorkspaceManifest, WorkspaceRecord, WorkspaceUiState } from 'craft-hub'
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
@@ -9,6 +9,16 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   if (!response.ok)
     throw new Error(body.error ?? `Request failed: ${response.status}`)
   return body
+}
+
+async function capabilityDiscovery(projectId: string): Promise<CapabilityDiscoveryResult> {
+  try {
+    const result = await request<CapabilityDiscoveryResult | Capability[]>(`/api/projects/${projectId}/capability-discovery`)
+    return Array.isArray(result) ? { capabilities: result, diagnostics: [] } : result
+  }
+  catch {
+    return { capabilities: await request<Capability[]>(`/api/projects/${projectId}/capabilities`), diagnostics: [] }
+  }
 }
 
 async function runCommand(projectId: string, capabilityId: string, onUpdate: (run: RunRecord) => void): Promise<RunRecord> {
@@ -73,6 +83,22 @@ export const api = {
   reorderProjects: (projectOrder: string[]) => request<ProjectRecord[]>('/api/projects/order', { method: 'PUT', body: JSON.stringify({ projectOrder }) }),
   unregisterProject: (projectId: string) => request<ProjectRecord>(`/api/projects/${projectId}`, { method: 'DELETE' }),
   workspaces: () => request<WorkspaceRecord[]>('/api/workspaces'),
+  workspaceGroups: () => request<WorkspaceGroup[]>('/api/workspace-groups'),
+  personalGitSyncStatus: () => request<PersonalGitSyncStatus>('/api/personal-git-sync'),
+  configurePersonalGitSync: (repositoryPath: string, directory: string) => request<PersonalGitSyncStatus>('/api/personal-git-sync', { method: 'PUT', body: JSON.stringify({ repositoryPath, directory }) }),
+  synchronizePersonalGit: (resolution: PersonalGitSyncResolution = 'auto') => request<PersonalGitSyncStatus>('/api/personal-git-sync/synchronize', { method: 'POST', body: JSON.stringify({ resolution }) }),
+  createWorkspaceGroup: (name: string) => request<WorkspaceGroup>('/api/workspace-groups', { method: 'POST', body: JSON.stringify({ name }) }),
+  renameWorkspaceGroup: (groupId: string, name: string) => request<WorkspaceGroup>(`/api/workspace-groups/${groupId}`, { method: 'PUT', body: JSON.stringify({ name }) }),
+  deleteWorkspaceGroup: (groupId: string) => request<{ deleted: true }>(`/api/workspace-groups/${groupId}`, { method: 'DELETE' }),
+  assignWorkspaceGroup: (workspaceId: string, groupId?: string) => request<WorkspaceRecord>(`/api/workspaces/${workspaceId}/group`, { method: 'PUT', body: JSON.stringify({ groupId }) }),
+  importVscodeWorkspaces: (sourceDirectory: string, groupName?: string) => request<WorkspaceImportResult>('/api/workspaces/import/vscode', {
+    method: 'POST',
+    body: JSON.stringify({ sourceDirectory, groupName }),
+  }),
+  registerWorkspaceMember: (workspaceId: string, project: string, path?: string) => request<WorkspaceRecord>('/api/workspaces/register-member', {
+    method: 'POST',
+    body: JSON.stringify({ workspaceId, project, path }),
+  }),
   workspaceState: () => request<WorkspaceUiState>('/api/workspaces/state'),
   updateWorkspaceState: (state: WorkspaceUiState) => request<WorkspaceUiState>('/api/workspaces/state', { method: 'PUT', body: JSON.stringify(state) }),
   createWorkspace: (name: string) => request<WorkspaceRecord>('/api/workspaces', { method: 'POST', body: JSON.stringify({ name }) }),
@@ -92,6 +118,7 @@ export const api = {
   }),
   removeWorkspaceProject: (workspaceId: string, projectIdOrKey: string) => request<WorkspaceRecord>(`/api/workspaces/${workspaceId}/members/${encodeURIComponent(projectIdOrKey)}`, { method: 'DELETE' }),
   capabilities: (projectId: string) => request<Capability[]>(`/api/projects/${projectId}/capabilities`),
+  capabilityDiscovery,
   agentActions: (projectId: string, locale: WorkbenchLocale) => request<AgentActionSummary[]>(`/api/projects/${projectId}/agent-actions?locale=${encodeURIComponent(locale)}`),
   startAgentAction: (projectId: string, actionId: AgentActionId, locale: WorkbenchLocale) => request<AgentTaskRecord>(`/api/projects/${projectId}/agent-actions/${actionId}?locale=${encodeURIComponent(locale)}`, { method: 'POST' }),
   capabilityPins: (projectId: string) => request<CapabilityPins>(`/api/projects/${projectId}/pins`),

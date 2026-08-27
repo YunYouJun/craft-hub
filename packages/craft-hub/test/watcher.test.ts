@@ -23,6 +23,7 @@ describe('project watcher', () => {
   it('coalesces relevant file changes into semantic project events', async () => {
     const root = await mkdtemp(join(tmpdir(), 'craft-hub-watcher-'))
     await writeFile(join(root, 'package.json'), JSON.stringify({ scripts: { test: 'vitest' } }))
+    await mkdir(join(root, 'apps', 'liteapp'), { recursive: true })
     const project: ProjectRecord = {
       id: 'project',
       name: 'Project',
@@ -39,15 +40,22 @@ describe('project watcher', () => {
       await writeFile(join(root, 'package.json'), JSON.stringify({ scripts: { test: 'vitest --run' } }))
       await expect(capabilityEvent).resolves.toEqual({ projectId: 'project', scopes: ['capabilities'] })
 
+      const workspaceCapabilityEvent = nextEvent(events, 1)
+      await writeFile(join(root, 'apps', 'liteapp', 'package.json'), JSON.stringify({ scripts: { deploy: 'liteapp deploy' } }))
+      await expect(workspaceCapabilityEvent).resolves.toEqual({ projectId: 'project', scopes: ['capabilities'] })
+
       await mkdir(join(root, '.craft-hub'), { recursive: true })
-      const projectEvent = nextEvent(events, 1)
+      const projectEvent = nextEvent(events, 2)
       await writeFile(join(root, '.craft-hub', 'project.yaml'), 'version: 1\nproject:\n  name: Renamed\n')
       await writeFile(join(root, '.craft-hub', 'project.yaml'), 'version: 1\nproject:\n  name: Renamed Again\n')
       await expect(projectEvent).resolves.toEqual({ projectId: 'project', scopes: ['capabilities', 'project'] })
 
+      await mkdir(join(root, 'workspaces'), { recursive: true })
+      await writeFile(join(root, 'workspaces', 'pair.code-workspace'), '{ "folders": [] }')
+
       await writeFile(join(root, 'README.md'), 'not a capability source')
       await new Promise(resolve => setTimeout(resolve, 80))
-      expect(events).toHaveLength(2)
+      expect(events).toHaveLength(3)
     }
     finally {
       await watcher.close()

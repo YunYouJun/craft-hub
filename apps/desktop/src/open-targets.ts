@@ -91,6 +91,36 @@ export function openCodexProject(
   })
 }
 
+/** Open a folder or .code-workspace file in the installed CodeBuddy editor without invoking a shell. */
+export function openCodeBuddyWorkspace(
+  path: string,
+  platform = process.platform,
+  exists: (path: string) => boolean = existsSync,
+  launch: (command: string, args: string[], options: SpawnOptions) => ChildProcess = spawn,
+): Promise<void> {
+  const application = [
+    { name: 'CodeBuddy CN', path: '/Applications/CodeBuddy CN.app' },
+    { name: 'CodeBuddy', path: '/Applications/CodeBuddy.app' },
+  ].find(candidate => exists(candidate.path))
+  const command = platform === 'darwin' ? 'open' : process.env.CODEBUDDY_EDITOR_PATH ?? (platform === 'win32' ? 'buddycn.cmd' : 'buddycn')
+  const args = platform === 'darwin'
+    ? ['-a', application?.name ?? 'CodeBuddy CN', path]
+    : [path]
+
+  return new Promise((resolve, reject) => {
+    const child = launch(command, args, {
+      detached: true,
+      shell: false,
+      stdio: 'ignore',
+    })
+    child.once('error', reject)
+    child.once('spawn', () => {
+      child.unref()
+      resolve()
+    })
+  })
+}
+
 /** Open a project directory in a macOS terminal without invoking a shell. */
 export function openMacTerminalProject(
   path: string,

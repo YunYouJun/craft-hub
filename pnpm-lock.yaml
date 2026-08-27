@@ -97,6 +97,9 @@ catalogs:
     happy-dom:
       specifier: ^20.11.6
       version: 20.11.6
+    jsonc-parser:
+      specifier: ^3.3.1
+      version: 3.3.1
     lint-staged:
       specifier: ^17.3.0
       version: 17.3.0
@@ -115,6 +118,9 @@ catalogs:
     simple-git-hooks:
       specifier: ^2.13.1
       version: 2.13.1
+    tinyglobby:
+      specifier: ^0.2.17
+      version: 0.2.17
     tsdown:
       specifier: ^0.22.14
       version: 0.22.14
@@ -410,9 +416,15 @@ importers:
       chokidar:
         specifier: 'catalog:'
         version: 5.0.0
+      jsonc-parser:
+        specifier: 'catalog:'
+        version: 3.3.1
       node-pty:
         specifier: 'catalog:'
         version: 1.1.0(patch_hash=01cd818d7698a2bb3e93d44742be26be924b317b9a699a61a64a01672387993d)
+      tinyglobby:
+        specifier: 'catalog:'
+        version: 0.2.17
       yaml:
         specifier: 'catalog:'
         version: 2.9.0

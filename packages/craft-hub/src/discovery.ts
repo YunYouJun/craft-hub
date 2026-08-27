@@ -1,8 +1,9 @@
 import type { LocalizedText } from './config'
-import type { Capability, CapabilitySource, CommandCapability, SkillCapability } from './types'
+import type { Capability, CapabilityDiscoveryDiagnostic, CapabilityDiscoveryResult, CapabilitySource, CommandCapability, CommandCategory, CommandPackage, SkillCapability } from './types'
 import { createHash } from 'node:crypto'
 import { access, readdir, readFile, realpath } from 'node:fs/promises'
-import { basename, join } from 'node:path'
+import { basename, dirname, isAbsolute, join, relative, sep } from 'node:path'
+import { glob } from 'tinyglobby'
 import { isMap, isScalar, parseDocument, parse as parseYaml } from 'yaml'
 import { loadProjectConfig } from './config'
 
@@ -49,6 +50,27 @@ async function packageManager(cwd: string, packageJson: Record<string, unknown>)
   return 'npm'
 }
 
+const rootCommandPackage = (name?: string): CommandPackage => ({ name, relativePath: '.', root: true })
+
+/** Infer a stable presentation category from a package script or task name. */
+export function commandCategory(name: string): CommandCategory {
+  const normalized = name.replace(/^(?:pre|post)(?=[a-z])/, '').toLowerCase()
+  const prefix = normalized.split(':', 1)[0]!
+  if (['dev', 'serve', 'start'].includes(prefix))
+    return 'develop'
+  if (['build', 'bundle', 'compile', 'generate'].includes(prefix))
+    return 'build'
+  if (['e2e', 'integration', 'test', 'vitest'].includes(prefix))
+    return 'test'
+  if (['check', 'format', 'lint', 'typecheck'].includes(prefix))
+    return 'quality'
+  if (prefix === 'preview')
+    return 'preview'
+  if (['deploy', 'publish', 'release'].includes(prefix) || normalized === 'publishonly')
+    return 'deploy'
+  return 'other'
+}
+
 function lineNumberAt(content: string, offset: number): number {
   return content.slice(0, offset).split('\n').length
 }
@@ -66,30 +88,107 @@ function mappingEntryLines(content: string, mappingName: string): Map<string, nu
   }))
 }
 
-async function discoverPackageScripts(cwd: string): Promise<CommandCapability[]> {
+async function discoverPackageScripts(
+  projectRoot: string,
+  cwd: string,
+  commandPackage: CommandPackage,
+  manager?: string,
+): Promise<CommandCapability[]> {
   const path = join(cwd, 'package.json')
   if (!await exists(path))
     return []
   const content = await readFile(path, 'utf8')
   const manifest = JSON.parse(content) as Record<string, unknown>
   const scripts = manifest.scripts && typeof manifest.scripts === 'object' ? manifest.scripts as Record<string, unknown> : {}
-  const manager = await packageManager(cwd, manifest)
+  const resolvedManager = manager ?? await packageManager(cwd, manifest)
   const sourceLines = mappingEntryLines(content, 'scripts')
+  const source = commandPackage.root ? 'package.json' : `${commandPackage.relativePath}/package.json`
   return Object.entries(scripts)
     .filter((entry): entry is [string, string] => typeof entry[1] === 'string')
     .map(([name, script]) => ({
-      id: id(cwd, 'package.json', name),
+      id: id(projectRoot, source, name),
       kind: 'command',
       name,
       description: script,
-      source: 'package.json',
+      source,
       sourcePath: path,
       sourceLine: sourceLines.get(name),
-      invocation: { command: manager, args: ['run', name], cwd, requiredEnv: [] },
+      category: commandCategory(name),
+      package: { ...commandPackage, name: typeof manifest.name === 'string' ? manifest.name : commandPackage.name },
+      invocation: { command: resolvedManager, args: ['run', name], cwd, requiredEnv: [] },
     }))
 }
 
-async function discoverMakeTargets(cwd: string): Promise<CommandCapability[]> {
+function manifestPattern(pattern: string): string {
+  const negated = pattern.startsWith('!')
+  const directoryPattern = (negated ? pattern.slice(1) : pattern).replace(/\/+$/, '')
+  return `${negated ? '!' : ''}${directoryPattern}/package.json`
+}
+
+function portablePath(path: string): string {
+  return path.split(sep).join('/')
+}
+
+function isInside(root: string, target: string): boolean {
+  const relativePath = relative(root, target)
+  return relativePath === '' || (!relativePath.startsWith('..') && !isAbsolute(relativePath))
+}
+
+async function discoverPnpmWorkspacePackages(projectRoot: string): Promise<{ capabilities: CommandCapability[], diagnostics: CapabilityDiscoveryDiagnostic[] }> {
+  const workspacePath = join(projectRoot, 'pnpm-workspace.yaml')
+  if (!await exists(workspacePath))
+    return { capabilities: [], diagnostics: [] }
+
+  const document = parseYaml(await readFile(workspacePath, 'utf8')) as { packages?: unknown } | undefined
+  if (!document || !Array.isArray(document.packages) || !document.packages.every(pattern => typeof pattern === 'string'))
+    throw new Error('pnpm-workspace.yaml must declare packages as an array of glob patterns')
+
+  const root = await realpath(projectRoot)
+  const manifests = await glob(document.packages.map(manifestPattern), {
+    cwd: projectRoot,
+    dot: true,
+    expandDirectories: false,
+    followSymbolicLinks: false,
+    onlyFiles: true,
+  })
+  const diagnostics: CapabilityDiscoveryDiagnostic[] = []
+  const capabilities: CommandCapability[] = []
+  const seen = new Set<string>()
+
+  for (const relativeManifest of manifests.sort()) {
+    const manifestPath = join(projectRoot, relativeManifest)
+    const packageDirectory = dirname(manifestPath)
+    let canonicalDirectory: string
+    try {
+      canonicalDirectory = await realpath(packageDirectory)
+    }
+    catch (error) {
+      diagnostics.push({ source: 'pnpm-workspace', path: portablePath(relativeManifest), message: error instanceof Error ? error.message : String(error) })
+      continue
+    }
+    if (!isInside(root, canonicalDirectory)) {
+      diagnostics.push({ source: 'pnpm-workspace', path: portablePath(relativeManifest), message: 'Workspace package resolves outside the project and was skipped.' })
+      continue
+    }
+    const relativeDirectory = portablePath(relative(root, canonicalDirectory)) || '.'
+    if (relativeDirectory === '.' || seen.has(canonicalDirectory))
+      continue
+    seen.add(canonicalDirectory)
+    try {
+      capabilities.push(...await discoverPackageScripts(projectRoot, canonicalDirectory, {
+        relativePath: relativeDirectory,
+        root: false,
+      }, 'pnpm'))
+    }
+    catch (error) {
+      diagnostics.push({ source: 'pnpm-workspace', path: portablePath(relativeManifest), message: error instanceof Error ? error.message : String(error) })
+    }
+  }
+
+  return { capabilities, diagnostics }
+}
+
+async function discoverMakeTargets(cwd: string, commandPackage: CommandPackage): Promise<CommandCapability[]> {
   const path = join(cwd, 'Makefile')
   if (!await exists(path))
     return []
@@ -104,11 +203,13 @@ async function discoverMakeTargets(cwd: string): Promise<CommandCapability[]> {
     source: 'Makefile',
     sourcePath: path,
     sourceLine,
+    category: commandCategory(name),
+    package: commandPackage,
     invocation: { command: 'make', args: [name], cwd, requiredEnv: [] },
   }))
 }
 
-async function discoverTaskfileTasks(cwd: string): Promise<CommandCapability[]> {
+async function discoverTaskfileTasks(cwd: string, commandPackage: CommandPackage): Promise<CommandCapability[]> {
   const path = (await exists(join(cwd, 'Taskfile.yml'))) ? join(cwd, 'Taskfile.yml') : join(cwd, 'Taskfile.yaml')
   if (!await exists(path))
     return []
@@ -123,6 +224,8 @@ async function discoverTaskfileTasks(cwd: string): Promise<CommandCapability[]> 
     source: 'Taskfile',
     sourcePath: path,
     sourceLine: sourceLines.get(name),
+    category: commandCategory(name),
+    package: commandPackage,
     invocation: { command: 'task', args: [name], cwd, requiredEnv: [] },
   }))
 }
@@ -182,18 +285,38 @@ async function discoverSkills(cwd: string): Promise<SkillCapability[]> {
   return results
 }
 
-/** Discover built-in command and skill capabilities for one project. */
-export async function discoverCapabilities(cwd: string, locale = 'en'): Promise<Capability[]> {
+function compareCapabilities(left: Capability, right: Capability): number {
+  if (left.kind !== right.kind)
+    return left.kind === 'command' ? -1 : 1
+  if (left.kind === 'command' && right.kind === 'command') {
+    const rootDifference = Number(right.package?.root ?? true) - Number(left.package?.root ?? true)
+    if (rootDifference)
+      return rootDifference
+    const packageDifference = (left.package?.relativePath ?? '.').localeCompare(right.package?.relativePath ?? '.', undefined, { numeric: true })
+    if (packageDifference)
+      return packageDifference
+  }
+  return left.name.localeCompare(right.name, undefined, { numeric: true })
+}
+
+/** Discover built-in command and skill capabilities plus non-fatal pnpm workspace diagnostics. */
+export async function discoverCapabilitiesWithDiagnostics(cwd: string, locale = 'en'): Promise<CapabilityDiscoveryResult> {
+  const rootPackagePath = join(cwd, 'package.json')
+  const rootManifest = await exists(rootPackagePath)
+    ? JSON.parse(await readFile(rootPackagePath, 'utf8')) as Record<string, unknown>
+    : {}
+  const commandPackage = rootCommandPackage(typeof rootManifest.name === 'string' ? rootManifest.name : undefined)
+  const workspace = await discoverPnpmWorkspacePackages(cwd)
   const groups = await Promise.all([
-    discoverPackageScripts(cwd),
-    discoverMakeTargets(cwd),
-    discoverTaskfileTasks(cwd),
+    discoverPackageScripts(cwd, cwd, commandPackage),
+    discoverMakeTargets(cwd, commandPackage),
+    discoverTaskfileTasks(cwd, commandPackage),
     discoverSkills(cwd),
   ])
   const capabilityConfig = (await loadProjectConfig(cwd))?.capabilities
   const hidden = new Set(capabilityConfig?.hidden ?? [])
   const descriptions = capabilityConfig?.descriptions ?? {}
-  return groups.flat()
+  const capabilities = [...groups.flat(), ...workspace.capabilities]
     .filter(capability => !hidden.has(capability.id) && !hidden.has(capability.name) && !hidden.has(`${capability.source}:${capability.name}`))
     .map((capability) => {
       const configuredDescription = descriptions[capability.id]
@@ -202,5 +325,11 @@ export async function discoverCapabilities(cwd: string, locale = 'en'): Promise<
       const description = localizedText(configuredDescription, locale)
       return description ? { ...capability, description } : capability
     })
-    .sort((left, right) => left.name.localeCompare(right.name))
+    .sort(compareCapabilities)
+  return { capabilities, diagnostics: workspace.diagnostics }
+}
+
+/** Discover built-in command and skill capabilities for one project. */
+export async function discoverCapabilities(cwd: string, locale = 'en'): Promise<Capability[]> {
+  return (await discoverCapabilitiesWithDiagnostics(cwd, locale)).capabilities
 }

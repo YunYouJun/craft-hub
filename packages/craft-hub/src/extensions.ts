@@ -2,8 +2,8 @@ import type { AgentTaskProvider } from './agent-tasks'
 import type { MarketplaceSource, PluginPackageInstaller } from './marketplace'
 import type { CraftHubPlugin } from './plugins'
 import type { WorkbenchLocale } from './settings'
-import type { Capability, ProjectRecord } from './types'
-import { discoverCapabilities } from './discovery'
+import type { Capability, CapabilityDiscoveryResult, ProjectRecord } from './types'
+import { discoverCapabilitiesWithDiagnostics } from './discovery'
 
 export interface DistributionConfig {
   id: string
@@ -22,7 +22,7 @@ export interface CapabilityProviderContext {
 /** Adapter seam for contributing project capabilities without replacing discovery or execution. */
 export interface CapabilityProvider {
   id: string
-  discover: (context: CapabilityProviderContext) => Promise<Capability[]>
+  discover: (context: CapabilityProviderContext) => Promise<Capability[] | CapabilityDiscoveryResult>
 }
 
 export interface CraftHubOptions {
@@ -55,7 +55,7 @@ export const communityDistribution: DistributionConfig = {
 
 export const builtinCapabilityProvider: CapabilityProvider = {
   id: 'builtin',
-  discover: context => discoverCapabilities(context.project.path, context.locale),
+  discover: context => discoverCapabilitiesWithDiagnostics(context.project.path, context.locale),
 }
 
 /** Preserve type inference while defining a third-party capability provider. */

@@ -71,4 +71,45 @@ describe('workspace Codex tasks', () => {
     expect(startAgentTask).toHaveBeenCalledWith('Run in background', [project.id], project.id, workspace.id)
     expect(wrapper.text()).toContain('running in Craft Hub')
   })
+
+  it('routes workspace launchers through the desktop bridge', async () => {
+    const openWorkspace = vi.fn(async () => {})
+    window.craftHubDesktop = { openWorkspace }
+    const { wrapper } = setup()
+    await flushPromises()
+
+    await wrapper.get('[data-testid="open-workspace-vscode"]').trigger('click')
+    await wrapper.get('[data-testid="open-workspace-codebuddy"]').trigger('click')
+    await wrapper.get('[data-testid="open-workspace-codex"]').trigger('click')
+    await flushPromises()
+
+    expect(openWorkspace.mock.calls).toEqual([
+      [workspace.id, 'vscode'],
+      [workspace.id, 'codebuddy'],
+      [workspace.id, 'codex'],
+    ])
+  })
+
+  it('uses localized status icons instead of raw workspace member states', async () => {
+    const store = useWorkbenchStore()
+    store.projects = [project]
+    store.workspaces = [{
+      ...workspace,
+      members: [
+        ...workspace.members,
+        { project: 'api', label: 'API', resolved: false, path: '/api' },
+        { project: 'missing', label: 'Missing', resolved: false },
+      ],
+    }]
+    store.selectedWorkspaceId = workspace.id
+
+    const wrapper = mount(WorkspaceDashboard)
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain('available')
+    expect(wrapper.text()).not.toContain('missing')
+    expect(wrapper.get('.member-source-status.available').attributes('title')).toBe('Available to add')
+    expect(wrapper.findAll('.member-source-status')[1]!.attributes('title')).toBe('Not found on this device')
+    expect(wrapper.get('.workspace-member-card .project-trust').attributes('title')).toBe('Trusted')
+  })
 })
