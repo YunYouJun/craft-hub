@@ -18,7 +18,7 @@ const project: ProjectRecord = {
 }
 const action: AgentActionSummary = {
   id: 'improve-project-config',
-  targetPath: '.craft-hub/project.yaml',
+  targetPath: '.craft-hub/project.jsonc',
   missingCommandCount: 3,
   commandFingerprint: 'commands-v1',
 }
@@ -60,7 +60,7 @@ describe('project agent action dialog', () => {
     mount(ProjectAgentActionDialog, { props: { open: true }, attachTo: document.body })
     await flushPromises()
 
-    expect(document.body.textContent).toContain('.craft-hub/project.yaml')
+    expect(document.body.textContent).toContain('.craft-hub/project.jsonc')
     expect(document.body.textContent).toContain('有 3 个命令')
     expect(document.body.querySelector('.agent-action-trust')?.textContent).toContain('workspace-write')
     expect(document.body.querySelector('.primary-button')?.textContent).toContain('授权并启动')

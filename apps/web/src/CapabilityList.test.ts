@@ -229,7 +229,7 @@ describe('capability list', () => {
     store.selectedProjectId = 'project'
     store.agentActions = [{
       id: 'improve-project-config',
-      targetPath: '.craft-hub/project.yaml',
+      targetPath: '.craft-hub/project.jsonc',
       missingCommandCount: 2,
       commandFingerprint: 'first-set',
     }]

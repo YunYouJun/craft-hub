@@ -14,9 +14,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/).
 - Project-local Agent, Claude, and Codex skill discovery
 - Structured command execution with persisted run records
 - CLI, local API, Vue workbench, and thin Electron host
-- Optional `.craft-hub/project.yaml` metadata
+- Optional, schema-validated `.craft-hub/project.jsonc` metadata
 
 ### Changed
+
+- Project configuration now uses JSONC as its only canonical format, with Zod-derived runtime validation and JSON Schema
 
 ### Fixed
 

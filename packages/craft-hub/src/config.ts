@@ -1,45 +1,26 @@
-import type { ProjectAccentColor } from './types'
+import type { ParseError } from 'jsonc-parser'
+import type { ProjectConfig } from './project-config-schema'
+import type { ProjectAccentColor, ProjectConfigPath } from './types'
 import { createHash, randomUUID } from 'node:crypto'
 import { link, mkdir, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises'
 import { dirname, isAbsolute, relative, resolve } from 'node:path'
-import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
+import { applyEdits, findNodeAtLocation, modify, parse as parseJsonc, parseTree, printParseErrorCode } from 'jsonc-parser'
+import { projectConfigSchema, projectConfigSchemaUrl } from './project-config-schema'
 
-const projectConfigTargetPath = '.craft-hub/project.yaml' as const
+export type { LocalizedText, ProjectCommandInputConfig, ProjectCommandInputOptionConfig, ProjectConfig } from './project-config-schema'
+export { projectConfigJsonSchema, projectConfigSchema, projectConfigSchemaUrl } from './project-config-schema'
 
-export type LocalizedText = string | Record<string, string | undefined>
+/** Repository-relative path of the optional Craft Hub project configuration. */
+export const projectConfigTargetPath = '.craft-hub/project.jsonc' as const
 
-export interface ProjectCommandInputOptionConfig {
-  value: string
-  label?: LocalizedText
+interface ProjectConfigSource {
+  path: string
+  content: string
 }
 
-export interface ProjectCommandInputConfig {
-  type: 'select' | 'text'
-  label?: LocalizedText
-  description?: LocalizedText
-  options?: Array<string | ProjectCommandInputOptionConfig>
-  default?: string
-  required?: boolean
-  requiredWhen?: { input: string, equals: string }
-  visibleWhen?: { input: string, equals: string }
-  pattern?: string
-  flag: string
-  argumentStyle?: 'equals' | 'separate'
-}
-
-export interface ProjectConfig {
-  version: 1
-  project?: { name?: string, icon?: string, color?: ProjectAccentColor }
-  defaults?: { agent?: string }
-  capabilities?: {
-    hidden?: string[]
-    descriptions?: Record<string, LocalizedText>
-    inputs?: Record<string, Record<string, ProjectCommandInputConfig>>
-  }
-}
-
+/** Preview or result of initializing repository-owned project metadata. */
 export interface ProjectConfigInitialization {
-  targetPath: typeof projectConfigTargetPath
+  targetPath: ProjectConfigPath
   path: string
   content: string
   revision: string
@@ -49,31 +30,32 @@ export interface ProjectConfigInitialization {
 
 /** Load optional project-owned metadata without requiring configuration. */
 export async function loadProjectConfig(projectPath: string): Promise<ProjectConfig | undefined> {
-  const content = await readProjectConfigSource(projectPath)
-  if (content === undefined)
+  const source = await readProjectConfigSource(projectPath)
+  if (!source)
     return undefined
-  return parseProjectConfig(content)
+  return parseProjectConfig(source.content)
 }
 
 /** Preview the exact file content used to initialize optional project metadata. */
 export async function previewProjectConfigInitialization(projectPath: string, projectName: string): Promise<ProjectConfigInitialization> {
-  const path = resolve(projectPath, projectConfigTargetPath)
   const current = await readProjectConfigSource(projectPath)
-  if (current !== undefined) {
-    parseProjectConfig(current)
+  if (current) {
+    parseProjectConfig(current.content)
     return {
       targetPath: projectConfigTargetPath,
-      path,
-      content: current,
-      revision: configRevision(current),
+      path: current.path,
+      content: current.content,
+      revision: configRevision(current.content),
       exists: true,
     }
   }
-  const content = stringifyYaml({
+  const path = resolve(projectPath, projectConfigTargetPath)
+  const content = `${JSON.stringify({
+    $schema: projectConfigSchemaUrl,
     version: 1,
     project: { name: projectName },
     capabilities: { hidden: [], descriptions: {} },
-  }, { lineWidth: 0 })
+  }, null, 2)}\n`
   return {
     targetPath: projectConfigTargetPath,
     path,
@@ -111,23 +93,31 @@ export async function applyProjectConfigInitialization(projectPath: string, proj
 
 /** Persist user-selected project visuals in the portable project configuration. */
 export async function saveProjectVisual(projectPath: string, visual: { icon?: string, color?: ProjectAccentColor }): Promise<ProjectConfig> {
-  const path = resolve(projectPath, '.craft-hub', 'project.yaml')
-  const current = await loadProjectConfig(projectPath) ?? { version: 1 as const }
+  const source = await readProjectConfigSource(projectPath)
+  const path = source?.path ?? resolve(projectPath, projectConfigTargetPath)
+  const current = source ? parseProjectConfig(source.content) : { $schema: projectConfigSchemaUrl, version: 1 as const }
   const project = { ...current.project, icon: visual.icon || undefined, color: visual.color }
-  const next: ProjectConfig = { ...current, version: 1, project }
+  let content = source?.content ?? `${JSON.stringify(current, null, 2)}\n`
+  content = setJsoncValue(content, ['$schema'], current.$schema ?? projectConfigSchemaUrl)
+  content = setJsoncValue(content, ['version'], 1)
+  content = setJsoncValue(content, ['project', 'icon'], project.icon)
+  content = setJsoncValue(content, ['project', 'color'], project.color)
+  if (!content.endsWith('\n'))
+    content += '\n'
+  const next = parseProjectConfig(content)
   const temporary = `${path}.${randomUUID()}.tmp`
   await mkdir(dirname(path), { recursive: true })
   await assertInsideProject(projectPath, dirname(path), 'Project config directory')
-  await writeFile(temporary, stringifyYaml(next, { lineWidth: 0 }), 'utf8')
+  await writeFile(temporary, content, 'utf8')
   await rename(temporary, path)
   return next
 }
 
-async function readProjectConfigSource(projectPath: string): Promise<string | undefined> {
+async function readProjectConfigSource(projectPath: string): Promise<ProjectConfigSource | undefined> {
   const path = resolve(projectPath, projectConfigTargetPath)
   try {
     await assertInsideProject(projectPath, path, 'Project config')
-    return await readFile(path, 'utf8')
+    return { path, content: await readFile(path, 'utf8') }
   }
   catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT')
@@ -140,11 +130,71 @@ function configRevision(content: string): string {
   return createHash('sha256').update(content).digest('hex').slice(0, 16)
 }
 
+function setJsoncValue(content: string, path: (string | number)[], value: unknown): string {
+  return applyEdits(content, modify(content, path, value, {
+    formattingOptions: { insertSpaces: true, tabSize: 2, eol: '\n' },
+  }))
+}
+
+/** One actionable project-configuration problem. */
+export interface ProjectConfigDiagnostic {
+  path: string
+  line: number
+  column: number
+  message: string
+}
+
+/** Aggregated syntax or schema failures found in project.jsonc. */
+export class ProjectConfigValidationError extends Error {
+  constructor(readonly diagnostics: ProjectConfigDiagnostic[]) {
+    super(`Invalid Craft Hub project config:\n${diagnostics
+      .map(diagnostic => `${projectConfigTargetPath}:${diagnostic.line}:${diagnostic.column} ${diagnostic.path} ${diagnostic.message}`)
+      .join('\n')}`)
+    this.name = 'ProjectConfigValidationError'
+  }
+}
+
+function offsetPosition(content: string, offset: number): { line: number, column: number } {
+  const before = content.slice(0, offset)
+  const lines = before.split('\n')
+  return { line: lines.length, column: lines.at(-1)!.length + 1 }
+}
+
+function jsonPointer(path: PropertyKey[]): string {
+  if (!path.length)
+    return '/'
+  return `/${path.map(part => String(part).replaceAll('~', '~0').replaceAll('/', '~1')).join('/')}`
+}
+
 function parseProjectConfig(content: string): ProjectConfig {
-  const config = parseYaml(content) as Omit<ProjectConfig, 'version'> & { version?: number }
-  if (config.version !== undefined && config.version !== 1)
-    throw new Error(`Unsupported Craft Hub config version: ${String(config.version)}`)
-  return { ...config, version: 1 }
+  const errors: ParseError[] = []
+  const parsed = parseJsonc(content, errors, { allowTrailingComma: true }) as unknown
+  if (errors.length) {
+    throw new ProjectConfigValidationError(errors.map(error => ({
+      path: '/',
+      ...offsetPosition(content, error.offset),
+      message: printParseErrorCode(error.error),
+    })))
+  }
+  const result = projectConfigSchema.safeParse(parsed)
+  if (result.success)
+    return result.data
+
+  const tree = parseTree(content, [], { allowTrailingComma: true })
+  throw new ProjectConfigValidationError(result.error.issues.flatMap((issue) => {
+    const issuePath = issue.path.filter((part): part is string | number => typeof part === 'string' || typeof part === 'number')
+    const paths = issue.code === 'unrecognized_keys'
+      ? issue.keys.map(key => [...issuePath, key])
+      : [issuePath]
+    return paths.map((path) => {
+      const node = tree ? findNodeAtLocation(tree, path) : undefined
+      return {
+        path: jsonPointer(path),
+        ...offsetPosition(content, node?.offset ?? 0),
+        message: issue.code === 'unrecognized_keys' ? `Unrecognized key: "${String(path.at(-1))}"` : issue.message,
+      }
+    })
+  }))
 }
 
 async function assertInsideProject(projectPath: string, targetPath: string, label: string): Promise<void> {

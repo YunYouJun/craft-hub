@@ -2,12 +2,12 @@ import type { AgentTaskManager } from './agent-tasks'
 import type { LocalizedText } from './config'
 import type { ProjectRegistry } from './projects'
 import type { WorkbenchLocale } from './settings'
-import type { AgentActionId, AgentActionResult, AgentActionSummary, AgentTaskRecord, Capability, CommandCapability } from './types'
+import type { AgentActionId, AgentActionResult, AgentActionSummary, AgentTaskRecord, Capability, CommandCapability, ProjectConfigPath } from './types'
 import { createHash } from 'node:crypto'
 import { loadProjectConfig } from './config'
 
 const improveProjectConfigActionId = 'improve-project-config' as const
-const projectConfigPath = '.craft-hub/project.yaml' as const
+const projectConfigPath: ProjectConfigPath = '.craft-hub/project.jsonc'
 
 /** Definition of a trusted built-in agent workflow. */
 export interface AgentActionDefinition {
@@ -72,9 +72,9 @@ function improveProjectConfigPrompt(commands: CommandCapability[], locale: Workb
     `Add only missing capabilities.descriptions values for the command snapshot below. Use the stable source:name key shown for new entries. Always add a concise default English description and, when the target locale is not English, a concise ${targetLanguage} description.`,
     'Read package.json scripts, Makefile targets, Taskfile tasks, README files, and AGENTS.md only as context for understanding the commands.',
     'Preserve every existing or unknown field, comment, hidden entry, and existing description or locale value. If an existing description uses a legacy id or name key, supplement that existing entry instead of creating a shadowed duplicate.',
-    'Do not change command definitions, package.json, Makefile, Taskfile files, SKILL.md files, trust or state files, or any file other than .craft-hub/project.yaml. Do not add project icon, color, hidden capabilities, or default agent settings.',
+    'Do not change command definitions, package.json, Makefile, Taskfile files, SKILL.md files, trust or state files, or any file other than .craft-hub/project.jsonc. Do not add project icon, color, hidden capabilities, or default agent settings.',
     'If a command purpose or important side effect cannot be determined confidently, skip it and report the uncertainty instead of guessing.',
-    'Validate the YAML, review the git diff for the target file only, and finish with a concise summary of added and skipped entries.',
+    'Validate the JSONC, review the git diff for the target file only, and finish with a concise summary of added and skipped entries.',
     '',
     `Target locale: ${locale}`,
     'Command snapshot:',

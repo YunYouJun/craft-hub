@@ -87,25 +87,33 @@ VS Code `.code-workspace` files can be imported explicitly from the CLI or workb
 
 The bundled Craft Hub MCP adapter exposes the same runtime state as the CLI and workbench. Agents can list or register local projects by absolute path, list or create portable workspaces and groups, add or resolve workspace members, and initialize optional project config through a preview/apply flow. VS Code workspace import uses the same pattern: call `preview_vscode_workspace_import` to validate documents, paths, registrations, and conflicts, then pass its revision to `import_vscode_workspaces`. Registration never executes project code and leaves every newly registered project untrusted.
 
-Project registration and local workspace bindings stay in the operating-system Craft Hub data directory. Portable workspace manifests are written under `~/.craft-hub/workspaces/`. `init_project_config` previews the exact `.craft-hub/project.yaml` content without writing; apply requires a trusted project and the matching preview revision, creates only a missing file, and never overwrites existing repository configuration.
+Project registration and local workspace bindings stay in the operating-system Craft Hub data directory. Portable workspace manifests are written under `~/.craft-hub/workspaces/`. `init_project_config` previews the exact `.craft-hub/project.jsonc` content without writing; apply requires a trusted project and the matching preview revision, creates only a missing file, and never overwrites existing repository configuration.
 
 ## Optional project config
 
-Zero configuration is the default. A repository may add `.craft-hub/project.yaml`:
+Zero configuration is the default. A repository may add `.craft-hub/project.jsonc`:
 
-```yaml
-version: 1
-project:
-  name: Craft Hub
-  icon: ./icon.svg
-defaults:
-  agent: codex
-capabilities:
-  hidden: []
-  descriptions:
-    package.json:dev:
-      default: Start the local development environment.
-      zh-CN: 启动本地开发环境。
+```jsonc
+{
+  "$schema": "https://raw.githubusercontent.com/YunYouJun/craft-hub/main/packages/craft-hub/schema/project-v1.schema.json",
+  "version": 1,
+  "project": {
+    "name": "Craft Hub",
+    "icon": "./icon.svg"
+  },
+  "defaults": {
+    "agent": "codex"
+  },
+  "capabilities": {
+    "hidden": [],
+    "descriptions": {
+      "package.json:dev": {
+        "default": "Start the local development environment.",
+        "zh-CN": "启动本地开发环境。"
+      }
+    }
+  }
+}
 ```
 
 Discovered commands can also declare safe form inputs under `capabilities.inputs`. Select and

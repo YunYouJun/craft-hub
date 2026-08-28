@@ -70,7 +70,7 @@ export function createCraftHubMcpServer(runtime = new CraftHubRuntime()): McpSer
     'init_project_config',
     {
       title: 'Initialize Craft Hub project config',
-      description: 'Preview or create .craft-hub/project.yaml for a registered project. Preview never writes. Apply requires Craft Hub execution authorization and the exact revision returned by preview, and never overwrites an existing file.',
+      description: 'Preview or create the schema-validated .craft-hub/project.jsonc for a registered project. Preview never writes. Apply requires Craft Hub execution authorization and the exact revision returned by preview, and never overwrites an existing file.',
       inputSchema: {
         projectId: z.string().min(1),
         mode: z.enum(['preview', 'apply']),

@@ -20,6 +20,8 @@
     "docs:build": "pnpm build && pnpm predocs && pnpm -C docs run docs:build",
     "docs:preview": "pnpm -C docs run docs:preview",
     "release": "bumpp -r && pnpm -r publish",
+    "schema:project": "tsx scripts/generate-project-config-schema.ts",
+    "schema:project:check": "tsx scripts/generate-project-config-schema.ts --check",
     "test": "vitest",
     "typecheck": "tsc --noEmit",
     "prepare": "simple-git-hooks"

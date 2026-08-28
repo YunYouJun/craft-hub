@@ -1,0 +1,409 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "version": {
+      "type": "number",
+      "const": 1
+    },
+    "project": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "icon": {
+          "type": "string",
+          "minLength": 1
+        },
+        "color": {
+          "type": "string",
+          "enum": [
+            "blue",
+            "cyan",
+            "green",
+            "orange",
+            "pink",
+            "purple",
+            "red",
+            "yellow"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "defaults": {
+      "type": "object",
+      "properties": {
+        "agent": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "capabilities": {
+      "type": "object",
+      "properties": {
+        "hidden": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "descriptions": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "default": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "default"
+                ],
+                "additionalProperties": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            ]
+          }
+        },
+        "inputs": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "label": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "default": {
+                              "type": "string",
+                              "minLength": 1
+                            }
+                          },
+                          "required": [
+                            "default"
+                          ],
+                          "additionalProperties": {
+                            "type": "string",
+                            "minLength": 1
+                          }
+                        }
+                      ]
+                    },
+                    "description": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "default": {
+                              "type": "string",
+                              "minLength": 1
+                            }
+                          },
+                          "required": [
+                            "default"
+                          ],
+                          "additionalProperties": {
+                            "type": "string",
+                            "minLength": 1
+                          }
+                        }
+                      ]
+                    },
+                    "default": {
+                      "type": "string"
+                    },
+                    "required": {
+                      "type": "boolean"
+                    },
+                    "requiredWhen": {
+                      "type": "object",
+                      "properties": {
+                        "input": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "equals": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "input",
+                        "equals"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "visibleWhen": {
+                      "type": "object",
+                      "properties": {
+                        "input": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "equals": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "input",
+                        "equals"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "flag": {
+                      "type": "string",
+                      "pattern": "^-\\S*$"
+                    },
+                    "argumentStyle": {
+                      "type": "string",
+                      "enum": [
+                        "equals",
+                        "separate"
+                      ]
+                    },
+                    "type": {
+                      "type": "string",
+                      "const": "select"
+                    },
+                    "options": {
+                      "minItems": 1,
+                      "type": "array",
+                      "items": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "value": {
+                                "type": "string",
+                                "minLength": 1
+                              },
+                              "label": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "minLength": 1
+                                  },
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "default": {
+                                        "type": "string",
+                                        "minLength": 1
+                                      }
+                                    },
+                                    "required": [
+                                      "default"
+                                    ],
+                                    "additionalProperties": {
+                                      "type": "string",
+                                      "minLength": 1
+                                    }
+                                  }
+                                ]
+                              }
+                            },
+                            "required": [
+                              "value"
+                            ],
+                            "additionalProperties": false
+                          }
+                        ]
+                      }
+                    },
+                    "pattern": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "flag",
+                    "type",
+                    "options"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "label": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "default": {
+                              "type": "string",
+                              "minLength": 1
+                            }
+                          },
+                          "required": [
+                            "default"
+                          ],
+                          "additionalProperties": {
+                            "type": "string",
+                            "minLength": 1
+                          }
+                        }
+                      ]
+                    },
+                    "description": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "default": {
+                              "type": "string",
+                              "minLength": 1
+                            }
+                          },
+                          "required": [
+                            "default"
+                          ],
+                          "additionalProperties": {
+                            "type": "string",
+                            "minLength": 1
+                          }
+                        }
+                      ]
+                    },
+                    "default": {
+                      "type": "string"
+                    },
+                    "required": {
+                      "type": "boolean"
+                    },
+                    "requiredWhen": {
+                      "type": "object",
+                      "properties": {
+                        "input": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "equals": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "input",
+                        "equals"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "visibleWhen": {
+                      "type": "object",
+                      "properties": {
+                        "input": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "equals": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "input",
+                        "equals"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "flag": {
+                      "type": "string",
+                      "pattern": "^-\\S*$"
+                    },
+                    "argumentStyle": {
+                      "type": "string",
+                      "enum": [
+                        "equals",
+                        "separate"
+                      ]
+                    },
+                    "type": {
+                      "type": "string",
+                      "const": "text"
+                    },
+                    "options": {
+                      "not": {}
+                    },
+                    "pattern": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "flag",
+                    "type"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            }
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "extensions": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1
+      },
+      "additionalProperties": {}
+    }
+  },
+  "required": [
+    "version"
+  ],
+  "additionalProperties": false,
+  "$id": "https://raw.githubusercontent.com/YunYouJun/craft-hub/main/packages/craft-hub/schema/project-v1.schema.json",
+  "title": "Craft Hub project configuration",
+  "description": "Repository-owned metadata for Craft Hub project discovery and presentation."
+}

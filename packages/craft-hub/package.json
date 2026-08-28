@@ -29,7 +29,8 @@
     "craft-hub": "./dist/cli.mjs"
   },
   "files": [
-    "dist"
+    "dist",
+    "schema"
   ],
   "scripts": {
     "build": "tsdown",

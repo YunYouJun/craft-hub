@@ -1,28 +1,62 @@
 # 项目配置
 
-配置完全可选。只有需要自定义元信息或隐藏能力时，才添加 `.craft-hub/project.yaml`。
+配置完全可选。只有需要自定义元信息或隐藏能力时，才添加 `.craft-hub/project.jsonc`。JSONC 兼容严格 JSON，同时允许注释和尾随逗号，便于 AI 稳定生成，也方便人工维护。
 
-```yaml
-version: 1
-project:
-  name: Craft Hub
-  icon: ./icon.svg
-  color: purple
-defaults:
-  agent: codex
-capabilities:
-  hidden: []
-  descriptions:
-    package.json:dev:
-      default: Start the local development environment.
-      zh-CN: 启动本地开发环境。
+```jsonc
+{
+  "$schema": "https://raw.githubusercontent.com/YunYouJun/craft-hub/main/packages/craft-hub/schema/project-v1.schema.json",
+  "version": 1,
+  "project": {
+    "name": "Craft Hub",
+    "icon": "./icon.svg",
+    "color": "purple"
+  },
+  "defaults": {
+    "agent": "codex"
+  },
+  "capabilities": {
+    "hidden": [],
+    "descriptions": {
+      "package.json:dev": {
+        "default": "Start the local development environment.",
+        "zh-CN": "启动本地开发环境。"
+      }
+    }
+  }
+}
 ```
+
+## 格式与 Schema
+
+JSONC 是唯一的项目配置格式。它保留 JSON 明确的数据模型与成熟的编辑器工具链，同时允许注释和尾随逗号。项目元数据不再接受 YAML；YAML 同样需要 JSON Schema 才能获得补全和结构校验，却会增加第二套解析器与更难预测的程序化修改路径。
+
+Zod v4 的 `projectConfigSchema` 是唯一真源。Craft Hub 直接使用它进行离线运行时校验，通过 `z.infer` 推导公开 TypeScript 类型，并生成提交到仓库的 Draft 2020-12 Schema：`packages/craft-hub/schema/project-v1.schema.json`。修改 Zod 模型后运行 `pnpm schema:project`；`pnpm schema:project:check` 会阻止生成结果漂移。
+
+在 Craft Hub 拥有专用 Schema 域名前，带版本文件名的 GitHub Raw URL 是编辑器和第三方工具使用的公共标识。npm 包也会在 `craft-hub/schema/project-v1.schema.json` 携带同一份文件；Craft Hub 运行时校验不会下载公共 URL。
+
+核心对象会拒绝未知字段，以便尽早发现拼写错误。第三方数据必须放在 `extensions.<provider>` 下，Craft Hub 只保留、不解释其内容：
+
+```jsonc
+{
+  "$schema": "https://raw.githubusercontent.com/YunYouJun/craft-hub/main/packages/craft-hub/schema/project-v1.schema.json",
+  "version": 1,
+  "extensions": {
+    "com.example.release": {
+      "channel": "preview"
+    }
+  }
+}
+```
+
+配置必须显式声明 `version`。新增可选字段不升级版本；破坏性的结构或语义变化必须发布新的版本化 Schema，并提供确定性迁移。Craft Hub 使用 JSONC AST 做最小增量修改，再原子替换文件，从而保留注释、格式、扩展数据及其他符合 Schema 的无关字段。
+
+项目配置通常会提交到 Git。不要在其中保存 token、密码、凭证、本机路径或其他秘密；只声明所需环境变量名称或 secret provider 引用。
 
 ## MCP 初始化
 
-Agent 可以通过 MCP 的 `init_project_config` 工具初始化这个可选文件。`preview` 返回建议写入的完整 YAML 和内容 revision，但不会写文件；`apply` 要求项目已授权 Craft Hub 执行，并携带该次预览返回且未发生变化的 revision。
+Agent 可以通过 MCP 的 `init_project_config` 工具初始化这个可选文件。`preview` 返回建议写入的完整 JSONC 和内容 revision，但不会写文件；`apply` 要求项目已授权 Craft Hub 执行，并携带该次预览返回且未发生变化的 revision。
 
-初始化只会创建缺失的 `.craft-hub/project.yaml`。如果文件已经存在，Craft Hub 会返回当前内容并保持逐字节不变，包括注释和下游扩展字段。
+初始化只会创建缺失的 `.craft-hub/project.jsonc`；生成的 `$schema` URL 可为编辑器提供补全与校验。如果文件已经存在，Craft Hub 会先校验再返回当前内容，不会重写。
 
 `hidden` 条目可以填写能力名称、能力 ID，或 `package.json:release` 这样的“来源:名称”。`descriptions` 使用同样的键，并会在命令列表的命令名下方显示简介。描述既可以沿用单个字符串，也可以使用以 BCP 47 语言标签为键的多语言映射；Craft Hub 会依次匹配当前语言、上级语言标签和 `default`。当不同来源存在同名命令时，建议使用“来源:名称”。
 
@@ -32,23 +66,30 @@ Agent 可以通过 MCP 的 `init_project_config` 工具初始化这个可选文�
 `select` 渲染为下拉框、把 `text` 渲染为文本框；runtime 会校验值并将其作为独立
 argv 参数追加，不会拼装 shell 字符串。
 
-```yaml
-capabilities:
-  inputs:
-    apps/liteapp/package.json:deploy:
-      environment:
-        type: select
-        label: 部署环境
-        options: [dev, rdm]
-        default: dev
-        flag: --env
-      uin:
-        type: text
-        label: UIN
-        pattern: '^\d+$'
-        flag: --uin
-        visibleWhen: {input: environment, equals: dev}
-        requiredWhen: {input: environment, equals: dev}
+```jsonc
+{
+  "capabilities": {
+    "inputs": {
+      "apps/liteapp/package.json:deploy": {
+        "environment": {
+          "type": "select",
+          "label": "部署环境",
+          "options": ["dev", "rdm"],
+          "default": "dev",
+          "flag": "--env"
+        },
+        "uin": {
+          "type": "text",
+          "label": "UIN",
+          "pattern": "^\\d+$",
+          "flag": "--uin",
+          "visibleWhen": { "input": "environment", "equals": "dev" },
+          "requiredWhen": { "input": "environment", "equals": "dev" }
+        }
+      }
+    }
+  }
+}
 ```
 
 输入项支持 `equals`（默认，生成 `--env=dev`）与 `separate`（生成 `--env dev`）

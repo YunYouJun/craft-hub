@@ -68,7 +68,7 @@ async function start(): Promise<void> {
         <DialogDescription>{{ t('improveProjectConfigDescription') }}</DialogDescription>
 
         <dl class="agent-action-summary">
-          <div><dt>{{ t('targetConfigurationFile') }}</dt><dd><code>{{ action?.targetPath ?? '.craft-hub/project.yaml' }}</code></dd></div>
+          <div><dt>{{ t('targetConfigurationFile') }}</dt><dd><code>{{ action?.targetPath ?? '.craft-hub/project.jsonc' }}</code></dd></div>
           <div><dt>{{ t('commands') }}</dt><dd>{{ t('commandsToDescribe', { count: String(action?.missingCommandCount ?? 0) }) }}</dd></div>
         </dl>
 

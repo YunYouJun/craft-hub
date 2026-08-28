@@ -70,7 +70,7 @@ describe('craft hub MCP write tools', () => {
       const project = added.project as { id: string, path: string, trust: string }
       expect(added.created).toBe(true)
       expect(project).toMatchObject({ path: await realpath(fixture.projectPath), trust: 'untrusted' })
-      await expect(access(join(fixture.projectPath, '.craft-hub', 'project.yaml'))).rejects.toMatchObject({ code: 'ENOENT' })
+      await expect(access(join(fixture.projectPath, '.craft-hub', 'project.jsonc'))).rejects.toMatchObject({ code: 'ENOENT' })
 
       const repeated = await callTool(fixture.client, 'add_project', { path: fixture.projectPath })
       expect(repeated).toMatchObject({ created: false, project: { id: project.id, trust: 'untrusted' } })
@@ -228,13 +228,13 @@ describe('craft hub MCP write tools', () => {
       expect(previewed).toMatchObject({
         initialization: {
           projectId: project.id,
-          targetPath: '.craft-hub/project.yaml',
+          targetPath: '.craft-hub/project.jsonc',
           trust: 'untrusted',
           exists: false,
           outcome: 'preview',
         },
       })
-      await expect(access(join(fixture.projectPath, '.craft-hub', 'project.yaml'))).rejects.toMatchObject({ code: 'ENOENT' })
+      await expect(access(join(fixture.projectPath, '.craft-hub', 'project.jsonc'))).rejects.toMatchObject({ code: 'ENOENT' })
 
       await expect(fixture.client.callTool({
         name: 'init_project_config',
@@ -252,7 +252,7 @@ describe('craft hub MCP write tools', () => {
         expectedRevision: preview.revision,
       })
       expect(applied).toMatchObject({ initialization: { trust: 'trusted', exists: true, outcome: 'created' } })
-      expect(await readFile(join(fixture.projectPath, '.craft-hub', 'project.yaml'), 'utf8')).toBe(preview.content)
+      expect(await readFile(join(fixture.projectPath, '.craft-hub', 'project.jsonc'), 'utf8')).toBe(preview.content)
 
       const existing = await callTool(fixture.client, 'init_project_config', { projectId: project.id, mode: 'preview' })
       const existingRevision = (existing.initialization as { revision: string }).revision
@@ -279,16 +279,16 @@ describe('craft hub MCP write tools', () => {
       await writeFile(join(fixture.projectPath, 'pnpm-workspace.yaml'), 'packages:\n  - apps/*\n  - packages/*\n')
       await writeFile(join(fixture.projectPath, 'apps', 'web', 'package.json'), JSON.stringify({ name: '@scope/web', scripts: { deploy: 'vite deploy' } }))
       await writeFile(join(fixture.projectPath, 'packages', 'broken', 'package.json'), '{ invalid')
-      await writeFile(join(fixture.projectPath, '.craft-hub', 'project.yaml'), [
-        'version: 1',
-        'capabilities:',
-        '  inputs:',
-        '    apps/web/package.json:deploy:',
-        '      environment:',
-        '        type: select',
-        '        options: [dev, rdm]',
-        '        flag: --env',
-      ].join('\n'))
+      await writeFile(join(fixture.projectPath, '.craft-hub', 'project.jsonc'), `${JSON.stringify({
+        version: 1,
+        capabilities: {
+          inputs: {
+            'apps/web/package.json:deploy': {
+              environment: { type: 'select', options: ['dev', 'rdm'], flag: '--env' },
+            },
+          },
+        },
+      }, null, 2)}\n`)
       const added = await callTool(fixture.client, 'add_project', { path: fixture.projectPath })
       const project = added.project as { id: string }
 

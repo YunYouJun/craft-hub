@@ -5,14 +5,14 @@ import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { AgentActionService, AgentTaskManager, CraftHubStore, discoverCapabilities, ProjectRegistry } from '../src/index'
 
-async function setup(config?: string) {
+async function setup(config?: Record<string, unknown>) {
   const root = await mkdtemp(join(tmpdir(), 'craft-hub-agent-action-'))
   await writeFile(join(root, 'package.json'), JSON.stringify({
     scripts: { build: 'vite build', dev: 'vite --host' },
   }))
   if (config) {
     await mkdir(join(root, '.craft-hub'), { recursive: true })
-    await writeFile(join(root, '.craft-hub', 'project.yaml'), config)
+    await writeFile(join(root, '.craft-hub', 'project.jsonc'), `${JSON.stringify(config, null, 2)}\n`)
   }
   const store = new CraftHubStore(join(root, '.data'))
   const projects = new ProjectRegistry(store)
@@ -23,12 +23,10 @@ async function setup(config?: string) {
 
 describe('built-in agent actions', () => {
   it('counts missing localized command descriptions without treating script text as configured metadata', async () => {
-    const fixture = await setup([
-      'version: 1',
-      'capabilities:',
-      '  descriptions:',
-      '    package.json:dev: Start the development server.',
-    ].join('\n'))
+    const fixture = await setup({
+      version: 1,
+      capabilities: { descriptions: { 'package.json:dev': 'Start the development server.' } },
+    })
     const manager = new AgentTaskManager(fixture.store, fixture.projects, { id: 'codex', run: vi.fn() })
     const actions = new AgentActionService(manager, fixture.projects, id => discoverCapabilities(fixture.project.path).then(items => id === fixture.project.id ? items : []))
 
@@ -44,17 +42,15 @@ describe('built-in agent actions', () => {
     const fixture = await setup()
     const run = vi.fn<AgentTaskProvider['run']>(async (input) => {
       await mkdir(join(input.primaryProjectPath, '.craft-hub'), { recursive: true })
-      await writeFile(join(input.primaryProjectPath, '.craft-hub', 'project.yaml'), [
-        'version: 1',
-        'capabilities:',
-        '  descriptions:',
-        '    package.json:build:',
-        '      default: Build the production application.',
-        '      zh-CN: 构建生产版本应用。',
-        '    package.json:dev:',
-        '      default: Start the development server.',
-        '      zh-CN: 启动开发服务器。',
-      ].join('\n'))
+      await writeFile(join(input.primaryProjectPath, '.craft-hub', 'project.jsonc'), `${JSON.stringify({
+        version: 1,
+        capabilities: {
+          descriptions: {
+            'package.json:build': { 'default': 'Build the production application.', 'zh-CN': '构建生产版本应用。' },
+            'package.json:dev': { 'default': 'Start the development server.', 'zh-CN': '启动开发服务器。' },
+          },
+        },
+      }, null, 2)}\n`)
       return { finalResponse: 'Updated two descriptions.' }
     })
     const manager = new AgentTaskManager(fixture.store, fixture.projects, { id: 'codex', run })

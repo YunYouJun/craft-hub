@@ -1,28 +1,62 @@
 # Project configuration
 
-Configuration is optional. Add `.craft-hub/project.yaml` only when a repository needs metadata or wants to hide discovered capabilities.
+Configuration is optional. Add `.craft-hub/project.jsonc` only when a repository needs metadata or wants to hide discovered capabilities. JSONC accepts strict JSON while allowing comments and trailing commas, which keeps generated output deterministic and hand edits readable.
 
-```yaml
-version: 1
-project:
-  name: Craft Hub
-  icon: ./icon.svg
-  color: purple
-defaults:
-  agent: codex
-capabilities:
-  hidden: []
-  descriptions:
-    package.json:dev:
-      default: Start the local development environment.
-      zh-CN: 启动本地开发环境。
+```jsonc
+{
+  "$schema": "https://raw.githubusercontent.com/YunYouJun/craft-hub/main/packages/craft-hub/schema/project-v1.schema.json",
+  "version": 1,
+  "project": {
+    "name": "Craft Hub",
+    "icon": "./icon.svg",
+    "color": "purple"
+  },
+  "defaults": {
+    "agent": "codex"
+  },
+  "capabilities": {
+    "hidden": [],
+    "descriptions": {
+      "package.json:dev": {
+        "default": "Start the local development environment.",
+        "zh-CN": "启动本地开发环境。"
+      }
+    }
+  }
+}
 ```
+
+## Format and schema
+
+JSONC is the only project configuration format. It keeps JSON's explicit data model and mature editor tooling while allowing comments and trailing commas. YAML is not accepted for project metadata; YAML would still require a JSON Schema for completion and validation, while adding a second parser and a less predictable programmatic-editing surface.
+
+The Zod v4 `projectConfigSchema` is the single source of truth. Craft Hub uses it directly for offline runtime validation, infers the public TypeScript types with `z.infer`, and generates the checked-in Draft 2020-12 schema at `packages/craft-hub/schema/project-v1.schema.json`. Run `pnpm schema:project` after changing the Zod model; `pnpm schema:project:check` rejects generated-schema drift.
+
+The versioned GitHub Raw URL is the public identity used by editors and third-party tools until Craft Hub has a dedicated schema domain. The npm package also ships the same file at `craft-hub/schema/project-v1.schema.json`; Craft Hub runtime validation never downloads the public URL.
+
+Core objects reject unknown fields so typos fail early. Third-party data belongs under `extensions.<provider>` and remains opaque to Craft Hub:
+
+```jsonc
+{
+  "$schema": "https://raw.githubusercontent.com/YunYouJun/craft-hub/main/packages/craft-hub/schema/project-v1.schema.json",
+  "version": 1,
+  "extensions": {
+    "com.example.release": {
+      "channel": "preview"
+    }
+  }
+}
+```
+
+The file must contain an explicit `version`. Adding optional fields does not change the version; breaking structure or semantics requires a new versioned schema and a deterministic migration. Craft Hub updates JSONC through minimal AST edits and atomically replaces the file, preserving comments, formatting, extension data, and unrelated fields that are valid under the schema.
+
+Project configuration is normally committed to Git. Never store tokens, passwords, credentials, machine paths, or other secrets in it; declare required environment-variable names or provider references instead.
 
 ## MCP initialization
 
-Agents may initialize the optional file with the MCP `init_project_config` tool. `preview` returns the exact proposed YAML and a content revision without writing. `apply` requires Craft Hub execution authorization for the project and the unchanged revision returned by preview.
+Agents may initialize the optional file with the MCP `init_project_config` tool. `preview` returns the exact proposed JSONC and a content revision without writing. `apply` requires Craft Hub execution authorization for the project and the unchanged revision returned by preview.
 
-Initialization only creates a missing `.craft-hub/project.yaml`. If the file already exists, Craft Hub returns its current content and leaves it byte-for-byte unchanged, including comments and downstream fields.
+Initialization only creates a missing `.craft-hub/project.jsonc`. The generated `$schema` URL enables editor completion and validation. If the file already exists, Craft Hub validates and returns its current content without rewriting it.
 
 Hidden entries may be a capability name, capability id, or a source-qualified name such as `package.json:release`.
 
@@ -32,23 +66,30 @@ Use `capabilities.inputs` to add form fields to a discovered command. Craft Hub 
 inputs as dropdowns and `text` inputs as text fields. The runtime validates every value and appends
 it as an individual argv entry instead of constructing a shell string.
 
-```yaml
-capabilities:
-  inputs:
-    apps/liteapp/package.json:deploy:
-      environment:
-        type: select
-        label: Environment
-        options: [dev, rdm]
-        default: dev
-        flag: --env
-      uin:
-        type: text
-        label: UIN
-        pattern: '^\d+$'
-        flag: --uin
-        visibleWhen: {input: environment, equals: dev}
-        requiredWhen: {input: environment, equals: dev}
+```jsonc
+{
+  "capabilities": {
+    "inputs": {
+      "apps/liteapp/package.json:deploy": {
+        "environment": {
+          "type": "select",
+          "label": "Environment",
+          "options": ["dev", "rdm"],
+          "default": "dev",
+          "flag": "--env"
+        },
+        "uin": {
+          "type": "text",
+          "label": "UIN",
+          "pattern": "^\\d+$",
+          "flag": "--uin",
+          "visibleWhen": { "input": "environment", "equals": "dev" },
+          "requiredWhen": { "input": "environment", "equals": "dev" }
+        }
+      }
+    }
+  }
+}
 ```
 
 `argumentStyle` accepts `equals` (the default, producing `--env=dev`) or `separate` (producing

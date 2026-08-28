@@ -27,10 +27,13 @@ export interface ProjectVisualInput {
 /** Project configuration initialization operation. */
 export type ProjectConfigInitializationMode = 'preview' | 'apply'
 
+/** Supported repository-owned project configuration paths. */
+export type ProjectConfigPath = '.craft-hub/project.jsonc'
+
 /** Preview or result of initializing project-owned metadata. */
 export interface ProjectConfigInitializationResult {
   projectId: string
-  targetPath: '.craft-hub/project.yaml'
+  targetPath: ProjectConfigPath
   path: string
   content: string
   revision: string
@@ -362,7 +365,7 @@ export interface AgentActionSummary {
   id: AgentActionId
   missingCommandCount: number
   runningTaskId?: string
-  targetPath: '.craft-hub/project.yaml'
+  targetPath: ProjectConfigPath
 }
 
 /** Aggregate command execution state for one project. */

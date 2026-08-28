@@ -16,7 +16,7 @@ Keep the runtime vendor-neutral. Agent integrations belong behind adapters; edit
 
 Capability discovery is read-only. A new project is `untrusted`, and command execution requires explicit trust. Represent execution as `command` plus `args`, set `shell: false`, and preserve the project working directory. Add raw shell support only through an explicit future config surface with its own review.
 
-Persist user state in the operating-system Craft Hub data directory. The project repository only owns optional `.craft-hub/project.yaml` metadata.
+Persist user state in the operating-system Craft Hub data directory. The project repository only owns optional `.craft-hub/project.jsonc` metadata. Keep it declarative, validate it through the Zod schema, preserve comments with JSONC AST edits, and place third-party data under `extensions`.
 
 ## Working conventions
 

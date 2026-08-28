@@ -51,8 +51,8 @@ describe('project watcher', () => {
       await new Promise(resolve => setTimeout(resolve, 250))
       expect(events).toHaveLength(2)
       const projectEvent = nextEvent(events, 2)
-      await writeFile(join(root, '.craft-hub', 'project.yaml'), 'version: 1\nproject:\n  name: Renamed\n')
-      await writeFile(join(root, '.craft-hub', 'project.yaml'), 'version: 1\nproject:\n  name: Renamed Again\n')
+      await writeFile(join(root, '.craft-hub', 'project.jsonc'), '{ "version": 1, "project": { "name": "Renamed" } }\n')
+      await writeFile(join(root, '.craft-hub', 'project.jsonc'), '{ "version": 1, "project": { "name": "Renamed Again" } }\n')
       await expect(projectEvent).resolves.toEqual({ projectId: 'project', scopes: ['capabilities', 'project'] })
 
       await mkdir(join(root, 'workspaces'), { recursive: true })

@@ -217,11 +217,10 @@ describe('app launcher', () => {
     const projectPath = await projectFixture()
     await mkdir(join(projectPath, '.craft-hub'), { recursive: true })
     await writeFile(join(projectPath, 'icon.svg'), '<svg xmlns="http://www.w3.org/2000/svg"/>')
-    await writeFile(join(projectPath, '.craft-hub', 'project.yaml'), [
-      'version: 1',
-      'project:',
-      '  icon: ./icon.svg',
-    ].join('\n'))
+    await writeFile(join(projectPath, '.craft-hub', 'project.jsonc'), `${JSON.stringify({
+      version: 1,
+      project: { icon: './icon.svg' },
+    }, null, 2)}\n`)
     const launched = await launchCraftHubApp(projectPath, {
       open: false,
       runtime: new CraftHubRuntime(join(projectPath, '.icon-data')),

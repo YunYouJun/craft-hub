@@ -16,17 +16,16 @@ describe('craft hub server lifecycle', () => {
     const root = await mkdtemp(join(tmpdir(), 'craft-hub-server-inputs-'))
     await mkdir(join(root, '.craft-hub'))
     await writeFile(join(root, 'package.json'), JSON.stringify({ scripts: { deploy: 'node -e "console.log(process.argv.slice(1).join(\',\'))" --' } }))
-    await writeFile(join(root, '.craft-hub', 'project.yaml'), [
-      'version: 1',
-      'capabilities:',
-      '  inputs:',
-      '    package.json:deploy:',
-      '      environment:',
-      '        type: select',
-      '        options: [dev, rdm]',
-      '        default: dev',
-      '        flag: --env',
-    ].join('\n'))
+    await writeFile(join(root, '.craft-hub', 'project.jsonc'), `${JSON.stringify({
+      version: 1,
+      capabilities: {
+        inputs: {
+          'package.json:deploy': {
+            environment: { type: 'select', options: ['dev', 'rdm'], default: 'dev', flag: '--env' },
+          },
+        },
+      },
+    }, null, 2)}\n`)
     const runtime = new CraftHubRuntime({ dataDir: join(root, 'data'), configDir: join(root, 'config') })
     const project = await runtime.addProject(root)
     const command = (await runtime.capabilities(project.id)).find(item => item.kind === 'command')!

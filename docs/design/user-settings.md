@@ -10,7 +10,7 @@ The configuration precedence is:
 
 1. built-in defaults
 2. explicit global user settings
-3. allowed project defaults from `.craft-hub/project.yaml`
+3. allowed project defaults from `.craft-hub/project.jsonc`
 4. parameters supplied for one operation
 
 The core settings registry includes `workbench.locale` and `workbench.theme`. Project defaults do not overlap these keys, and the ownership boundary prevents a future project file from overriding arbitrary user preferences.

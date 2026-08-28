@@ -4,23 +4,25 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { CraftHubRuntime, createCraftHub, defineCapabilityProvider, defineCraftHubPlugin, discoverCapabilities, discoverCapabilitiesWithDiagnostics, loadCraftHubPlugins } from '../src/index'
 
+async function writeProjectConfig(root: string, config: Record<string, unknown>): Promise<void> {
+  await mkdir(join(root, '.craft-hub'), { recursive: true })
+  await writeFile(join(root, '.craft-hub', 'project.jsonc'), `${JSON.stringify(config, null, 2)}\n`)
+}
+
 async function fixture(): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), 'craft-hub-'))
   await writeFile(join(root, 'package.json'), JSON.stringify({
     packageManager: 'npm@11.0.0',
     scripts: { hello: 'node -e "console.log(\'hello\')"', hidden: 'node -e "console.log(\'hidden\')"' },
   }))
-  await mkdir(join(root, '.craft-hub'), { recursive: true })
-  await writeFile(join(root, '.craft-hub', 'project.yaml'), [
-    'version: 1',
-    'project:',
-    '  name: Test Project',
-    'capabilities:',
-    '  hidden:',
-    '    - package.json:hidden',
-    '  descriptions:',
-    '    package.json:hello: Print a friendly greeting.',
-  ].join('\n'))
+  await writeProjectConfig(root, {
+    version: 1,
+    project: { name: 'Test Project' },
+    capabilities: {
+      hidden: ['package.json:hidden'],
+      descriptions: { 'package.json:hello': 'Print a friendly greeting.' },
+    },
+  })
   await mkdir(join(root, '.agents', 'skills', 'release'), { recursive: true })
   await writeFile(join(root, '.agents', 'skills', 'release', 'SKILL.md'), [
     '---',
@@ -35,13 +37,11 @@ async function fixture(): Promise<string> {
 async function downstreamFixture(): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), 'craft-hub-downstream-'))
   await writeFile(join(root, 'package.json'), JSON.stringify({ scripts: { check: 'node --version' } }))
-  await mkdir(join(root, '.craft-hub'), { recursive: true })
-  await writeFile(join(root, '.craft-hub', 'project.yaml'), [
-    'project:',
-    '  name: Downstream Project',
-    'workflow:',
-    '  defaultAgent: internal-agent',
-  ].join('\n'))
+  await writeProjectConfig(root, {
+    version: 1,
+    project: { name: 'Downstream Project' },
+    extensions: { 'example.workflow': { defaultAgent: 'internal-agent' } },
+  })
   return root
 }
 
@@ -65,12 +65,10 @@ describe('capability discovery', () => {
     await writeFile(join(broken, 'package.json'), '{ broken json')
     await writeFile(join(empty, 'package.json'), JSON.stringify({ name: '@scope/empty', description: '_description_', private: true }))
     await writeFile(join(ignored, 'package.json'), JSON.stringify({ scripts: { hidden: 'echo hidden' } }))
-    await writeFile(join(root, '.craft-hub', 'project.yaml'), [
-      'version: 1',
-      'capabilities:',
-      '  descriptions:',
-      '    apps/liteapp/package.json:deploy: Deploy the LiteApp package.',
-    ].join('\n'))
+    await writeProjectConfig(root, {
+      version: 1,
+      capabilities: { descriptions: { 'apps/liteapp/package.json:deploy': 'Deploy the LiteApp package.' } },
+    })
 
     const discovery = await discoverCapabilitiesWithDiagnostics(root)
     const commands = discovery.capabilities.filter(item => item.kind === 'command')
@@ -175,21 +173,17 @@ describe('capability discovery', () => {
         legacy: 'echo legacy',
       },
     }))
-    await mkdir(join(root, '.craft-hub'), { recursive: true })
-    await writeFile(join(root, '.craft-hub', 'project.yaml'), [
-      'version: 1',
-      'capabilities:',
-      '  descriptions:',
-      '    package.json:exact:',
-      '      zh-Hans-CN: 精确描述',
-      '      default: Exact description',
-      '    package.json:parent:',
-      '      zh-Hans: 上级语言描述',
-      '      default: Parent description',
-      '    package.json:fallback:',
-      '      default: Default description',
-      '    package.json:legacy: Legacy description',
-    ].join('\n'))
+    await writeProjectConfig(root, {
+      version: 1,
+      capabilities: {
+        descriptions: {
+          'package.json:exact': { 'zh-Hans-CN': '精确描述', 'default': 'Exact description' },
+          'package.json:parent': { 'zh-Hans': '上级语言描述', 'default': 'Parent description' },
+          'package.json:fallback': { default: 'Default description' },
+          'package.json:legacy': 'Legacy description',
+        },
+      },
+    })
 
     const descriptions = Object.fromEntries((await discoverCapabilities(root, 'zh-Hans-CN'))
       .map(capability => [capability.name, capability.description]))
@@ -204,34 +198,30 @@ describe('capability discovery', () => {
 
   it('discovers project-owned command inputs and localizes their form labels', async () => {
     const root = await fixture()
-    await writeFile(join(root, '.craft-hub', 'project.yaml'), [
-      'version: 1',
-      'capabilities:',
-      '  inputs:',
-      '    package.json:hello:',
-      '      environment:',
-      '        type: select',
-      '        label:',
-      '          default: Environment',
-      '          zh-CN: 环境',
-      '        options:',
-      '          - dev',
-      '          - value: rdm',
-      '            label: Random test',
-      '        default: dev',
-      '        flag: --env',
-      '      uin:',
-      '        type: text',
-      '        label: UIN',
-      '        pattern: "^\\\\d+$"',
-      '        flag: --uin',
-      '        visibleWhen:',
-      '          input: environment',
-      '          equals: dev',
-      '        requiredWhen:',
-      '          input: environment',
-      '          equals: dev',
-    ].join('\n'))
+    await writeProjectConfig(root, {
+      version: 1,
+      capabilities: {
+        inputs: {
+          'package.json:hello': {
+            environment: {
+              type: 'select',
+              label: { 'default': 'Environment', 'zh-CN': '环境' },
+              options: ['dev', { value: 'rdm', label: 'Random test' }],
+              default: 'dev',
+              flag: '--env',
+            },
+            uin: {
+              type: 'text',
+              label: 'UIN',
+              pattern: '^\\d+$',
+              flag: '--uin',
+              visibleWhen: { input: 'environment', equals: 'dev' },
+              requiredWhen: { input: 'environment', equals: 'dev' },
+            },
+          },
+        },
+      },
+    })
 
     const command = (await discoverCapabilities(root, 'zh-CN')).find(item => item.kind === 'command')!
     expect(command.inputs).toEqual([
@@ -242,14 +232,14 @@ describe('capability discovery', () => {
 
   it('follows the global locale when listing runtime capabilities', async () => {
     const root = await fixture()
-    await writeFile(join(root, '.craft-hub', 'project.yaml'), [
-      'version: 1',
-      'capabilities:',
-      '  descriptions:',
-      '    package.json:hello:',
-      '      default: Print a friendly greeting.',
-      '      zh-CN: 打印一条友好的问候。',
-    ].join('\n'))
+    await writeProjectConfig(root, {
+      version: 1,
+      capabilities: {
+        descriptions: {
+          'package.json:hello': { 'default': 'Print a friendly greeting.', 'zh-CN': '打印一条友好的问候。' },
+        },
+      },
+    })
     const runtime = new CraftHubRuntime(join(root, '.localized-data'))
     const project = await runtime.addProject(root)
 
@@ -268,13 +258,10 @@ describe('capability discovery', () => {
     await writeFile(join(root, 'renamed.svg'), '<svg xmlns="http://www.w3.org/2000/svg"/>')
     const runtime = new CraftHubRuntime(join(root, '.data'))
     await runtime.addProject(root)
-    await writeFile(join(root, '.craft-hub', 'project.yaml'), [
-      'version: 1',
-      'project:',
-      '  name: Renamed Project',
-      '  icon: ./renamed.svg',
-      '  color: purple',
-    ].join('\n'))
+    await writeProjectConfig(root, {
+      version: 1,
+      project: { name: 'Renamed Project', icon: './renamed.svg', color: 'purple' },
+    })
 
     await expect(runtime.projects.list()).resolves.toEqual([
       expect.objectContaining({ name: 'Renamed Project', icon: './renamed.svg', color: 'purple' }),
@@ -290,10 +277,10 @@ describe('capability discovery', () => {
       .resolves
       .toMatchObject({ icon: 'emoji:🚀', color: 'cyan' })
 
-    const config = await readFile(join(root, '.craft-hub', 'project.yaml'), 'utf8')
-    expect(config).toContain('icon: emoji:🚀')
-    expect(config).toContain('color: cyan')
-    expect(config).toContain('capabilities:')
+    const config = await readFile(join(root, '.craft-hub', 'project.jsonc'), 'utf8')
+    expect(config).toContain('"icon": "emoji:🚀"')
+    expect(config).toContain('"color": "cyan"')
+    expect(config).toContain('"capabilities"')
   })
 
   it('persists an explicit project order', async () => {
@@ -312,12 +299,10 @@ describe('capability discovery', () => {
 
   it('falls back from invalid visual metadata without blocking project discovery', async () => {
     const root = await fixture()
-    await writeFile(join(root, '.craft-hub', 'project.yaml'), [
-      'version: 1',
-      'project:',
-      '  icon: /tmp/outside.svg',
-      '  color: chartreuse',
-    ].join('\n'))
+    await writeProjectConfig(root, {
+      version: 1,
+      project: { icon: '/tmp/outside.svg' },
+    })
     const runtime = new CraftHubRuntime(join(root, '.visual-data'))
 
     const project = await runtime.addProject(root)
@@ -364,23 +349,23 @@ describe('capability discovery', () => {
 describe('trusted execution', () => {
   it('previews validated command inputs as structured arguments', async () => {
     const root = await fixture()
-    await writeFile(join(root, '.craft-hub', 'project.yaml'), [
-      'version: 1',
-      'capabilities:',
-      '  inputs:',
-      '    package.json:hello:',
-      '      environment:',
-      '        type: select',
-      '        options: [dev, rdm]',
-      '        default: dev',
-      '        flag: --env',
-      '      uin:',
-      '        type: text',
-      '        pattern: "^\\\\d+$"',
-      '        flag: --uin',
-      '        visibleWhen: { input: environment, equals: dev }',
-      '        requiredWhen: { input: environment, equals: dev }',
-    ].join('\n'))
+    await writeProjectConfig(root, {
+      version: 1,
+      capabilities: {
+        inputs: {
+          'package.json:hello': {
+            environment: { type: 'select', options: ['dev', 'rdm'], default: 'dev', flag: '--env' },
+            uin: {
+              type: 'text',
+              pattern: '^\\d+$',
+              flag: '--uin',
+              visibleWhen: { input: 'environment', equals: 'dev' },
+              requiredWhen: { input: 'environment', equals: 'dev' },
+            },
+          },
+        },
+      },
+    })
     const runtime = new CraftHubRuntime(join(root, '.input-data'))
     const project = await runtime.addProject(root)
     const command = (await runtime.capabilities(project.id)).find(item => item.kind === 'command')!
@@ -484,7 +469,7 @@ describe('trusted execution', () => {
 })
 
 describe('downstream distributions', () => {
-  it('reads known metadata from a versionless downstream config superset', async () => {
+  it('reads known metadata and preserves namespaced extension data', async () => {
     const root = await downstreamFixture()
     const runtime = createCraftHub({ dataDir: join(root, '.data') })
 

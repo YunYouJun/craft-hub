@@ -37,6 +37,7 @@ const ignoredDirectoryNames = new Set([
   'venv',
 ])
 const projectWatchDepth = 4
+const projectConfigPaths = new Set(['.craft-hub/project.jsonc'])
 
 function normalizedRelativePath(root: string, path: string): string {
   return relative(root, path).split(sep).join('/')
@@ -45,13 +46,13 @@ function normalizedRelativePath(root: string, path: string): string {
 function isRelevantPath(path: string): boolean {
   if (!path)
     return true
-  if (rootCapabilityFiles.has(path) || path.endsWith('/package.json') || path === '.craft-hub' || path === '.craft-hub/project.yaml')
+  if (rootCapabilityFiles.has(path) || path.endsWith('/package.json') || path === '.craft-hub' || projectConfigPaths.has(path))
     return true
   return skillRoots.some(root => path === root || path.startsWith(`${root}/`) || root.startsWith(`${path}/`))
 }
 
 function scopesForPath(path: string): ProjectChangeScope[] {
-  return path === '.craft-hub/project.yaml' ? ['project', 'capabilities'] : ['capabilities']
+  return projectConfigPaths.has(path) ? ['project', 'capabilities'] : ['capabilities']
 }
 
 /** Watch registered projects and emit coalesced semantic change events. */
