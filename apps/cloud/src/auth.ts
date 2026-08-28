@@ -1,6 +1,4 @@
-import cloudbase from '@cloudbase/js-sdk'
 import { consumeSsoRedirect, startSsoRedirect } from '@yunlefun/sso'
-import { adoptSsoIdentityProof } from '@yunlefun/sso/browser'
 import { CloudApiError, cloudRequest } from './api'
 
 interface SessionResponse {
@@ -11,6 +9,14 @@ interface SessionResponse {
 export async function restoreSession(): Promise<SessionResponse | undefined> {
   const authorization = consumeSsoRedirect()
   if (authorization?.ok) {
+    const [
+      { default: cloudbase },
+      { adoptSsoIdentityProof },
+    ] = await Promise.all([
+      import('@cloudbase/js-sdk/app'),
+      import('@yunlefun/sso/browser'),
+      import('@cloudbase/js-sdk/auth'),
+    ])
     const app = cloudbase.init({
       env: import.meta.env.VITE_CLOUDBASE_ENV_ID,
       region: import.meta.env.VITE_CLOUDBASE_REGION,
