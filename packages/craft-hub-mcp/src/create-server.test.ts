@@ -52,8 +52,11 @@ describe('craft hub MCP write tools', () => {
         expect.objectContaining({ name: 'add_project', annotations: expect.objectContaining({ destructiveHint: false, idempotentHint: true }) }),
         expect.objectContaining({ name: 'init_project_config', annotations: expect.objectContaining({ destructiveHint: false, readOnlyHint: false }) }),
         expect.objectContaining({ name: 'list_workspaces', annotations: expect.objectContaining({ readOnlyHint: true }) }),
+        expect.objectContaining({ name: 'rename_team', annotations: expect.objectContaining({ destructiveHint: false, idempotentHint: true }) }),
+        expect.objectContaining({ name: 'delete_team', annotations: expect.objectContaining({ destructiveHint: true, idempotentHint: false }) }),
         expect.objectContaining({ name: 'list_workspace_groups', annotations: expect.objectContaining({ readOnlyHint: true }) }),
         expect.objectContaining({ name: 'create_workspace_group', annotations: expect.objectContaining({ destructiveHint: false }) }),
+        expect.objectContaining({ name: 'assign_project_group', annotations: expect.objectContaining({ idempotentHint: true }) }),
         expect.objectContaining({ name: 'assign_workspace_group', annotations: expect.objectContaining({ idempotentHint: true }) }),
         expect.objectContaining({ name: 'delete_workspace_group', annotations: expect.objectContaining({ destructiveHint: true }) }),
         expect.objectContaining({ name: 'personal_git_sync_status', annotations: expect.objectContaining({ readOnlyHint: true }) }),
@@ -111,6 +114,32 @@ describe('craft hub MCP write tools', () => {
     }
   })
 
+  it('creates, renames, and safely deletes a Git-backed Team', async () => {
+    const fixture = await setup()
+    try {
+      const repositoryPath = join(fixture.root, 'team-repository')
+      await execFileAsync('git', ['init', repositoryPath])
+      const created = await callTool(fixture.client, 'create_team', { name: 'Tencent', repositoryPath })
+      const team = created.team as { id: string, name: string }
+      await callTool(fixture.client, 'create_workspace', { name: 'Team App', ownerScopeId: team.id })
+
+      await expect(callTool(fixture.client, 'rename_team', { ownerScopeId: team.id, name: 'Tencent Cloud' }))
+        .resolves
+        .toMatchObject({ team: { id: team.id, name: 'Tencent Cloud' }, sync: { state: 'local-ahead' } })
+      const rejected = await fixture.client.callTool({ name: 'delete_team', arguments: { ownerScopeId: team.id, confirmationName: 'Tencent' } })
+      expect(rejected.isError).toBe(true)
+      expect(rejected.content).toEqual(expect.arrayContaining([expect.objectContaining({ text: expect.stringContaining('Type the Team name exactly') })]))
+      const deleted = await callTool(fixture.client, 'delete_team', { ownerScopeId: team.id, confirmationName: 'Tencent Cloud' })
+      expect(deleted).toMatchObject({ deletion: { deletedWorkspaceCount: 1, team: { id: team.id, name: 'Tencent Cloud' } } })
+      await expect(fixture.runtime.ownerScopes.get(team.id)).rejects.toThrow('Unknown owner scope')
+    }
+    finally {
+      await fixture.client.close()
+      await fixture.server.close()
+      await fixture.runtime.close()
+    }
+  })
+
   it('manages workspace groups without deleting grouped workspaces', async () => {
     const fixture = await setup()
     try {
@@ -118,6 +147,8 @@ describe('craft hub MCP write tools', () => {
       const workspace = createdWorkspace.workspace as { id: string }
       const createdGroup = await callTool(fixture.client, 'create_workspace_group', { name: 'Cover' })
       const group = createdGroup.group as { id: string }
+      const addedProject = await callTool(fixture.client, 'add_project', { path: fixture.projectPath })
+      const project = addedProject.project as { id: string }
 
       await expect(
         callTool(fixture.client, 'assign_workspace_group', { workspaceId: workspace.id, groupId: group.id }),
@@ -125,6 +156,14 @@ describe('craft hub MCP write tools', () => {
         .resolves
         .toMatchObject({
           workspace: { id: workspace.id, groupId: group.id },
+        })
+      await expect(
+        callTool(fixture.client, 'assign_project_group', { projectId: project.id, groupId: group.id }),
+      )
+        .resolves
+        .toMatchObject({
+          project: { id: project.id },
+          projectAssignments: { [project.id]: group.id },
         })
       await expect(
         callTool(fixture.client, 'rename_workspace_group', { groupId: group.id, name: 'Cover Hub' }),

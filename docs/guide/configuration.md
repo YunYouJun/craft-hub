@@ -22,6 +22,14 @@ Configuration is optional. Add `.craft-hub/project.jsonc` only when a repository
         "zh-CN": "启动本地开发环境。"
       }
     }
+  },
+  "packages": {
+    "apps/web": {
+      "description": {
+        "default": "Craft Hub web workbench.",
+        "zh-CN": "Craft Hub Web 工作台。"
+      }
+    }
   }
 }
 ```
@@ -52,6 +60,12 @@ The file must contain an explicit `version`. Adding optional fields does not cha
 
 Project configuration is normally committed to Git. Never store tokens, passwords, credentials, machine paths, or other secrets in it; declare required environment-variable names or provider references instead.
 
+## Invalid configuration
+
+An invalid or unreadable project configuration does not remove the registered project or block other projects from loading. Craft Hub keeps the project's existing machine-local name, trust, and ordering, then shows a project-scoped diagnostic with the file location and validation message. The desktop action opens `.craft-hub/project.jsonc` at the reported line in the configured editor.
+
+Craft Hub never repairs or overwrites an invalid file automatically. Correct it in the editor and refresh; the diagnostic disappears after the file validates. A successful empty Project Catalog and a failed catalog request are distinct states, so a runtime error is shown explicitly instead of appearing as a new empty installation.
+
 ## MCP initialization
 
 Agents may initialize the optional file with the MCP `init_project_config` tool. `preview` returns the exact proposed JSONC and a content revision without writing. `apply` requires Craft Hub execution authorization for the project and the unchanged revision returned by preview.
@@ -59,6 +73,10 @@ Agents may initialize the optional file with the MCP `init_project_config` tool.
 Initialization only creates a missing `.craft-hub/project.jsonc`. The generated `$schema` URL enables editor completion and validation. If the file already exists, Craft Hub validates and returns its current content without rewriting it.
 
 Hidden entries may be a capability name, capability id, or a source-qualified name such as `package.json:release`.
+
+Package metadata uses the project-relative package directory as its stable key; the root package is `.`. A configured package description overrides a missing or less useful `package.json` description in Craft Hub without modifying the package manifest.
+
+The “Improve project descriptions” workflow audits gaps locally, then runs Codex read-only to produce structured command and package suggestions. Craft Hub changes no repository files until the user reviews the suggestions; applying them updates only the active project configuration and rejects stale proposals.
 
 ## Parameterized commands
 
@@ -94,11 +112,60 @@ it as an individual argv entry instead of constructing a shell string.
 
 `argumentStyle` accepts `equals` (the default, producing `--env=dev`) or `separate` (producing
 `--env dev`). Select inputs require `options`; text inputs may use `pattern`. `visibleWhen` and
-`requiredWhen` provide conditional form behavior and are enforced again by the runtime.
+`requiredWhen` provide conditional form behavior and are enforced again by the runtime. An object
+option may set `omitArgument: true` to remain selectable while intentionally appending no flag,
+for example a “current developer” choice that lets the underlying CLI use its authenticated user.
+
+## Skill inputs
+
+Use `capabilities.skillInputs` to declare interactive parameters for a discovered Agent Skill. Fields support
+the same `select`, `text`, localized labels, defaults, and conditional visibility as command inputs, but do not
+accept `flag` or `argumentStyle`. Skill inputs do not generate command-line arguments; Craft Hub validates them
+and adds them as structured data to the Codex App or Craft Hub background task request.
+
+```jsonc
+{
+  "capabilities": {
+    "skillInputs": {
+      "agent-skill:wetools-release": {
+        "app": {
+          "type": "select",
+          "label": "Application",
+          "options": [
+            { "value": "task-center", "label": "Task Center" },
+            { "value": "todo", "label": "Todo" }
+          ],
+          "default": "task-center",
+          "required": true
+        },
+        "version": {
+          "type": "select",
+          "label": "Version type",
+          "options": ["patch", "minor"],
+          "default": "patch"
+        }
+      }
+    }
+  }
+}
+```
+
+A Skill may be addressed by capability ID, name, or `source:name`. Prefer a stable source-qualified key such as
+`agent-skill:<name>` to avoid ambiguity. The UI renders `select` inputs as dropdowns and sends the validated
+selection alongside the user's free-form request. Configuration may describe data and allowed values, but must
+not contain credentials or additional executable commands.
 
 ## Portable workspaces
 
 Cross-project relationships belong to the user rather than to any member repository. Craft Hub stores one versioned manifest per workspace in `~/.craft-hub/workspaces/`; `CRAFT_HUB_CONFIG_DIR` overrides this portable configuration directory.
+
+Every workspace and workspace group has exactly one Owner Scope. Legacy manifests without `ownerScopeId` belong to the fixed `Personal` scope. A Team manifest records its stable Team id, for example `ownerScopeId: tencent`. The Team identity is independent from its Git checkout so the repository can move without changing ownership.
+
+The workbench switches Owner Scopes as navigation state: each scope has an isolated workspace tree, project-reference bindings, standalone-project grouping, and remembered workspace selection. Registered project directories, trust, runs, and credentials remain machine-local. Team views show only projects referenced by that Team; unassigned local projects remain in Personal. The command palette can search across scopes and jumps to the selected scope before opening its workspace.
+
+Creating a Team requires an existing local Git checkout. Craft Hub writes the Team snapshot beneath `.craft-hub/teams/<team-id>/` by default, but never fetches, commits, pushes, or stores Git credentials. Switching scopes reads local state immediately; synchronization is explicit and conflicts require choosing the local or repository snapshot.
+
+Renaming a Team keeps its stable id and Git target, then marks the local snapshot as changed for the next explicit synchronization. Deleting a Team requires typing its exact name; Craft Hub removes that Team's local workspaces, bindings, navigation state, and sync target, switches an active deleted Team back to Personal, and leaves the shared Git snapshot untouched so it remains recoverable.
 
 ```yaml
 schemaVersion: 1
@@ -130,10 +197,26 @@ User preferences are separate from project configuration. Craft Hub stores stric
 ```json
 {
   "$schema": "./settings.schema.json",
+  "workbench.codex": {
+    "model": "gpt-5.6-sol",
+    "reasoningEffort": "high"
+  },
+  "workbench.editor": {
+    "default": "custom",
+    "custom": {
+      "name": "Cursor",
+      "command": "cursor",
+      "args": ["--reuse-window", "{path}"]
+    }
+  },
   "workbench.locale": "en",
   "workbench.theme": "system"
 }
 ```
+
+`workbench.codex` supplies optional defaults for every Codex SDK task started by Craft Hub. Omit `model`, `reasoningEffort`, or the entire setting to inherit the user's Codex configuration from `~/.codex/config.toml`. The model is a free-form Codex model ID so Craft Hub does not freeze a versioned catalog. Supported explicit effort values in the bundled SDK are `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, and `ultra`; actual availability still depends on the selected model and account.
+
+The project and workspace toolbar share `workbench.editor`. Built-in values are `vscode`, `codebuddy`, and `cursor`; a custom editor uses a direct command plus individual arguments. Custom arguments must include `{path}`. Craft Hub substitutes that placeholder and launches the command with `shell: false`.
 
 The Settings dialog can open this file in the desktop app and import or export portable JSON. Minimal exports include explicitly changed values; full snapshots include every effective, non-sensitive setting. Craft Hub execution authorizations, registered projects, run history, usernames, and machine paths are never exported. Replace imports create a backup and retain the five most recent backups.
 

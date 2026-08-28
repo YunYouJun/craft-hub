@@ -6,6 +6,7 @@ import { createHash } from 'node:crypto'
 import { access, readdir, readFile, realpath } from 'node:fs/promises'
 import { basename, dirname, join, resolve } from 'node:path'
 import { parse as parseJsonc, printParseErrorCode } from 'jsonc-parser'
+import { PERSONAL_OWNER_SCOPE_ID } from './types'
 
 interface VsCodeWorkspaceFolder {
   name?: unknown
@@ -31,7 +32,7 @@ export class WorkspaceImportService {
   ) {}
 
   /** Validate a one-time VS Code workspace import without changing Craft Hub state. */
-  async previewVscodeDirectory(inputDirectory: string, groupName?: string): Promise<WorkspaceImportPreview> {
+  async previewVscodeDirectory(inputDirectory: string, groupName?: string, ownerScopeId = PERSONAL_OWNER_SCOPE_ID): Promise<WorkspaceImportPreview> {
     const selectedDirectory = await realpath(inputDirectory)
     let sourceDirectory = selectedDirectory
     let names = (await readdir(sourceDirectory)).filter(name => name.endsWith('.code-workspace')).sort()
@@ -62,7 +63,7 @@ export class WorkspaceImportService {
       ? basename(dirname(sourceDirectory))
       : basename(sourceDirectory)
     const resolvedGroupName = groupName?.trim() || defaultGroupName
-    const [groups, workspaces] = await Promise.all([this.workspaces.groups(), this.workspaces.list()])
+    const [groups, workspaces] = await Promise.all([this.workspaces.groups(ownerScopeId), this.workspaces.list(ownerScopeId)])
     const conflicts = [
       ...(groups.some(group => group.name === resolvedGroupName) ? [`Workspace group already exists: ${resolvedGroupName}`] : []),
       ...parsed.filter(workspace => workspaces.some(existing => existing.name === workspace.name)).map(workspace => `Workspace already exists: ${workspace.name}`),
@@ -92,14 +93,14 @@ export class WorkspaceImportService {
   }
 
   /** Import each top-level .code-workspace file once after validating the exact preview revision. */
-  async importVscodeDirectory(inputDirectory: string, groupName: string | undefined, expectedRevision: string): Promise<WorkspaceImportResult> {
-    const preview = await this.previewVscodeDirectory(inputDirectory, groupName)
+  async importVscodeDirectory(inputDirectory: string, groupName: string | undefined, expectedRevision: string, ownerScopeId = PERSONAL_OWNER_SCOPE_ID): Promise<WorkspaceImportResult> {
+    const preview = await this.previewVscodeDirectory(inputDirectory, groupName, ownerScopeId)
     if (preview.revision !== expectedRevision)
       throw new Error('Workspace import source changed after preview. Validate it again before importing.')
     if (!preview.canImport)
       throw new Error([...preview.conflicts, ...preview.diagnostics.map(item => item.message)].join('; ') || 'No valid VS Code workspaces could be imported')
 
-    const group = await this.workspaces.createGroup(preview.groupName)
+    const group = await this.workspaces.createGroup(preview.groupName, ownerScopeId)
     const imported = []
     for (const workspace of preview.workspaces) {
       imported.push(await this.workspaces.importWorkspace(workspace.name, workspace.members.map(member => ({
@@ -107,7 +108,7 @@ export class WorkspaceImportService {
         path: member.path,
         projectId: member.projectId,
         available: member.status !== 'missing',
-      })), group.id))
+      })), group.id, ownerScopeId))
     }
 
     return {

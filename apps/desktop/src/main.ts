@@ -1,17 +1,28 @@
 import type { CraftHubServer } from 'craft-hub'
 import type { BrowserWindow as BrowserWindowType, MenuItemConstructorOptions, OpenDialogOptions } from 'electron'
+import type { DesktopUpdateStatus } from './updater.ts'
+import type { WorkspaceLaunchTarget } from './workspace-launch-target.ts'
+import { execFile } from 'node:child_process'
 import { appendFileSync } from 'node:fs'
-import { resolve } from 'node:path'
+import { realpath } from 'node:fs/promises'
+import { isAbsolute, relative, resolve } from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
+import { promisify } from 'node:util'
 import { PersonalCloudController } from '@craft-hub/personal-cloud'
 import { CraftHubRuntime, startCraftHubServer } from 'craft-hub'
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, nativeTheme, safeStorage, shell } from 'electron'
 import { aboutDocument, aboutPanelOptions, projectUrl } from './about.ts'
+import { CodexActivityMonitor } from './codex-activity.ts'
 import { CodexAgentTaskProvider } from './codex-agent-task-provider.ts'
+import { openCodexThreadAfterTaskRelease, waitForAgentTaskThread } from './codex-agent-task-thread.ts'
 import { DeviceVault } from './device-vault.ts'
 import { selectedDirectoryPath, selectedDirectoryPaths } from './folder-picker.ts'
-import { codexThreadUrl, externalHttpUrl, macTerminalApplications, openCodeBuddyWorkspace, openCodexProject, openMacTerminalProject, vscodeUrl } from './open-targets.ts'
+import { codexThreadUrl, editorTargetPaths, externalHttpUrl, focusCodexApplication, gitRemoteHttpUrl, macTerminalApplications, openCodeBuddyWorkspace, openCodexProject, openCursorEditor, openCustomEditor, openMacTerminalProject, projectContainsPath, vscodeUrl } from './open-targets.ts'
+import { DesktopUpdater } from './updater.ts'
+import { resolveWorkspaceLaunchTarget } from './workspace-launch-target.ts'
+
+const execFileAsync = promisify(execFile)
 
 let mainWindow: BrowserWindowType | undefined
 let aboutWindow: BrowserWindowType | undefined
@@ -20,6 +31,9 @@ let shutdown: Promise<void> | undefined
 let readyToQuit = false
 let personalCloud: PersonalCloudController | undefined
 let pendingCloudCallback: string | undefined
+let desktopUpdater: DesktopUpdater | undefined
+let codexActivityMonitor: CodexActivityMonitor | undefined
+let installUpdateAfterShutdown = false
 const applicationIcon = resolve(
   fileURLToPath(new URL('.', import.meta.url)),
   '../assets/icon.png',
@@ -81,6 +95,11 @@ async function showAboutWindow(): Promise<void> {
   await aboutWindow.loadURL(`data:text/html;charset=UTF-8,${encodeURIComponent(aboutDocument(app.getVersion(), iconDataUrl))}`)
 }
 
+async function replayOnboarding(): Promise<void> {
+  await showMainWindow()
+  mainWindow?.webContents.send('craft-hub:replay-onboarding')
+}
+
 function installApplicationMenu(): void {
   if (process.platform !== 'darwin')
     return
@@ -104,6 +123,15 @@ function installApplicationMenu(): void {
     { role: 'editMenu' },
     { role: 'viewMenu' },
     { role: 'windowMenu' },
+    {
+      role: 'help',
+      submenu: [
+        {
+          label: 'Replay Getting Started',
+          click: () => void replayOnboarding(),
+        },
+      ],
+    },
   ]
   Menu.setApplicationMenu(Menu.buildFromTemplate(template))
 }
@@ -135,8 +163,13 @@ app.on('open-url', (event, url) => {
   void handleCloudCallback(url)
 })
 
-ipcMain.handle('craft-hub:select-project-directory', async () => {
+function directoryDialogDefaultPath(value: unknown): string | undefined {
+  return typeof value === 'string' && isAbsolute(value) && !value.includes('\0') ? value : undefined
+}
+
+ipcMain.handle('craft-hub:select-project-directory', async (_event, defaultPath: unknown) => {
   const options: OpenDialogOptions = {
+    defaultPath: directoryDialogDefaultPath(defaultPath),
     properties: ['openDirectory', 'createDirectory'],
   }
   const result = mainWindow
@@ -145,8 +178,9 @@ ipcMain.handle('craft-hub:select-project-directory', async () => {
   return selectedDirectoryPath(result)
 })
 
-ipcMain.handle('craft-hub:select-project-directories', async () => {
+ipcMain.handle('craft-hub:select-project-directories', async (_event, defaultPath: unknown) => {
   const options: OpenDialogOptions = {
+    defaultPath: directoryDialogDefaultPath(defaultPath),
     properties: ['openDirectory', 'multiSelections', 'createDirectory'],
   }
   const result = mainWindow
@@ -161,33 +195,91 @@ async function projectPath(projectId: string): Promise<string> {
   return (await craftHubServer.runtime.projects.get(projectId)).path
 }
 
-type WorkspaceLauncher = 'vscode' | 'codebuddy' | 'codex'
-
-function isWorkspaceLauncher(value: unknown): value is WorkspaceLauncher {
-  return value === 'vscode' || value === 'codebuddy' || value === 'codex'
+async function openCodexThread(threadId: string): Promise<void> {
+  await shell.openExternal(codexThreadUrl(threadId))
 }
 
-async function workspaceLaunchTarget(workspaceId: string): Promise<{ editorPath: string, primaryProjectPath: string }> {
+async function openConfiguredEditor(path: string, line?: number, column?: number, projectRoot?: string): Promise<void> {
   if (!craftHubServer)
     throw new Error('Craft Hub is still starting')
+  const editor = (await craftHubServer.runtime.settings.get()).settings['workbench.editor']
+  const targets = editorTargetPaths(path, projectRoot)
+  if (editor.default === 'vscode') {
+    for (const target of targets)
+      await shell.openExternal(vscodeUrl(target, target === path ? line : undefined))
+  }
+  else if (editor.default === 'codebuddy') {
+    for (const target of targets)
+      await openCodeBuddyWorkspace(target)
+  }
+  else if (editor.default === 'cursor') {
+    for (const target of targets)
+      await openCursorEditor(target)
+  }
+  else if (editor.default === 'custom') {
+    if (!editor.custom)
+      throw new Error('Custom editor is not configured')
+    for (const target of targets)
+      await openCustomEditor(target, editor.custom, target === path ? { line, column } : {})
+  }
+}
 
-  const workspace = (await craftHubServer.runtime.workspaces.list()).find(item => item.id === workspaceId)
-  const primaryMember = workspace?.members.find(member => member.project === workspace.primaryProject && member.projectId)
-    ?? workspace?.members.find(member => member.projectId)
-  if (!workspace || !primaryMember?.projectId)
-    throw new Error(`Workspace has no resolved project: ${workspaceId}`)
-  const primaryProjectPath = await projectPath(primaryMember.projectId)
-  return { editorPath: primaryProjectPath, primaryProjectPath }
+async function projectOwnedTarget(projectId: string, targetPath: string): Promise<{ projectRoot: string, target: string }> {
+  const projectRoot = await realpath(await projectPath(projectId))
+  const target = await realpath(targetPath)
+  if (!projectContainsPath(projectRoot, target))
+    throw new Error('Capability source must stay inside the project')
+  return { projectRoot, target }
+}
+
+async function projectEvidencePath(projectId: string, relativePath: string): Promise<string> {
+  if (!relativePath || isAbsolute(relativePath))
+    throw new Error('Evidence path must be project-relative')
+  const root = await realpath(await projectPath(projectId))
+  const target = await realpath(resolve(root, relativePath))
+  const offset = relative(root, target)
+  if (offset.startsWith('..') || isAbsolute(offset))
+    throw new Error('Evidence path must stay inside the project')
+  return target
+}
+
+async function workspaceLaunchTarget(workspaceId: string, primaryProjectId?: string): Promise<WorkspaceLaunchTarget> {
+  if (!craftHubServer)
+    throw new Error('Craft Hub is still starting')
+  return resolveWorkspaceLaunchTarget(craftHubServer.runtime, workspaceId, primaryProjectId)
 }
 
 ipcMain.handle('craft-hub:open-project-in-vscode', async (_event, projectId: string) => {
   await shell.openExternal(vscodeUrl(await projectPath(projectId)))
 })
 
-ipcMain.handle('craft-hub:open-capability-source-in-vscode', async (_event, projectId: string, capabilityId: string) => {
+ipcMain.handle('craft-hub:open-project-in-editor', async (_event, projectId: string) => {
+  await openConfiguredEditor(await projectPath(projectId))
+})
+
+ipcMain.handle('craft-hub:open-project-evidence-in-editor', async (_event, projectId: string, path: unknown, line: unknown, column: unknown) => {
+  if (typeof path !== 'string')
+    throw new TypeError('Evidence path is required')
+  const resolvedLine = typeof line === 'number' && Number.isInteger(line) && line > 0 ? line : undefined
+  const resolvedColumn = typeof column === 'number' && Number.isInteger(column) && column > 0 ? column : undefined
+  await openConfiguredEditor(await projectEvidencePath(projectId, path), resolvedLine, resolvedColumn)
+})
+
+ipcMain.handle('craft-hub:open-project-directory', async (_event, projectId: string) => {
+  const error = await shell.openPath(await projectPath(projectId))
+  if (error)
+    throw new Error(error)
+})
+
+ipcMain.handle('craft-hub:open-project-git-remote', async (_event, projectId: string) => {
+  const path = await projectPath(projectId)
+  const { stdout } = await execFileAsync('git', ['-C', path, 'remote', 'get-url', 'origin'], { encoding: 'utf8' })
+  await shell.openExternal(gitRemoteHttpUrl(stdout))
+})
+
+ipcMain.handle('craft-hub:open-capability-source-in-editor', async (_event, projectId: string, capabilityId: string) => {
   if (!craftHubServer)
     throw new Error('Craft Hub is still starting')
-  await craftHubServer.runtime.projects.get(projectId)
   const capability = (await craftHubServer.runtime.capabilities(projectId)).find(item => item.id === capabilityId)
   if (!capability)
     throw new Error(`Unknown capability: ${capabilityId}`)
@@ -195,23 +287,20 @@ ipcMain.handle('craft-hub:open-capability-source-in-vscode', async (_event, proj
   const line = capability.kind === 'command' ? capability.sourceLine : undefined
   if (!path)
     throw new Error(`No source file is available for ${capability.name}`)
-  await shell.openExternal(vscodeUrl(path, line))
+  const { projectRoot, target } = await projectOwnedTarget(projectId, path)
+  await openConfiguredEditor(target, line, undefined, projectRoot)
 })
 
 ipcMain.handle('craft-hub:open-project-in-codex', async (_event, projectId: string) => {
   await openCodexProject(await projectPath(projectId))
 })
 
-ipcMain.handle('craft-hub:open-workspace', async (_event, workspaceId: string, launcher: unknown) => {
-  if (!isWorkspaceLauncher(launcher))
-    throw new Error(`Unsupported workspace launcher: ${String(launcher)}`)
-  const target = await workspaceLaunchTarget(workspaceId)
-  if (launcher === 'vscode')
-    await shell.openExternal(vscodeUrl(target.editorPath))
-  else if (launcher === 'codebuddy')
-    await openCodeBuddyWorkspace(target.editorPath)
-  else
-    await openCodexProject(target.primaryProjectPath)
+ipcMain.handle('craft-hub:open-workspace-in-codex', async (_event, workspaceId: string) => {
+  await openCodexProject((await workspaceLaunchTarget(workspaceId)).primaryProjectPath)
+})
+
+ipcMain.handle('craft-hub:open-workspace-in-editor', async (_event, workspaceId: string) => {
+  await openConfiguredEditor((await workspaceLaunchTarget(workspaceId)).editorPath)
 })
 
 ipcMain.handle('craft-hub:start-project-in-codex', async (_event, projectId: string, prompt: string) => {
@@ -222,9 +311,47 @@ ipcMain.handle('craft-hub:start-project-in-codex', async (_event, projectId: str
   await openCodexProject(await projectPath(projectId))
 })
 
-ipcMain.handle('craft-hub:open-codex-thread', async (_event, threadId: string) => {
-  await shell.openExternal(codexThreadUrl(threadId))
+ipcMain.handle('craft-hub:start-workspace-in-codex', async (
+  _event,
+  workspaceId: string,
+  projectIds: unknown,
+  primaryProjectId: string,
+  prompt: string,
+) => {
+  if (!craftHubServer)
+    throw new Error('Craft Hub is still starting')
+  const normalizedPrompt = prompt.trim()
+  if (!normalizedPrompt)
+    throw new Error('Codex prompt is required')
+  const target = await workspaceLaunchTarget(workspaceId, primaryProjectId)
+  if (!Array.isArray(projectIds) || projectIds.some(projectId => typeof projectId !== 'string'))
+    throw new TypeError('Workspace project ids are required')
+  const selectedProjectIds = projectIds as string[]
+  const workspaceProjectIds = new Set(target.projectIds)
+  if (selectedProjectIds.some(projectId => !workspaceProjectIds.has(projectId)))
+    throw new Error('Every selected project must belong to the Workspace')
+  const task = await craftHubServer.runtime.agentTasks.start({
+    prompt: normalizedPrompt,
+    projectIds: selectedProjectIds,
+    primaryProjectId,
+    workspaceId,
+    sandboxMode: 'workspace-write',
+  })
+  const threadId = await waitForAgentTaskThread(craftHubServer.runtime.agentTasks, task.id)
+  void openCodexThreadAfterTaskRelease(craftHubServer.runtime.agentTasks, task.id, openCodexThread).catch((error) => {
+    writeApplicationLog('error', `Could not open released Codex task ${task.id}: ${error instanceof Error ? error.message : String(error)}`)
+  })
+  return { taskId: task.id, threadId }
 })
+
+ipcMain.handle('craft-hub:open-codex-thread', async (_event, threadId: string) => {
+  await openCodexThread(threadId)
+})
+
+ipcMain.handle('craft-hub:focus-codex-application', () => focusCodexApplication())
+ipcMain.handle('craft-hub:codex-activity-status', () => codexActivityMonitor?.status())
+ipcMain.handle('craft-hub:install-codex-activity-hooks', () => codexActivityMonitor?.install())
+ipcMain.handle('craft-hub:uninstall-codex-activity-hooks', () => codexActivityMonitor?.uninstall())
 
 ipcMain.handle('craft-hub:list-terminal-applications', () => macTerminalApplications())
 
@@ -251,6 +378,20 @@ ipcMain.handle('craft-hub:set-theme', (_event, theme: unknown) => {
   if (!isDesktopTheme(theme))
     throw new Error('Theme must be system, light, or dark')
   applyDesktopTheme(theme)
+})
+
+ipcMain.handle('craft-hub:update-status', () => desktopUpdater?.status())
+ipcMain.handle('craft-hub:set-automatic-updates', (_event, enabled: unknown) => {
+  if (typeof enabled !== 'boolean')
+    throw new TypeError('Automatic update preference must be a boolean')
+  if (!desktopUpdater)
+    throw new Error('Updater is still starting')
+  return desktopUpdater.setAutomaticCheck(enabled)
+})
+ipcMain.handle('craft-hub:check-for-updates', () => {
+  if (!desktopUpdater)
+    throw new Error('Updater is still starting')
+  return desktopUpdater.checkNow()
 })
 
 ipcMain.handle('craft-hub:cloud-status', () => personalCloud?.status() ?? { state: 'disabled' })
@@ -330,7 +471,9 @@ async function createWindow(): Promise<void> {
     ? undefined
     : resolve(fileURLToPath(new URL('.', import.meta.url)), '../../web/dist')
   if (!craftHubServer) {
-    const runtime = new CraftHubRuntime({ agentTaskProvider: new CodexAgentTaskProvider() })
+    let runtime!: CraftHubRuntime
+    const agentTaskProvider = new CodexAgentTaskProvider(async () => (await runtime.settings.get()).settings['workbench.codex'])
+    runtime = new CraftHubRuntime({ agentTaskProvider })
     craftHubServer = await startCraftHubServer({ port: developmentUrl ? 4318 : 0, runtime, staticDir })
     writeApplicationLog('info', `Local server started at ${craftHubServer.url}`)
     await initializePersonalCloud()
@@ -365,6 +508,8 @@ async function createWindow(): Promise<void> {
   })
   await loadUrlWithRetry(mainWindow, developmentUrl ?? craftHubServer.url)
   mainWindow.setTitle(windowTitle)
+  if (process.env.CRAFT_HUB_SMOKE_TEST === 'true')
+    writeApplicationLog('info', 'Startup smoke test completed')
 }
 
 function focusMainWindow(): void {
@@ -389,7 +534,28 @@ async function startDesktopApp(): Promise<void> {
   if (process.platform === 'darwin')
     app.dock?.setIcon(applicationIcon)
 
+  codexActivityMonitor = new CodexActivityMonitor({
+    dataDir: app.getPath('userData'),
+    onStatus: status => mainWindow?.webContents.send('craft-hub:codex-activity-status-changed', status),
+  })
+  await codexActivityMonitor.start()
+
   await createWindow()
+  if (process.env.CRAFT_HUB_SMOKE_TEST === 'true') {
+    app.quit()
+    return
+  }
+  desktopUpdater = new DesktopUpdater({
+    dataDir: app.getPath('userData'),
+    getWindow: () => mainWindow,
+    onInstallRequested: () => {
+      installUpdateAfterShutdown = true
+      app.quit()
+    },
+    onStatus: (status: DesktopUpdateStatus) => mainWindow?.webContents.send('craft-hub:update-status-changed', status),
+    writeLog: writeApplicationLog,
+  })
+  await desktopUpdater.initialize()
   app.on('activate', () => void showMainWindow())
   app.on('second-instance', () => void showMainWindow())
   app.on('second-instance', (_event, argv) => {
@@ -404,7 +570,10 @@ if (!hasSingleInstanceLock) {
 }
 else {
   void startDesktopApp().catch((error) => {
-    writeApplicationLog('error', `Craft Hub failed to start: ${error instanceof Error ? error.message : String(error)}`)
+    const message = `Craft Hub failed to start: ${error instanceof Error ? error.message : String(error)}`
+    writeApplicationLog('error', message)
+    process.stderr.write(`${message}\n`)
+    process.exitCode = 1
     app.quit()
   })
 }
@@ -419,6 +588,8 @@ app.on('before-quit', (event) => {
       for (const window of BrowserWindow.getAllWindows())
         window.destroy()
       personalCloud?.close()
+      desktopUpdater?.dispose()
+      await codexActivityMonitor?.close()
       await craftHubServer?.close()
     }
     catch (error) {
@@ -428,8 +599,12 @@ app.on('before-quit', (event) => {
       writeApplicationLog('info', 'Shutdown complete')
       craftHubServer = undefined
       personalCloud = undefined
+      codexActivityMonitor = undefined
       readyToQuit = true
-      app.quit()
+      if (installUpdateAfterShutdown)
+        desktopUpdater?.installDownloadedUpdate()
+      else
+        app.quit()
     }
   })()
 })

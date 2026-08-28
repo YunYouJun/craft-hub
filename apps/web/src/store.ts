@@ -1,14 +1,29 @@
-import type { AgentActionId, AgentActionSummary, AgentTaskRecord, Capability, CapabilityDiscoveryDiagnostic, CommandInputValues, CommandInvocation, CommandPackage, ProjectAccentColor, ProjectChangeEvent, ProjectRecord, ProjectRunSummary, RunRecord, SettingsSnapshot, WorkbenchLocale, WorkbenchTheme, WorkspaceGroup, WorkspaceManifest, WorkspaceRecord } from 'craft-hub'
+import type { AgentActionId, AgentActionSummary, AgentTaskRecord, Capability, CapabilityDiscoveryDiagnostic, CommandInputValues, CommandInvocation, CommandPackage, OwnerScope, ProjectAccentColor, ProjectCatalogDiagnostic, ProjectChangeEvent, ProjectConfigInitializationResult, ProjectDescriptionApplication, ProjectDescriptionChange, ProjectRecord, ProjectRunSummary, RunRecord, SettingsSnapshot, TeamDeletionResult, TeamGitSyncStatus, WorkbenchCodexSetting, WorkbenchEditorSetting, WorkbenchLocale, WorkbenchTheme, WorkspaceGroup, WorkspaceManifest, WorkspaceRecord } from 'craft-hub'
+import { projectConfigSchemaRevision } from 'craft-hub/project-config-schema-revision'
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
-import { api } from './api'
+import { api, ApiRequestError } from './api'
 import { legacyLocaleStorageKey, useI18n } from './i18n'
 import { applyWorkbenchTheme } from './theme'
 
+export type FirstRunStage = 'add-project' | 'select-project' | 'no-capabilities' | 'select-command' | 'trust' | 'run' | 'complete'
+export type ProjectsLoadState = 'idle' | 'loading' | 'ready' | 'error'
+
 export const useWorkbenchStore = defineStore('workbench', () => {
   const projects = ref<ProjectRecord[]>([])
+  const projectsLoadState = ref<ProjectsLoadState>('idle')
+  const projectsLoadError = ref('')
+  const projectCatalogDiagnostics = ref<ProjectCatalogDiagnostic[]>([])
+  const runtimeSchemaMismatch = ref<{ actual: string, expected: string }>()
+  const ownerScopes = ref<OwnerScope[]>([])
+  const activeOwnerScopeId = ref('personal')
+  const activeTeamSyncStatus = ref<TeamGitSyncStatus>()
+  const ownerScopeError = ref('')
+  const ownerScopeWorkspaceIndex = ref<Array<{ ownerScope: OwnerScope, workspace: WorkspaceRecord }>>([])
+  const teamProjectOwnerScopes = ref<Record<string, string[]>>({})
   const workspaces = ref<WorkspaceRecord[]>([])
   const workspaceGroups = ref<WorkspaceGroup[]>([])
+  const projectGroupAssignments = ref<Record<string, string>>({})
   const selectedWorkspaceId = ref('')
   const expandedWorkspaceIds = ref<string[]>([])
   const workspaceLoading = ref(false)
@@ -26,6 +41,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
   const capabilityPinsByProject = ref<Record<string, string[]>>({})
   const selectedCapabilityId = ref('')
   const run = ref<RunRecord>()
+  const runs = ref<RunRecord[]>([])
   const busy = ref(false)
   const runSummaries = ref<ProjectRunSummary[]>([])
   const startingProjectIds = ref<string[]>([])
@@ -33,6 +49,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
   const refreshing = ref(false)
   const recentlyUpdated = ref(false)
   const error = ref('')
+  const projectConfigInitialization = ref<ProjectConfigInitializationResult>()
   const settings = ref<SettingsSnapshot>()
   let snapshot = ''
   let refreshTail: Promise<void> = Promise.resolve()
@@ -42,11 +59,17 @@ export const useWorkbenchStore = defineStore('workbench', () => {
   const runStatusTimers = new Map<string, ReturnType<typeof setTimeout>>()
 
   const selectedProject = computed(() => projects.value.find(item => item.id === selectedProjectId.value))
+  const selectedProjectDiagnostics = computed(() => projectCatalogDiagnostics.value.filter(diagnostic => diagnostic.projectId === selectedProjectId.value))
+  const repositoriesRoot = computed(() => settings.value?.settings['workbench.repositoriesRoot'] || undefined)
+  const activeOwnerScope = computed(() => ownerScopes.value.find(scope => scope.id === activeOwnerScopeId.value))
   const allWorkspaces = computed(() => workspaces.value)
   const selectedWorkspace = computed(() => allWorkspaces.value.find(item => item.id === selectedWorkspaceId.value))
   const unassignedProjects = computed(() => {
     const assigned = new Set(allWorkspaces.value.flatMap(workspace => workspace.members.map(member => member.projectId).filter(Boolean)))
-    return projects.value.filter(project => !assigned.has(project.id))
+    const standalone = projects.value.filter(project => !assigned.has(project.id))
+    if (activeOwnerScopeId.value === 'personal')
+      return standalone.filter(project => !teamProjectOwnerScopes.value[project.id]?.length)
+    return standalone.filter(project => teamProjectOwnerScopes.value[project.id]?.includes(activeOwnerScopeId.value))
   })
   const selectedCapability = computed(() => capabilities.value.find(item => item.id === selectedCapabilityId.value))
   const workspaceCapabilityProject = computed(() => projects.value.find(item => item.id === workspaceCapabilityProjectId.value))
@@ -60,6 +83,22 @@ export const useWorkbenchStore = defineStore('workbench', () => {
   const pinnedCapabilities = computed(() => pinnedCapabilityIds.value
     .map(id => capabilities.value.find(capability => capability.id === id))
     .filter((capability): capability is Capability => Boolean(capability)))
+  const projectRuns = computed(() => runs.value.filter(item => item.projectId === selectedProjectId.value))
+  const firstRunStage = computed<FirstRunStage>(() => {
+    if (!projects.value.length)
+      return 'add-project'
+    if (!selectedProject.value)
+      return 'select-project'
+    if (!capabilities.value.length)
+      return 'no-capabilities'
+    if (selectedCapability.value?.kind !== 'command')
+      return 'select-command'
+    if (selectedProject.value.trust !== 'trusted')
+      return 'trust'
+    if (!projectRuns.value.some(item => item.status === 'completed' && item.exitCode === 0))
+      return 'run'
+    return 'complete'
+  })
 
   async function applySettings(next: SettingsSnapshot): Promise<void> {
     const previousLocale = settings.value?.settings['workbench.locale']
@@ -91,6 +130,31 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     await applySettings(await api.updateSettings({ 'workbench.theme': theme }, settings.value!.revision))
   }
 
+  async function updateEditorSetting(editor: WorkbenchEditorSetting): Promise<void> {
+    if (!settings.value)
+      await loadSettings()
+    await applySettings(await api.updateSettings({ 'workbench.editor': editor }, settings.value!.revision))
+  }
+
+  async function updateCodexSetting(codex: WorkbenchCodexSetting): Promise<void> {
+    if (!settings.value)
+      await loadSettings()
+    const value = Object.keys(codex).length ? codex : null
+    await applySettings(await api.updateSettings({ 'workbench.codex': value }, settings.value!.revision))
+  }
+
+  async function updateShortcuts(shortcuts: Record<string, string>): Promise<void> {
+    if (!settings.value)
+      await loadSettings()
+    await applySettings(await api.updateSettings({ 'workbench.shortcuts': shortcuts }, settings.value!.revision))
+  }
+
+  async function updateRepositoriesRoot(path: string): Promise<void> {
+    if (!settings.value)
+      await loadSettings()
+    await applySettings(await api.updateSettings({ 'workbench.repositoriesRoot': path.trim() || null }, settings.value!.revision))
+  }
+
   function announceUpdate(): void {
     recentlyUpdated.value = true
     if (updatedTimer)
@@ -100,13 +164,11 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     }, 2400)
   }
 
-  function selectFrom(nextCapabilities: Capability[]): void {
-    const previousCapability = selectedCapability.value
+  function selectFrom(nextCapabilities: Capability[], previousCapability = selectedCapability.value): void {
     const nextCapability = nextCapabilities.find(capability => capability.id === selectedCapabilityId.value)
       ?? nextCapabilities.find(capability => capability.kind === previousCapability?.kind
         && capability.name === previousCapability.name
         && capability.source === previousCapability.source)
-      ?? nextCapabilities[0]
     if (selectedCapabilityId.value !== (nextCapability?.id ?? ''))
       run.value = undefined
     selectedCapabilityId.value = nextCapability?.id ?? ''
@@ -131,13 +193,124 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     await refreshProjects(initialProjectId, false)
   }
 
+  async function loadOwnerScopes(): Promise<void> {
+    ownerScopeError.value = ''
+    try {
+      const [nextScopes, state, nextProjectOwnerScopes] = await Promise.all([api.ownerScopes(), api.ownerScopeState(), api.projectOwnerScopes()])
+      ownerScopes.value = nextScopes
+      teamProjectOwnerScopes.value = nextProjectOwnerScopes
+      activeOwnerScopeId.value = nextScopes.some(scope => scope.id === state.activeScopeId) ? state.activeScopeId : 'personal'
+      if (activeOwnerScopeId.value !== 'personal')
+        await refreshActiveTeamSyncStatus()
+      else
+        activeTeamSyncStatus.value = undefined
+    }
+    catch (error) {
+      if (error instanceof ApiRequestError && error.status === 404) {
+        ownerScopes.value = [{ id: 'personal', kind: 'personal', name: 'Personal' }]
+        activeOwnerScopeId.value = 'personal'
+        teamProjectOwnerScopes.value = {}
+        return
+      }
+      ownerScopeError.value = error instanceof Error ? error.message : String(error)
+      throw error
+    }
+  }
+
+  async function switchOwnerScope(ownerScopeId: string): Promise<void> {
+    if (ownerScopeId === activeOwnerScopeId.value || !ownerScopes.value.some(scope => scope.id === ownerScopeId))
+      return
+    await api.activateOwnerScope(ownerScopeId)
+    activeOwnerScopeId.value = ownerScopeId
+    selectedWorkspaceId.value = ''
+    selectedProjectId.value = ''
+    capabilities.value = []
+    agentActions.value = []
+    clearWorkspaceCapability()
+    await loadWorkspaces()
+    await loadWorkspaceState()
+    if (ownerScopeId !== 'personal')
+      await refreshActiveTeamSyncStatus()
+    else
+      activeTeamSyncStatus.value = undefined
+  }
+
+  async function createTeam(name: string, repositoryPath: string, directory?: string): Promise<OwnerScope> {
+    const team = await api.createTeam(name, repositoryPath, directory)
+    ownerScopes.value = [...ownerScopes.value, team]
+    await switchOwnerScope(team.id)
+    return team
+  }
+
+  async function renameTeam(ownerScopeId: string, name: string): Promise<OwnerScope> {
+    const team = await api.renameTeam(ownerScopeId, name)
+    ownerScopes.value = ownerScopes.value.map(scope => scope.id === ownerScopeId ? team : scope)
+    if (activeTeamSyncStatus.value?.ownerScopeId === ownerScopeId)
+      await refreshActiveTeamSyncStatus()
+    return team
+  }
+
+  async function deleteTeam(ownerScopeId: string, confirmationName: string): Promise<TeamDeletionResult> {
+    const result = await api.deleteTeam(ownerScopeId, confirmationName)
+    ownerScopes.value = ownerScopes.value.filter(scope => scope.id !== ownerScopeId)
+    teamProjectOwnerScopes.value = Object.fromEntries(Object.entries(teamProjectOwnerScopes.value)
+      .map(([projectId, ownerScopeIds]) => [projectId, ownerScopeIds.filter(id => id !== ownerScopeId)] as const)
+      .filter(([, ownerScopeIds]) => ownerScopeIds.length))
+    if (activeOwnerScopeId.value === ownerScopeId) {
+      activeOwnerScopeId.value = 'personal'
+      activeTeamSyncStatus.value = undefined
+      selectedWorkspaceId.value = ''
+      selectedProjectId.value = ''
+      await loadWorkspaces()
+      await loadWorkspaceState()
+    }
+    return result
+  }
+
+  async function loadOwnerScopeWorkspaceIndex(): Promise<void> {
+    ownerScopeWorkspaceIndex.value = (await Promise.all(ownerScopes.value.map(async ownerScope => ({
+      ownerScope,
+      workspaces: await api.workspaces(ownerScope.id),
+    })))).flatMap(entry => entry.workspaces.map(workspace => ({ ownerScope: entry.ownerScope, workspace })))
+  }
+
+  async function jumpToWorkspace(ownerScopeId: string, workspaceId: string): Promise<void> {
+    if (ownerScopeId !== activeOwnerScopeId.value)
+      await switchOwnerScope(ownerScopeId)
+    if (workspaces.value.some(workspace => workspace.id === workspaceId))
+      selectWorkspace(workspaceId)
+  }
+
+  async function refreshActiveTeamSyncStatus(): Promise<TeamGitSyncStatus | undefined> {
+    if (activeOwnerScopeId.value === 'personal') {
+      activeTeamSyncStatus.value = undefined
+      return undefined
+    }
+    activeTeamSyncStatus.value = await api.teamGitSyncStatus(activeOwnerScopeId.value)
+    return activeTeamSyncStatus.value
+  }
+
+  async function synchronizeActiveTeam(resolution: 'auto' | 'use-local' | 'use-repository' = 'auto'): Promise<void> {
+    if (activeOwnerScopeId.value === 'personal')
+      return
+    activeTeamSyncStatus.value = await api.synchronizeTeamGit(activeOwnerScopeId.value, resolution)
+    await loadWorkspaces()
+    await loadWorkspaceState()
+  }
+
   async function loadWorkspaces(): Promise<void> {
     workspaceLoading.value = true
     workspaceError.value = ''
     try {
-      const [nextWorkspaces, nextGroups] = await Promise.all([api.workspaces(), api.workspaceGroups()])
+      const [nextWorkspaces, nextGroups, nextProjectGroups] = await Promise.all([
+        api.workspaces(activeOwnerScopeId.value),
+        api.workspaceGroups(activeOwnerScopeId.value),
+        api.projectGroupAssignments(activeOwnerScopeId.value),
+      ])
       workspaces.value = nextWorkspaces
       workspaceGroups.value = nextGroups
+      projectGroupAssignments.value = nextProjectGroups
+      updateActiveTeamProjectOwnerScopes()
       if (selectedWorkspaceId.value && !nextWorkspaces.some(workspace => workspace.id === selectedWorkspaceId.value)) {
         selectedWorkspaceId.value = ''
         clearWorkspaceCapability()
@@ -152,8 +325,24 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     }
   }
 
+  function updateActiveTeamProjectOwnerScopes(): void {
+    const ownerScopeId = activeOwnerScopeId.value
+    if (ownerScopeId === 'personal')
+      return
+    const ownedProjectIds = new Set([
+      ...Object.keys(projectGroupAssignments.value),
+      ...workspaces.value.flatMap(workspace => workspace.members.map(member => member.projectId).filter((projectId): projectId is string => Boolean(projectId))),
+    ])
+    const next = Object.fromEntries(Object.entries(teamProjectOwnerScopes.value)
+      .map(([projectId, ownerScopeIds]) => [projectId, ownerScopeIds.filter(id => id !== ownerScopeId)] as const)
+      .filter(([, ownerScopeIds]) => ownerScopeIds.length))
+    for (const projectId of ownedProjectIds)
+      next[projectId] = [...(next[projectId] ?? []), ownerScopeId]
+    teamProjectOwnerScopes.value = next
+  }
+
   async function loadWorkspaceState(preferredProjectId?: string): Promise<void> {
-    const state = await api.workspaceState()
+    const state = await api.workspaceState(activeOwnerScopeId.value)
     expandedWorkspaceIds.value = state.expandedWorkspaceIds
     if (preferredProjectId)
       return
@@ -170,21 +359,23 @@ export const useWorkbenchStore = defineStore('workbench', () => {
   }
 
   function persistWorkspaceState(): void {
+    const ownerScopeId = activeOwnerScopeId.value
     const state = {
       expandedWorkspaceIds: expandedWorkspaceIds.value,
       selectedWorkspaceId: selectedWorkspaceId.value || undefined,
       selectedProjectId: selectedProjectId.value || undefined,
     }
     workspaceStateTail = workspaceStateTail
-      .then(async () => { await api.updateWorkspaceState(state) })
+      .then(async () => { await api.updateWorkspaceState(state, ownerScopeId) })
       .catch(() => {})
   }
 
   async function createWorkspace(name: string, projectPaths: string[] = [], projectLabels: Record<string, string> = {}): Promise<void> {
-    let workspace = await api.createWorkspace(name)
+    const ownerScopeId = activeOwnerScopeId.value
+    let workspace = await api.createWorkspace(name, ownerScopeId)
     for (const path of [...new Set(projectPaths)]) {
       const project = await api.addProject(path)
-      const updatedWorkspace = await api.addWorkspaceProject(workspace.id, project.id)
+      const updatedWorkspace = await api.addWorkspaceProject(workspace.id, project.id, ownerScopeId)
       const label = projectLabels[path]?.trim()
       if (label) {
         workspace = updatedWorkspace
@@ -192,7 +383,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
         const member = manifest.members.find(item => item.project === workspace.members.find(item => item.projectId === project.id)?.project)
         if (member) {
           member.label = label
-          workspace = await api.updateWorkspace(manifest, workspace.revision)
+          workspace = await api.updateWorkspace(manifest, workspace.revision, ownerScopeId)
         }
       }
     }
@@ -243,7 +434,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
   }
 
   async function addProjectToWorkspace(workspaceId: string, projectId: string): Promise<void> {
-    await api.addWorkspaceProject(workspaceId, projectId)
+    await api.addWorkspaceProject(workspaceId, projectId, activeOwnerScopeId.value)
     await loadWorkspaces()
     if (!expandedWorkspaceIds.value.includes(workspaceId))
       toggleWorkspaceExpanded(workspaceId)
@@ -251,25 +442,25 @@ export const useWorkbenchStore = defineStore('workbench', () => {
 
   async function addProjectPathToWorkspace(workspaceId: string, path: string): Promise<void> {
     const project = await api.addProject(path)
-    await api.addWorkspaceProject(workspaceId, project.id)
+    await api.addWorkspaceProject(workspaceId, project.id, activeOwnerScopeId.value)
     await Promise.all([loadProjects(), loadWorkspaces()])
     if (!expandedWorkspaceIds.value.includes(workspaceId))
       toggleWorkspaceExpanded(workspaceId)
   }
 
   async function removeProjectFromWorkspace(workspaceId: string, projectIdOrKey: string): Promise<void> {
-    await api.removeWorkspaceProject(workspaceId, projectIdOrKey)
+    await api.removeWorkspaceProject(workspaceId, projectIdOrKey, activeOwnerScopeId.value)
     await loadWorkspaces()
   }
 
   async function locateWorkspaceProject(workspaceId: string, projectKey: string, path: string): Promise<void> {
     const project = await api.addProject(path)
-    await api.bindWorkspaceProject(workspaceId, projectKey, project.id)
+    await api.bindWorkspaceProject(workspaceId, projectKey, project.id, activeOwnerScopeId.value)
     await Promise.all([loadProjects(), loadWorkspaces()])
   }
 
   async function deleteWorkspace(workspace: WorkspaceRecord): Promise<void> {
-    await api.deleteWorkspace(workspace.id, workspace.revision)
+    await api.deleteWorkspace(workspace.id, workspace.revision, activeOwnerScopeId.value)
     if (selectedWorkspaceId.value === workspace.id)
       selectedWorkspaceId.value = ''
     await loadWorkspaces()
@@ -283,7 +474,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
   async function updateWorkspace(workspace: WorkspaceRecord, update: (manifest: WorkspaceManifest) => void): Promise<void> {
     const manifest = workspaceManifest(workspace)
     update(manifest)
-    const saved = await api.updateWorkspace(manifest, workspace.revision)
+    const saved = await api.updateWorkspace(manifest, workspace.revision, activeOwnerScopeId.value)
     workspaces.value = workspaces.value.map(item => item.id === saved.id ? saved : item)
   }
 
@@ -367,8 +558,8 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     order.splice(sourceIndex, 1)
     order.splice(targetIndex, 0, source.id)
     if (source.groupId !== target.groupId)
-      await api.assignWorkspaceGroup(source.id, target.groupId)
-    await api.reorderWorkspaces(order)
+      await api.assignWorkspaceGroup(source.id, target.groupId, activeOwnerScopeId.value)
+    await api.reorderWorkspaces(order, activeOwnerScopeId.value)
     await loadWorkspaces()
   }
 
@@ -395,16 +586,16 @@ export const useWorkbenchStore = defineStore('workbench', () => {
   }
 
   async function registerWorkspaceMember(workspace: WorkspaceRecord, projectKey: string, path?: string): Promise<void> {
-    await api.registerWorkspaceMember(workspace.id, projectKey, path)
+    await api.registerWorkspaceMember(workspace.id, projectKey, path, activeOwnerScopeId.value)
     await Promise.all([loadProjects(), loadWorkspaces()])
   }
 
   async function previewVscodeWorkspaces(sourceDirectory: string, groupName?: string): Promise<import('craft-hub').WorkspaceImportPreview> {
-    return api.previewVscodeWorkspaces(sourceDirectory, groupName)
+    return api.previewVscodeWorkspaces(sourceDirectory, groupName, activeOwnerScopeId.value)
   }
 
   async function importVscodeWorkspaces(sourceDirectory: string, groupName: string | undefined, expectedRevision: string): Promise<import('craft-hub').WorkspaceImportResult> {
-    const imported = await api.importVscodeWorkspaces(sourceDirectory, groupName, expectedRevision)
+    const imported = await api.importVscodeWorkspaces(sourceDirectory, groupName, expectedRevision, activeOwnerScopeId.value)
     if (!imported.validation.valid)
       throw new Error(imported.validation.issues.join('; '))
     await loadWorkspaces()
@@ -413,28 +604,32 @@ export const useWorkbenchStore = defineStore('workbench', () => {
   }
 
   async function createWorkspaceGroup(name: string): Promise<WorkspaceGroup> {
-    const group = await api.createWorkspaceGroup(name)
+    const group = await api.createWorkspaceGroup(name, activeOwnerScopeId.value)
     await loadWorkspaces()
     return group
   }
 
   async function assignWorkspaceGroup(workspaceId: string, groupId?: string): Promise<void> {
-    await api.assignWorkspaceGroup(workspaceId, groupId)
+    await api.assignWorkspaceGroup(workspaceId, groupId, activeOwnerScopeId.value)
     await loadWorkspaces()
   }
 
+  async function assignProjectGroup(projectId: string, groupId?: string): Promise<void> {
+    projectGroupAssignments.value = await api.assignProjectGroup(projectId, groupId, activeOwnerScopeId.value)
+  }
+
   async function renameWorkspaceGroup(groupId: string, name: string): Promise<void> {
-    await api.renameWorkspaceGroup(groupId, name)
+    await api.renameWorkspaceGroup(groupId, name, activeOwnerScopeId.value)
     await loadWorkspaces()
   }
 
   async function setWorkspaceGroupAppearance(groupId: string, icon?: string): Promise<void> {
-    await api.updateWorkspaceGroupAppearance(groupId, icon)
+    await api.updateWorkspaceGroupAppearance(groupId, icon, activeOwnerScopeId.value)
     await loadWorkspaces()
   }
 
   async function deleteWorkspaceGroup(groupId: string): Promise<void> {
-    await api.deleteWorkspaceGroup(groupId)
+    await api.deleteWorkspaceGroup(groupId, activeOwnerScopeId.value)
     await loadWorkspaces()
   }
 
@@ -457,8 +652,10 @@ export const useWorkbenchStore = defineStore('workbench', () => {
       void loadAgentActions().catch(() => {})
   }
 
-  async function startAgentTask(prompt: string, projectIds: string[], primaryProjectId: string, workspaceId?: string): Promise<void> {
-    applyAgentTask(await api.startAgentTask({ prompt, projectIds, primaryProjectId, workspaceId }))
+  async function startAgentTask(prompt: string, projectIds: string[], primaryProjectId: string, workspaceId?: string, capabilityId?: string): Promise<AgentTaskRecord> {
+    const task = await api.startAgentTask({ prompt, projectIds, primaryProjectId, workspaceId, capabilityId })
+    applyAgentTask(task)
+    return task
   }
 
   async function startAgentAction(actionId: AgentActionId, locale: WorkbenchLocale): Promise<AgentTaskRecord> {
@@ -467,6 +664,14 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     const task = await api.startAgentAction(selectedProject.value.id, actionId, locale)
     applyAgentTask(task)
     return task
+  }
+
+  async function applyProjectDescriptionProposal(taskId: string, changes: ProjectDescriptionChange[]): Promise<ProjectDescriptionApplication> {
+    if (!selectedProject.value)
+      throw new Error('Select a project before applying descriptions')
+    const application = await api.applyProjectDescriptionProposal(selectedProject.value.id, taskId, changes)
+    await Promise.all([selectProject(selectedProject.value.id), loadAgentTasks()])
+    return application
   }
 
   async function loadRunSummaries(): Promise<void> {
@@ -530,9 +735,20 @@ export const useWorkbenchStore = defineStore('workbench', () => {
 
   async function performProjectsRefresh(initialProjectId?: string, announce = true): Promise<boolean> {
     refreshing.value = true
+    projectsLoadState.value = 'loading'
+    projectsLoadError.value = ''
     try {
-      const nextProjects = await api.projects()
+      const previousCapability = selectedCapability.value
+      const [catalog, health] = await Promise.all([
+        api.projects(),
+        api.runtimeHealth().catch(() => undefined),
+      ])
+      const nextProjects = catalog.projects
       projects.value = nextProjects
+      projectCatalogDiagnostics.value = catalog.diagnostics
+      runtimeSchemaMismatch.value = health && health.projectConfigSchemaRevision !== projectConfigSchemaRevision
+        ? { actual: health.projectConfigSchemaRevision, expected: projectConfigSchemaRevision }
+        : undefined
       const groups = await Promise.all(nextProjects.map(async (project) => {
         const [discovery, pins] = await Promise.all([
           api.capabilityDiscovery(project.id).catch(caught => ({
@@ -550,9 +766,11 @@ export const useWorkbenchStore = defineStore('workbench', () => {
       }))
       const nextSnapshot = JSON.stringify(groups)
       const changed = snapshot !== '' && snapshot !== nextSnapshot
-      const nextProject = nextProjects.find(project => project.id === selectedProjectId.value)
-        ?? nextProjects.find(project => project.id === initialProjectId)
-        ?? nextProjects[0]
+      const nextProject = selectedWorkspace.value
+        ? undefined
+        : nextProjects.find(project => project.id === selectedProjectId.value)
+          ?? nextProjects.find(project => project.id === initialProjectId)
+          ?? nextProjects[0]
       const nextCapabilities = groups.find(group => group.project.id === nextProject?.id)?.capabilities ?? []
 
       paletteItems.value = groups.flatMap(group => group.capabilities.map(capability => ({ project: group.project, capability })))
@@ -564,12 +782,18 @@ export const useWorkbenchStore = defineStore('workbench', () => {
       agentActions.value = nextProject
         ? await api.agentActions(nextProject.id, settings.value?.settings['workbench.locale'] ?? 'en').catch(() => [])
         : []
-      selectFrom(nextCapabilities)
+      selectFrom(nextCapabilities, previousCapability)
       snapshot = nextSnapshot
 
       if (changed && announce)
         announceUpdate()
+      projectsLoadState.value = 'ready'
       return changed
+    }
+    catch (caught) {
+      projectsLoadState.value = 'error'
+      projectsLoadError.value = caught instanceof Error ? caught.message : String(caught)
+      throw caught
     }
     finally {
       refreshing.value = false
@@ -585,9 +809,11 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     try {
       let changed = false
       if (event.scopes.includes('project')) {
-        const nextProjects = await api.projects()
+        const catalog = await api.projects()
+        const nextProjects = catalog.projects
         changed ||= JSON.stringify(projects.value) !== JSON.stringify(nextProjects)
         projects.value = nextProjects
+        projectCatalogDiagnostics.value = catalog.diagnostics
         paletteItems.value = paletteItems.value.map(item => ({
           ...item,
           project: nextProjects.find(project => project.id === item.project.id) ?? item.project,
@@ -622,8 +848,9 @@ export const useWorkbenchStore = defineStore('workbench', () => {
             [project.id]: discovery.packages ?? [],
           }
           if (selectedProjectId.value === project.id) {
+            const previousCapability = selectedCapability.value
             capabilities.value = nextCapabilities
-            selectFrom(nextCapabilities)
+            selectFrom(nextCapabilities, previousCapability)
             await loadAgentActions(project.id)
           }
         }
@@ -653,7 +880,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     commandPackagesByProject.value = { ...commandPackagesByProject.value, [id]: discovery.packages ?? [] }
     agentActions.value = nextAgentActions
     capabilityPinsByProject.value = { ...capabilityPinsByProject.value, [id]: pins.capabilityIds }
-    selectedCapabilityId.value = capabilities.value[0]?.id ?? ''
+    selectedCapabilityId.value = ''
     run.value = undefined
     persistWorkspaceState()
   }
@@ -664,11 +891,53 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     await selectProject(project.id)
   }
 
-  async function trustProject(): Promise<void> {
-    if (!activeProject.value)
-      return
-    const updated = await api.trust(activeProject.value.id)
-    projects.value = projects.value.map(project => project.id === updated.id ? updated : project)
+  async function previewProjectConfigInitialization(): Promise<ProjectConfigInitializationResult | undefined> {
+    if (!selectedProject.value)
+      return undefined
+    projectConfigInitialization.value = await api.initializeProjectConfig(selectedProject.value.id, 'preview')
+    return projectConfigInitialization.value
+  }
+
+  async function applyProjectConfigInitialization(): Promise<ProjectConfigInitializationResult | undefined> {
+    if (!selectedProject.value || !projectConfigInitialization.value)
+      return undefined
+    projectConfigInitialization.value = await api.initializeProjectConfig(
+      selectedProject.value.id,
+      'apply',
+      projectConfigInitialization.value.revision,
+    )
+    await refreshProject({ projectId: selectedProject.value.id, scopes: ['project', 'capabilities'] })
+    return projectConfigInitialization.value
+  }
+
+  async function trustProjectById(projectId: string): Promise<boolean> {
+    if (!projects.value.some(project => project.id === projectId))
+      return false
+    busy.value = true
+    error.value = ''
+    try {
+      const updated = await api.trust(projectId)
+      projects.value = projects.value.map(project => project.id === updated.id ? updated : project)
+      return true
+    }
+    catch (caught) {
+      error.value = caught instanceof Error ? caught.message : String(caught)
+      return false
+    }
+    finally {
+      busy.value = false
+    }
+  }
+
+  async function trustProject(): Promise<boolean> {
+    return activeProject.value ? trustProjectById(activeProject.value.id) : false
+  }
+
+  async function trustAndRunSelected(inputs: CommandInputValues = {}): Promise<boolean> {
+    if (!await trustProject())
+      return false
+    void runSelected(inputs)
+    return true
   }
 
   function isCapabilityPinned(projectId: string, capabilityId: string): boolean {
@@ -722,6 +991,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
         run.value = nextRun
         startingProjectIds.value = startingProjectIds.value.filter(id => id !== projectId)
       })
+      rememberRun(run.value)
     }
     catch (caught) {
       error.value = caught instanceof Error ? caught.message : String(caught)
@@ -738,8 +1008,10 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     try {
       const runId = run.value.id
       const stopped = await api.cancelRun(runId)
-      if (run.value?.id === runId)
+      if (run.value?.id === runId) {
         run.value = stopped
+        rememberRun(stopped)
+      }
     }
     catch (caught) {
       error.value = caught instanceof Error ? caught.message : String(caught)
@@ -754,8 +1026,25 @@ export const useWorkbenchStore = defineStore('workbench', () => {
   }
 
   async function toggleCurrentRunPin(): Promise<void> {
-    if (run.value)
+    if (run.value) {
       run.value = await api.pinRun(run.value.id, !run.value.pinned)
+      rememberRun(run.value)
+    }
+  }
+
+  function rememberRun(nextRun: RunRecord): void {
+    runs.value = [nextRun, ...runs.value.filter(item => item.id !== nextRun.id)]
+      .sort((left, right) => right.startedAt.localeCompare(left.startedAt))
+  }
+
+  async function loadRuns(): Promise<void> {
+    runs.value = await api.runs()
+  }
+
+  function openRun(nextRun: RunRecord): void {
+    run.value = nextRun
+    terminalVisible.value = true
+    error.value = ''
   }
 
   async function writeRunInput(data: string): Promise<void> {
@@ -782,8 +1071,21 @@ export const useWorkbenchStore = defineStore('workbench', () => {
 
   return {
     projects,
+    projectsLoadState,
+    projectsLoadError,
+    projectCatalogDiagnostics,
+    selectedProjectDiagnostics,
+    runtimeSchemaMismatch,
+    ownerScopes,
+    activeOwnerScopeId,
+    activeOwnerScope,
+    activeTeamSyncStatus,
+    ownerScopeError,
+    ownerScopeWorkspaceIndex,
+    teamProjectOwnerScopes,
     workspaces,
     workspaceGroups,
+    projectGroupAssignments,
     allWorkspaces,
     selectedWorkspaceId,
     selectedWorkspace,
@@ -814,6 +1116,9 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     pinnedCapabilityIds,
     pinnedCapabilities,
     run,
+    runs,
+    projectRuns,
+    firstRunStage,
     busy,
     runSummaries,
     startingProjectIds,
@@ -821,12 +1126,27 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     refreshing,
     recentlyUpdated,
     error,
+    projectConfigInitialization,
     settings,
+    repositoriesRoot,
     applySettings,
     loadSettings,
     updateLocale,
+    updateRepositoriesRoot,
+    updateCodexSetting,
+    updateEditorSetting,
+    updateShortcuts,
     updateTheme,
     loadProjects,
+    loadOwnerScopes,
+    switchOwnerScope,
+    createTeam,
+    renameTeam,
+    deleteTeam,
+    refreshActiveTeamSyncStatus,
+    synchronizeActiveTeam,
+    loadOwnerScopeWorkspaceIndex,
+    jumpToWorkspace,
     loadWorkspaces,
     loadWorkspaceState,
     createWorkspace,
@@ -856,6 +1176,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     importVscodeWorkspaces,
     createWorkspaceGroup,
     assignWorkspaceGroup,
+    assignProjectGroup,
     renameWorkspaceGroup,
     setWorkspaceGroupAppearance,
     deleteWorkspaceGroup,
@@ -864,7 +1185,9 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     applyAgentTask,
     startAgentTask,
     startAgentAction,
+    applyProjectDescriptionProposal,
     loadRunSummaries,
+    loadRuns,
     applyRunSummary,
     projectRunSummary,
     isProjectStarting,
@@ -872,7 +1195,11 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     refreshProject,
     selectProject,
     addProject,
+    previewProjectConfigInitialization,
+    applyProjectConfigInitialization,
+    trustProjectById,
     trustProject,
+    trustAndRunSelected,
     isCapabilityPinned,
     setCapabilityPinOrder,
     toggleCapabilityPin,
@@ -881,6 +1208,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     stopRun,
     closeTerminal,
     toggleCurrentRunPin,
+    openRun,
     writeRunInput,
     resizeRun,
   }
@@ -890,6 +1218,7 @@ function workspaceManifest(workspace: WorkspaceRecord): WorkspaceManifest {
   return {
     schemaVersion: 1,
     id: workspace.id,
+    ownerScopeId: workspace.ownerScopeId === 'personal' ? undefined : workspace.ownerScopeId,
     name: workspace.name,
     icon: workspace.icon,
     color: workspace.color,

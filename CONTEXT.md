@@ -8,6 +8,10 @@ Craft Hub organizes local development projects into safe execution boundaries an
 A registered local directory that owns capability discovery, trust, and command execution.
 _Avoid_: Repository, folder, workspace
 
+**Project Catalog**:
+The ordered machine-local view of registered Projects and any non-fatal problems affecting their optional metadata.
+_Avoid_: Project configuration, workspace list, repository index
+
 **Project Reference**:
 A portable identity for a codebase that can be resolved to a different Project on each machine.
 _Avoid_: Project path, checkout, trusted project

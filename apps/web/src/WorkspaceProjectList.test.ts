@@ -92,4 +92,25 @@ describe('workspace project list', () => {
 
     expect(wrapper.get('.workspace-project-empty').text()).toContain('Add project')
   })
+
+  it('distinguishes an available unregistered project from a missing project', () => {
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    const store = useWorkbenchStore()
+    store.workspaces = [{
+      ...workspace,
+      id: 'imported',
+      members: [
+        { project: 'available', label: 'Available project', resolved: false, path: '/available' },
+        { project: 'missing', label: 'Missing project', resolved: false },
+      ],
+    }]
+    store.selectedWorkspaceId = 'imported'
+
+    const wrapper = mount(WorkspaceProjectList, { global: { plugins: [pinia] } })
+    const rows = wrapper.findAll('.workspace-project-summary.unresolved')
+
+    expect(rows[0]!.get('.workspace-project-status').text()).toBe('Available to add')
+    expect(rows[1]!.get('.workspace-project-status').text()).toBe('Not found on this device')
+  })
 })

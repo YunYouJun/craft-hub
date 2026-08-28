@@ -6,6 +6,7 @@ import { resolve } from 'node:path'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { Select } from './components/ui/select'
 import { useI18n } from './i18n'
 import ProjectRail from './ProjectRail.vue'
 import { useWorkbenchStore } from './store'
@@ -32,6 +33,157 @@ describe('project rail', () => {
     expect(document.body.querySelector('input[name="project-path"]')).not.toBeNull()
   })
 
+  it('creates a Git-backed Team from the owner scope switcher', async () => {
+    const store = useWorkbenchStore()
+    store.ownerScopes = [{ id: 'personal', kind: 'personal', name: 'Personal' }]
+    const createTeam = vi.fn(async () => ({ id: 'tencent', kind: 'team' as const, name: 'Tencent' }))
+    store.createTeam = createTeam
+    const wrapper = mount(ProjectRail, { attachTo: document.body })
+
+    await wrapper.get('.owner-scope-switcher > button:last-child').trigger('click')
+    const name = document.body.querySelector<HTMLInputElement>('input[name="team-name"]')!
+    const repository = document.body.querySelector<HTMLInputElement>('input[name="team-repository-path"]')!
+    name.value = 'Tencent'
+    name.dispatchEvent(new Event('input', { bubbles: true }))
+    repository.value = '/repos/tencent-workbench'
+    repository.dispatchEvent(new Event('input', { bubbles: true }))
+    document.body.querySelector<HTMLFormElement>('[data-testid="create-team-form"]')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+    await flushPromises()
+
+    expect(createTeam).toHaveBeenCalledWith('Tencent', '/repos/tencent-workbench', undefined)
+  })
+
+  it('chooses a Team Git repository from the configured repositories root', async () => {
+    const selectProjectDirectory = vi.fn(async () => '/repos/tencent-workbench')
+    window.craftHubDesktop = { selectProjectDirectory }
+    const store = useWorkbenchStore()
+    store.ownerScopes = [{ id: 'personal', kind: 'personal', name: 'Personal' }]
+    store.settings = {
+      explicitKeys: ['workbench.repositoriesRoot'],
+      path: '/settings.json',
+      revision: 'settings',
+      settings: {
+        'workbench.codex': {},
+        'workbench.editor': { default: 'vscode' },
+        'workbench.locale': 'en',
+        'workbench.repositoriesRoot': '/repos',
+        'workbench.shortcuts': { 'workbench.showCommandPalette': 'Mod+K' },
+        'workbench.theme': 'system',
+      },
+    }
+    const wrapper = mount(ProjectRail, { attachTo: document.body })
+
+    await wrapper.get('.owner-scope-switcher > button:last-child').trigger('click')
+    document.body.querySelector<HTMLButtonElement>('[data-testid="choose-team-repository"]')!.click()
+    await flushPromises()
+
+    expect(selectProjectDirectory).toHaveBeenCalledWith('/repos')
+    expect(document.body.querySelector<HTMLInputElement>('input[name="team-repository-path"]')!.value).toBe('/repos/tencent-workbench')
+    expect(styles).toContain('.add-project-dialog input { width: 100%; height: var(--control-height-default);')
+    expect(styles).toContain('.team-create-form { display: grid; gap: var(--space-3); }')
+  })
+
+  it('shows compact semantic icons and switches owner scope from the custom selector', async () => {
+    const store = useWorkbenchStore()
+    store.ownerScopes = [
+      { id: 'personal', kind: 'personal', name: 'Personal' },
+      { id: 'tencent', kind: 'team', name: 'Tencent' },
+    ]
+    store.activeOwnerScopeId = 'personal'
+    store.switchOwnerScope = vi.fn(async () => {})
+    const wrapper = mount(ProjectRail, { attachTo: document.body })
+
+    expect(wrapper.element.querySelector('[data-testid="owner-scope-trigger"] .i-ri-user-line')).not.toBeNull()
+    expect(wrapper.get('[data-testid="owner-scope-trigger"]').text()).toBe('Personal')
+    store.activeOwnerScopeId = 'tencent'
+    await wrapper.vm.$nextTick()
+    expect(wrapper.element.querySelector('[data-testid="owner-scope-trigger"] .i-ri-team-line')).not.toBeNull()
+    expect(wrapper.get('[data-testid="owner-scope-trigger"]').text()).toBe('Tencent')
+    expect(styles).toContain('.owner-scope-trigger { width: 100%; height: 30px;')
+    expect(styles).toContain('font-size: 12px; font-weight: 600;')
+
+    wrapper.getComponent(Select).vm.$emit('update:modelValue', 'tencent')
+    await flushPromises()
+    expect(store.switchOwnerScope).toHaveBeenCalledWith('tencent')
+  })
+
+  it('renames and deletes the active Team only after exact-name confirmation', async () => {
+    const store = useWorkbenchStore()
+    store.ownerScopes = [
+      { id: 'personal', kind: 'personal', name: 'Personal' },
+      { id: 'tencent', kind: 'team', name: 'Tencent' },
+    ]
+    store.activeOwnerScopeId = 'tencent'
+    store.renameTeam = vi.fn(async () => ({ id: 'tencent', kind: 'team' as const, name: 'Tencent Cloud' }))
+    store.deleteTeam = vi.fn(async () => ({
+      team: { id: 'tencent', kind: 'team' as const, name: 'Tencent' },
+      deletedWorkspaceCount: 0,
+      deletedGroupCount: 0,
+    }))
+    const wrapper = mount(ProjectRail, { attachTo: document.body })
+
+    await wrapper.get('[data-testid="manage-team"]').trigger('click')
+    const renameInput = document.body.querySelector<HTMLInputElement>('input[name="team-rename-name"]')!
+    renameInput.value = 'Tencent Cloud'
+    renameInput.dispatchEvent(new Event('input', { bubbles: true }))
+    document.body.querySelector<HTMLFormElement>('[data-testid="rename-team-form"]')!
+      .dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+    await flushPromises()
+    expect(store.renameTeam).toHaveBeenCalledWith('tencent', 'Tencent Cloud')
+
+    const deleteButton = document.body.querySelector<HTMLButtonElement>('[data-testid="delete-team"]')!
+    expect(deleteButton.disabled).toBe(true)
+    const confirmation = document.body.querySelector<HTMLInputElement>('input[name="team-delete-confirmation"]')!
+    confirmation.value = 'Tencent'
+    confirmation.dispatchEvent(new Event('input', { bubbles: true }))
+    await wrapper.vm.$nextTick()
+    expect(deleteButton.disabled).toBe(false)
+    await deleteButton.click()
+    await flushPromises()
+    expect(store.deleteTeam).toHaveBeenCalledWith('tencent', 'Tencent')
+  })
+
+  it('offers both explicit resolutions when Team Git sync diverges', async () => {
+    const store = useWorkbenchStore()
+    store.ownerScopes = [
+      { id: 'personal', kind: 'personal', name: 'Personal' },
+      { id: 'tencent', kind: 'team', name: 'Tencent' },
+    ]
+    store.activeOwnerScopeId = 'tencent'
+    store.activeTeamSyncStatus = { ownerScopeId: 'tencent', state: 'conflict' }
+    store.synchronizeActiveTeam = vi.fn(async () => {})
+    const wrapper = mount(ProjectRail, { attachTo: document.body })
+
+    const resolutions = wrapper.findAll('.team-sync-resolution button')
+    expect(resolutions.map(button => button.text())).toEqual(['Use local', 'Use repository'])
+    await resolutions[0]!.trigger('click')
+    await resolutions[1]!.trigger('click')
+    expect(store.synchronizeActiveTeam).toHaveBeenNthCalledWith(1, 'use-local')
+    expect(store.synchronizeActiveTeam).toHaveBeenNthCalledWith(2, 'use-repository')
+  })
+
+  it('keeps a clean Team sync status beside the scope switcher and expands only attention states', async () => {
+    const store = useWorkbenchStore()
+    store.ownerScopes = [
+      { id: 'personal', kind: 'personal', name: 'Personal' },
+      { id: 'tencent', kind: 'team', name: 'Tencent' },
+    ]
+    store.activeOwnerScopeId = 'tencent'
+    store.activeTeamSyncStatus = { ownerScopeId: 'tencent', state: 'clean', workingTreeChanged: false }
+    const wrapper = mount(ProjectRail, { attachTo: document.body })
+
+    const indicator = wrapper.get('.team-sync-indicator')
+    expect(indicator.attributes('title')).toBe('Configuration is synchronized')
+    expect(indicator.find('.i-ri-checkbox-circle-fill').exists()).toBe(true)
+    expect(wrapper.find('.team-sync-status').exists()).toBe(false)
+
+    store.activeTeamSyncStatus = { ownerScopeId: 'tencent', state: 'clean', workingTreeChanged: true }
+    await wrapper.vm.$nextTick()
+    expect(wrapper.get('.team-sync-indicator').attributes('title')).toContain('uncommitted Git changes')
+    expect(wrapper.get('.team-sync-status').text()).toContain('The snapshot has uncommitted Git changes.')
+    expect(styles).toContain('.owner-scope-switcher > .team-sync-indicator.clean:not(.pending) { color: var(--success); }')
+  })
+
   it('renders each unassigned project once', () => {
     const store = useWorkbenchStore()
     store.projects = [{
@@ -41,12 +193,22 @@ describe('project rail', () => {
       trust: 'trusted',
       addedAt: '2026-01-01T00:00:00.000Z',
     }]
+    store.projectCatalogDiagnostics = [{
+      projectId: 'docs',
+      source: 'project-config',
+      targetPath: '.craft-hub/project.jsonc',
+      path: '/unknown',
+      line: 3,
+      column: 14,
+      message: 'Unrecognized key: "unknown"',
+    }]
 
     const wrapper = mount(ProjectRail, { attachTo: document.body })
 
     expect(wrapper.findAll('.project-row').filter(row => row.text().includes('Docs'))).toHaveLength(1)
     expect(wrapper.find('.system-workspace').exists()).toBe(false)
     expect(wrapper.get('.unassigned-group').text()).toContain('Docs')
+    expect(wrapper.get('.project-config-warning').attributes('aria-label')).toBe('Project configuration is invalid.')
   })
 
   it('explains the unassigned bucket', () => {
@@ -286,6 +448,80 @@ describe('project rail', () => {
     expect(wrapper.text()).not.toContain('Personal docs')
   })
 
+  it('marks grouped workspaces for one additional navigation indentation level', () => {
+    const store = useWorkbenchStore()
+    store.workspaceGroups = [{ id: 'wxfed', name: 'WXFED' }]
+    store.workspaces = [
+      { schemaVersion: 1, id: 'team', name: 'team', groupId: 'wxfed', members: [], revision: 'grouped' },
+      { schemaVersion: 1, id: 'personal', name: 'Personal', members: [], revision: 'ungrouped' },
+    ]
+    const wrapper = mount(ProjectRail, { attachTo: document.body })
+
+    const workspaces = wrapper.findAll('.workspace-group')
+    expect(workspaces[0]!.classes()).toContain('grouped-workspace')
+    expect(workspaces[1]!.classes()).not.toContain('grouped-workspace')
+  })
+
+  it('groups standalone projects without wrapping them in synthetic workspaces', async () => {
+    const store = useWorkbenchStore()
+    store.projects = [
+      { id: 'docs', name: 'Docs', path: '/docs', trust: 'trusted', addedAt: '2026-01-01T00:00:00.000Z' },
+      { id: 'api', name: 'API', path: '/api', trust: 'untrusted', addedAt: '2026-01-01T00:00:00.000Z' },
+    ]
+    store.workspaceGroups = [{ id: 'cover', name: '红包封面' }]
+    store.projectGroupAssignments = { docs: 'cover' }
+    const assignProjectGroup = vi.fn(async () => {})
+    store.assignProjectGroup = assignProjectGroup
+    const wrapper = mount(ProjectRail, { attachTo: document.body })
+
+    expect(wrapper.get('.collection-heading').text()).toContain('红包封面1')
+    expect(wrapper.get('.standalone-project').text()).toContain('Docs')
+    expect(wrapper.get('.unassigned-group').text()).toContain('API')
+    expect(wrapper.get('.unassigned-group').text()).not.toContain('Docs')
+
+    await wrapper.get('.standalone-project').trigger('contextmenu', { clientX: 120, clientY: 180 })
+    await wrapper.get<HTMLSelectElement>('.context-menu-select select').setValue('')
+
+    expect(assignProjectGroup).toHaveBeenCalledWith('docs', undefined)
+  })
+
+  it('unregisters an unassigned project from its context menu without implying local deletion', async () => {
+    const store = useWorkbenchStore()
+    store.projects = [
+      { id: 'api', name: 'API', path: '/repos/api', trust: 'untrusted', addedAt: '2026-01-01T00:00:00.000Z' },
+    ]
+    const unregisterProject = vi.fn(async () => {})
+    store.unregisterProject = unregisterProject
+    const confirm = vi.fn(() => true)
+    vi.stubGlobal('confirm', confirm)
+    const wrapper = mount(ProjectRail, { attachTo: document.body })
+
+    await wrapper.get('.unassigned-group .project-row').trigger('contextmenu', { clientX: 120, clientY: 180 })
+    expect(wrapper.get('[data-testid="unregister-project"]').text()).toBe('Remove from Craft Hub')
+    await wrapper.get('[data-testid="unregister-project"]').trigger('click')
+    await flushPromises()
+
+    expect(confirm).toHaveBeenCalledWith('Remove “API” from Craft Hub? This only unregisters the project and does not delete its local folder.')
+    expect(unregisterProject).toHaveBeenCalledWith('api')
+    expect(wrapper.find('[data-testid="rail-context-menu"]').exists()).toBe(false)
+  })
+
+  it('moves a standalone project into a workspace group by dragging it onto the group heading', async () => {
+    const store = useWorkbenchStore()
+    store.projects = [
+      { id: 'weui-icons', name: 'weui-icons', path: '/repos/weui-icons', trust: 'untrusted', addedAt: '2026-01-01T00:00:00.000Z' },
+    ]
+    store.workspaceGroups = [{ id: 'wxfed', name: 'WXFED' }]
+    const assignProjectGroup = vi.fn(async () => {})
+    store.assignProjectGroup = assignProjectGroup
+    const wrapper = mount(ProjectRail, { attachTo: document.body })
+
+    await wrapper.get('.unassigned-group .project-row').trigger('dragstart')
+    await wrapper.get('.collection-heading').trigger('drop')
+
+    expect(assignProjectGroup).toHaveBeenCalledWith('weui-icons', 'wxfed')
+  })
+
   it('opens workspace group actions from right click and customizes its icon without a color option', async () => {
     const store = useWorkbenchStore()
     store.workspaceGroups = [{ id: 'cover', name: '红包封面', icon: 'emoji:🧧' }]
@@ -336,7 +572,7 @@ describe('project rail', () => {
     await deleteAction.click()
     await flushPromises()
 
-    expect(confirm).toHaveBeenCalledWith('Delete the “红包封面” group? Its workspaces will remain ungrouped.')
+    expect(confirm).toHaveBeenCalledWith('Delete the “红包封面” group? Its workspaces and projects will remain ungrouped.')
     expect(deleteWorkspaceGroup).toHaveBeenCalledWith('cover')
   })
 
@@ -394,7 +630,7 @@ describe('project rail', () => {
     expect(wrapper.get('.rail-search-empty').text()).toBe('No matching workspaces or projects.')
   })
 
-  it('uses row dragging without separate handles and keeps project rows static', () => {
+  it('uses row dragging without separate handles while keeping workspace member rows static', () => {
     const store = useWorkbenchStore()
     store.projects = [
       { id: 'one', name: 'One', path: '/one', trust: 'trusted', addedAt: '2026-01-01T00:00:00.000Z' },
@@ -411,7 +647,8 @@ describe('project rail', () => {
 
     expect(wrapper.find('.rail-drag-handle').exists()).toBe(false)
     expect(wrapper.findAll('.workspace-group').every(item => item.attributes('draggable') === 'true')).toBe(true)
-    expect(wrapper.findAll('.project-row').every(item => item.attributes('draggable') === undefined)).toBe(true)
+    expect(wrapper.findAll('.workspace-project .project-row').every(item => item.attributes('draggable') === undefined)).toBe(true)
+    expect(wrapper.findAll('.unassigned-group .project-row').every(item => item.attributes('draggable') === 'true')).toBe(true)
   })
 
   it('adds registered projects from a workspace context menu', async () => {

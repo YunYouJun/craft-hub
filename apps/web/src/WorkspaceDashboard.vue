@@ -1,6 +1,10 @@
 <script setup lang="ts">
-import type { WorkspaceRecord } from 'craft-hub'
+import type { ProjectRecord, WorkspaceRecord } from 'craft-hub'
 import { computed, ref, watch } from 'vue'
+import AgentTaskOutput from './AgentTaskOutput.vue'
+import { Button as UiButton } from './components/ui/button'
+import { DialogShell } from './components/ui/dialog'
+import EditorLauncher from './EditorLauncher.vue'
 import { Icon } from './icons'
 import { useI18n } from './i18n'
 import { useWorkbenchStore } from './store'
@@ -17,10 +21,15 @@ const startingInBackground = ref(false)
 const taskMenuOpen = ref(false)
 const error = ref('')
 const notice = ref('')
+const taskForm = ref<HTMLFormElement>()
+const promptInput = ref<HTMLTextAreaElement>()
+const pendingTrustProject = ref<ProjectRecord>()
 
 const workspace = computed(() => store.selectedWorkspace)
 const projects = computed(() => workspace.value ? store.workspaceProjects(workspace.value) : [])
 const tasks = computed(() => store.agentTasks.filter(task => task.workspaceId === workspace.value?.id))
+const selectedProjects = computed(() => projects.value.filter(project => selectedProjectIds.value.includes(project.id)))
+const untrustedProjects = computed(() => projects.value.filter(project => project.trust !== 'trusted'))
 
 watch(workspace, (value) => {
   const trusted = value
@@ -35,6 +44,10 @@ watch(workspace, (value) => {
 async function startInCodex(): Promise<void> {
   if (!workspace.value || !primaryProjectId.value || !prompt.value.trim())
     return
+  if (window.craftHubDesktop?.startWorkspaceInCodex && !selectedProjectIds.value.includes(primaryProjectId.value)) {
+    error.value = t('codexWorkspaceTrustRequired', { count: String(untrustedProjects.value.length) })
+    return
+  }
   openingCodex.value = true
   error.value = ''
   notice.value = ''
@@ -44,16 +57,27 @@ async function startInCodex(): Promise<void> {
     const primaryProject = projects.value.find(project => project.id === primaryProjectId.value)
     if (!primaryProject)
       throw new Error('Primary project is unavailable')
-    if (window.craftHubDesktop?.startProjectInCodex) {
+    if (window.craftHubDesktop?.startWorkspaceInCodex) {
+      const projectIds = [...selectedProjectIds.value]
+      await window.craftHubDesktop.startWorkspaceInCodex(
+        workspace.value.id,
+        projectIds,
+        primaryProject.id,
+        workspacePrompt,
+      )
+      notice.value = t('codexWorkspaceTaskStarted', { count: String(projectIds.length) })
+    }
+    else if (window.craftHubDesktop?.startProjectInCodex) {
       await window.craftHubDesktop.startProjectInCodex(primaryProject.id, workspacePrompt)
+      notice.value = t('codexPromptCopied')
     }
     else {
       await navigator.clipboard.writeText(workspacePrompt)
       const query = new URLSearchParams({ path: primaryProject.path })
       window.location.href = `codex://threads/new?${query}`
+      notice.value = t('codexPromptCopied')
     }
     prompt.value = ''
-    notice.value = t('codexPromptCopied')
   }
   catch (caught) {
     error.value = caught instanceof Error ? caught.message : String(caught)
@@ -102,7 +126,7 @@ async function registerMember(member: WorkspaceRecord['members'][number]): Promi
       }
     }
     const path = window.craftHubDesktop?.selectProjectDirectory
-      ? await window.craftHubDesktop.selectProjectDirectory()
+      ? await window.craftHubDesktop.selectProjectDirectory(store.repositoriesRoot)
       : window.prompt(t('projectPath'))
     if (path)
       await store.registerWorkspaceMember(workspace.value, member.project, path)
@@ -112,13 +136,57 @@ async function registerMember(member: WorkspaceRecord['members'][number]): Promi
   }
 }
 
-async function openWorkspace(launcher: 'vscode' | 'codebuddy' | 'codex'): Promise<void> {
-  if (!workspace.value || !window.craftHubDesktop?.openWorkspace)
+function prepareWorkspaceCodexTask(): void {
+  error.value = ''
+  notice.value = untrustedProjects.value.length
+    ? t('codexWorkspaceTrustRequired', { count: String(untrustedProjects.value.length) })
+    : t('codexWorkspaceReady', { count: String(selectedProjectIds.value.length) })
+  taskForm.value?.scrollIntoView?.({ behavior: 'smooth', block: 'center' })
+  promptInput.value?.focus()
+}
+
+function reviewProjectTrust(project: ProjectRecord): void {
+  pendingTrustProject.value = project
+}
+
+function updateTrustDialog(open: boolean): void {
+  if (!open)
+    pendingTrustProject.value = undefined
+}
+
+async function trustWorkspaceProject(): Promise<void> {
+  const project = pendingTrustProject.value
+  if (!project || !await store.trustProjectById(project.id))
     return
-  openingLauncher.value = launcher
+  if (!selectedProjectIds.value.includes(project.id))
+    selectedProjectIds.value = [...selectedProjectIds.value, project.id]
+  pendingTrustProject.value = undefined
+  notice.value = t('codexWorkspaceReady', { count: String(selectedProjectIds.value.length) })
+}
+
+async function openWorkspaceInEditor(): Promise<void> {
+  if (!workspace.value || !window.craftHubDesktop?.openWorkspaceInEditor)
+    return
+  openingLauncher.value = 'editor'
   error.value = ''
   try {
-    await window.craftHubDesktop.openWorkspace(workspace.value.id, launcher)
+    await window.craftHubDesktop.openWorkspaceInEditor(workspace.value.id)
+  }
+  catch (caught) {
+    error.value = t('openFailed', { message: caught instanceof Error ? caught.message : String(caught) })
+  }
+  finally {
+    openingLauncher.value = ''
+  }
+}
+
+async function openWorkspaceInCodex(): Promise<void> {
+  if (!workspace.value || !window.craftHubDesktop?.openWorkspaceInCodex)
+    return
+  openingLauncher.value = 'codex'
+  error.value = ''
+  try {
+    await window.craftHubDesktop.openWorkspaceInCodex(workspace.value.id)
   }
   catch (caught) {
     error.value = t('openFailed', { message: caught instanceof Error ? caught.message : String(caught) })
@@ -142,22 +210,23 @@ async function openThread(threadId: string): Promise<void> {
       <span class="detail-icon"><Icon name="workspace" /></span>
       <div><h2>{{ workspace.name }}</h2><p>{{ t('codexTaskCount', { projects: String(projects.length), tasks: String(tasks.length) }) }}</p></div>
       <div class="workspace-header-actions">
-        <template v-if="desktopActions?.openWorkspace">
-          <button class="secondary-button icon-action" type="button" data-testid="open-workspace-vscode" :disabled="Boolean(openingLauncher)" :aria-label="t('openWorkspaceInVSCode')" :title="t('openWorkspaceInVSCode')" @click="openWorkspace('vscode')"><Icon name="vscode" /></button>
-          <button class="secondary-button icon-action" type="button" data-testid="open-workspace-codebuddy" :disabled="Boolean(openingLauncher)" :aria-label="t('openWorkspaceInCodeBuddy')" :title="t('openWorkspaceInCodeBuddy')" @click="openWorkspace('codebuddy')"><Icon name="skill" /></button>
-          <button class="secondary-button icon-action" type="button" data-testid="open-workspace-codex" :disabled="Boolean(openingLauncher)" :aria-label="t('openWorkspaceInCodex')" :title="t('openWorkspaceInCodex')" @click="openWorkspace('codex')"><Icon name="codex" /></button>
-        </template>
+        <EditorLauncher v-if="desktopActions?.openWorkspaceInEditor" scope="workspace" :disabled="Boolean(openingLauncher)" @open="openWorkspaceInEditor" />
+        <UiButton v-if="desktopActions?.openWorkspaceInCodex" size="icon" data-testid="open-workspace-codex" :disabled="Boolean(openingLauncher)" :aria-label="t('openWorkspaceInCodex')" :title="t('openWorkspaceInCodex')" @click="openWorkspaceInCodex"><Icon name="codex" /></UiButton>
+        <UiButton v-if="desktopActions?.startWorkspaceInCodex" size="icon" data-testid="prepare-workspace-codex" :disabled="Boolean(openingLauncher)" :aria-label="t('prepareWorkspaceCodexTask')" :title="t('prepareWorkspaceCodexTask')" @click="prepareWorkspaceCodexTask"><Icon name="plus" /></UiButton>
       </div>
     </header>
 
     <section class="workspace-summary">
       <h3>{{ t('projects') }}</h3>
       <div v-for="project in projects" :key="project.id" class="workspace-member-card">
-        <label>
-          <input v-model="selectedProjectIds" type="checkbox" :value="project.id" :disabled="project.trust !== 'trusted'">
-          <strong :title="workspace.members.find(member => member.projectId === project.id)?.label ? project.name : undefined">{{ workspace.members.find(member => member.projectId === project.id)?.label || project.name }}</strong>
-          <span class="project-trust" :class="project.trust" :aria-label="t(project.trust === 'trusted' ? 'trusted' : 'untrusted')" :title="t(project.trust === 'trusted' ? 'trusted' : 'untrusted')"><Icon :name="project.trust" /></span>
-        </label>
+        <div class="workspace-member-selection">
+          <label>
+            <input v-model="selectedProjectIds" type="checkbox" :value="project.id" :disabled="project.trust !== 'trusted'">
+            <strong :title="workspace.members.find(member => member.projectId === project.id)?.label ? project.name : undefined">{{ workspace.members.find(member => member.projectId === project.id)?.label || project.name }}</strong>
+          </label>
+          <button v-if="project.trust !== 'trusted'" type="button" class="project-trust trust-action untrusted" :aria-label="t('trustProject')" :title="t('trustProject')" @click="reviewProjectTrust(project)"><Icon name="untrusted" /></button>
+          <span v-else class="project-trust trusted" :aria-label="t('trusted')" :title="t('trusted')"><Icon name="trusted" /></span>
+        </div>
         <label class="primary-choice">
           <input v-model="primaryProjectId" type="radio" name="primary-project" :value="project.id" @change="savePrimary">
           {{ t('primary') }}
@@ -173,22 +242,27 @@ async function openThread(threadId: string): Promise<void> {
           ><Icon :name="member.path ? 'folder' : 'error'" /></span>
           {{ member.label || member.project }}
         </span>
-        <button class="secondary-button icon-action" type="button" :aria-label="t(member.path ? 'addProject' : 'locateProject')" :title="t(member.path ? 'addProject' : 'locateProject')" @click="registerMember(member)">
+        <UiButton size="icon" :aria-label="t(member.path ? 'addProject' : 'locateProject')" :title="t(member.path ? 'addProject' : 'locateProject')" @click="registerMember(member)">
           <Icon :name="member.path ? 'plus' : 'folder'" />
-        </button>
+        </UiButton>
       </div>
     </section>
 
-    <form class="agent-task-form" @submit.prevent="startInCodex">
+    <form ref="taskForm" class="agent-task-form" @submit.prevent="startInCodex">
       <h3>{{ t('newCodexTask') }}</h3>
-      <textarea v-model="prompt" rows="4" :placeholder="t('codexTaskPrompt')" />
+      <textarea ref="promptInput" v-model="prompt" rows="4" :placeholder="t('codexTaskPrompt')" />
       <p class="permission-note">{{ t('codexTaskLaunchHint') }}</p>
+      <p class="codex-root-summary">{{ t('codexSelectedRoots', { count: String(selectedProjects.length) }) }}</p>
+      <ul class="codex-root-list" data-testid="codex-root-list">
+        <li v-for="project in selectedProjects" :key="project.id"><code>{{ project.path }}</code><span v-if="project.id === primaryProjectId">{{ t('primary') }}</span></li>
+      </ul>
+      <p v-if="untrustedProjects.length" class="trust-scope-note codex-trust-warning"><Icon name="untrusted" /> <span>{{ t('codexWorkspaceTrustRequired', { count: String(untrustedProjects.length) }) }}</span></p>
       <p v-if="error" class="error-message">{{ error }}</p>
       <p v-if="notice" class="success-message">{{ notice }}</p>
       <div class="agent-task-split-action">
-        <button class="primary-button" type="submit" data-testid="start-in-codex" :disabled="openingCodex || startingInBackground || !prompt.trim() || !primaryProjectId">
+        <UiButton variant="primary" type="submit" data-testid="start-in-codex" :disabled="openingCodex || startingInBackground || !prompt.trim() || !primaryProjectId || (Boolean(desktopActions?.startWorkspaceInCodex) && !selectedProjectIds.includes(primaryProjectId))">
           <Icon name="codex" /> {{ openingCodex ? t('openingCodex') : t('startInCodex') }}
-        </button>
+        </UiButton>
         <details :open="taskMenuOpen" class="agent-task-action-menu" @toggle="taskMenuOpen = ($event.target as HTMLDetailsElement).open">
           <summary role="button" :aria-expanded="taskMenuOpen" :aria-label="t('moreCodexTaskActions')" :title="t('moreCodexTaskActions')"><Icon name="arrowDown" /></summary>
           <div>
@@ -204,12 +278,24 @@ async function openThread(threadId: string): Promise<void> {
     <section class="agent-task-list">
       <h3>{{ t('recentTasks') }}</h3>
       <article v-for="task in tasks" :key="task.id" class="agent-task-card">
-        <div><strong>{{ task.prompt }}</strong><small>{{ task.status }} · {{ new Date(task.startedAt).toLocaleString() }}</small></div>
-        <button v-if="task.externalThreadId" class="secondary-button" @click="openThread(task.externalThreadId)"><Icon name="codex" /> {{ t('openInCodex') }}</button>
+        <div><strong>{{ task.prompt }}</strong><small>{{ task.status }} · {{ t('codexTaskRoots', { count: String(task.projectIds.length) }) }} · {{ new Date(task.startedAt).toLocaleString() }}</small></div>
+        <UiButton v-if="task.externalThreadId && task.status !== 'running'" @click="openThread(task.externalThreadId)"><Icon name="codex" /> {{ t('openInCodex') }}</UiButton>
+        <AgentTaskOutput :task="task" />
         <p v-if="task.finalResponse">{{ task.finalResponse }}</p>
         <p v-if="task.error" class="error-message">{{ task.error }}</p>
       </article>
       <p v-if="!tasks.length" class="empty">{{ t('noCodexTasks') }}</p>
     </section>
+
+    <DialogShell :open="Boolean(pendingTrustProject)" content-class="workspace-trust-dialog" data-testid="workspace-trust-dialog" @update:open="updateTrustDialog">
+      <template #title>{{ t('trustProjectTitle') }}</template>
+      <template #description>{{ t('trustProjectDescription', { project: pendingTrustProject?.name ?? '' }) }}</template>
+      <p class="trust-scope-note"><Icon name="untrusted" /> <span><strong>{{ t('projectTrustScope') }}</strong>{{ t('projectTrustScopeDescription') }}</span></p>
+      <p v-if="store.error" class="error-message" role="alert">{{ store.error }}</p>
+      <footer>
+        <UiButton :disabled="store.busy" @click="pendingTrustProject = undefined">{{ t('cancel') }}</UiButton>
+        <UiButton data-testid="trust-workspace-project-confirm" variant="warning" :disabled="store.busy" @click="trustWorkspaceProject"><Icon name="trusted" /> {{ store.busy ? t('allowingExecution') : t('trustProject') }}</UiButton>
+      </footer>
+    </DialogShell>
   </main>
 </template>

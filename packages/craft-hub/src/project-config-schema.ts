@@ -14,21 +14,35 @@ const inputConditionSchema = z.strictObject({
   equals: z.string(),
 })
 
+const inputOptionBaseShape = {
+  value: z.string().min(1),
+  label: localizedTextSchema.optional(),
+}
+
 const inputOptionSchema = z.union([
   z.string().min(1),
   z.strictObject({
-    value: z.string().min(1),
-    label: localizedTextSchema.optional(),
+    ...inputOptionBaseShape,
+    omitArgument: z.boolean().optional(),
   }),
 ])
 
-const commandInputBaseShape = {
+const skillInputOptionSchema = z.union([
+  z.string().min(1),
+  z.strictObject(inputOptionBaseShape),
+])
+
+const capabilityInputBaseShape = {
   label: localizedTextSchema.optional(),
   description: localizedTextSchema.optional(),
   default: z.string().optional(),
   required: z.boolean().optional(),
   requiredWhen: inputConditionSchema.optional(),
   visibleWhen: inputConditionSchema.optional(),
+}
+
+const commandInputBaseShape = {
+  ...capabilityInputBaseShape,
   flag: z.string().regex(/^-\S*$/, 'Flags must start with a hyphen and contain no whitespace'),
   argumentStyle: z.enum(['equals', 'separate']).optional(),
 }
@@ -42,6 +56,21 @@ const projectCommandInputSchema = z.discriminatedUnion('type', [
   }),
   z.strictObject({
     ...commandInputBaseShape,
+    type: z.literal('text'),
+    options: z.never().optional(),
+    pattern: z.string().optional(),
+  }),
+])
+
+const projectSkillInputSchema = z.discriminatedUnion('type', [
+  z.strictObject({
+    ...capabilityInputBaseShape,
+    type: z.literal('select'),
+    options: z.array(skillInputOptionSchema).min(1),
+    pattern: z.string().optional(),
+  }),
+  z.strictObject({
+    ...capabilityInputBaseShape,
     type: z.literal('text'),
     options: z.never().optional(),
     pattern: z.string().optional(),
@@ -64,7 +93,11 @@ export const projectConfigSchema = z.strictObject({
     hidden: z.array(z.string().min(1)).optional(),
     descriptions: z.record(z.string(), localizedTextSchema).optional(),
     inputs: z.record(z.string(), z.record(z.string(), projectCommandInputSchema)).optional(),
+    skillInputs: z.record(z.string(), z.record(z.string(), projectSkillInputSchema)).optional(),
   }).optional(),
+  packages: z.record(z.string(), z.strictObject({
+    description: localizedTextSchema.optional(),
+  })).optional(),
   extensions: z.record(z.string().min(1), z.unknown()).optional(),
 })
 
@@ -76,6 +109,9 @@ export type ProjectCommandInputOptionConfig = z.infer<typeof inputOptionSchema>
 
 /** Declarative input metadata used to build a safe command invocation. */
 export type ProjectCommandInputConfig = z.infer<typeof projectCommandInputSchema>
+
+/** Declarative input metadata rendered for an agent skill invocation. */
+export type ProjectSkillInputConfig = z.infer<typeof projectSkillInputSchema>
 
 /** Validated version 1 project.jsonc contents. */
 export type ProjectConfig = z.infer<typeof projectConfigSchema>

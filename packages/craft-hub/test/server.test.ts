@@ -1,31 +1,210 @@
 import type { AddressInfo } from 'node:net'
 import { execFile } from 'node:child_process'
-import { mkdir, mkdtemp, realpath, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, realpath, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { describe, expect, it, vi } from 'vitest'
+import { projectConfigSchemaRevision } from '../src/config'
 import { CraftHubRuntime } from '../src/runtime'
 import { startCraftHubServer } from '../src/server'
 
 const execFileAsync = promisify(execFile)
 
 describe('craft hub server lifecycle', () => {
+  it('reports the bundled project schema revision for Runtime compatibility checks', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'craft-hub-server-health-'))
+    const app = await startCraftHubServer({
+      port: 0,
+      runtime: new CraftHubRuntime({ dataDir: join(root, 'data'), configDir: join(root, 'config') }),
+    })
+    try {
+      const response = await fetch(`${app.url}/api/health`)
+      expect(response.status).toBe(200)
+      await expect(response.json()).resolves.toEqual({
+        projectConfigSchemaRevision,
+        status: 'ok',
+      })
+    }
+    finally {
+      await app.close()
+    }
+  })
+
+  it('keeps the project catalog available when one project config is invalid', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'craft-hub-server-project-catalog-'))
+    const validPath = join(root, 'valid')
+    const invalidPath = join(root, 'invalid')
+    await Promise.all([mkdir(validPath), mkdir(invalidPath)])
+    const runtime = new CraftHubRuntime({ dataDir: join(root, 'data'), configDir: join(root, 'config') })
+    const validProject = await runtime.projects.add(validPath)
+    const invalidProject = await runtime.projects.add(invalidPath)
+    const invalidConfig = '{\n  "version": 1,\n  "unknown": true,\n}\n'
+    await mkdir(join(invalidPath, '.craft-hub'))
+    await writeFile(join(invalidPath, '.craft-hub', 'project.jsonc'), invalidConfig)
+
+    const app = await startCraftHubServer({ port: 0, runtime })
+    try {
+      const response = await fetch(`${app.url}/api/projects`)
+      const catalog = await response.json() as {
+        diagnostics: Array<{ column: number, line: number, message: string, path: string, projectId: string }>
+        projects: Array<{ id: string, trust: string }>
+      }
+
+      expect(response.status).toBe(200)
+      expect(catalog.projects).toEqual([
+        expect.objectContaining({ id: validProject.id }),
+        expect.objectContaining({ id: invalidProject.id, trust: 'untrusted' }),
+      ])
+      expect(catalog.diagnostics).toEqual([
+        expect.objectContaining({
+          column: 14,
+          line: 3,
+          message: 'Unrecognized key: "unknown"',
+          path: '/unknown',
+          projectId: invalidProject.id,
+        }),
+      ])
+      await expect(readFile(join(invalidPath, '.craft-hub', 'project.jsonc'), 'utf8')).resolves.toBe(invalidConfig)
+    }
+    finally {
+      await app.close()
+    }
+  })
+
+  it('creates Git-backed Teams and isolates their workspace routes from Personal', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'craft-hub-server-owner-scopes-'))
+    const repositoryPath = join(root, 'team-repository')
+    await execFileAsync('git', ['init', repositoryPath])
+    const runtime = new CraftHubRuntime({ dataDir: join(root, 'data'), configDir: join(root, 'config') })
+    await runtime.workspaces.create('Personal App')
+    const app = await startCraftHubServer({ port: 0, runtime })
+    try {
+      const teamResponse = await fetch(`${app.url}/api/owner-scopes`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: 'Tencent', repositoryPath }),
+      })
+      expect(teamResponse.status).toBe(201)
+      const team = await teamResponse.json() as { id: string }
+      const created = await fetch(`${app.url}/api/workspaces?ownerScopeId=${team.id}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: 'Team App' }),
+      })
+      expect(created.status).toBe(201)
+      const teamProjectPath = join(root, 'team-project')
+      await mkdir(teamProjectPath)
+      const teamProject = await runtime.addProject(teamProjectPath)
+      const teamGroup = await runtime.workspaces.createGroup('Team projects', team.id)
+      await runtime.workspaces.assignProjectGroup(teamProject.id, teamGroup.id, team.id)
+      await expect(fetch(`${app.url}/api/projects/owner-scopes`).then(response => response.json())).resolves.toEqual({
+        [teamProject.id]: [team.id],
+      })
+      await expect(fetch(`${app.url}/api/workspaces`).then(response => response.json())).resolves.toMatchObject([{ name: 'Personal App' }])
+      await expect(fetch(`${app.url}/api/workspaces?ownerScopeId=${team.id}`).then(response => response.json())).resolves.toMatchObject([{ name: 'Team App', ownerScopeId: team.id }])
+      await expect(fetch(`${app.url}/api/owner-scopes/${team.id}/git-sync`).then(response => response.json())).resolves.toMatchObject({ state: 'local-ahead' })
+      const renamed = await fetch(`${app.url}/api/owner-scopes/${team.id}`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: 'Tencent Cloud' }),
+      })
+      await expect(renamed.json()).resolves.toMatchObject({ id: team.id, name: 'Tencent Cloud' })
+      const rejectedDelete = await fetch(`${app.url}/api/owner-scopes/${team.id}`, {
+        method: 'DELETE',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ confirmationName: 'Tencent' }),
+      })
+      expect(rejectedDelete.status).toBe(400)
+      const deleted = await fetch(`${app.url}/api/owner-scopes/${team.id}`, {
+        method: 'DELETE',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ confirmationName: 'Tencent Cloud' }),
+      })
+      await expect(deleted.json()).resolves.toMatchObject({ deletedWorkspaceCount: 1, deletedGroupCount: 1 })
+      await expect(fetch(`${app.url}/api/owner-scopes`).then(response => response.json())).resolves.toEqual([{ id: 'personal', kind: 'personal', name: 'Personal' }])
+    }
+    finally {
+      await app.close()
+    }
+  })
+
+  it('exposes deterministic project description audits without starting an agent task', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'craft-hub-server-description-audit-'))
+    await writeFile(join(root, 'package.json'), JSON.stringify({ name: 'example', scripts: { dev: 'vite' } }))
+    const runtime = new CraftHubRuntime({ dataDir: join(root, 'data'), configDir: join(root, 'config') })
+    const project = await runtime.addProject(root)
+    const app = await startCraftHubServer({ port: 0, runtime })
+    try {
+      const response = await fetch(`${app.url}/api/projects/${project.id}/agent-actions/improve-project-config/audit?locale=en`)
+      expect(response.status).toBe(200)
+      await expect(response.json()).resolves.toMatchObject({ missingCommandCount: 1, missingPackageCount: 1 })
+      await expect(runtime.agentTasks.list()).resolves.toEqual([])
+    }
+    finally {
+      await app.close()
+    }
+  })
+
+  it('previews project configuration before requiring trust to create it', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'craft-hub-server-config-'))
+    const runtime = new CraftHubRuntime({ dataDir: join(root, 'data'), configDir: join(root, 'config') })
+    const project = await runtime.addProject(root)
+    const app = await startCraftHubServer({ port: 0, runtime })
+    try {
+      const previewResponse = await fetch(`${app.url}/api/projects/${project.id}/config/initialize`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ mode: 'preview' }),
+      })
+      const preview = await previewResponse.json() as { content: string, revision: string }
+      expect(previewResponse.status).toBe(200)
+      expect(preview.content).toContain('"version": 1')
+
+      const rejected = await fetch(`${app.url}/api/projects/${project.id}/config/initialize`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ mode: 'apply', expectedRevision: preview.revision }),
+      })
+      expect(rejected.status).toBe(403)
+
+      await fetch(`${app.url}/api/projects/${project.id}/trust`, { method: 'POST' })
+      const applied = await fetch(`${app.url}/api/projects/${project.id}/config/initialize`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ mode: 'apply', expectedRevision: preview.revision }),
+      })
+      expect(applied.status).toBe(200)
+      await expect(readFile(join(root, '.craft-hub', 'project.jsonc'), 'utf8')).resolves.toContain('"version": 1')
+    }
+    finally {
+      await app.close()
+    }
+  })
+
   it('previews and runs parameterized commands with validated input values', async () => {
     const root = await mkdtemp(join(tmpdir(), 'craft-hub-server-inputs-'))
     await mkdir(join(root, '.craft-hub'))
     await writeFile(join(root, 'package.json'), JSON.stringify({ scripts: { deploy: 'node -e "console.log(process.argv.slice(1).join(\',\'))" --' } }))
-    await writeFile(join(root, '.craft-hub', 'project.jsonc'), `${JSON.stringify({
-      version: 1,
-      capabilities: {
-        inputs: {
-          'package.json:deploy': {
-            environment: { type: 'select', options: ['dev', 'rdm'], default: 'dev', flag: '--env' },
-          },
-        },
-      },
-    }, null, 2)}\n`)
+    await writeFile(join(root, '.craft-hub', 'project.jsonc'), [
+      '{',
+      '  // Parameterized command metadata may contain comments.',
+      '  "version": 1,',
+      '  "capabilities": {',
+      '    "inputs": {',
+      '      "package.json:deploy": {',
+      '        "environment": {',
+      '          "type": "select",',
+      '          "options": ["dev", "rdm"],',
+      '          "default": "dev",',
+      '          "flag": "--env",',
+      '        },',
+      '      },',
+      '    },',
+      '  },',
+      '}',
+    ].join('\n'))
     const runtime = new CraftHubRuntime({ dataDir: join(root, 'data'), configDir: join(root, 'config') })
     const project = await runtime.addProject(root)
     const command = (await runtime.capabilities(project.id)).find(item => item.kind === 'command')!
@@ -89,7 +268,10 @@ describe('craft hub server lifecycle', () => {
 
   it('creates, assigns, renames, and deletes workspace groups without deleting workspaces', async () => {
     const root = await mkdtemp(join(tmpdir(), 'craft-hub-server-groups-'))
+    const projectPath = join(root, 'standalone')
+    await mkdir(projectPath)
     const runtime = new CraftHubRuntime({ dataDir: join(root, 'data'), configDir: join(root, 'config') })
+    const project = await runtime.projects.add(projectPath)
     const workspace = await runtime.workspaces.create('Release')
     const app = await startCraftHubServer({ port: 0, runtime })
     try {
@@ -103,6 +285,14 @@ describe('craft hub server lifecycle', () => {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ groupId: created.id }),
       }).then(response => response.json())).resolves.toMatchObject({ groupId: created.id })
+      await expect(fetch(`${app.url}/api/projects/${project.id}/group`, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ groupId: created.id }),
+      }).then(response => response.json())).resolves.toEqual({ [project.id]: created.id })
+      await expect(fetch(`${app.url}/api/workspace-groups/project-assignments`).then(response => response.json()))
+        .resolves
+        .toEqual({ [project.id]: created.id })
       await expect(fetch(`${app.url}/api/workspace-groups/${created.id}`, {
         method: 'PUT',
         headers: { 'content-type': 'application/json' },
@@ -116,6 +306,7 @@ describe('craft hub server lifecycle', () => {
       await fetch(`${app.url}/api/workspace-groups/${created.id}`, { method: 'DELETE' })
 
       await expect(runtime.workspaces.list()).resolves.toEqual([expect.objectContaining({ id: workspace.id, groupId: undefined })])
+      await expect(runtime.workspaces.projectGroupAssignments()).resolves.toEqual({})
     }
     finally {
       await app.close()

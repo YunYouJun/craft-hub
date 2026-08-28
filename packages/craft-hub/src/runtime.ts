@@ -11,12 +11,15 @@ import { applyProjectConfigInitialization, previewProjectConfigInitialization } 
 import { executeCommand } from './executor'
 import { builtinCapabilityProvider, communityDistribution } from './extensions'
 import { PluginManager } from './marketplace'
+import { OwnerScopeService } from './owner-scopes'
 import { assertCommandWorkingDirectory } from './path-security'
 import { PersonalGitSyncService } from './personal-git-sync'
 import { getCraftHubConfigDir, getCraftHubDataDir } from './platform'
 import { ProjectRegistry } from './projects'
 import { CraftHubSettingsService } from './settings'
 import { CraftHubStore } from './store'
+import { TeamGitSyncService } from './team-git-sync'
+import { TeamManager } from './teams'
 import { WorkspaceImportService } from './workspace-import'
 import { WorkspaceService } from './workspaces'
 
@@ -27,6 +30,9 @@ export class CraftHubRuntime {
   readonly workspaces: WorkspaceService
   readonly workspaceImports: WorkspaceImportService
   readonly personalGitSync: PersonalGitSyncService
+  readonly ownerScopes: OwnerScopeService
+  readonly teamGitSync: TeamGitSyncService
+  readonly teams: TeamManager
   readonly agentTasks: AgentTaskManager
   readonly agentActions: AgentActionService
   readonly pluginManager: PluginManager
@@ -53,10 +59,13 @@ export class CraftHubRuntime {
     this.projects = new ProjectRegistry(this.store)
     this.settings = new CraftHubSettingsService(this.store.dataDir)
     this.workspaces = new WorkspaceService(normalizedOptions.configDir ?? getCraftHubConfigDir(process.env), this.store.dataDir, this.projects)
+    this.ownerScopes = new OwnerScopeService(normalizedOptions.configDir ?? getCraftHubConfigDir(process.env), this.store.dataDir)
+    this.teamGitSync = new TeamGitSyncService(this.store.dataDir, this.ownerScopes, this.workspaces)
+    this.teams = new TeamManager(this.ownerScopes, this.teamGitSync, this.workspaces)
     this.workspaceImports = new WorkspaceImportService(this.projects, this.workspaces)
     this.personalGitSync = new PersonalGitSyncService(this.store.dataDir, this.settings, this.workspaces)
     this.agentTasks = new AgentTaskManager(this.store, this.projects, normalizedOptions.agentTaskProvider)
-    this.agentActions = new AgentActionService(this.agentTasks, this.projects, projectId => this.capabilities(projectId))
+    this.agentActions = new AgentActionService(this.agentTasks, this.projects, (projectId, locale) => this.capabilityDiscovery(projectId, locale))
   }
 
   /** Register a local project path without granting trust. */
@@ -102,9 +111,9 @@ export class CraftHubRuntime {
   }
 
   /** Discover capabilities and non-fatal diagnostics for one registered project. */
-  async capabilityDiscovery(projectId: string): Promise<CapabilityDiscoveryResult> {
+  async capabilityDiscovery(projectId: string, requestedLocale?: 'en' | 'zh-CN'): Promise<CapabilityDiscoveryResult> {
     const project = await this.projects.get(projectId)
-    const locale = (await this.settings.get()).settings['workbench.locale']
+    const locale = requestedLocale ?? (await this.settings.get()).settings['workbench.locale']
     this.diagnostics = []
     const capabilities: Capability[] = []
     const diagnostics: CapabilityDiscoveryDiagnostic[] = []

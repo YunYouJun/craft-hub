@@ -18,10 +18,51 @@ export interface ProjectRecord {
   addedAt: string
 }
 
+/** Non-fatal problem found while refreshing one registered project. */
+export interface ProjectCatalogDiagnostic {
+  projectId: string
+  source: 'project-config' | 'project'
+  targetPath: string
+  path: string
+  line?: number
+  column?: number
+  message: string
+}
+
+/** Registered projects plus project-local problems that did not block the catalog. */
+export interface ProjectCatalogSnapshot {
+  projects: ProjectRecord[]
+  diagnostics: ProjectCatalogDiagnostic[]
+}
+
+/** Runtime compatibility metadata reported to local clients. */
+export interface RuntimeHealth {
+  status: 'ok'
+  projectConfigSchemaRevision: string
+}
+
 /** User-editable visual metadata for a project. */
 export interface ProjectVisualInput {
   icon?: string
   color?: ProjectAccentColor
+}
+
+/** Stable identifier for the one local-first personal owner scope. */
+export const PERSONAL_OWNER_SCOPE_ID = 'personal'
+
+/** Supported ownership modes for portable workbench configuration. */
+export type OwnerScopeKind = 'personal' | 'team'
+
+/** Exclusive owner of workspaces and workspace groups. */
+export interface OwnerScope {
+  id: string
+  kind: OwnerScopeKind
+  name: string
+}
+
+/** Machine-local owner-scope navigation state. */
+export interface OwnerScopeUiState {
+  activeScopeId: string
 }
 
 /** Project configuration initialization operation. */
@@ -57,6 +98,8 @@ export interface WorkspaceMember {
 export interface WorkspaceManifest {
   schemaVersion: 1
   id: string
+  /** Omitted by legacy Personal manifests and normalized when read. */
+  ownerScopeId?: string
   name: string
   icon?: string
   color?: ProjectAccentColor
@@ -75,16 +118,19 @@ export interface ResolvedWorkspaceMember extends WorkspaceMember {
 
 /** Workspace manifest augmented with local resolution metadata. */
 export interface WorkspaceRecord extends WorkspaceManifest {
+  ownerScopeId?: string
   revision: string
   members: ResolvedWorkspaceMember[]
   groupId?: string
 }
 
-/** User-owned, non-nesting navigation group for workspaces. */
+/** User-owned, non-nesting navigation group for workspaces and standalone projects. */
 export interface WorkspaceGroup {
   id: string
   name: string
   icon?: string
+  /** Omitted by legacy Personal groups and normalized when read. */
+  ownerScopeId?: string
 }
 
 /** Portable workspace ordering and grouping catalog. */
@@ -184,6 +230,73 @@ export interface CommandPackage {
   root: boolean
 }
 
+/** Kind of project-owned description metadata Craft Hub can propose. */
+export type ProjectDescriptionTarget = 'command' | 'package'
+
+/** Source location that supports one generated project description. */
+export interface ProjectDescriptionEvidence {
+  path: string
+  startLine?: number
+  endLine?: number
+  kind: 'command-definition' | 'package-manifest' | 'project-instruction' | 'readme'
+  summary?: string
+}
+
+/** One deterministic gap discovered before an agent is invoked. */
+export interface ProjectDescriptionItem {
+  id: string
+  target: ProjectDescriptionTarget
+  key: string
+  name: string
+  packageRelativePath: string
+  currentDescription?: string
+  evidence: ProjectDescriptionEvidence[]
+}
+
+/** Current description gaps and the revision of the inputs used to find them. */
+export interface ProjectDescriptionAudit {
+  analysisRevision: string
+  configRevision: string
+  items: ProjectDescriptionItem[]
+  missingCommandCount: number
+  missingPackageCount: number
+}
+
+/** Localized text proposed by an external agent without changing repository files. */
+export interface ProjectDescriptionSuggestion {
+  id: string
+  target: ProjectDescriptionTarget
+  key: string
+  status: 'suggested' | 'skipped'
+  description?: Record<string, string>
+  evidence: ProjectDescriptionEvidence[]
+  reason: string
+}
+
+/** Persisted, reviewable output of one project-description agent task. */
+export interface ProjectDescriptionProposal {
+  analysisRevision: string
+  configRevision: string
+  locale: 'en' | 'zh-CN'
+  suggestions: ProjectDescriptionSuggestion[]
+}
+
+/** User-reviewed description value accepted for deterministic application. */
+export interface ProjectDescriptionChange {
+  id: string
+  target: ProjectDescriptionTarget
+  key: string
+  description: Record<string, string>
+}
+
+/** Result of atomically applying reviewed project descriptions. */
+export interface ProjectDescriptionApplication {
+  appliedCount: number
+  previousRevision: string
+  revision: string
+  targetPath: ProjectConfigPath
+}
+
 /** Non-fatal issue encountered while discovering project capabilities. */
 export interface CapabilityDiscoveryDiagnostic {
   message: string
@@ -217,6 +330,8 @@ export interface CommandInputCondition {
 export interface CommandInputOption {
   value: string
   label?: string
+  /** Whether selecting this option intentionally omits the input's command-line argument. */
+  omitArgument?: boolean
 }
 
 /** Project-owned form input that is resolved into structured command arguments. */
@@ -233,6 +348,20 @@ export interface CommandInputDefinition {
   pattern?: string
   flag: string
   argumentStyle?: 'equals' | 'separate'
+}
+
+/** Project-owned form input that is added to an agent skill request as structured context. */
+export interface SkillInputDefinition {
+  id: string
+  type: 'select' | 'text'
+  label?: string
+  description?: string
+  options?: CommandInputOption[]
+  default?: string
+  required?: boolean
+  requiredWhen?: CommandInputCondition
+  visibleWhen?: CommandInputCondition
+  pattern?: string
 }
 
 /** User-provided values for a parameterized command capability. */
@@ -269,6 +398,7 @@ export interface SkillCapability {
   path: string
   contentHash: string
   content: string
+  inputs?: SkillInputDefinition[]
 }
 
 /** Capability discovered for a project. */
@@ -334,6 +464,8 @@ export interface RunCleanupOptions {
 export interface AgentTaskRecord {
   id: string
   provider: string
+  /** Capability that originated this task, when launched from a capability detail. */
+  capabilityId?: string
   actionId?: AgentActionId
   actionResult?: AgentActionResult
   workspaceId?: string
@@ -345,6 +477,9 @@ export interface AgentTaskRecord {
   startedAt: string
   finishedAt?: string
   status: 'running' | 'completed' | 'cancelled' | 'failed'
+  /** Local, human-readable progress emitted by the task provider. */
+  output?: string
+  outputTruncated?: boolean
   finalResponse?: string
   error?: string
 }
@@ -354,16 +489,20 @@ export type AgentActionId = 'improve-project-config'
 
 /** Post-run result recorded for a built-in agent workflow. */
 export interface AgentActionResult {
-  outcome: 'updated' | 'unchanged' | 'needs-attention'
+  outcome: 'proposed' | 'updated' | 'unchanged' | 'needs-attention'
   updatedCommandCount?: number
   message?: string
+  proposal?: ProjectDescriptionProposal
 }
 
 /** Current applicability and execution state of a built-in agent workflow. */
 export interface AgentActionSummary {
   commandFingerprint: string
+  analysisRevision?: string
+  configRevision?: string
   id: AgentActionId
   missingCommandCount: number
+  missingPackageCount?: number
   runningTaskId?: string
   targetPath: ProjectConfigPath
 }

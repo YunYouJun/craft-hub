@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/).
 - Structured command execution with persisted run records
 - CLI, local API, Vue workbench, and thin Electron host
 - Optional, schema-validated `.craft-hub/project.jsonc` metadata
+- Isolated Personal and Git-backed Team Owner Scopes with fast switching, explicit conflict resolution, and safe Team rename/delete lifecycle
 
 ### Changed
 

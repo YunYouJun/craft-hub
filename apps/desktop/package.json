@@ -12,7 +12,8 @@
   "dependencies": {
     "@craft-hub/personal-cloud": "workspace:*",
     "@openai/codex-sdk": "catalog:",
-    "craft-hub": "workspace:*"
+    "craft-hub": "workspace:*",
+    "update-electron-app": "catalog:"
   },
   "devDependencies": {
     "electron": "catalog:",

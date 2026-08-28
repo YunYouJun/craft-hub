@@ -2,22 +2,34 @@
 import type { CommandCapability, CommandCategory, CommandPackage } from 'craft-hub'
 import { computed, ref, watch } from 'vue'
 import CapabilityRow from './CapabilityRow.vue'
+import { Button as UiButton } from './components/ui/button'
 import { Icon } from './icons'
 import { useI18n } from './i18n'
+import ProjectConfigInitDialog from './ProjectConfigInitDialog.vue'
+import { commandPaletteShortcutId, defaultCommandPaletteShortcut, formatShortcut } from './shortcuts'
 import { useWorkbenchStore } from './store'
 
 const store = useWorkbenchStore()
-const { t } = useI18n()
+const { locale, t } = useI18n()
+const paletteShortcut = computed(() => formatShortcut(store.settings?.settings['workbench.shortcuts']?.[commandPaletteShortcutId] ?? defaultCommandPaletteShortcut))
 const query = ref('')
 const filter = ref<'all' | 'command' | 'skill' | 'package'>('all')
 const categoryFilter = ref<'all' | CommandCategory>('all')
 const selectedPackagePath = ref('')
 const categories: Array<'all' | CommandCategory> = ['all', 'develop', 'build', 'test', 'quality', 'preview', 'deploy', 'other']
 const draggingId = ref('')
+const recoveryBusy = ref(false)
+const recoveryError = ref('')
+const projectConfigOpen = ref(false)
 const filtered = computed(() => store.capabilities.filter(matchesFilter))
 const pinned = computed(() => store.pinnedCapabilities.filter(matchesFilter))
 const pinnedIds = computed(() => new Set(store.pinnedCapabilityIds))
 const unpinned = computed(() => filtered.value.filter(capability => !pinnedIds.value.has(capability.id)))
+const commandCount = computed(() => store.capabilities.filter(capability => capability.kind === 'command').length)
+const skillCount = computed(() => store.capabilities.filter(capability => capability.kind === 'skill').length)
+const showSkillSources = computed(() => new Set(store.capabilities
+  .filter(capability => capability.kind === 'skill')
+  .map(capability => capability.source)).size > 1)
 interface PackageOverviewRow extends CommandPackage {
   capabilities: CommandCapability[]
 }
@@ -44,7 +56,7 @@ const visiblePackageRows = computed(() => {
     return packageRows.value
   return packageRows.value.filter(row => `${row.relativePath} ${row.name ?? ''} ${row.description ?? ''} ${row.capabilities.map(capability => capability.name).join(' ')}`.toLowerCase().includes(normalizedQuery))
 })
-const packageSections = computed(() => (['root', 'apps', 'packages', 'other'] as const).map(section => ({
+const packageSections = computed(() => (['root', 'apps', 'packages', 'docs', 'other'] as const).map(section => ({
   section,
   rows: visiblePackageRows.value.filter(row => packageSection(row.relativePath) === section),
 })).filter(group => group.rows.length))
@@ -73,7 +85,8 @@ const unpinnedSkills = computed(() => unpinned.value.filter(item => item.kind ==
 const collapsedGroups = ref<string[]>([])
 const improveAction = computed(() => store.agentActions.find(action => action.id === 'improve-project-config'))
 const dismissedFingerprint = ref('')
-const showDescriptionHint = computed(() => Boolean(improveAction.value?.missingCommandCount)
+const missingProjectDescriptionCount = computed(() => (improveAction.value?.missingCommandCount ?? 0) + (improveAction.value?.missingPackageCount ?? 0))
+const showDescriptionHint = computed(() => Boolean(missingProjectDescriptionCount.value)
   && improveAction.value?.commandFingerprint !== dismissedFingerprint.value)
 
 watch(() => [store.selectedProjectId, improveAction.value?.commandFingerprint] as const, () => {
@@ -118,13 +131,15 @@ function comparePackages(left: CommandPackage, right: CommandPackage): number {
   return left.relativePath.localeCompare(right.relativePath, undefined, { numeric: true })
 }
 
-function packageSection(relativePath: string): 'root' | 'apps' | 'packages' | 'other' {
+function packageSection(relativePath: string): 'root' | 'apps' | 'packages' | 'docs' | 'other' {
   if (relativePath === '.')
     return 'root'
   if (relativePath.startsWith('apps/'))
     return 'apps'
   if (relativePath.startsWith('packages/'))
     return 'packages'
+  if (relativePath === 'docs' || relativePath.startsWith('docs/'))
+    return 'docs'
   return 'other'
 }
 
@@ -193,12 +208,40 @@ function dismissDescriptionHint(): void {
   dismissedFingerprint.value = improveAction.value.commandFingerprint
   window.localStorage.setItem(`craft-hub-agent-action-hint:${store.selectedProjectId}`, dismissedFingerprint.value)
 }
+
+async function chooseAnotherProject(): Promise<void> {
+  const path = window.craftHubDesktop?.selectProjectDirectory
+    ? await window.craftHubDesktop.selectProjectDirectory(store.repositoriesRoot)
+    : window.prompt(t('projectPath')) ?? undefined
+  if (!path)
+    return
+  recoveryBusy.value = true
+  recoveryError.value = ''
+  try {
+    await store.addProject(path)
+  }
+  catch (caught) {
+    recoveryError.value = t('addProjectFailed', { message: caught instanceof Error ? caught.message : String(caught) })
+  }
+  finally {
+    recoveryBusy.value = false
+  }
+}
+
+async function openConfigurationGuide(): Promise<void> {
+  const path = locale.value === 'zh-CN' ? 'docs/zh/guide/configuration.md' : 'docs/guide/configuration.md'
+  const url = `https://github.com/YunYouJun/craft-hub/blob/main/${path}`
+  if (window.craftHubDesktop?.openExternalUrl)
+    await window.craftHubDesktop.openExternalUrl(url)
+  else
+    window.open(url, '_blank', 'noopener,noreferrer')
+}
 </script>
 
 <template>
   <section class="capability-panel">
     <div class="panel-heading">
-      <h2>{{ t('projectPalette') }}</h2><kbd>⌘K</kbd>
+      <h2>{{ t('projectPalette') }}</h2><kbd>{{ paletteShortcut }}</kbd>
     </div>
     <label class="search-box">
       <Icon name="search" />
@@ -207,6 +250,7 @@ function dismissDescriptionHint(): void {
     <nav class="filters" :aria-label="t('capabilityFilters')">
       <button v-for="item in ['all', 'command', 'skill'] as const" :key="item" :class="{ active: filter === item }" @click="selectFilter(item)">
         {{ item === 'all' ? t('all') : item === 'command' ? t('commands') : t('skills') }}
+        <small v-if="item !== 'all'">{{ item === 'command' ? commandCount : skillCount }}</small>
       </button>
       <button v-if="packageRows.length > 1" :class="{ active: filter === 'package' }" @click="selectFilter('package')">
         {{ t('packages') }} <small>{{ packageRows.length }}</small>
@@ -230,7 +274,7 @@ function dismissDescriptionHint(): void {
       <aside v-if="showDescriptionHint" class="agent-action-hint">
         <button class="agent-action-hint-main" @click="store.agentActionDialogOpen = true">
           <Icon name="codex" />
-          <span>{{ t('missingDescriptionsHint', { count: String(improveAction?.missingCommandCount ?? 0) }) }} <strong>{{ t('configureWithCodex') }}</strong></span>
+          <span>{{ t('missingProjectDescriptionsHint', { count: String(missingProjectDescriptionCount) }) }} <strong>{{ t('configureWithCodex') }}</strong></span>
         </button>
         <button class="agent-action-hint-dismiss" :aria-label="t('dismissHint')" :title="t('dismissHint')" @click="dismissDescriptionHint"><Icon name="close" /></button>
       </aside>
@@ -273,6 +317,7 @@ function dismissDescriptionHint(): void {
           pinned
           :selected="capability.id === store.selectedCapabilityId"
           package-context
+          :show-skill-source="showSkillSources"
           @select="store.selectedCapabilityId = capability.id"
           @toggle-pin="store.toggleCapabilityPin(capability.id)"
           @dragstart="startDrag(capability.id, $event)"
@@ -293,6 +338,7 @@ function dismissDescriptionHint(): void {
             :capability="capability"
             :pinned="false"
             :selected="capability.id === store.selectedCapabilityId"
+            :show-skill-source="showSkillSources"
             @select="store.selectedCapabilityId = capability.id"
             @toggle-pin="store.toggleCapabilityPin(capability.id)"
           />
@@ -306,11 +352,25 @@ function dismissDescriptionHint(): void {
           :capability="capability"
           :pinned="false"
           :selected="capability.id === store.selectedCapabilityId"
+          :show-skill-source="showSkillSources"
           @select="store.selectedCapabilityId = capability.id"
           @toggle-pin="store.toggleCapabilityPin(capability.id)"
         />
       </section>
-      <div v-if="!filtered.length" class="empty">{{ t('noMatchingCapabilities') }}</div>
+      <div v-if="!store.capabilities.length && store.selectedProject" class="no-capabilities-state">
+        <Icon name="terminal" />
+        <h3>{{ t('noCapabilitiesTitle') }}</h3>
+        <p>{{ t('noCapabilitiesDescription') }}</p>
+        <p class="checked-capability-sources">{{ t('checkedCapabilitySources') }}</p>
+        <div>
+          <UiButton variant="primary" :disabled="recoveryBusy" @click="chooseAnotherProject"><Icon name="folder" /> {{ t('chooseAnotherProject') }}</UiButton>
+          <UiButton @click="openConfigurationGuide"><Icon name="source" /> {{ t('viewConfigurationGuide') }}</UiButton>
+          <UiButton @click="projectConfigOpen = true"><Icon name="plus" /> {{ t('previewProjectConfig') }}</UiButton>
+        </div>
+        <p v-if="recoveryError" class="error-message" role="alert">{{ recoveryError }}</p>
+      </div>
+      <div v-else-if="!filtered.length" class="empty">{{ t('noMatchingCapabilities') }}</div>
     </div>
+    <ProjectConfigInitDialog v-model:open="projectConfigOpen" />
   </section>
 </template>

@@ -3,6 +3,7 @@ name: Release
 permissions:
   id-token: write
   contents: write
+  pages: write
 
 on:
   push:
@@ -10,7 +11,8 @@ on:
       - 'v*'
 
 jobs:
-  release:
+  validate:
+    name: Validate release
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -25,27 +27,32 @@ jobs:
           node-version-file: .node-version
           registry-url: https://registry.npmjs.org/
           cache: pnpm
-
       - run: pnpm install --frozen-lockfile
-      - run: pnpm test
+      - name: Verify tag and package versions
+        run: |
+          tag_version="${GITHUB_REF_NAME#v}"
+          workspace_version="$(node -p "require('./package.json').version")"
+          test "$tag_version" = "$workspace_version"
+          node -e "const fs=require('fs');const root=require('./package.json').version;for(const path of ['apps/cloud/package.json','apps/desktop/package.json','apps/web/package.json','packages/craft-hub-mcp/package.json','packages/craft-hub-personal-cloud/package.json','packages/craft-hub/package.json']){const version=JSON.parse(fs.readFileSync(path)).version;if(version!==root)throw new Error(path+' has '+version+', expected '+root)}"
+          if [[ "$tag_version" == *-alpha.* && ! "$tag_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+-alpha\.0$ ]]; then
+            echo 'Distributed alpha versions must increment the numeric core and use the alpha.0 suffix.' >&2
+            exit 1
+          fi
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm test --run
+      - run: pnpm build
       - run: pnpm docs:build
 
-      - run: pnpm dlx changelogithub
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      # # Uncomment the following lines to publish to npm on CI
-      #
-      # - run: pnpm publish -r --access public
-      #   env:
-      #     NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-      #     NPM_CONFIG_PROVENANCE: true
-
   package-macos:
-    name: Package macOS
-    needs: release
+    name: Package macOS (${{ matrix.arch }})
+    needs: validate
     runs-on: macos-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [arm64, x64]
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
@@ -55,7 +62,6 @@ jobs:
         with:
           node-version-file: .node-version
           cache: pnpm
-
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
       - name: Import Developer ID certificate
@@ -90,33 +96,96 @@ jobs:
           echo "APPLE_API_ISSUER_ID=$APPLE_API_ISSUER_ID" >> "$GITHUB_ENV"
           echo "APPLE_API_KEY_ID=$APPLE_API_KEY_ID" >> "$GITHUB_ENV"
           echo "APPLE_API_KEY_PATH=$api_key_path" >> "$GITHUB_ENV"
-      - run: pnpm run package:mac
-      - name: Verify signed and notarized apps
-        run: |
-          for arch in arm64 x64; do
-            app_path="release/Craft Hub-darwin-$arch/Craft Hub.app"
-            codesign --verify --deep --strict --verbose=2 "$app_path"
-            spctl --assess --type execute --verbose=2 "$app_path"
-            xcrun stapler validate "$app_path"
-          done
-      - name: Archive macOS apps
-        run: |
-          for arch in arm64 x64; do
-            ditto -c -k --sequesterRsrc --keepParent \
-              "release/Craft Hub-darwin-$arch/Craft Hub.app" \
-              "release/Craft-Hub-macOS-$arch.zip"
-          done
-      - name: Upload macOS app to GitHub Release
-        run: |
-          gh release upload "$GITHUB_REF_NAME" \
-            'release/Craft-Hub-macOS-arm64.zip' \
-            'release/Craft-Hub-macOS-x64.zip' \
-            --clobber
+      - name: Package signed, notarized app, DMG, and update ZIP
+        run: pnpm run package:mac
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MACOS_ARCHES: ${{ matrix.arch }}
+      - name: Verify signatures, notarization, and archives
+        run: |
+          app_path="release/Craft Hub-darwin-${{ matrix.arch }}/Craft Hub.app"
+          dmg_path="release/Craft-Hub-macOS-${{ matrix.arch }}.dmg"
+          zip_path="release/Craft-Hub-macOS-${{ matrix.arch }}.zip"
+          codesign --verify --deep --strict --verbose=2 "$app_path"
+          spctl --assess --type execute --verbose=2 "$app_path"
+          xcrun stapler validate "$app_path"
+          xcrun stapler validate "$dmg_path"
+          hdiutil verify "$dmg_path"
+          unzip -t "$zip_path"
+      - name: Run mounted DMG startup smoke test
+        run: |
+          mount_path="$RUNNER_TEMP/craft-hub-${{ matrix.arch }}"
+          mkdir -p "$mount_path"
+          hdiutil attach -readonly -nobrowse -mountpoint "$mount_path" "release/Craft-Hub-macOS-${{ matrix.arch }}.dmg"
+          trap 'hdiutil detach "$mount_path" || true' EXIT
+          CRAFT_HUB_SMOKE_TEST=true perl -e 'alarm 45; exec @ARGV' "$mount_path/Craft Hub.app/Contents/MacOS/Craft Hub"
+          hdiutil detach "$mount_path"
+          trap - EXIT
+      - uses: actions/upload-artifact@v7
+        with:
+          name: craft-hub-macos-${{ matrix.arch }}
+          path: |
+            release/Craft-Hub-macOS-${{ matrix.arch }}.dmg
+            release/Craft-Hub-macOS-${{ matrix.arch }}.zip
+          if-no-files-found: error
       - name: Remove temporary signing keychain
         if: always()
         run: |
           if [[ -n "${MACOS_KEYCHAIN_PATH:-}" ]]; then
             security delete-keychain "$MACOS_KEYCHAIN_PATH" || true
           fi
+
+  release:
+    name: Finalize GitHub Release
+    needs: [validate, package-macos]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v6
+        with:
+          run_install: false
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: craft-hub-macos-*
+          path: release
+          merge-multiple: true
+      - run: pnpm dlx changelogithub
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Upload verified macOS artifacts
+        run: |
+          gh release upload "$GITHUB_REF_NAME" \
+            release/Craft-Hub-macOS-arm64.dmg \
+            release/Craft-Hub-macOS-arm64.zip \
+            release/Craft-Hub-macOS-x64.dmg \
+            release/Craft-Hub-macOS-x64.zip \
+            --clobber
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  publish-update-feed:
+    name: Publish alpha update feed
+    needs: release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/configure-pages@v5
+      - name: Generate architecture-specific Squirrel.Mac feeds
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          mkdir -p _site/updates/alpha/darwin/arm64 _site/updates/alpha/darwin/x64
+          for arch in arm64 x64; do
+            ARCH="$arch" node -e "const fs=require('fs');const tag=process.env.RELEASE_TAG;const version=tag.slice(1).split('-')[0];const arch=process.env.ARCH;const asset='Craft-Hub-macOS-'+arch+'.zip';const update={currentRelease:version,releases:[{version,updateTo:{version,pub_date:new Date().toISOString(),notes:'Craft Hub '+tag+' alpha update',name:version,url:'https://github.com/YunYouJun/craft-hub/releases/download/'+tag+'/'+asset}}]};fs.writeFileSync('_site/updates/alpha/darwin/'+arch+'/RELEASES.json',JSON.stringify(update,null,2)+'\n')"
+          done
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: _site
+      - name: Deploy update feed to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

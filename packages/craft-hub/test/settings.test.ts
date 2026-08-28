@@ -14,7 +14,7 @@ describe('global settings', () => {
     const { root, service } = await settingsFixture()
     const initial = await service.get()
 
-    expect(initial).toMatchObject({ explicitKeys: [], settings: { 'workbench.locale': 'en', 'workbench.theme': 'system' } })
+    expect(initial).toMatchObject({ explicitKeys: [], settings: { 'workbench.codex': {}, 'workbench.editor': { default: 'vscode' }, 'workbench.locale': 'en', 'workbench.repositoriesRoot': '', 'workbench.shortcuts': { 'workbench.showCommandPalette': 'Mod+K' }, 'workbench.theme': 'system' } })
     const updated = await service.update({ 'workbench.locale': 'zh-CN', 'workbench.theme': 'dark' }, initial.revision)
 
     expect(updated.settings['workbench.locale']).toBe('zh-CN')
@@ -29,6 +29,58 @@ describe('global settings', () => {
       title: 'Craft Hub user settings',
       additionalProperties: false,
     })
+  })
+
+  it('persists optional Codex model and reasoning defaults', async () => {
+    const { root, service } = await settingsFixture()
+    const initial = await service.get()
+    const codex = { model: 'gpt-5.6-sol', reasoningEffort: 'high' as const }
+    const updated = await service.update({ 'workbench.codex': codex }, initial.revision)
+
+    expect(updated.settings['workbench.codex']).toEqual(codex)
+    expect(JSON.parse(await readFile(join(root, 'settings.json'), 'utf8'))['workbench.codex']).toEqual(codex)
+    await expect(service.update({ 'workbench.codex': { reasoningEffort: 'extreme' } }, updated.revision)).rejects.toThrow()
+  })
+
+  it('validates and persists keyboard shortcut bindings', async () => {
+    const { root, service } = await settingsFixture()
+    const initial = await service.get()
+    const shortcuts = {
+      'workbench.showCommandPalette': 'Mod+Shift+P',
+      'capability:project:build': 'Mod+B',
+    }
+    const updated = await service.update({ 'workbench.shortcuts': shortcuts }, initial.revision)
+
+    expect(updated.settings['workbench.shortcuts']).toEqual(shortcuts)
+    expect(JSON.parse(await readFile(join(root, 'settings.json'), 'utf8'))['workbench.shortcuts']).toEqual(shortcuts)
+    await expect(service.update({ 'workbench.shortcuts': { invalid: '' } }, updated.revision)).rejects.toThrow()
+  })
+
+  it('validates a shell-free custom editor with a path placeholder', async () => {
+    const { service } = await settingsFixture()
+    const initial = await service.get()
+    const editor = { default: 'custom', custom: { name: 'Cursor', command: 'cursor', args: ['--reuse-window', '{path}'] } }
+    const updated = await service.update({ 'workbench.editor': editor }, initial.revision)
+
+    expect(updated.settings['workbench.editor']).toEqual(editor)
+    await expect(service.update({ 'workbench.editor': { default: 'custom', custom: { name: 'Unsafe', command: 'sh', args: ['-c'] } } }, updated.revision)).rejects.toThrow('{path}')
+  })
+
+  it('accepts the additional built-in Cursor preference', async () => {
+    const { service } = await settingsFixture()
+    const snapshot = await service.get()
+    const updated = await service.update({ 'workbench.editor': { default: 'cursor' } }, snapshot.revision)
+    expect(updated.settings['workbench.editor']).toEqual({ default: 'cursor' })
+  })
+
+  it('persists a global local repositories root for folder picker defaults', async () => {
+    const { root, service } = await settingsFixture()
+    const initial = await service.get()
+    const updated = await service.update({ 'workbench.repositoriesRoot': '/Users/example/repos' }, initial.revision)
+
+    expect(updated.settings['workbench.repositoriesRoot']).toBe('/Users/example/repos')
+    expect(JSON.parse(await readFile(join(root, 'settings.json'), 'utf8'))['workbench.repositoriesRoot']).toBe('/Users/example/repos')
+    await expect(service.update({ 'workbench.repositoriesRoot': 'bad\0path' }, updated.revision)).rejects.toThrow('NUL')
   })
 
   it('rejects stale revisions and unknown core settings', async () => {
@@ -55,7 +107,11 @@ describe('global settings', () => {
       settings: { 'extensions.example.enabled': true },
     })
     expect(full.settings).toEqual({
+      'workbench.codex': {},
+      'workbench.editor': { default: 'vscode' },
       'workbench.locale': 'en',
+      'workbench.repositoriesRoot': '',
+      'workbench.shortcuts': { 'workbench.showCommandPalette': 'Mod+K' },
       'workbench.theme': 'system',
       'extensions.example.enabled': true,
     })

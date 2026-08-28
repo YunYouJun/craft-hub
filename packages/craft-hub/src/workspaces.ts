@@ -4,15 +4,20 @@ import { createHash, randomUUID } from 'node:crypto'
 import { mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { parse, stringify } from 'yaml'
-import { projectAccentColors } from './types'
+import { PERSONAL_OWNER_SCOPE_ID, projectAccentColors } from './types'
 
 interface WorkspaceBindings {
   schemaVersion: 1
   projects: Record<string, string>
   projectPaths: Record<string, string>
+  projectsByScope?: Record<string, Record<string, string>>
+  projectPathsByScope?: Record<string, Record<string, string>>
+  projectGroups: Record<string, string>
+  projectGroupsByScope?: Record<string, Record<string, string>>
   expandedWorkspaces: string[]
   selectedWorkspace?: string
   selectedProject?: string
+  scopeUiStates?: Record<string, WorkspaceUiState>
 }
 
 /** Optimistic input used to save a portable workspace manifest. */
@@ -27,6 +32,15 @@ export interface ImportedWorkspaceMemberInput {
   path: string
   projectId?: string
   available?: boolean
+}
+
+/** Recoverable portable and machine-local state removed with one Team. */
+export interface OwnerScopeWorkspaceData {
+  snapshot: PortableWorkspaceSnapshot
+  projectBindings: Record<string, string>
+  projectPaths: Record<string, string>
+  projectGroups: Record<string, string>
+  uiState?: WorkspaceUiState
 }
 
 /** Raised when a workspace changes after the caller read it. */
@@ -48,7 +62,7 @@ export class WorkspaceService {
     this.bindingsPath = join(dataDir, 'workspace-bindings.json')
   }
 
-  async list(): Promise<WorkspaceRecord[]> {
+  async list(ownerScopeId = PERSONAL_OWNER_SCOPE_ID): Promise<WorkspaceRecord[]> {
     const directory = join(this.configDir, 'workspaces')
     let names: string[] = []
     try {
@@ -58,7 +72,8 @@ export class WorkspaceService {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT')
         throw error
     }
-    const records = await Promise.all(names.map(name => this.readFile(join(directory, name))))
+    const records = (await Promise.all(names.map(name => this.readFile(join(directory, name)))))
+      .filter(record => workspaceOwnerScopeId(record) === ownerScopeId)
     const catalog = await this.catalog()
     const positions = new Map(catalog.workspaceOrder.map((id, index) => [id, index]))
     return records.map(record => ({ ...record, groupId: catalog.workspaceGroups[record.id] })).sort((left, right) => {
@@ -69,34 +84,35 @@ export class WorkspaceService {
     })
   }
 
-  async get(id: string): Promise<WorkspaceRecord> {
+  async get(id: string, ownerScopeId?: string): Promise<WorkspaceRecord> {
     assertWorkspaceId(id)
     const [workspace, catalog] = await Promise.all([this.readFile(this.workspacePath(id)), this.catalog()])
+    if (ownerScopeId && workspaceOwnerScopeId(workspace) !== ownerScopeId)
+      throw new Error(`Workspace ${id} does not belong to owner scope ${ownerScopeId}`)
     return { ...workspace, groupId: catalog.workspaceGroups[id] }
   }
 
-  async create(name: string): Promise<WorkspaceRecord> {
+  async create(name: string, ownerScopeId = PERSONAL_OWNER_SCOPE_ID): Promise<WorkspaceRecord> {
     const id = slug(name) || randomUUID()
-    const existing = await this.list()
     let candidate = id
     let suffix = 2
-    while (existing.some(workspace => workspace.id === candidate))
+    while (await readOptional(this.workspacePath(candidate)) !== undefined)
       candidate = `${id}-${suffix++}`
     const record = await this.save({
-      manifest: { schemaVersion: 1, id: candidate, name: name.trim(), members: [] },
+      manifest: { schemaVersion: 1, id: candidate, name: name.trim(), ownerScopeId: portableOwnerScopeId(ownerScopeId), members: [] },
     })
     const catalog = await this.catalog()
-    await this.saveCatalog({ ...catalog, workspaceOrder: [...existing.map(item => item.id), candidate] })
+    await this.saveCatalog({ ...catalog, workspaceOrder: [...catalog.workspaceOrder.filter(item => item !== candidate), candidate] })
     return record
   }
 
   /** List editable workspace groups in navigation order. */
-  async groups(): Promise<WorkspaceGroup[]> {
-    return (await this.catalog()).groups
+  async groups(ownerScopeId = PERSONAL_OWNER_SCOPE_ID): Promise<WorkspaceGroup[]> {
+    return (await this.catalog()).groups.filter(group => groupOwnerScopeId(group) === ownerScopeId)
   }
 
   /** Create an editable workspace group. */
-  async createGroup(name: string): Promise<WorkspaceGroup> {
+  async createGroup(name: string, ownerScopeId = PERSONAL_OWNER_SCOPE_ID): Promise<WorkspaceGroup> {
     if (!name.trim())
       throw new Error('Workspace group name is required')
     const catalog = await this.catalog()
@@ -105,53 +121,69 @@ export class WorkspaceService {
     let suffix = 2
     while (catalog.groups.some(group => group.id === id))
       id = `${base}-${suffix++}`
-    const group = { id, name: name.trim() }
+    const group = { id, name: name.trim(), ownerScopeId: portableOwnerScopeId(ownerScopeId) }
     await this.saveCatalog({ ...catalog, groups: [...catalog.groups, group] })
     return group
   }
 
   /** Rename an editable workspace group. */
-  async renameGroup(id: string, name: string): Promise<WorkspaceGroup> {
+  async renameGroup(id: string, name: string, ownerScopeId?: string): Promise<WorkspaceGroup> {
     if (!name.trim())
       throw new Error('Workspace group name is required')
     const catalog = await this.catalog()
     const existing = catalog.groups.find(group => group.id === id)
     if (!existing)
       throw new Error(`Unknown workspace group: ${id}`)
+    assertGroupScope(existing, ownerScopeId)
     const group = { ...existing, name: name.trim() }
     await this.saveCatalog({ ...catalog, groups: catalog.groups.map(item => item.id === id ? group : item) })
     return group
   }
 
   /** Set the optional portable icon or emoji for one workspace group. */
-  async setGroupIcon(id: string, icon?: string): Promise<WorkspaceGroup> {
+  async setGroupIcon(id: string, icon?: string, ownerScopeId?: string): Promise<WorkspaceGroup> {
     const catalog = await this.catalog()
     const existing = catalog.groups.find(group => group.id === id)
     if (!existing)
       throw new Error(`Unknown workspace group: ${id}`)
+    assertGroupScope(existing, ownerScopeId)
     const group = { ...existing, icon: icon?.trim() || undefined }
     await this.saveCatalog({ ...catalog, groups: catalog.groups.map(item => item.id === id ? group : item) })
     return group
   }
 
-  /** Delete a group without deleting its workspaces. */
-  async deleteGroup(id: string): Promise<void> {
+  /** Delete a group without deleting its workspaces or standalone projects. */
+  async deleteGroup(id: string, ownerScopeId?: string): Promise<void> {
     const catalog = await this.catalog()
-    if (!catalog.groups.some(group => group.id === id))
+    const existing = catalog.groups.find(group => group.id === id)
+    if (!existing)
       throw new Error(`Unknown workspace group: ${id}`)
+    assertGroupScope(existing, ownerScopeId)
     await this.saveCatalog({
       ...catalog,
       groups: catalog.groups.filter(group => group.id !== id),
       workspaceGroups: Object.fromEntries(Object.entries(catalog.workspaceGroups).filter(([, groupId]) => groupId !== id)),
     })
+    const bindings = await this.bindings()
+    const scopeId = groupOwnerScopeId(existing)
+    const projectGroupsByScope = { ...bindings.projectGroupsByScope }
+    projectGroupsByScope[scopeId] = Object.fromEntries(Object.entries(projectGroups(bindings, scopeId)).filter(([, groupId]) => groupId !== id))
+    await writeJsonAtomic(this.bindingsPath, {
+      ...bindings,
+      projectGroups: scopeId === PERSONAL_OWNER_SCOPE_ID ? projectGroupsByScope[scopeId] : bindings.projectGroups,
+      projectGroupsByScope,
+    })
   }
 
   /** Move one workspace into a group, or remove it from grouping. */
-  async assignGroup(workspaceId: string, groupId?: string): Promise<WorkspaceRecord> {
-    await this.get(workspaceId)
+  async assignGroup(workspaceId: string, groupId?: string, ownerScopeId?: string): Promise<WorkspaceRecord> {
+    const workspace = await this.get(workspaceId, ownerScopeId)
     const catalog = await this.catalog()
-    if (groupId && !catalog.groups.some(group => group.id === groupId))
+    const group = groupId ? catalog.groups.find(item => item.id === groupId) : undefined
+    if (groupId && !group)
       throw new Error(`Unknown workspace group: ${groupId}`)
+    if (group && groupOwnerScopeId(group) !== workspaceOwnerScopeId(workspace))
+      throw new Error('Workspace and group must belong to the same owner scope')
     const workspaceGroups = { ...catalog.workspaceGroups }
     if (groupId)
       workspaceGroups[workspaceId] = groupId
@@ -161,11 +193,64 @@ export class WorkspaceService {
     return this.getWithGroup(workspaceId)
   }
 
+  /** List machine-local group assignments for registered standalone projects. */
+  async projectGroupAssignments(ownerScopeId = PERSONAL_OWNER_SCOPE_ID): Promise<Record<string, string>> {
+    const [bindings, catalog, projects] = await Promise.all([this.bindings(), this.catalog(), this.projects.list()])
+    const projectIds = new Set(projects.map(project => project.id))
+    const groupIds = new Set(catalog.groups.map(group => group.id))
+    return Object.fromEntries(Object.entries(projectGroups(bindings, ownerScopeId))
+      .filter(([projectId, groupId]) => projectIds.has(projectId) && groupIds.has(groupId)))
+  }
+
+  /** Map registered projects to the non-Personal owner scopes that explicitly reference them. */
+  async projectOwnerScopes(ownerScopeIds: string[]): Promise<Record<string, string[]>> {
+    const scopes = [...new Set(ownerScopeIds.filter(ownerScopeId => ownerScopeId !== PERSONAL_OWNER_SCOPE_ID))]
+    scopes.forEach(assertOwnerScopeId)
+    const entries = await Promise.all(scopes.map(async (ownerScopeId) => {
+      const [workspaces, groupedProjects] = await Promise.all([
+        this.list(ownerScopeId),
+        this.projectGroupAssignments(ownerScopeId),
+      ])
+      const projectIds = new Set([
+        ...Object.keys(groupedProjects),
+        ...workspaces.flatMap(workspace => workspace.members.map(member => member.projectId).filter((projectId): projectId is string => Boolean(projectId))),
+      ])
+      return { ownerScopeId, projectIds }
+    }))
+    const result: Record<string, string[]> = {}
+    for (const { ownerScopeId, projectIds } of entries) {
+      for (const projectId of projectIds)
+        result[projectId] = [...(result[projectId] ?? []), ownerScopeId]
+    }
+    return result
+  }
+
+  /** Move one registered standalone project into a navigation group, or leave it ungrouped. */
+  async assignProjectGroup(projectId: string, groupId?: string, ownerScopeId = PERSONAL_OWNER_SCOPE_ID): Promise<Record<string, string>> {
+    await this.projects.get(projectId)
+    const [bindings, catalog] = await Promise.all([this.bindings(), this.catalog()])
+    if (groupId && !catalog.groups.some(group => group.id === groupId && groupOwnerScopeId(group) === ownerScopeId))
+      throw new Error(`Unknown workspace group: ${groupId}`)
+    const assignments = { ...projectGroups(bindings, ownerScopeId) }
+    if (groupId)
+      assignments[projectId] = groupId
+    else
+      delete assignments[projectId]
+    await writeJsonAtomic(this.bindingsPath, {
+      ...bindings,
+      projectGroups: ownerScopeId === PERSONAL_OWNER_SCOPE_ID ? assignments : bindings.projectGroups,
+      projectGroupsByScope: { ...bindings.projectGroupsByScope, [ownerScopeId]: assignments },
+    })
+    return this.projectGroupAssignments(ownerScopeId)
+  }
+
   /** Create one owned workspace from imported members and retain paths only in local bindings. */
-  async importWorkspace(name: string, members: ImportedWorkspaceMemberInput[], groupId: string): Promise<WorkspaceRecord> {
-    let workspace = await this.create(name)
+  async importWorkspace(name: string, members: ImportedWorkspaceMemberInput[], groupId: string, ownerScopeId = PERSONAL_OWNER_SCOPE_ID): Promise<WorkspaceRecord> {
+    let workspace = await this.create(name, ownerScopeId)
     const bindings = await this.bindings()
-    const used = new Set([...Object.keys(bindings.projects), ...Object.keys(bindings.projectPaths), ...workspace.members.map(member => member.project)])
+    const scopedProjects = scopeProjects(bindings, ownerScopeId)
+    const scopedProjectPaths = scopeProjectPaths(bindings, ownerScopeId)
+    const used = new Set([...Object.keys(scopedProjects), ...Object.keys(scopedProjectPaths), ...workspace.members.map(member => member.project)])
     const manifest = portableManifest(workspace)
     for (const member of members) {
       let key: string
@@ -173,7 +258,7 @@ export class WorkspaceService {
         key = await this.projectKey(member.projectId, workspace)
       }
       else {
-        const existing = Object.entries(bindings.projectPaths).find(([, path]) => path === member.path)?.[0]
+        const existing = Object.entries(scopedProjectPaths).find(([, path]) => path === member.path)?.[0]
         if (existing) {
           key = existing
         }
@@ -187,17 +272,22 @@ export class WorkspaceService {
       }
       used.add(key)
       manifest.members.push({ project: key, label: member.name, discoveryHint: basenameHint(member.path) })
-      await this.rememberProjectPath(key, member.path)
+      await this.rememberProjectPath(key, member.path, ownerScopeId)
     }
     manifest.primaryProject = manifest.members[0]?.project
     workspace = await this.save({ manifest, revision: workspace.revision })
-    return this.assignGroup(workspace.id, groupId)
+    return this.assignGroup(workspace.id, groupId, ownerScopeId)
   }
 
   async save(input: SaveWorkspaceInput): Promise<WorkspaceRecord> {
     validateManifest(input.manifest)
     const path = this.workspacePath(input.manifest.id)
     const current = await readOptional(path)
+    if (current !== undefined) {
+      const currentManifest = parse(current) as WorkspaceManifest
+      if ((currentManifest.ownerScopeId ?? PERSONAL_OWNER_SCOPE_ID) !== (input.manifest.ownerScopeId ?? PERSONAL_OWNER_SCOPE_ID))
+        throw new Error('Changing workspace owner scope requires an explicit copy operation')
+    }
     const actualRevision = revision(current ?? '')
     if (current !== undefined && input.revision !== actualRevision)
       throw new WorkspaceConflictError(actualRevision)
@@ -207,8 +297,8 @@ export class WorkspaceService {
     return this.get(input.manifest.id)
   }
 
-  async delete(id: string, expectedRevision: string): Promise<void> {
-    const current = await this.get(id)
+  async delete(id: string, expectedRevision: string, ownerScopeId?: string): Promise<void> {
+    const current = await this.get(id, ownerScopeId)
     if (current.revision !== expectedRevision)
       throw new WorkspaceConflictError(current.revision)
     await rm(this.workspacePath(id))
@@ -218,67 +308,81 @@ export class WorkspaceService {
     await this.saveCatalog({ ...catalog, workspaceOrder: catalog.workspaceOrder.filter(item => item !== id), workspaceGroups })
   }
 
-  async reorder(workspaceOrder: string[]): Promise<WorkspaceCatalog> {
-    const known = new Set((await this.list()).map(workspace => workspace.id))
+  async reorder(workspaceOrder: string[], ownerScopeId = PERSONAL_OWNER_SCOPE_ID): Promise<WorkspaceCatalog> {
+    const known = new Set((await this.list(ownerScopeId)).map(workspace => workspace.id))
     if (new Set(workspaceOrder).size !== workspaceOrder.length || workspaceOrder.some(id => !known.has(id)))
       throw new Error('Workspace order must contain unique, known workspace ids')
-    const catalog = { ...(await this.catalog()), workspaceOrder }
+    const current = await this.catalog()
+    const catalog = {
+      ...current,
+      workspaceOrder: replaceScopeOrder(current.workspaceOrder, known, workspaceOrder),
+    }
     await this.saveCatalog(catalog)
     return catalog
   }
 
   /** Export only user-owned workspace manifests and their portable order. */
-  async portableSnapshot(): Promise<PortableWorkspaceSnapshot> {
-    const workspaces = await this.list()
+  async portableSnapshot(ownerScopeId = PERSONAL_OWNER_SCOPE_ID): Promise<PortableWorkspaceSnapshot> {
+    const workspaces = await this.list(ownerScopeId)
     const catalog = await this.catalog()
+    const groupIds = new Set(catalog.groups.filter(group => groupOwnerScopeId(group) === ownerScopeId).map(group => group.id))
     return {
       schemaVersion: 1,
       workspaces: workspaces.map(portableManifest),
       workspaceOrder: catalog.workspaceOrder.filter(id => workspaces.some(workspace => workspace.id === id)),
-      groups: catalog.groups,
-      workspaceGroups: Object.fromEntries(Object.entries(catalog.workspaceGroups).filter(([id]) => workspaces.some(workspace => workspace.id === id))),
+      groups: catalog.groups.filter(group => groupIds.has(group.id)),
+      workspaceGroups: Object.fromEntries(Object.entries(catalog.workspaceGroups).filter(([id, groupId]) => workspaces.some(workspace => workspace.id === id) && groupIds.has(groupId))),
     }
   }
 
   /** Apply one portable manifest while preserving this machine's project bindings and trust. */
-  async applyPortableManifest(manifest: WorkspaceManifest): Promise<WorkspaceRecord> {
+  async applyPortableManifest(manifest: WorkspaceManifest, ownerScopeId = manifest.ownerScopeId ?? PERSONAL_OWNER_SCOPE_ID): Promise<WorkspaceRecord> {
     validateManifest(manifest)
+    const scopedManifest = { ...manifest, ownerScopeId: portableOwnerScopeId(ownerScopeId) }
     try {
-      const current = await this.get(manifest.id)
-      return this.save({ manifest, revision: current.revision })
+      const current = await this.get(manifest.id, ownerScopeId)
+      return this.save({ manifest: scopedManifest, revision: current.revision })
     }
     catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT')
-        return this.save({ manifest })
+        return this.save({ manifest: scopedManifest })
       throw error
     }
   }
 
   /** Apply portable ordering without deleting local-only workspaces. */
-  async applyPortableOrder(remoteOrder: string[]): Promise<WorkspaceCatalog> {
-    const known = (await this.list()).map(workspace => workspace.id)
+  async applyPortableOrder(remoteOrder: string[], ownerScopeId = PERSONAL_OWNER_SCOPE_ID): Promise<WorkspaceCatalog> {
+    const known = (await this.list(ownerScopeId)).map(workspace => workspace.id)
     const remoteKnown = remoteOrder.filter(id => known.includes(id))
-    return this.reorder([...new Set([...remoteKnown, ...known])])
+    return this.reorder([...new Set([...remoteKnown, ...known])], ownerScopeId)
   }
 
   /** Apply portable ordering and groups without deleting local-only workspaces or groups. */
-  async applyPortableCatalog(input: Pick<WorkspaceCatalog, 'groups' | 'workspaceGroups' | 'workspaceOrder'>): Promise<WorkspaceCatalog> {
+  async applyPortableCatalog(input: Pick<WorkspaceCatalog, 'groups' | 'workspaceGroups' | 'workspaceOrder'>, ownerScopeId = PERSONAL_OWNER_SCOPE_ID): Promise<WorkspaceCatalog> {
     if (!Array.isArray(input.groups) || input.groups.some(group => !group.id || !group.name?.trim()))
       throw new Error('Cloud workspace groups are invalid')
     if (!input.workspaceGroups || typeof input.workspaceGroups !== 'object')
       throw new Error('Cloud workspace group assignments are invalid')
-    const [knownWorkspaces, local] = await Promise.all([this.list(), this.catalog()])
+    const [knownWorkspaces, local] = await Promise.all([this.list(ownerScopeId), this.catalog()])
+    const foreignGroupIds = new Set(local.groups.filter(group => groupOwnerScopeId(group) !== ownerScopeId).map(group => group.id))
+    if (input.groups.some(group => foreignGroupIds.has(group.id)))
+      throw new Error('Workspace group id belongs to another owner scope')
     const knownIds = new Set(knownWorkspaces.map(workspace => workspace.id))
     const remoteOrder = input.workspaceOrder.filter(id => knownIds.has(id))
     const remoteGroupIds = new Set(input.groups.map(group => group.id))
-    const groups = [...input.groups, ...local.groups.filter(group => !remoteGroupIds.has(group.id))]
+    const remoteGroups = input.groups.map(group => ({ ...group, ownerScopeId: portableOwnerScopeId(ownerScopeId) }))
+    const groups = [
+      ...local.groups.filter(group => groupOwnerScopeId(group) !== ownerScopeId),
+      ...remoteGroups,
+      ...local.groups.filter(group => groupOwnerScopeId(group) === ownerScopeId && !remoteGroupIds.has(group.id)),
+    ]
     const workspaceGroups = {
       ...Object.fromEntries(Object.entries(local.workspaceGroups).filter(([id]) => !input.workspaceOrder.includes(id))),
       ...Object.fromEntries(Object.entries(input.workspaceGroups).filter(([id, groupId]) => knownIds.has(id) && groups.some(group => group.id === groupId))),
     }
     const catalog = {
       schemaVersion: 1 as const,
-      workspaceOrder: [...new Set([...remoteOrder, ...knownWorkspaces.map(workspace => workspace.id)])],
+      workspaceOrder: replaceScopeOrder(local.workspaceOrder, knownIds, [...new Set([...remoteOrder, ...knownWorkspaces.map(workspace => workspace.id)])]),
       groups,
       workspaceGroups,
     }
@@ -287,7 +391,7 @@ export class WorkspaceService {
   }
 
   /** Replace portable workspace state while retaining machine-local project bindings and UI state. */
-  async replacePortableSnapshot(snapshot: PortableWorkspaceSnapshot): Promise<WorkspaceCatalog> {
+  async replacePortableSnapshot(snapshot: PortableWorkspaceSnapshot, ownerScopeId = PERSONAL_OWNER_SCOPE_ID): Promise<WorkspaceCatalog> {
     if (snapshot.schemaVersion !== 1 || !Array.isArray(snapshot.workspaces))
       throw new Error('Portable workspace snapshot is invalid')
     const ids = snapshot.workspaces.map(workspace => workspace.id)
@@ -301,79 +405,180 @@ export class WorkspaceService {
       throw new Error('Portable workspace order is invalid')
     for (const manifest of snapshot.workspaces)
       validateManifest(manifest)
+    const currentCatalog = await this.catalog()
+    const foreignGroupIds = new Set(currentCatalog.groups.filter(group => groupOwnerScopeId(group) !== ownerScopeId).map(group => group.id))
+    if (snapshot.groups.some(group => foreignGroupIds.has(group.id)))
+      throw new Error('Workspace group id belongs to another owner scope')
+    const previousWorkspaces = await this.list(ownerScopeId)
+    const previousIds = new Set(previousWorkspaces.map(workspace => workspace.id))
+    for (const manifest of snapshot.workspaces) {
+      const existing = await readOptional(this.workspacePath(manifest.id))
+      if (existing) {
+        const existingManifest = parse(existing) as WorkspaceManifest
+        if ((existingManifest.ownerScopeId ?? PERSONAL_OWNER_SCOPE_ID) !== ownerScopeId)
+          throw new Error(`Workspace id belongs to another owner scope: ${manifest.id}`)
+      }
+    }
     for (const manifest of snapshot.workspaces)
-      await writeAtomic(this.workspacePath(manifest.id), stringify(manifest, { lineWidth: 0 }))
+      await writeAtomic(this.workspacePath(manifest.id), stringify({ ...manifest, ownerScopeId: portableOwnerScopeId(ownerScopeId) }, { lineWidth: 0 }))
     const retained = new Set(ids)
-    for (const workspace of await this.list()) {
+    for (const workspace of previousWorkspaces) {
       if (!retained.has(workspace.id))
         await rm(this.workspacePath(workspace.id))
     }
+    const replacedGroupIds = new Set(currentCatalog.groups.filter(group => groupOwnerScopeId(group) === ownerScopeId).map(group => group.id))
+    const scopedGroups = snapshot.groups.map(group => ({ ...group, ownerScopeId: portableOwnerScopeId(ownerScopeId) }))
     const catalog: WorkspaceCatalog = {
       schemaVersion: 1,
-      workspaceOrder: snapshot.workspaceOrder.filter(id => retained.has(id)),
-      groups: snapshot.groups,
-      workspaceGroups: Object.fromEntries(Object.entries(snapshot.workspaceGroups).filter(([id, groupId]) => retained.has(id) && snapshot.groups.some(group => group.id === groupId))),
+      workspaceOrder: replaceScopeOrder(currentCatalog.workspaceOrder, previousIds, snapshot.workspaceOrder.filter(id => retained.has(id))),
+      groups: [...currentCatalog.groups.filter(group => groupOwnerScopeId(group) !== ownerScopeId), ...scopedGroups],
+      workspaceGroups: {
+        ...Object.fromEntries(Object.entries(currentCatalog.workspaceGroups).filter(([workspaceId, groupId]) => !retained.has(workspaceId) && !replacedGroupIds.has(groupId))),
+        ...Object.fromEntries(Object.entries(snapshot.workspaceGroups).filter(([id, groupId]) => retained.has(id) && scopedGroups.some(group => group.id === groupId))),
+      },
     }
     await this.saveCatalog(catalog)
     return catalog
   }
 
+  /** Remove every portable and machine-local record owned by one Team. */
+  async deleteOwnerScopeData(ownerScopeId: string): Promise<OwnerScopeWorkspaceData> {
+    if (ownerScopeId === PERSONAL_OWNER_SCOPE_ID)
+      throw new Error('Personal workspace data cannot be deleted as an owner scope')
+    assertOwnerScopeId(ownerScopeId)
+    const [snapshot, catalog, bindings] = await Promise.all([
+      this.portableSnapshot(ownerScopeId),
+      this.catalog(),
+      this.bindings(),
+    ])
+    const data: OwnerScopeWorkspaceData = {
+      snapshot,
+      projectBindings: { ...scopeProjects(bindings, ownerScopeId) },
+      projectPaths: { ...scopeProjectPaths(bindings, ownerScopeId) },
+      projectGroups: { ...projectGroups(bindings, ownerScopeId) },
+      uiState: bindings.scopeUiStates?.[ownerScopeId],
+    }
+    const workspaceIds = new Set(snapshot.workspaces.map(workspace => workspace.id))
+    const groupIds = new Set(snapshot.groups.map(group => group.id))
+    try {
+      for (const workspaceId of workspaceIds)
+        await rm(this.workspacePath(workspaceId))
+      await this.saveCatalog({
+        ...catalog,
+        workspaceOrder: catalog.workspaceOrder.filter(id => !workspaceIds.has(id)),
+        groups: catalog.groups.filter(group => !groupIds.has(group.id)),
+        workspaceGroups: Object.fromEntries(Object.entries(catalog.workspaceGroups)
+          .filter(([workspaceId, groupId]) => !workspaceIds.has(workspaceId) && !groupIds.has(groupId))),
+      })
+      const projectsByScope = { ...bindings.projectsByScope }
+      const projectPathsByScope = { ...bindings.projectPathsByScope }
+      const projectGroupsByScope = { ...bindings.projectGroupsByScope }
+      const scopeUiStates = { ...bindings.scopeUiStates }
+      delete projectsByScope[ownerScopeId]
+      delete projectPathsByScope[ownerScopeId]
+      delete projectGroupsByScope[ownerScopeId]
+      delete scopeUiStates[ownerScopeId]
+      await writeJsonAtomic(this.bindingsPath, {
+        ...bindings,
+        projectsByScope,
+        projectPathsByScope,
+        projectGroupsByScope,
+        scopeUiStates,
+      })
+      return data
+    }
+    catch (error) {
+      await this.restoreOwnerScopeData(ownerScopeId, data)
+      throw error
+    }
+  }
+
+  /** Restore a Team state receipt after a later lifecycle operation fails. */
+  async restoreOwnerScopeData(ownerScopeId: string, data: OwnerScopeWorkspaceData): Promise<void> {
+    if (ownerScopeId === PERSONAL_OWNER_SCOPE_ID)
+      throw new Error('Personal workspace data cannot be restored as a Team owner scope')
+    await this.replacePortableSnapshot(data.snapshot, ownerScopeId)
+    const bindings = await this.bindings()
+    const scopeUiStates = { ...bindings.scopeUiStates }
+    if (data.uiState)
+      scopeUiStates[ownerScopeId] = data.uiState
+    else
+      delete scopeUiStates[ownerScopeId]
+    await writeJsonAtomic(this.bindingsPath, {
+      ...bindings,
+      projectsByScope: { ...bindings.projectsByScope, [ownerScopeId]: data.projectBindings },
+      projectPathsByScope: { ...bindings.projectPathsByScope, [ownerScopeId]: data.projectPaths },
+      projectGroupsByScope: { ...bindings.projectGroupsByScope, [ownerScopeId]: data.projectGroups },
+      scopeUiStates,
+    })
+  }
+
   /** Resolve a portable project key through this machine's bindings without changing trust. */
-  async resolveProjectKey(projectKey: string): Promise<string | undefined> {
-    const projectId = (await this.bindings()).projects[projectKey]
+  async resolveProjectKey(projectKey: string, ownerScopeId = PERSONAL_OWNER_SCOPE_ID): Promise<string | undefined> {
+    const projectId = scopeProjects(await this.bindings(), ownerScopeId)[projectKey]
     if (!projectId)
       return undefined
     return (await this.projects.list()).some(project => project.id === projectId) ? projectId : undefined
   }
 
-  async bind(projectKey: string, projectId: string): Promise<void> {
+  async bind(projectKey: string, projectId: string, ownerScopeId = PERSONAL_OWNER_SCOPE_ID): Promise<void> {
     await this.projects.get(projectId)
     const bindings = await this.bindings()
+    const projects = { ...scopeProjects(bindings, ownerScopeId), [projectKey]: projectId }
     await writeJsonAtomic(this.bindingsPath, {
       ...bindings,
-      projects: { ...bindings.projects, [projectKey]: projectId },
+      projects: ownerScopeId === PERSONAL_OWNER_SCOPE_ID ? projects : bindings.projects,
+      projectsByScope: { ...bindings.projectsByScope, [ownerScopeId]: projects },
     })
   }
 
   /** Resolve and register a member from its retained import path without granting trust. */
-  async registerImportedProject(workspaceId: string, projectKey: string, locatedPath?: string): Promise<WorkspaceRecord> {
-    const workspace = await this.get(workspaceId)
+  async registerImportedProject(workspaceId: string, projectKey: string, locatedPath?: string, ownerScopeId?: string): Promise<WorkspaceRecord> {
+    const workspace = await this.get(workspaceId, ownerScopeId)
     if (!workspace.members.some(member => member.project === projectKey))
       throw new Error(`Unknown workspace member: ${projectKey}`)
-    const path = locatedPath ?? (await this.bindings()).projectPaths[projectKey]
+    const workspaceScopeId = workspaceOwnerScopeId(workspace)
+    const path = locatedPath ?? scopeProjectPaths(await this.bindings(), workspaceScopeId)[projectKey]
     if (!path)
       throw new Error(`Workspace member path is unavailable: ${projectKey}`)
     const project = await this.projects.add(path)
     if (locatedPath)
-      await this.rememberProjectPath(projectKey, project.path)
-    await this.bind(projectKey, project.id)
+      await this.rememberProjectPath(projectKey, project.path, workspaceScopeId)
+    await this.bind(projectKey, project.id, workspaceScopeId)
     return this.getWithGroup(workspaceId)
   }
 
-  async uiState(): Promise<WorkspaceUiState> {
+  async uiState(ownerScopeId = PERSONAL_OWNER_SCOPE_ID): Promise<WorkspaceUiState> {
     const bindings = await this.bindings()
+    const scoped = bindings.scopeUiStates?.[ownerScopeId]
     return {
-      expandedWorkspaceIds: bindings.expandedWorkspaces,
-      selectedWorkspaceId: bindings.selectedWorkspace,
-      selectedProjectId: bindings.selectedProject,
+      expandedWorkspaceIds: scoped?.expandedWorkspaceIds ?? (ownerScopeId === PERSONAL_OWNER_SCOPE_ID ? bindings.expandedWorkspaces : []),
+      selectedWorkspaceId: scoped?.selectedWorkspaceId ?? (ownerScopeId === PERSONAL_OWNER_SCOPE_ID ? bindings.selectedWorkspace : undefined),
+      selectedProjectId: scoped?.selectedProjectId ?? (ownerScopeId === PERSONAL_OWNER_SCOPE_ID ? bindings.selectedProject : undefined),
     }
   }
 
-  async updateUiState(state: WorkspaceUiState): Promise<WorkspaceUiState> {
+  async updateUiState(state: WorkspaceUiState, ownerScopeId = PERSONAL_OWNER_SCOPE_ID): Promise<WorkspaceUiState> {
     if (!Array.isArray(state.expandedWorkspaceIds) || !state.expandedWorkspaceIds.every(id => typeof id === 'string'))
       throw new Error('Expanded workspace ids must be an array of strings')
     const bindings = await this.bindings()
+    const scoped = {
+      expandedWorkspaceIds: [...new Set(state.expandedWorkspaceIds)],
+      selectedWorkspaceId: state.selectedWorkspaceId || undefined,
+      selectedProjectId: state.selectedProjectId || undefined,
+    }
     await writeJsonAtomic(this.bindingsPath, {
       ...bindings,
-      expandedWorkspaces: [...new Set(state.expandedWorkspaceIds)],
-      selectedWorkspace: state.selectedWorkspaceId || undefined,
-      selectedProject: state.selectedProjectId || undefined,
+      expandedWorkspaces: ownerScopeId === PERSONAL_OWNER_SCOPE_ID ? scoped.expandedWorkspaceIds : bindings.expandedWorkspaces,
+      selectedWorkspace: ownerScopeId === PERSONAL_OWNER_SCOPE_ID ? scoped.selectedWorkspaceId : bindings.selectedWorkspace,
+      selectedProject: ownerScopeId === PERSONAL_OWNER_SCOPE_ID ? scoped.selectedProjectId : bindings.selectedProject,
+      scopeUiStates: { ...bindings.scopeUiStates, [ownerScopeId]: scoped },
     })
-    return this.uiState()
+    return this.uiState(ownerScopeId)
   }
 
-  async addProject(workspaceId: string, projectId: string): Promise<WorkspaceRecord> {
-    const workspace = await this.get(workspaceId)
+  async addProject(workspaceId: string, projectId: string, ownerScopeId?: string): Promise<WorkspaceRecord> {
+    const workspace = await this.get(workspaceId, ownerScopeId)
     const key = await this.projectKey(projectId, workspace)
     if (workspace.members.some(member => member.project === key))
       return workspace
@@ -383,8 +588,8 @@ export class WorkspaceService {
     return this.save({ manifest, revision: workspace.revision })
   }
 
-  async removeProject(workspaceId: string, projectIdOrKey: string): Promise<WorkspaceRecord> {
-    const workspace = await this.get(workspaceId)
+  async removeProject(workspaceId: string, projectIdOrKey: string, ownerScopeId?: string): Promise<WorkspaceRecord> {
+    const workspace = await this.get(workspaceId, ownerScopeId)
     const member = workspace.members.find(item => item.projectId === projectIdOrKey || item.project === projectIdOrKey)
     if (!member)
       return workspace
@@ -397,20 +602,22 @@ export class WorkspaceService {
 
   async projectKey(projectId: string, workspace?: WorkspaceRecord): Promise<string> {
     const bindings = await this.bindings()
-    const existing = Object.entries(bindings.projects).find(([, id]) => id === projectId)?.[0]
+    const ownerScopeId = workspaceOwnerScopeId(workspace ?? {})
+    const scopedProjects = scopeProjects(bindings, ownerScopeId)
+    const existing = Object.entries(scopedProjects).find(([, id]) => id === projectId)?.[0]
     if (existing)
       return existing
     const project = await this.projects.get(projectId)
     const base = slug(project.name) || project.id
     const used = new Set([
-      ...Object.keys(bindings.projects),
+      ...Object.keys(scopedProjects),
       ...(workspace?.members.map(member => member.project) ?? []),
     ])
     let key = base
     let suffix = 2
     while (used.has(key))
       key = `${base}-${suffix++}`
-    await this.bind(key, projectId)
+    await this.bind(key, projectId, ownerScopeId)
     return key
   }
 
@@ -421,11 +628,16 @@ export class WorkspaceService {
     const bindings = await this.bindings()
     const projects = await this.projects.list()
     const members: ResolvedWorkspaceMember[] = manifest.members.map((member) => {
-      const projectId = bindings.projects[member.project]
+      const projectId = scopeProjects(bindings, manifest.ownerScopeId ?? PERSONAL_OWNER_SCOPE_ID)[member.project]
       const resolved = Boolean(projectId && projects.some(project => project.id === projectId))
-      return { ...member, projectId: resolved ? projectId : undefined, resolved, path: resolved ? undefined : bindings.projectPaths[member.project] }
+      return {
+        ...member,
+        projectId: resolved ? projectId : undefined,
+        resolved,
+        path: resolved ? undefined : scopeProjectPaths(bindings, manifest.ownerScopeId ?? PERSONAL_OWNER_SCOPE_ID)[member.project],
+      }
     })
-    return { ...manifest, members, revision: revision(content) }
+    return { ...manifest, ownerScopeId: manifest.ownerScopeId ?? PERSONAL_OWNER_SCOPE_ID, members, revision: revision(content) }
   }
 
   private async catalog(): Promise<WorkspaceCatalog> {
@@ -437,7 +649,7 @@ export class WorkspaceService {
       throw new Error('Unsupported Craft Hub config schema')
     return {
       ...value,
-      groups: Array.isArray(value.groups) ? value.groups : [],
+      groups: Array.isArray(value.groups) ? value.groups.map(group => ({ ...group, ownerScopeId: portableOwnerScopeId(groupOwnerScopeId(group)) })) : [],
       workspaceGroups: value.workspaceGroups && typeof value.workspaceGroups === 'object' ? value.workspaceGroups : {},
     }
   }
@@ -449,20 +661,40 @@ export class WorkspaceService {
   private async bindings(): Promise<WorkspaceBindings> {
     try {
       const bindings = JSON.parse(await readFile(this.bindingsPath, 'utf8')) as WorkspaceBindings
-      return { ...bindings, projectPaths: bindings.projectPaths ?? {} }
+      const personalProjectGroups = bindings.projectGroupsByScope?.[PERSONAL_OWNER_SCOPE_ID] ?? bindings.projectGroups ?? {}
+      const personalProjects = bindings.projectsByScope?.[PERSONAL_OWNER_SCOPE_ID] ?? bindings.projects ?? {}
+      const personalProjectPaths = bindings.projectPathsByScope?.[PERSONAL_OWNER_SCOPE_ID] ?? bindings.projectPaths ?? {}
+      const personalUiState = bindings.scopeUiStates?.[PERSONAL_OWNER_SCOPE_ID] ?? {
+        expandedWorkspaceIds: bindings.expandedWorkspaces ?? [],
+        selectedWorkspaceId: bindings.selectedWorkspace,
+        selectedProjectId: bindings.selectedProject,
+      }
+      return {
+        ...bindings,
+        projects: personalProjects,
+        projectPaths: personalProjectPaths,
+        projectsByScope: { ...bindings.projectsByScope, [PERSONAL_OWNER_SCOPE_ID]: personalProjects },
+        projectPathsByScope: { ...bindings.projectPathsByScope, [PERSONAL_OWNER_SCOPE_ID]: personalProjectPaths },
+        projectGroups: personalProjectGroups,
+        projectGroupsByScope: { ...bindings.projectGroupsByScope, [PERSONAL_OWNER_SCOPE_ID]: personalProjectGroups },
+        expandedWorkspaces: bindings.expandedWorkspaces ?? [],
+        scopeUiStates: { ...bindings.scopeUiStates, [PERSONAL_OWNER_SCOPE_ID]: personalUiState },
+      }
     }
     catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT')
-        return { schemaVersion: 1, projects: {}, projectPaths: {}, expandedWorkspaces: [] }
+        return { schemaVersion: 1, projects: {}, projectPaths: {}, projectGroups: {}, expandedWorkspaces: [] }
       throw error
     }
   }
 
-  private async rememberProjectPath(projectKey: string, path: string): Promise<void> {
+  private async rememberProjectPath(projectKey: string, path: string, ownerScopeId = PERSONAL_OWNER_SCOPE_ID): Promise<void> {
     const bindings = await this.bindings()
+    const projectPaths = { ...scopeProjectPaths(bindings, ownerScopeId), [projectKey]: path }
     await writeJsonAtomic(this.bindingsPath, {
       ...bindings,
-      projectPaths: { ...bindings.projectPaths, [projectKey]: path },
+      projectPaths: ownerScopeId === PERSONAL_OWNER_SCOPE_ID ? projectPaths : bindings.projectPaths,
+      projectPathsByScope: { ...bindings.projectPathsByScope, [ownerScopeId]: projectPaths },
     })
   }
 
@@ -488,6 +720,7 @@ function portableManifest(record: WorkspaceRecord): WorkspaceManifest {
   return {
     schemaVersion: 1,
     id: record.id,
+    ownerScopeId: portableOwnerScopeId(workspaceOwnerScopeId(record)),
     name: record.name,
     icon: record.icon,
     color: record.color,
@@ -501,6 +734,8 @@ function validateManifest(value: WorkspaceManifest): void {
   if (value.schemaVersion !== 1)
     throw new Error('Unsupported workspace schema version')
   assertWorkspaceId(value.id)
+  if (value.ownerScopeId !== undefined)
+    assertOwnerScopeId(value.ownerScopeId)
   if (!value.name?.trim())
     throw new Error('Workspace name is required')
   if (value.color && !projectAccentColors.includes(value.color))
@@ -513,6 +748,52 @@ function validateManifest(value: WorkspaceManifest): void {
     throw new Error('Workspace members must be unique')
   if (value.primaryProject && !value.members.some(member => member.project === value.primaryProject))
     throw new Error('Primary project must be a workspace member')
+}
+
+function assertOwnerScopeId(id: string): void {
+  if (!/^[a-z0-9][a-z0-9-]*$/.test(id))
+    throw new Error('Owner scope id must contain lowercase letters, numbers, and hyphens')
+}
+
+function groupOwnerScopeId(group: WorkspaceGroup): string {
+  return group.ownerScopeId ?? PERSONAL_OWNER_SCOPE_ID
+}
+
+function workspaceOwnerScopeId(workspace: Pick<WorkspaceManifest, 'ownerScopeId'>): string {
+  return workspace.ownerScopeId ?? PERSONAL_OWNER_SCOPE_ID
+}
+
+function portableOwnerScopeId(ownerScopeId: string): string | undefined {
+  assertOwnerScopeId(ownerScopeId)
+  return ownerScopeId === PERSONAL_OWNER_SCOPE_ID ? undefined : ownerScopeId
+}
+
+function assertGroupScope(group: WorkspaceGroup, ownerScopeId?: string): void {
+  if (ownerScopeId && groupOwnerScopeId(group) !== ownerScopeId)
+    throw new Error(`Workspace group ${group.id} does not belong to owner scope ${ownerScopeId}`)
+}
+
+function projectGroups(bindings: WorkspaceBindings, ownerScopeId: string): Record<string, string> {
+  return bindings.projectGroupsByScope?.[ownerScopeId]
+    ?? (ownerScopeId === PERSONAL_OWNER_SCOPE_ID ? bindings.projectGroups : {})
+}
+
+function scopeProjects(bindings: WorkspaceBindings, ownerScopeId: string): Record<string, string> {
+  return bindings.projectsByScope?.[ownerScopeId]
+    ?? (ownerScopeId === PERSONAL_OWNER_SCOPE_ID ? bindings.projects : {})
+}
+
+function scopeProjectPaths(bindings: WorkspaceBindings, ownerScopeId: string): Record<string, string> {
+  return bindings.projectPathsByScope?.[ownerScopeId]
+    ?? (ownerScopeId === PERSONAL_OWNER_SCOPE_ID ? bindings.projectPaths : {})
+}
+
+function replaceScopeOrder(currentOrder: string[], scopeIds: Set<string>, nextScopeOrder: string[]): string[] {
+  const remaining = currentOrder.filter(id => !scopeIds.has(id))
+  const firstScopeIndex = currentOrder.findIndex(id => scopeIds.has(id))
+  if (firstScopeIndex < 0)
+    return [...remaining, ...nextScopeOrder]
+  return [...remaining.slice(0, firstScopeIndex), ...nextScopeOrder, ...remaining.slice(firstScopeIndex)]
 }
 
 function assertWorkspaceId(id: string): void {

@@ -1,4 +1,10 @@
-import type { AgentActionId, AgentActionSummary, AgentTaskRecord, Capability, CapabilityDiscoveryResult, CapabilityPins, CatalogPluginV1, CommandInputValues, CommandInvocation, InstalledPlugin, MarketplaceSource, PersonalGitSyncResolution, PersonalGitSyncStatus, ProjectChangeEvent, ProjectRecord, ProjectRunSummary, ProjectVisualInput, RunCleanupOptions, RunCleanupResult, RunRecord, RunStreamEvent, SettingsExportEnvelope, SettingsExportMode, SettingsImportPreview, SettingsImportStrategy, SettingsSnapshot, WorkbenchLocale, WorkspaceCatalog, WorkspaceGroup, WorkspaceImportPreview, WorkspaceImportResult, WorkspaceManifest, WorkspaceRecord, WorkspaceUiState } from 'craft-hub'
+import type { AgentActionId, AgentActionSummary, AgentTaskRecord, Capability, CapabilityDiscoveryResult, CapabilityPins, CatalogPluginV1, CommandInputValues, CommandInvocation, InstalledPlugin, MarketplaceSource, OwnerScope, OwnerScopeUiState, PersonalGitSyncResolution, PersonalGitSyncStatus, ProjectCatalogSnapshot, ProjectChangeEvent, ProjectConfigInitializationResult, ProjectDescriptionApplication, ProjectDescriptionAudit, ProjectDescriptionChange, ProjectRecord, ProjectRunSummary, ProjectVisualInput, RunCleanupOptions, RunCleanupResult, RunRecord, RunStreamEvent, RuntimeHealth, SettingsExportEnvelope, SettingsExportMode, SettingsImportPreview, SettingsImportStrategy, SettingsSnapshot, TeamDeletionResult, TeamGitSyncStatus, WorkbenchLocale, WorkspaceCatalog, WorkspaceGroup, WorkspaceImportPreview, WorkspaceImportResult, WorkspaceManifest, WorkspaceRecord, WorkspaceUiState } from 'craft-hub'
+
+export class ApiRequestError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message)
+  }
+}
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
@@ -7,8 +13,15 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   })
   const body = await response.json() as T & { error?: string }
   if (!response.ok)
-    throw new Error(body.error ?? `Request failed: ${response.status}`)
+    throw new ApiRequestError(body.error ?? `Request failed: ${response.status}`, response.status)
   return body
+}
+
+function scopedPath(path: string, ownerScopeId: string): string {
+  if (ownerScopeId === 'personal')
+    return path
+  const separator = path.includes('?') ? '&' : '?'
+  return `${path}${separator}ownerScopeId=${encodeURIComponent(ownerScopeId)}`
 }
 
 async function capabilityDiscovery(projectId: string): Promise<CapabilityDiscoveryResult> {
@@ -19,6 +32,21 @@ async function capabilityDiscovery(projectId: string): Promise<CapabilityDiscove
   catch {
     return { capabilities: await request<Capability[]>(`/api/projects/${projectId}/capabilities`), diagnostics: [] }
   }
+}
+
+async function projectCatalog(): Promise<ProjectCatalogSnapshot> {
+  const result = await request<ProjectCatalogSnapshot | ProjectRecord[]>('/api/projects')
+  return Array.isArray(result) ? { projects: result, diagnostics: [] } : result
+}
+
+async function runtimeHealth(): Promise<RuntimeHealth | undefined> {
+  const result = await request<unknown>('/api/health')
+  if (!result || typeof result !== 'object')
+    return undefined
+  const health = result as Partial<RuntimeHealth>
+  return health.status === 'ok' && typeof health.projectConfigSchemaRevision === 'string'
+    ? health as RuntimeHealth
+    : undefined
 }
 
 async function runCommand(projectId: string, capabilityId: string, inputs: CommandInputValues, onUpdate: (run: RunRecord) => void): Promise<RunRecord> {
@@ -67,7 +95,17 @@ async function runCommand(projectId: string, capabilityId: string, inputs: Comma
 }
 
 export const api = {
-  projects: () => request<ProjectRecord[]>('/api/projects'),
+  runtimeHealth,
+  ownerScopes: () => request<OwnerScope[]>('/api/owner-scopes'),
+  ownerScopeState: () => request<OwnerScopeUiState>('/api/owner-scopes/state'),
+  createTeam: (name: string, repositoryPath: string, directory?: string) => request<OwnerScope>('/api/owner-scopes', { method: 'POST', body: JSON.stringify({ name, repositoryPath, directory }) }),
+  renameTeam: (ownerScopeId: string, name: string) => request<OwnerScope>(`/api/owner-scopes/${encodeURIComponent(ownerScopeId)}`, { method: 'PATCH', body: JSON.stringify({ name }) }),
+  deleteTeam: (ownerScopeId: string, confirmationName: string) => request<TeamDeletionResult>(`/api/owner-scopes/${encodeURIComponent(ownerScopeId)}`, { method: 'DELETE', body: JSON.stringify({ confirmationName }) }),
+  activateOwnerScope: (activeScopeId: string) => request<OwnerScopeUiState>('/api/owner-scopes/state', { method: 'PUT', body: JSON.stringify({ activeScopeId }) }),
+  teamGitSyncStatus: (ownerScopeId: string) => request<TeamGitSyncStatus>(`/api/owner-scopes/${encodeURIComponent(ownerScopeId)}/git-sync`),
+  synchronizeTeamGit: (ownerScopeId: string, resolution: PersonalGitSyncResolution = 'auto') => request<TeamGitSyncStatus>(`/api/owner-scopes/${encodeURIComponent(ownerScopeId)}/git-sync/synchronize`, { method: 'POST', body: JSON.stringify({ resolution }) }),
+  projectOwnerScopes: () => request<Record<string, string[]>>('/api/projects/owner-scopes'),
+  projects: projectCatalog,
   marketplaceCatalog: () => request<Array<CatalogPluginV1 & { sourceId: string, sourceName: string, sourceKind: MarketplaceSource['kind'] }>>('/api/marketplace/catalog'),
   marketplaceSources: () => request<MarketplaceSource[]>('/api/marketplace/sources'),
   addMarketplaceSource: (input: { name: string, catalogUrl: string, registry?: string }) => request<MarketplaceSource>('/api/marketplace/sources', { method: 'POST', body: JSON.stringify(input) }),
@@ -82,50 +120,57 @@ export const api = {
   updateProjectVisual: (projectId: string, visual: ProjectVisualInput) => request<ProjectRecord>(`/api/projects/${projectId}`, { method: 'PATCH', body: JSON.stringify(visual) }),
   reorderProjects: (projectOrder: string[]) => request<ProjectRecord[]>('/api/projects/order', { method: 'PUT', body: JSON.stringify({ projectOrder }) }),
   unregisterProject: (projectId: string) => request<ProjectRecord>(`/api/projects/${projectId}`, { method: 'DELETE' }),
-  workspaces: () => request<WorkspaceRecord[]>('/api/workspaces'),
-  workspaceGroups: () => request<WorkspaceGroup[]>('/api/workspace-groups'),
+  workspaces: (ownerScopeId = 'personal') => request<WorkspaceRecord[]>(scopedPath('/api/workspaces', ownerScopeId)),
+  workspaceGroups: (ownerScopeId = 'personal') => request<WorkspaceGroup[]>(scopedPath('/api/workspace-groups', ownerScopeId)),
+  projectGroupAssignments: (ownerScopeId = 'personal') => request<Record<string, string>>(scopedPath('/api/workspace-groups/project-assignments', ownerScopeId)),
   personalGitSyncStatus: () => request<PersonalGitSyncStatus>('/api/personal-git-sync'),
   configurePersonalGitSync: (repositoryPath: string, directory: string) => request<PersonalGitSyncStatus>('/api/personal-git-sync', { method: 'PUT', body: JSON.stringify({ repositoryPath, directory }) }),
   synchronizePersonalGit: (resolution: PersonalGitSyncResolution = 'auto') => request<PersonalGitSyncStatus>('/api/personal-git-sync/synchronize', { method: 'POST', body: JSON.stringify({ resolution }) }),
-  createWorkspaceGroup: (name: string) => request<WorkspaceGroup>('/api/workspace-groups', { method: 'POST', body: JSON.stringify({ name }) }),
-  renameWorkspaceGroup: (groupId: string, name: string) => request<WorkspaceGroup>(`/api/workspace-groups/${groupId}`, { method: 'PUT', body: JSON.stringify({ name }) }),
-  updateWorkspaceGroupAppearance: (groupId: string, icon?: string) => request<WorkspaceGroup>(`/api/workspace-groups/${groupId}`, { method: 'PATCH', body: JSON.stringify({ icon }) }),
-  deleteWorkspaceGroup: (groupId: string) => request<{ deleted: true }>(`/api/workspace-groups/${groupId}`, { method: 'DELETE' }),
-  assignWorkspaceGroup: (workspaceId: string, groupId?: string) => request<WorkspaceRecord>(`/api/workspaces/${workspaceId}/group`, { method: 'PUT', body: JSON.stringify({ groupId }) }),
-  previewVscodeWorkspaces: (sourceDirectory: string, groupName?: string) => request<WorkspaceImportPreview>('/api/workspaces/import/vscode/preview', {
+  createWorkspaceGroup: (name: string, ownerScopeId = 'personal') => request<WorkspaceGroup>(scopedPath('/api/workspace-groups', ownerScopeId), { method: 'POST', body: JSON.stringify({ name }) }),
+  renameWorkspaceGroup: (groupId: string, name: string, ownerScopeId = 'personal') => request<WorkspaceGroup>(scopedPath(`/api/workspace-groups/${groupId}`, ownerScopeId), { method: 'PUT', body: JSON.stringify({ name }) }),
+  updateWorkspaceGroupAppearance: (groupId: string, icon: string | undefined, ownerScopeId = 'personal') => request<WorkspaceGroup>(scopedPath(`/api/workspace-groups/${groupId}`, ownerScopeId), { method: 'PATCH', body: JSON.stringify({ icon }) }),
+  deleteWorkspaceGroup: (groupId: string, ownerScopeId = 'personal') => request<{ deleted: true }>(scopedPath(`/api/workspace-groups/${groupId}`, ownerScopeId), { method: 'DELETE' }),
+  assignWorkspaceGroup: (workspaceId: string, groupId: string | undefined, ownerScopeId = 'personal') => request<WorkspaceRecord>(scopedPath(`/api/workspaces/${workspaceId}/group`, ownerScopeId), { method: 'PUT', body: JSON.stringify({ groupId }) }),
+  assignProjectGroup: (projectId: string, groupId: string | undefined, ownerScopeId = 'personal') => request<Record<string, string>>(scopedPath(`/api/projects/${projectId}/group`, ownerScopeId), { method: 'PUT', body: JSON.stringify({ groupId }) }),
+  previewVscodeWorkspaces: (sourceDirectory: string, groupName: string | undefined, ownerScopeId = 'personal') => request<WorkspaceImportPreview>(scopedPath('/api/workspaces/import/vscode/preview', ownerScopeId), {
     method: 'POST',
     body: JSON.stringify({ sourceDirectory, groupName }),
   }),
-  importVscodeWorkspaces: (sourceDirectory: string, groupName: string | undefined, expectedRevision: string) => request<WorkspaceImportResult>('/api/workspaces/import/vscode', {
+  importVscodeWorkspaces: (sourceDirectory: string, groupName: string | undefined, expectedRevision: string, ownerScopeId = 'personal') => request<WorkspaceImportResult>(scopedPath('/api/workspaces/import/vscode', ownerScopeId), {
     method: 'POST',
     body: JSON.stringify({ sourceDirectory, groupName, expectedRevision }),
   }),
-  registerWorkspaceMember: (workspaceId: string, project: string, path?: string) => request<WorkspaceRecord>('/api/workspaces/register-member', {
+  registerWorkspaceMember: (workspaceId: string, project: string, path: string | undefined, ownerScopeId = 'personal') => request<WorkspaceRecord>(scopedPath('/api/workspaces/register-member', ownerScopeId), {
     method: 'POST',
     body: JSON.stringify({ workspaceId, project, path }),
   }),
-  workspaceState: () => request<WorkspaceUiState>('/api/workspaces/state'),
-  updateWorkspaceState: (state: WorkspaceUiState) => request<WorkspaceUiState>('/api/workspaces/state', { method: 'PUT', body: JSON.stringify(state) }),
-  createWorkspace: (name: string) => request<WorkspaceRecord>('/api/workspaces', { method: 'POST', body: JSON.stringify({ name }) }),
-  updateWorkspace: (manifest: WorkspaceManifest, revision: string) => request<WorkspaceRecord>(`/api/workspaces/${manifest.id}`, {
+  workspaceState: (ownerScopeId = 'personal') => request<WorkspaceUiState>(scopedPath('/api/workspaces/state', ownerScopeId)),
+  updateWorkspaceState: (state: WorkspaceUiState, ownerScopeId = 'personal') => request<WorkspaceUiState>(scopedPath('/api/workspaces/state', ownerScopeId), { method: 'PUT', body: JSON.stringify(state) }),
+  createWorkspace: (name: string, ownerScopeId = 'personal') => request<WorkspaceRecord>(scopedPath('/api/workspaces', ownerScopeId), { method: 'POST', body: JSON.stringify({ name }) }),
+  updateWorkspace: (manifest: WorkspaceManifest, revision: string, ownerScopeId = manifest.ownerScopeId ?? 'personal') => request<WorkspaceRecord>(scopedPath(`/api/workspaces/${manifest.id}`, ownerScopeId), {
     method: 'PUT',
     body: JSON.stringify({ manifest, revision }),
   }),
-  deleteWorkspace: (id: string, revision: string) => request<{ deleted: true }>(`/api/workspaces/${id}`, { method: 'DELETE', body: JSON.stringify({ revision }) }),
-  reorderWorkspaces: (workspaceOrder: string[]) => request<WorkspaceCatalog>('/api/workspaces/order', { method: 'PUT', body: JSON.stringify({ workspaceOrder }) }),
-  bindWorkspaceProject: (workspaceId: string, project: string, projectId: string) => request<WorkspaceRecord>(`/api/workspaces/${workspaceId}/bindings`, {
+  deleteWorkspace: (id: string, revision: string, ownerScopeId = 'personal') => request<{ deleted: true }>(scopedPath(`/api/workspaces/${id}`, ownerScopeId), { method: 'DELETE', body: JSON.stringify({ revision }) }),
+  reorderWorkspaces: (workspaceOrder: string[], ownerScopeId = 'personal') => request<WorkspaceCatalog>(scopedPath('/api/workspaces/order', ownerScopeId), { method: 'PUT', body: JSON.stringify({ workspaceOrder }) }),
+  bindWorkspaceProject: (workspaceId: string, project: string, projectId: string, ownerScopeId = 'personal') => request<WorkspaceRecord>(scopedPath(`/api/workspaces/${workspaceId}/bindings`, ownerScopeId), {
     method: 'POST',
     body: JSON.stringify({ project, projectId }),
   }),
-  addWorkspaceProject: (workspaceId: string, projectId: string) => request<WorkspaceRecord>(`/api/workspaces/${workspaceId}/members`, {
+  addWorkspaceProject: (workspaceId: string, projectId: string, ownerScopeId = 'personal') => request<WorkspaceRecord>(scopedPath(`/api/workspaces/${workspaceId}/members`, ownerScopeId), {
     method: 'POST',
     body: JSON.stringify({ projectId }),
   }),
-  removeWorkspaceProject: (workspaceId: string, projectIdOrKey: string) => request<WorkspaceRecord>(`/api/workspaces/${workspaceId}/members/${encodeURIComponent(projectIdOrKey)}`, { method: 'DELETE' }),
+  removeWorkspaceProject: (workspaceId: string, projectIdOrKey: string, ownerScopeId = 'personal') => request<WorkspaceRecord>(scopedPath(`/api/workspaces/${workspaceId}/members/${encodeURIComponent(projectIdOrKey)}`, ownerScopeId), { method: 'DELETE' }),
   capabilities: (projectId: string) => request<Capability[]>(`/api/projects/${projectId}/capabilities`),
   capabilityDiscovery,
   agentActions: (projectId: string, locale: WorkbenchLocale) => request<AgentActionSummary[]>(`/api/projects/${projectId}/agent-actions?locale=${encodeURIComponent(locale)}`),
+  projectDescriptionAudit: (projectId: string, locale: WorkbenchLocale) => request<ProjectDescriptionAudit>(`/api/projects/${projectId}/agent-actions/improve-project-config/audit?locale=${encodeURIComponent(locale)}`),
   startAgentAction: (projectId: string, actionId: AgentActionId, locale: WorkbenchLocale) => request<AgentTaskRecord>(`/api/projects/${projectId}/agent-actions/${actionId}?locale=${encodeURIComponent(locale)}`, { method: 'POST' }),
+  applyProjectDescriptionProposal: (projectId: string, taskId: string, changes: ProjectDescriptionChange[]) => request<ProjectDescriptionApplication>(`/api/projects/${projectId}/agent-actions/improve-project-config/apply`, {
+    method: 'POST',
+    body: JSON.stringify({ taskId, changes }),
+  }),
   capabilityPins: (projectId: string) => request<CapabilityPins>(`/api/projects/${projectId}/pins`),
   updateCapabilityPins: (projectId: string, capabilityIds: string[]) => request<CapabilityPins>(`/api/projects/${projectId}/pins`, {
     method: 'PUT',
@@ -140,9 +185,13 @@ export const api = {
   cleanupRuns: (options: RunCleanupOptions) => request<RunCleanupResult>('/api/runs/cleanup', { method: 'POST', body: JSON.stringify(options) }),
   pinRun: (runId: string, pinned: boolean) => request<RunRecord>(`/api/runs/${runId}/pin`, { method: 'PUT', body: JSON.stringify({ pinned }) }),
   agentTasks: () => request<AgentTaskRecord[]>('/api/agent-tasks'),
-  startAgentTask: (input: { prompt: string, projectIds: string[], primaryProjectId: string, workspaceId?: string }) => request<AgentTaskRecord>('/api/agent-tasks', { method: 'POST', body: JSON.stringify(input) }),
+  startAgentTask: (input: { prompt: string, projectIds: string[], primaryProjectId: string, capabilityId?: string, workspaceId?: string }) => request<AgentTaskRecord>('/api/agent-tasks', { method: 'POST', body: JSON.stringify(input) }),
   cancelAgentTask: (id: string) => request<AgentTaskRecord>(`/api/agent-tasks/${id}`, { method: 'DELETE' }),
   trust: (projectId: string) => request<ProjectRecord>(`/api/projects/${projectId}/trust`, { method: 'POST' }),
+  initializeProjectConfig: (projectId: string, mode: 'preview' | 'apply', expectedRevision?: string) => request<ProjectConfigInitializationResult>(`/api/projects/${projectId}/config/initialize`, {
+    method: 'POST',
+    body: JSON.stringify({ mode, expectedRevision }),
+  }),
   run: runCommand,
   cancelRun: (runId: string) => request<RunRecord>(`/api/runs/${runId}`, { method: 'DELETE' }),
   resizeRun: (runId: string, columns: number, rows: number) => request<{ accepted: true }>(`/api/runs/${runId}/resize`, {

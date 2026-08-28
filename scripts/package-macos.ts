@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { cp, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import process from 'node:process'
@@ -66,6 +66,67 @@ function getSigningOptions() {
   }
 }
 
+function macosApplicationVersion(version: string): string {
+  const match = /^(\d+)\.(\d+)\.(\d+)/.exec(version)
+  if (!match)
+    throw new Error(`Workspace version is not a semantic version: ${version}`)
+  return `${match[1]}.${match[2]}.${match[3]}`
+}
+
+async function createDistributionArtifacts(appPath: string, architecture: MacArchitecture): Promise<void> {
+  const volumeDirectory = await mkdtemp(join(tmpdir(), `craft-hub-dmg-${architecture}-`))
+  const dmgPath = join(outputDirectory, `Craft-Hub-macOS-${architecture}.dmg`)
+  const zipPath = join(outputDirectory, `Craft-Hub-macOS-${architecture}.zip`)
+
+  try {
+    await cp(appPath, join(volumeDirectory, 'Craft Hub.app'), { recursive: true })
+    await symlink('/Applications', join(volumeDirectory, 'Applications'))
+    await rm(dmgPath, { force: true })
+    await rm(zipPath, { force: true })
+    await execFileAsync('hdiutil', [
+      'create',
+      '-volname',
+      'Craft Hub',
+      '-srcfolder',
+      volumeDirectory,
+      '-ov',
+      '-format',
+      'UDZO',
+      dmgPath,
+    ])
+    await execFileAsync('ditto', [
+      '-c',
+      '-k',
+      '--sequesterRsrc',
+      '--keepParent',
+      appPath,
+      zipPath,
+    ])
+
+    if (process.env.MACOS_SIGNING_ENABLED === 'true') {
+      await execFileAsync('xcrun', [
+        'notarytool',
+        'submit',
+        dmgPath,
+        '--key',
+        process.env.APPLE_API_KEY_PATH!,
+        '--key-id',
+        process.env.APPLE_API_KEY_ID!,
+        '--issuer',
+        process.env.APPLE_API_ISSUER_ID!,
+        '--wait',
+      ])
+      await execFileAsync('xcrun', ['stapler', 'staple', dmgPath])
+    }
+
+    console.log(`Created macOS DMG: ${dmgPath}`)
+    console.log(`Created macOS update archive: ${zipPath}`)
+  }
+  finally {
+    await rm(volumeDirectory, { force: true, recursive: true })
+  }
+}
+
 async function deployDesktop(targetDirectory: string): Promise<void> {
   const { stderr, stdout } = await execFileAsync('pnpm', [
     '--config.node-linker=hoisted',
@@ -123,6 +184,7 @@ async function main(): Promise<void> {
       appBundleId: 'com.yunyoujun.craft-hub',
       appCategoryType: 'public.app-category.developer-tools',
       arch: architectures,
+      appVersion: macosApplicationVersion(workspacePackage.version),
       asar: { unpack: '**/node-pty/**' },
       dir: stagingDirectory,
       electronVersion: electronPackage.version,
@@ -143,6 +205,13 @@ async function main(): Promise<void> {
 
     for (const appPath of appPaths)
       console.log(`Packaged macOS app: ${appPath}`)
+
+    for (const architecture of architectures) {
+      const appPath = appPaths.find(path => path.endsWith(`darwin-${architecture}`))
+      if (!appPath)
+        throw new Error(`Packager did not return an app for ${architecture}`)
+      await createDistributionArtifacts(join(appPath, 'Craft Hub.app'), architecture)
+    }
   }
   finally {
     await rm(stagingDirectory, { force: true, recursive: true })

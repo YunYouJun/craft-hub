@@ -22,6 +22,8 @@
   "exports": {
     ".": "./dist/index.mjs",
     "./cli": "./dist/cli.mjs",
+    "./project-config-schema-revision": "./dist/project-config-schema-revision.mjs",
+    "./skill-inputs": "./dist/skill-inputs.mjs",
     "./package.json": "./package.json"
   },
   "types": "./dist/index.d.mts",

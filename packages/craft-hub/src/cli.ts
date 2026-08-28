@@ -19,6 +19,37 @@ cli.command('project:list', 'List registered projects').action(async () => {
   console.log(JSON.stringify(await runtime.projects.list(), null, 2))
 })
 
+cli.command('scope:list', 'List Personal and Team owner scopes').action(async () => {
+  console.log(JSON.stringify(await runtime.ownerScopes.list(), null, 2))
+})
+
+cli.command('team:create <name> <repositoryPath> [directory]', 'Create a Git-backed Team owner scope').action(async (name: string, repositoryPath: string, directory?: string) => {
+  console.log(JSON.stringify(await runtime.teams.create({ name, repositoryPath: resolve(repositoryPath), directory }), null, 2))
+})
+
+cli.command('team:rename <ownerScopeId> <name>', 'Rename a Team without changing its stable id').action(async (ownerScopeId: string, name: string) => {
+  console.log(JSON.stringify(await runtime.teams.rename(ownerScopeId, name), null, 2))
+})
+
+cli.command('team:delete <ownerScopeId> <confirmationName>', 'Delete local Team state after confirming its exact name').action(async (ownerScopeId: string, confirmationName: string) => {
+  console.log(JSON.stringify(await runtime.teams.delete(ownerScopeId, confirmationName), null, 2))
+})
+
+cli.command('team:sync <ownerScopeId>', 'Synchronize one Team with its configured local Git checkout')
+  .option('--use-local', 'Resolve divergence by writing local configuration')
+  .option('--use-repository', 'Resolve divergence by applying repository configuration')
+  .action(async (ownerScopeId: string, options: { useLocal?: boolean, useRepository?: boolean }) => {
+    if (options.useLocal && options.useRepository)
+      throw new Error('Choose either --use-local or --use-repository')
+    const resolution = options.useLocal ? 'use-local' : options.useRepository ? 'use-repository' : 'auto'
+    console.log(JSON.stringify(await runtime.teamGitSync.synchronize(ownerScopeId, resolution), null, 2))
+  })
+
+cli.command('workspace:list [ownerScopeId]', 'List workspaces in one owner scope').action(async (ownerScopeId = 'personal') => {
+  await runtime.ownerScopes.get(ownerScopeId)
+  console.log(JSON.stringify(await runtime.workspaces.list(ownerScopeId), null, 2))
+})
+
 cli.command('workspace:import-preview <directory>', 'Validate a VS Code workspace import without writing').action(async (directory: string) => {
   console.log(JSON.stringify(await runtime.workspaceImports.previewVscodeDirectory(resolve(directory)), null, 2))
 })
@@ -50,6 +81,10 @@ cli.command('workspace-group:delete <id>', 'Delete a workspace group without del
 
 cli.command('workspace-group:assign <workspaceId> [groupId]', 'Assign a workspace to a group, or omit groupId to leave it ungrouped').action(async (workspaceId: string, groupId?: string) => {
   console.log(JSON.stringify(await runtime.workspaces.assignGroup(workspaceId, groupId), null, 2))
+})
+
+cli.command('workspace-group:assign-project <projectId> [groupId]', 'Assign a standalone project to a group, or omit groupId to leave it ungrouped').action(async (projectId: string, groupId?: string) => {
+  console.log(JSON.stringify(await runtime.workspaces.assignProjectGroup(projectId, groupId), null, 2))
 })
 
 cli.command('git-sync:configure <repositoryPath> [directory]', 'Select a local Git checkout for Personal configuration sync').action(async (repositoryPath: string, directory?: string) => {

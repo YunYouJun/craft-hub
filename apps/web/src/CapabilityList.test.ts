@@ -11,6 +11,79 @@ import { useWorkbenchStore } from './store'
 describe('capability list', () => {
   beforeEach(() => window.localStorage.clear())
 
+  it('shows project-level command and skill counts in the filters', () => {
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    const store = useWorkbenchStore()
+    store.selectedProjectId = 'project'
+    store.capabilities = [
+      {
+        id: 'dev',
+        kind: 'command',
+        name: 'dev',
+        source: 'package.json',
+        invocation: { command: 'pnpm', args: ['run', 'dev'], cwd: '/project', requiredEnv: [] },
+      },
+      {
+        id: 'build',
+        kind: 'command',
+        name: 'build',
+        source: 'package.json',
+        invocation: { command: 'pnpm', args: ['run', 'build'], cwd: '/project', requiredEnv: [] },
+      },
+      {
+        id: 'release',
+        kind: 'skill',
+        name: 'release',
+        source: 'agent-skill',
+        path: '/project/.agents/skills/release/SKILL.md',
+        contentHash: 'hash',
+        content: '# Release',
+      },
+    ]
+
+    const wrapper = mount(CapabilityList, { global: { plugins: [pinia] } })
+    const filters = wrapper.findAll('.filters button')
+
+    expect(filters.map(button => button.text())).toEqual(['All', 'Commands 2', 'Skills 1'])
+  })
+
+  it('shows friendly skill sources only when a project mixes source types', async () => {
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    const store = useWorkbenchStore()
+    store.selectedProjectId = 'project'
+    store.capabilities = [
+      {
+        id: 'agent-release',
+        kind: 'skill',
+        name: 'release',
+        source: 'agent-skill',
+        path: '/project/.agents/skills/release/SKILL.md',
+        contentHash: 'agent-hash',
+        content: '# Release',
+      },
+    ]
+
+    const wrapper = mount(CapabilityList, { global: { plugins: [pinia] } })
+    expect(wrapper.find('.capability-source').exists()).toBe(false)
+
+    store.capabilities.push({
+      id: 'codex-review',
+      kind: 'skill',
+      name: 'review',
+      source: 'codex-skill',
+      path: '/project/.codex/skills/review/SKILL.md',
+      contentHash: 'codex-hash',
+      content: '# Review',
+    })
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.findAll('.capability-source').map(source => source.text())).toEqual(['Agent', 'Codex'])
+    expect(wrapper.findAll('.capability-source .app-icon')).toHaveLength(2)
+    expect(wrapper.findAll('.capability-source').map(source => source.attributes('title'))).toEqual(['agent-skill', 'codex-skill'])
+  })
+
   it('shows a configured command description below its name', () => {
     const project: ProjectRecord = {
       id: 'project',
@@ -39,6 +112,57 @@ describe('capability list', () => {
 
     expect(wrapper.get('.capability-row strong').text()).toBe('docs:dev')
     expect(wrapper.get('.capability-description').text()).toBe(command.description)
+  })
+
+  it('labels first-run-friendly and high-impact commands', () => {
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    const store = useWorkbenchStore()
+    store.selectedProjectId = 'project'
+    store.capabilities = [
+      {
+        id: 'build',
+        kind: 'command',
+        name: 'build',
+        source: 'package.json',
+        category: 'build',
+        invocation: { command: 'pnpm', args: ['run', 'build'], cwd: '/project', requiredEnv: [] },
+      },
+      {
+        id: 'publish',
+        kind: 'command',
+        name: 'publish',
+        source: 'package.json',
+        category: 'deploy',
+        invocation: { command: 'pnpm', args: ['run', 'publish'], cwd: '/project', requiredEnv: [] },
+      },
+    ]
+
+    const wrapper = mount(CapabilityList, { global: { plugins: [pinia] } })
+    expect(wrapper.findAll('.capability-guidance').map(item => item.text())).toEqual([
+      'Good first run',
+      'High impact',
+    ])
+    expect(wrapper.findAll('.capability-heading > .capability-guidance')).toHaveLength(2)
+  })
+
+  it('offers safe recovery when no capabilities are discovered', () => {
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    const store = useWorkbenchStore()
+    store.projects = [{
+      id: 'empty',
+      name: 'Empty',
+      path: '/empty',
+      trust: 'untrusted',
+      addedAt: '2026-01-01T00:00:00.000Z',
+    }]
+    store.selectedProjectId = 'empty'
+
+    const wrapper = mount(CapabilityList, { global: { plugins: [pinia] } })
+    expect(wrapper.get('.no-capabilities-state').text()).toContain('No runnable capabilities found')
+    expect(wrapper.get('.no-capabilities-state').text()).toContain('Preview project config')
+    expect(wrapper.get('.no-capabilities-state').text()).toContain('Choose another folder')
   })
 
   it('groups workspace commands, filters categories, remembers collapse state, and shows diagnostics', async () => {
@@ -113,6 +237,7 @@ describe('capability list', () => {
         { name: 'root', relativePath: '.', root: true },
         { name: '@scope/web', description: 'Web application for Craft Hub.', relativePath: 'apps/web', root: false },
         { name: '@scope/config', description: 'Shared lint config.', relativePath: 'packages/config', root: false },
+        { description: 'Project documentation.', relativePath: 'docs', root: false },
       ],
     }
     store.capabilities = [
@@ -148,11 +273,13 @@ describe('capability list', () => {
 
     const packagesTab = wrapper.findAll('.filters button').find(button => button.text().includes('Packages'))!
     await packagesTab.trigger('click')
-    expect(wrapper.get('.package-overview-summary').text()).toContain('3 packages · 3 commands')
+    expect(wrapper.get('.package-overview-summary').text()).toContain('4 packages · 3 commands')
+    expect(wrapper.findAll('.package-overview-section h3').map(heading => heading.text())).toEqual(['Root', 'Apps', 'Packages', 'Documentation'])
     expect(wrapper.findAll('.package-overview-row').map(row => row.text())).toEqual([
       expect.stringContaining('Project root'),
       expect.stringContaining('apps/web'),
       expect.stringContaining('packages/config'),
+      expect.stringContaining('docs'),
     ])
     expect(wrapper.findAll('.package-overview-row')[1]!.get('small').text()).toBe('@scope/web · Web application for Craft Hub.')
 
@@ -235,7 +362,7 @@ describe('capability list', () => {
     }]
     const wrapper = mount(CapabilityList, { global: { plugins: [pinia] } })
 
-    expect(wrapper.get('.agent-action-hint').text()).toContain('2 command(s)')
+    expect(wrapper.get('.agent-action-hint').text()).toContain('2 command or package description(s)')
     expect(wrapper.get('.capability-notices').element.children[0]).toBe(wrapper.get('.agent-action-hint').element)
     expect(wrapper.get('.capability-list').element.previousElementSibling).toBe(wrapper.get('.capability-notices').element)
     await wrapper.get('.agent-action-hint-main').trigger('click')
@@ -245,6 +372,6 @@ describe('capability list', () => {
 
     store.agentActions = [{ ...store.agentActions[0]!, commandFingerprint: 'second-set', missingCommandCount: 1 }]
     await wrapper.vm.$nextTick()
-    expect(wrapper.get('.agent-action-hint').text()).toContain('1 command(s)')
+    expect(wrapper.get('.agent-action-hint').text()).toContain('1 command or package description(s)')
   })
 })

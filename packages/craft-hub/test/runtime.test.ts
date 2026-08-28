@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readFile, realpath, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { CraftHubRuntime, createCraftHub, defineCapabilityProvider, defineCraftHubPlugin, discoverCapabilities, discoverCapabilitiesWithDiagnostics, loadCraftHubPlugins } from '../src/index'
+import { applyProjectDescriptionChanges, CraftHubRuntime, createCraftHub, defineCapabilityProvider, defineCraftHubPlugin, discoverCapabilities, discoverCapabilitiesWithDiagnostics, loadCraftHubPlugins, projectConfigRevision, resolveSkillInputSelections } from '../src/index'
 
 async function writeProjectConfig(root: string, config: Record<string, unknown>): Promise<void> {
   await mkdir(join(root, '.craft-hub'), { recursive: true })
@@ -46,6 +46,46 @@ async function downstreamFixture(): Promise<string> {
 }
 
 describe('capability discovery', () => {
+  it('localizes package descriptions from version 1 project metadata and preserves comments when applying changes', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'craft-hub-package-description-'))
+    await writeFile(join(root, 'package.json'), JSON.stringify({ name: 'root', scripts: { dev: 'vite' } }))
+    await mkdir(join(root, '.craft-hub'), { recursive: true })
+    await writeFile(join(root, '.craft-hub', 'project.jsonc'), [
+      '{',
+      '  // keep this comment',
+      '  "version": 1,',
+      '  "packages": {',
+      '    ".": {',
+      '      "description": {',
+      '        // preserve the reviewed default description',
+      '        "default": "Existing root package."',
+      '      }',
+      '    }',
+      '  },',
+      '  "extensions": { "example.field": "retained" },',
+      '}',
+      '',
+    ].join('\n'))
+
+    await applyProjectDescriptionChanges(root, [{
+      id: 'package:.',
+      target: 'package',
+      key: '.',
+      description: { 'default': 'Root package.', 'zh-CN': '根包。' },
+    }], await projectConfigRevision(root))
+
+    const content = await readFile(join(root, '.craft-hub', 'project.jsonc'), 'utf8')
+    expect(content).toContain('// keep this comment')
+    expect(content).toContain('// preserve the reviewed default description')
+    expect(content).toContain('"default": "Existing root package."')
+    expect(content).toContain('"zh-CN": "根包。"')
+    expect(content).toContain('"example.field": "retained"')
+    await expect(discoverCapabilitiesWithDiagnostics(root, 'zh-CN')).resolves.toMatchObject({
+      packages: [expect.objectContaining({ relativePath: '.', description: '根包。' })],
+      capabilities: [expect.objectContaining({ package: expect.objectContaining({ description: '根包。' }) })],
+    })
+  })
+
   it('discovers, classifies, and scopes pnpm workspace package scripts', async () => {
     const root = await mkdtemp(join(tmpdir(), 'craft-hub-monorepo-'))
     const liteapp = join(root, 'apps', 'liteapp')
@@ -230,6 +270,47 @@ describe('capability discovery', () => {
     ])
   })
 
+  it('discovers project-owned skill inputs and validates selected agent context', async () => {
+    const root = await fixture()
+    await writeProjectConfig(root, {
+      version: 1,
+      capabilities: {
+        skillInputs: {
+          'agent-skill:release': {
+            app: {
+              type: 'select',
+              label: { 'default': 'Application', 'zh-CN': '应用' },
+              options: [
+                { value: 'task-center', label: { 'default': 'Task Center', 'zh-CN': '小微任务中心' } },
+                'todo',
+              ],
+              default: 'task-center',
+              required: true,
+            },
+            version: {
+              type: 'select',
+              label: 'Version type',
+              options: ['patch', 'minor'],
+              default: 'patch',
+            },
+          },
+        },
+      },
+    })
+
+    const skill = (await discoverCapabilities(root, 'zh-CN')).find(item => item.kind === 'skill')!
+    expect(skill.inputs).toEqual([
+      expect.objectContaining({ id: 'app', type: 'select', label: '应用', default: 'task-center', required: true }),
+      expect.objectContaining({ id: 'version', type: 'select', label: 'Version type', default: 'patch' }),
+    ])
+    expect(resolveSkillInputSelections(skill)).toEqual([
+      { id: 'app', label: '应用', value: 'task-center' },
+      { id: 'version', label: 'Version type', value: 'patch' },
+    ])
+    expect(() => resolveSkillInputSelections(skill, { app: 'unknown' })).toThrow('must be one of')
+    expect(() => resolveSkillInputSelections(skill, { extra: 'value' })).toThrow('Unknown input')
+  })
+
   it('follows the global locale when listing runtime capabilities', async () => {
     const root = await fixture()
     await writeProjectConfig(root, {
@@ -382,6 +463,38 @@ describe('trusted execution', () => {
     await expect(runtime.previewCommand(project.id, command.id, { environment: 'dev' }))
       .rejects
       .toThrow('uin is required')
+  })
+
+  it('omits argv for select options configured as display-only choices', async () => {
+    const root = await fixture()
+    await writeProjectConfig(root, {
+      version: 1,
+      capabilities: {
+        inputs: {
+          'package.json:hello': {
+            target: {
+              type: 'select',
+              options: [
+                { value: 'current', label: 'Current developer', omitArgument: true },
+                { value: '12345', label: 'Named account' },
+              ],
+              default: 'current',
+              flag: '--uin',
+            },
+          },
+        },
+      },
+    })
+    const runtime = new CraftHubRuntime(join(root, '.input-data'))
+    const project = await runtime.addProject(root)
+    const command = (await runtime.capabilities(project.id)).find(item => item.kind === 'command')!
+
+    await expect(runtime.previewCommand(project.id, command.id))
+      .resolves
+      .toMatchObject({ args: ['run', 'hello'] })
+    await expect(runtime.previewCommand(project.id, command.id, { target: '12345' }))
+      .resolves
+      .toMatchObject({ args: ['run', 'hello', '--', '--uin=12345'] })
   })
 
   it('blocks untrusted projects and captures output after trust', async () => {

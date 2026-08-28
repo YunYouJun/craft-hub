@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import type { ProjectAccentColor } from 'craft-hub'
-import { DialogContent, DialogDescription, DialogOverlay, DialogPortal, DialogRoot, DialogTitle, Label as RekaLabel } from 'reka-ui'
+import { Label as RekaLabel } from 'reka-ui'
 import { ref, watch } from 'vue'
 import CompactEditableField from './CompactEditableField.vue'
+import { Button as UiButton } from './components/ui/button'
+import { DialogShell } from './components/ui/dialog'
 import { useI18n } from './i18n'
 import { type IconName, visualIconNames } from './icons'
 import { projectAccentStyle } from './project-visuals'
@@ -77,12 +79,9 @@ function save(): void {
 </script>
 
 <template>
-  <DialogRoot :open="open" @update:open="emit('update:open', $event)">
-    <DialogPortal>
-      <DialogOverlay class="dialog-overlay" />
-      <DialogContent class="dialog-content appearance-dialog">
-        <DialogTitle>{{ title }}</DialogTitle>
-        <DialogDescription>{{ t(showColor ? 'appearanceDescription' : 'iconAppearanceDescription') }}</DialogDescription>
+  <DialogShell :open="open" content-class="dialog-content appearance-dialog" @update:open="emit('update:open', $event)">
+    <template #title>{{ title }}</template>
+    <template #description>{{ t(showColor ? 'appearanceDescription' : 'iconAppearanceDescription') }}</template>
         <RekaLabel v-if="editableName" class="compact-field-label appearance-name-field">
           <span>{{ t('workspaceName') }}</span>
           <CompactEditableField v-model="editedName" name="appearance-name" :aria-label="t('workspaceName')" start-editing />
@@ -152,10 +151,8 @@ function save(): void {
           </div>
         </fieldset>
         <div class="dialog-actions">
-          <button class="secondary-button" type="button" @click="emit('update:open', false)">{{ t('cancel') }}</button>
-          <button class="primary-button" type="button" data-testid="save-appearance" :disabled="editableName && !editedName.trim()" @click="save">{{ t('save') }}</button>
+          <UiButton @click="emit('update:open', false)">{{ t('cancel') }}</UiButton>
+          <UiButton variant="primary" data-testid="save-appearance" :disabled="editableName && !editedName.trim()" @click="save">{{ t('save') }}</UiButton>
         </div>
-      </DialogContent>
-    </DialogPortal>
-  </DialogRoot>
+  </DialogShell>
 </template>

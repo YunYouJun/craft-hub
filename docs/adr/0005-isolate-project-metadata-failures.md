@@ -1,0 +1,3 @@
+# Isolate project metadata failures from the Project Catalog
+
+Project Registration is machine-local source data, while repository-owned project configuration is optional enrichment. Craft Hub therefore keeps the Project Catalog available when one project's metadata is invalid or unreadable: the registered Project remains visible with its existing trust and ordering, the catalog reports a project-scoped diagnostic, and Craft Hub never rewrites the invalid file automatically. Only failure to read the registration store is a catalog-wide failure; generated Schema revisions let Web and Runtime clients identify stale process combinations explicitly.

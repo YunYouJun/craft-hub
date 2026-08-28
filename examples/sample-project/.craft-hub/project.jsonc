@@ -28,6 +28,44 @@
         "default": "Run the sample project checks.",
         "zh-CN": "运行示例项目检查。"
       }
+    },
+    "skillInputs": {
+      "agent-skill:release": {
+        "channel": {
+          "type": "select",
+          "label": {
+            "default": "Release channel",
+            "zh-CN": "发布渠道"
+          },
+          "options": [
+            {
+              "value": "stable",
+              "label": {
+                "default": "Stable",
+                "zh-CN": "正式版"
+              }
+            },
+            {
+              "value": "canary",
+              "label": {
+                "default": "Canary",
+                "zh-CN": "预览版"
+              }
+            }
+          ],
+          "default": "stable",
+          "required": true
+        },
+        "version": {
+          "type": "select",
+          "label": {
+            "default": "Version type",
+            "zh-CN": "版本类型"
+          },
+          "options": ["patch", "minor"],
+          "default": "patch"
+        }
+      }
     }
   }
 }

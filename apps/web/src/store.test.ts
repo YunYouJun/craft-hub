@@ -2,6 +2,7 @@
 /// <reference lib="dom" />
 
 import type { Capability, CommandCapability, ProjectRecord, RunRecord, WorkspaceManifest } from 'craft-hub'
+import { projectConfigSchemaRevision } from 'craft-hub'
 import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useWorkbenchStore } from './store'
@@ -103,6 +104,76 @@ describe('workbench refresh', () => {
     expect(projectRequests).toBe(1)
   })
 
+  it('keeps the last successful project catalog when a refresh fails', async () => {
+    const store = useWorkbenchStore()
+    await store.loadProjects()
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ error: 'runtime unavailable' }), { status: 500 })))
+
+    await expect(store.refreshProjects()).rejects.toThrow('runtime unavailable')
+
+    expect(store.projects).toEqual([project])
+    expect(store.projectsLoadState).toBe('error')
+    expect(store.projectsLoadError).toBe('runtime unavailable')
+  })
+
+  it('loads project-local configuration diagnostics without dropping the project', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const path = typeof input === 'string' ? input : input.toString()
+      if (path === '/api/projects') {
+        return new Response(JSON.stringify({
+          projects: [project],
+          diagnostics: [{
+            projectId: project.id,
+            source: 'project-config',
+            targetPath: '.craft-hub/project.jsonc',
+            path: '/unknown',
+            line: 3,
+            column: 14,
+            message: 'Unrecognized key: "unknown"',
+          }],
+        }), { status: 200 })
+      }
+      if (path.includes('/agent-actions'))
+        return new Response(JSON.stringify([]), { status: 200 })
+      if (path.endsWith('/pins'))
+        return new Response(JSON.stringify({ projectId: project.id, capabilityIds: [] }), { status: 200 })
+      return new Response(JSON.stringify({ capabilities, diagnostics: [] }), { status: 200 })
+    }))
+    const store = useWorkbenchStore()
+
+    await store.loadProjects()
+
+    expect(store.projects).toEqual([project])
+    expect(store.projectCatalogDiagnostics).toEqual([
+      expect.objectContaining({ projectId: project.id, line: 3, path: '/unknown' }),
+    ])
+    expect(store.selectedProjectDiagnostics).toHaveLength(1)
+  })
+
+  it('reports a stale Runtime schema while retaining the project catalog', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const path = typeof input === 'string' ? input : input.toString()
+      if (path === '/api/health')
+        return new Response(JSON.stringify({ status: 'ok', projectConfigSchemaRevision: 'sha256:old' }), { status: 200 })
+      if (path === '/api/projects')
+        return new Response(JSON.stringify({ projects: [project], diagnostics: [] }), { status: 200 })
+      if (path.includes('/agent-actions'))
+        return new Response(JSON.stringify([]), { status: 200 })
+      if (path.endsWith('/pins'))
+        return new Response(JSON.stringify({ projectId: project.id, capabilityIds: [] }), { status: 200 })
+      return new Response(JSON.stringify({ capabilities, diagnostics: [] }), { status: 200 })
+    }))
+    const store = useWorkbenchStore()
+
+    await store.loadProjects()
+
+    expect(store.projects).toEqual([project])
+    expect(store.runtimeSchemaMismatch).toEqual({
+      actual: 'sha256:old',
+      expected: projectConfigSchemaRevision,
+    })
+  })
+
   it('keeps workspace projects available when another project capability scan fails', async () => {
     const brokenProject = { ...project, id: 'broken', name: 'Broken', path: '/broken' }
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
@@ -130,6 +201,37 @@ describe('workbench refresh', () => {
 
     expect(store.projects.map(item => item.id)).toEqual(['project', 'broken'])
     expect(store.workspaceProjects(store.workspaces[0]!)).toEqual([project])
+  })
+
+  it('keeps the active workspace selected across a full project refresh', async () => {
+    const store = useWorkbenchStore()
+    store.projects = [project]
+    store.workspaces = [{
+      schemaVersion: 1,
+      id: 'workspace',
+      name: 'Workspace',
+      members: [{ project: 'project', projectId: project.id, resolved: true }],
+      revision: 'revision',
+    }]
+    store.selectedWorkspaceId = 'workspace'
+    store.selectedProjectId = ''
+
+    await store.refreshProjects()
+
+    expect(store.selectedWorkspace?.id).toBe('workspace')
+    expect(store.selectedProjectId).toBe('')
+    expect(store.selectedProject).toBeUndefined()
+    expect(store.paletteItems.map(item => item.project.id)).toEqual([project.id])
+  })
+
+  it('falls back to the first project when a stale workspace selection no longer resolves', async () => {
+    const store = useWorkbenchStore()
+    store.selectedWorkspaceId = 'deleted-workspace'
+
+    await store.refreshProjects()
+
+    expect(store.selectedWorkspace).toBeUndefined()
+    expect(store.selectedProject?.id).toBe(project.id)
   })
 
   it('migrates the legacy locale only when the file has no explicit locale', async () => {
@@ -186,6 +288,8 @@ describe('workbench refresh', () => {
       }
       if (path === '/api/projects')
         return new Response(JSON.stringify([project]), { status: 200 })
+      if (path === '/api/health')
+        return new Response(JSON.stringify([]), { status: 200 })
       if (path.endsWith('/pins'))
         return new Response(JSON.stringify({ projectId: project.id, capabilityIds: [] }), { status: 200 })
       if (path.includes('/agent-actions'))
@@ -197,12 +301,82 @@ describe('workbench refresh', () => {
     const store = useWorkbenchStore()
     await store.loadSettings()
     await store.loadProjects()
+    expect(store.selectedCapabilityId).toBe('')
+    store.selectedCapabilityId = 'release'
     expect(store.selectedCapability?.description).toBe('Prepare a safe release.')
 
     await store.updateLocale('zh-CN')
 
     expect(store.selectedCapability?.description).toBe('准备安全发布。')
     expect(capabilityRequests).toBe(2)
+  })
+
+  it('derives first-run progress from projects, command selection, trust, and successful runs', () => {
+    const store = useWorkbenchStore()
+    expect(store.firstRunStage).toBe('add-project')
+
+    store.projects = [project]
+    store.selectedProjectId = project.id
+    expect(store.firstRunStage).toBe('no-capabilities')
+
+    const command: CommandCapability = {
+      id: 'test',
+      kind: 'command',
+      name: 'test',
+      source: 'package.json',
+      invocation: { command: 'pnpm', args: ['run', 'test'], cwd: project.path, requiredEnv: [] },
+    }
+    store.capabilities = [command]
+    expect(store.firstRunStage).toBe('select-command')
+
+    store.selectedCapabilityId = command.id
+    expect(store.firstRunStage).toBe('trust')
+
+    store.projects = [{ ...project, trust: 'trusted' }]
+    expect(store.firstRunStage).toBe('run')
+
+    store.runs = [{
+      id: 'completed',
+      projectId: project.id,
+      capabilityId: command.id,
+      command: 'pnpm',
+      args: ['run', 'test'],
+      cwd: project.path,
+      startedAt: '2026-01-01T00:00:00.000Z',
+      finishedAt: '2026-01-01T00:00:01.000Z',
+      exitCode: 0,
+      stdout: 'ok\n',
+      stderr: '',
+      status: 'completed',
+    }]
+    expect(store.firstRunStage).toBe('complete')
+    expect(store.projectRuns).toHaveLength(1)
+  })
+
+  it('loads persisted runs and reopens their output', async () => {
+    const persisted: RunRecord = {
+      id: 'persisted',
+      projectId: project.id,
+      capabilityId: 'test',
+      command: 'pnpm',
+      args: ['run', 'test'],
+      cwd: project.path,
+      startedAt: '2026-01-01T00:00:00.000Z',
+      finishedAt: '2026-01-01T00:00:01.000Z',
+      exitCode: 0,
+      stdout: 'persisted output\n',
+      stderr: '',
+      status: 'completed',
+    }
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify([persisted]), { status: 200 })))
+    const store = useWorkbenchStore()
+
+    await store.loadRuns()
+    store.openRun(persisted)
+
+    expect(store.runs).toEqual([persisted])
+    expect(store.run).toEqual(persisted)
+    expect(store.terminalVisible).toBe(true)
   })
 
   it('persists pin toggles in project order without using portable settings', async () => {
@@ -310,6 +484,103 @@ describe('workbench refresh', () => {
   })
 })
 
+describe('owner scope navigation', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    window.localStorage.clear()
+  })
+
+  afterEach(() => vi.unstubAllGlobals())
+
+  it('switches to an isolated Team workspace tree and restores its selected workspace', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = typeof input === 'string' ? input : input.toString()
+      if (path === '/api/owner-scopes/state' && init?.method === 'PUT')
+        return new Response(JSON.stringify({ activeScopeId: 'tencent' }))
+      if (path === '/api/workspaces?ownerScopeId=tencent')
+        return new Response(JSON.stringify([{ schemaVersion: 1, id: 'team-app', ownerScopeId: 'tencent', name: 'Team App', members: [], revision: 'r' }]))
+      if (path === '/api/workspace-groups?ownerScopeId=tencent' || path === '/api/workspace-groups/project-assignments?ownerScopeId=tencent')
+        return new Response(JSON.stringify(path.includes('project-assignments') ? {} : []))
+      if (path === '/api/workspaces/state?ownerScopeId=tencent')
+        return new Response(JSON.stringify({ expandedWorkspaceIds: ['team-app'], selectedWorkspaceId: 'team-app' }))
+      if (path === '/api/owner-scopes/tencent/git-sync')
+        return new Response(JSON.stringify({ ownerScopeId: 'tencent', state: 'clean' }))
+      throw new Error(`Unexpected request: ${String(init?.method ?? 'GET')} ${path}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const store = useWorkbenchStore()
+    store.ownerScopes = [
+      { id: 'personal', kind: 'personal', name: 'Personal' },
+      { id: 'tencent', kind: 'team', name: 'Tencent' },
+    ]
+
+    await store.switchOwnerScope('tencent')
+
+    expect(store.activeOwnerScopeId).toBe('tencent')
+    expect(store.workspaces.map(workspace => workspace.name)).toEqual(['Team App'])
+    expect(store.selectedWorkspaceId).toBe('team-app')
+    expect(store.unassignedProjects).toEqual([])
+  })
+
+  it('shows only standalone projects explicitly grouped in the active Team', () => {
+    const store = useWorkbenchStore()
+    const teamProject = { ...project, id: 'team-project', name: 'Team project' }
+    const globalProject = { ...project, id: 'global-project', name: 'Global project' }
+    store.activeOwnerScopeId = 'tencent'
+    store.projects = [teamProject, globalProject]
+    store.projectGroupAssignments = { [teamProject.id]: 'wxfed' }
+    store.teamProjectOwnerScopes = { [teamProject.id]: ['tencent'] }
+
+    expect(store.unassignedProjects.map(item => item.name)).toEqual(['Team project'])
+  })
+
+  it('keeps projects owned by any Team out of Personal', () => {
+    const store = useWorkbenchStore()
+    const teamProject = { ...project, id: 'team-project', name: 'Team project' }
+    const personalProject = { ...project, id: 'personal-project', name: 'Personal project' }
+    store.activeOwnerScopeId = 'personal'
+    store.projects = [teamProject, personalProject]
+    store.teamProjectOwnerScopes = { [teamProject.id]: ['tencent'] }
+
+    expect(store.unassignedProjects.map(item => item.name)).toEqual(['Personal project'])
+  })
+
+  it('uses Personal only for an older server and surfaces other owner-scope failures', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ error: 'Not found' }), { status: 404 })))
+    const legacyStore = useWorkbenchStore()
+    await expect(legacyStore.loadOwnerScopes()).resolves.toBeUndefined()
+    expect(legacyStore.ownerScopes).toEqual([{ id: 'personal', kind: 'personal', name: 'Personal' }])
+
+    setActivePinia(createPinia())
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ error: 'Owner scope catalog is corrupt' }), { status: 500 })))
+    const brokenStore = useWorkbenchStore()
+    await expect(brokenStore.loadOwnerScopes()).rejects.toThrow('Owner scope catalog is corrupt')
+    expect(brokenStore.ownerScopeError).toBe('Owner scope catalog is corrupt')
+  })
+
+  it('restores the active Team sync status during startup', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const path = typeof input === 'string' ? input : input.toString()
+      if (path === '/api/owner-scopes')
+        return new Response(JSON.stringify([{ id: 'personal', kind: 'personal', name: 'Personal' }, { id: 'tencent', kind: 'team', name: 'Tencent' }]))
+      if (path === '/api/owner-scopes/state')
+        return new Response(JSON.stringify({ activeScopeId: 'tencent' }))
+      if (path === '/api/projects/owner-scopes')
+        return new Response(JSON.stringify({ project: ['tencent'] }))
+      if (path === '/api/owner-scopes/tencent/git-sync')
+        return new Response(JSON.stringify({ ownerScopeId: 'tencent', state: 'local-ahead' }))
+      throw new Error(`Unexpected request: ${path}`)
+    }))
+    const store = useWorkbenchStore()
+
+    await store.loadOwnerScopes()
+
+    expect(store.activeOwnerScopeId).toBe('tencent')
+    expect(store.activeTeamSyncStatus).toMatchObject({ ownerScopeId: 'tencent', state: 'local-ahead' })
+    expect(store.teamProjectOwnerScopes).toEqual({ project: ['tencent'] })
+  })
+})
+
 describe('workspace creation', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
@@ -380,6 +651,8 @@ describe('workspace creation', () => {
         return new Response(JSON.stringify({ expandedWorkspaceIds: ['client-work'] }), { status: 200 })
       if (path === '/api/workspace-groups')
         return new Response(JSON.stringify([]), { status: 200 })
+      if (path === '/api/workspace-groups/project-assignments')
+        return new Response(JSON.stringify({}), { status: 200 })
       throw new Error(`Unexpected request: ${String(init?.method ?? 'GET')} ${path}`)
     }))
 
@@ -418,6 +691,8 @@ describe('owned workspace groups', () => {
         return new Response(JSON.stringify([workspace]))
       if (path === '/api/workspace-groups')
         return new Response(JSON.stringify([{ id: 'product-group', name: 'Product group' }]))
+      if (path === '/api/workspace-groups/project-assignments')
+        return new Response(JSON.stringify({ [project.id]: 'product-group' }))
       if (path.endsWith('/capabilities') || path.includes('/agent-actions'))
         return new Response(JSON.stringify([]))
       if (path.endsWith('/pins'))
@@ -433,6 +708,7 @@ describe('owned workspace groups', () => {
       members: [{ label: 'Project label', resolved: true }],
     })
     expect(store.workspaceGroups).toEqual([{ id: 'product-group', name: 'Product group' }])
+    expect(store.projectGroupAssignments).toEqual({ [project.id]: 'product-group' })
   })
 
   it('creates a group and assigns a workspace through the workspace interface', async () => {
@@ -449,6 +725,8 @@ describe('owned workspace groups', () => {
         return new Response(JSON.stringify([]))
       if (path === '/api/workspace-groups')
         return new Response(JSON.stringify([{ id: 'release', name: 'Release' }]))
+      if (path === '/api/workspace-groups/project-assignments')
+        return new Response(JSON.stringify({}))
       throw new Error(`Unexpected request: ${method} ${path}`)
     }))
     const store = useWorkbenchStore()
@@ -474,6 +752,8 @@ describe('owned workspace groups', () => {
         return new Response(JSON.stringify([]))
       if (path === '/api/workspace-groups')
         return new Response(JSON.stringify([{ id: 'product-group', name: 'Product group', icon: 'emoji:📦' }]))
+      if (path === '/api/workspace-groups/project-assignments')
+        return new Response(JSON.stringify({}))
       throw new Error(`Unexpected request: ${method} ${path}`)
     }))
     const store = useWorkbenchStore()

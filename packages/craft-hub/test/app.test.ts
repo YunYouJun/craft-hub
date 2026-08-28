@@ -94,9 +94,9 @@ describe('app launcher', () => {
 
     try {
       const response = await fetch(new URL('/api/projects', url))
-      const projects = await response.json() as Array<{ id: string, path: string }>
-      expect(projects).toEqual([expect.objectContaining({ path: projectPath })])
-      expect(new URL(url).searchParams.get('project')).toBe(projects[0]?.id)
+      const catalog = await response.json() as { projects: Array<{ id: string, path: string }> }
+      expect(catalog.projects).toEqual([expect.objectContaining({ path: projectPath })])
+      expect(new URL(url).searchParams.get('project')).toBe(catalog.projects[0]?.id)
     }
     finally {
       child.kill('SIGTERM')

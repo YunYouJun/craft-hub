@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import type { ProjectAccentColor, ProjectRecord, WorkspaceRecord } from 'craft-hub'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { DialogContent, DialogDescription, DialogOverlay, DialogPortal, DialogRoot, DialogTitle } from 'reka-ui'
 import AppearanceDialog from './AppearanceDialog.vue'
 import CompactEditableField from './CompactEditableField.vue'
+import { Button as UiButton } from './components/ui/button'
+import { DialogShell } from './components/ui/dialog'
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger } from './components/ui/select'
 import { Icon } from './icons'
 import { useI18n } from './i18n'
 import ProjectIcon from './ProjectIcon.vue'
@@ -16,6 +18,7 @@ const emit = defineEmits<{ openMarketplace: [], openSettings: [], openWorkbench:
 const store = useWorkbenchStore()
 const { t } = useI18n()
 const canChooseWorkspaceFolders = Boolean(window.craftHubDesktop?.selectProjectDirectories)
+const canChooseTeamRepository = Boolean(window.craftHubDesktop?.selectProjectDirectory)
 const dialogOpen = ref(false)
 const workspaceDialogOpen = ref(false)
 const workspaceName = ref('')
@@ -29,6 +32,18 @@ const workspaceGroupEditingId = ref('')
 const workspaceGroupDraft = ref('')
 const workspaceGroupError = ref('')
 const workspaceGroupSubmitting = ref(false)
+const teamDialogOpen = ref(false)
+const teamName = ref('')
+const teamRepositoryPath = ref('')
+const teamDirectory = ref('')
+const teamError = ref('')
+const teamSubmitting = ref(false)
+const teamManageDialogOpen = ref(false)
+const teamRenameName = ref('')
+const teamDeleteConfirmation = ref('')
+const teamManageError = ref('')
+const teamManageSubmitting = ref(false)
+const teamSyncSubmitting = ref(false)
 const path = ref('')
 const error = ref('')
 const railActionError = ref('')
@@ -38,6 +53,7 @@ const groupFilter = ref('all')
 const collapsedGroupIds = ref<string[]>([])
 const workspaceGroupUiStorageKey = 'craft-hub-workspace-group-ui'
 const draggedWorkspaceId = ref('')
+const draggedProjectId = ref('')
 const normalizedSearch = computed(() => searchQuery.value.trim().toLocaleLowerCase())
 const contextMenu = ref<{ kind: 'workspace-group' | 'workspace' | 'workspace-member' | 'project', id: string, workspaceId?: string, x: number, y: number }>()
 const appearanceOpen = ref(false)
@@ -45,6 +61,7 @@ const appearanceTarget = ref<{ kind: 'workspace-group' | 'workspace' | 'project'
 const addExistingOpen = ref(false)
 const addExistingWorkspaceId = ref('')
 const selectedExistingProjectIds = ref<string[]>([])
+const projectHasConfigurationIssue = (projectId: string): boolean => store.projectCatalogDiagnostics.some(diagnostic => diagnostic.projectId === projectId)
 const availableExistingProjects = computed(() => {
   const workspace = store.workspaces.find(item => item.id === addExistingWorkspaceId.value)
   const memberIds = new Set(workspace?.members.map(member => member.projectId).filter(Boolean))
@@ -54,11 +71,6 @@ const groupedWorkspaces = computed(() => [
   ...store.workspaceGroups.flatMap(group => store.workspaces.filter(workspace => workspace.groupId === group.id)),
   ...store.workspaces.filter(workspace => !workspace.groupId || !store.workspaceGroups.some(group => group.id === workspace.groupId)),
 ])
-const emptyVisibleGroups = computed(() => store.workspaceGroups.filter((group) => {
-  if (store.workspaces.some(workspace => workspace.groupId === group.id))
-    return false
-  return !normalizedSearch.value && (groupFilter.value === 'all' || groupFilter.value === group.id)
-}))
 const filteredWorkspaces = computed(() => groupedWorkspaces.value.filter((workspace) => {
   if (groupFilter.value === 'ungrouped' && workspace.groupId)
     return false
@@ -69,10 +81,149 @@ const filteredWorkspaces = computed(() => groupedWorkspaces.value.filter((worksp
   return workspace.name.toLocaleLowerCase().includes(normalizedSearch.value)
     || workspace.members.some(member => workspaceMemberMatches(member))
 }))
-const filteredUnassignedProjects = computed(() => groupFilter.value === 'all' || groupFilter.value === 'ungrouped'
-  ? store.unassignedProjects.filter(project => projectMatches(project))
+const filteredStandaloneProjects = computed(() => store.unassignedProjects.filter(project => projectMatches(project)))
+const visibleStandaloneProjects = computed(() => filteredStandaloneProjects.value.filter((project) => {
+  const projectGroupId = store.projectGroupAssignments[project.id]
+  if (groupFilter.value === 'ungrouped')
+    return !projectGroupId
+  return groupFilter.value === 'all' || projectGroupId === groupFilter.value
+}))
+const headerOnlyVisibleGroups = computed(() => store.workspaceGroups.filter((group) => {
+  if (groupFilter.value !== 'all' && groupFilter.value !== group.id)
+    return false
+  if (filteredWorkspaces.value.some(workspace => workspace.groupId === group.id))
+    return false
+  return standaloneProjectsForGroup(group.id).length > 0
+    || (!normalizedSearch.value && !store.workspaces.some(workspace => workspace.groupId === group.id))
+}))
+const filteredUngroupedProjects = computed(() => groupFilter.value === 'all' || groupFilter.value === 'ungrouped'
+  ? filteredStandaloneProjects.value.filter(project => !store.projectGroupAssignments[project.id])
   : [])
-const hasSearchResults = computed(() => filteredWorkspaces.value.length > 0 || filteredUnassignedProjects.value.length > 0)
+const hasSearchResults = computed(() => filteredWorkspaces.value.length > 0 || visibleStandaloneProjects.value.length > 0)
+const teamSyncNeedsAttention = computed(() => Boolean(store.activeTeamSyncStatus
+  && (store.activeTeamSyncStatus.state !== 'clean' || store.activeTeamSyncStatus.workingTreeChanged)))
+
+async function switchOwnerScope(value: unknown): Promise<void> {
+  if (typeof value !== 'string')
+    return
+  groupFilter.value = 'all'
+  searchQuery.value = ''
+  railActionError.value = ''
+  try {
+    await store.switchOwnerScope(value)
+  }
+  catch (caught) {
+    railActionError.value = t('ownerScopeActionFailed', { message: caught instanceof Error ? caught.message : String(caught) })
+  }
+}
+
+async function createTeam(): Promise<void> {
+  const name = teamName.value.trim()
+  const repositoryPath = teamRepositoryPath.value.trim()
+  if (!name || !repositoryPath || teamSubmitting.value)
+    return
+  teamSubmitting.value = true
+  teamError.value = ''
+  try {
+    await store.createTeam(name, repositoryPath, teamDirectory.value.trim() || undefined)
+    teamDialogOpen.value = false
+    teamName.value = ''
+    teamRepositoryPath.value = ''
+    teamDirectory.value = ''
+  }
+  catch (caught) {
+    teamError.value = caught instanceof Error ? caught.message : String(caught)
+  }
+  finally {
+    teamSubmitting.value = false
+  }
+}
+
+async function chooseTeamRepository(): Promise<void> {
+  const selected = await window.craftHubDesktop?.selectProjectDirectory?.(store.repositoriesRoot)
+  if (selected)
+    teamRepositoryPath.value = selected
+}
+
+function openTeamManagement(): void {
+  if (store.activeOwnerScope?.kind !== 'team')
+    return
+  teamRenameName.value = store.activeOwnerScope.name
+  teamDeleteConfirmation.value = ''
+  teamManageError.value = ''
+  teamManageDialogOpen.value = true
+}
+
+async function renameTeam(): Promise<void> {
+  const team = store.activeOwnerScope
+  const name = teamRenameName.value.trim()
+  if (team?.kind !== 'team' || !name || teamManageSubmitting.value)
+    return
+  teamManageSubmitting.value = true
+  teamManageError.value = ''
+  try {
+    await store.renameTeam(team.id, name)
+    teamRenameName.value = name
+  }
+  catch (caught) {
+    teamManageError.value = caught instanceof Error ? caught.message : String(caught)
+  }
+  finally {
+    teamManageSubmitting.value = false
+  }
+}
+
+async function deleteTeam(): Promise<void> {
+  const team = store.activeOwnerScope
+  if (team?.kind !== 'team' || teamDeleteConfirmation.value.trim() !== team.name || teamManageSubmitting.value)
+    return
+  teamManageSubmitting.value = true
+  teamManageError.value = ''
+  try {
+    await store.deleteTeam(team.id, teamDeleteConfirmation.value)
+    teamManageDialogOpen.value = false
+  }
+  catch (caught) {
+    teamManageError.value = caught instanceof Error ? caught.message : String(caught)
+  }
+  finally {
+    teamManageSubmitting.value = false
+  }
+}
+
+async function synchronizeTeam(resolution: 'auto' | 'use-local' | 'use-repository' = 'auto'): Promise<void> {
+  if (teamSyncSubmitting.value)
+    return
+  teamSyncSubmitting.value = true
+  railActionError.value = ''
+  try {
+    await store.synchronizeActiveTeam(resolution)
+  }
+  catch (caught) {
+    railActionError.value = t('teamSyncFailed', { message: caught instanceof Error ? caught.message : String(caught) })
+  }
+  finally {
+    teamSyncSubmitting.value = false
+  }
+}
+
+function teamSyncStateLabel(): string {
+  const state = store.activeTeamSyncStatus?.state
+  if (state === 'clean')
+    return t('personalGitSyncState_clean')
+  if (state === 'local-ahead')
+    return t('personalGitSyncState_localAhead')
+  if (state === 'repository-ahead')
+    return t('personalGitSyncState_repositoryAhead')
+  if (state === 'conflict')
+    return t('personalGitSyncState_conflict')
+  return t('personalGitSyncState_unconfigured')
+}
+
+function teamSyncTooltip(): string {
+  const label = teamSyncStateLabel()
+  return store.activeTeamSyncStatus?.workingTreeChanged ? `${label} · ${t('gitSyncPendingCommit')}` : label
+}
 
 function projectMatches(project: ProjectRecord, label?: string): boolean {
   if (!normalizedSearch.value)
@@ -83,6 +234,10 @@ function projectMatches(project: ProjectRecord, label?: string): boolean {
 function workspaceMemberMatches(member: WorkspaceRecord['members'][number]): boolean {
   const project = member.projectId ? store.projects.find(item => item.id === member.projectId) : undefined
   return project ? projectMatches(project, member.label) : member.project.toLocaleLowerCase().includes(normalizedSearch.value)
+}
+
+function standaloneProjectsForGroup(groupId: string): ProjectRecord[] {
+  return filteredStandaloneProjects.value.filter(project => store.projectGroupAssignments[project.id] === groupId)
 }
 
 function visibleWorkspaceMembers(workspace: WorkspaceRecord): WorkspaceRecord['members'] {
@@ -97,6 +252,7 @@ function isFirstGroupWorkspace(workspace: WorkspaceRecord, index: number): boole
 
 function groupWorkspaceCount(groupId: string): number {
   return filteredWorkspaces.value.filter(workspace => workspace.groupId === groupId).length
+    + standaloneProjectsForGroup(groupId).length
 }
 
 function isFirstUngroupedWorkspace(workspace: WorkspaceRecord, index: number): boolean {
@@ -189,10 +345,20 @@ async function moveWorkspaceToGroup(workspaceId: string, event: Event): Promise<
   closeContextMenu()
 }
 
-async function dropWorkspaceIntoGroup(groupId?: string): Promise<void> {
+async function moveProjectToGroup(projectId: string, event: Event): Promise<void> {
+  const groupId = (event.target as HTMLSelectElement).value || undefined
+  await store.assignProjectGroup(projectId, groupId)
+  closeContextMenu()
+}
+
+async function dropNavigationEntryIntoGroup(groupId?: string): Promise<void> {
+  const projectId = draggedProjectId.value
   const workspaceId = draggedWorkspaceId.value
+  draggedProjectId.value = ''
   draggedWorkspaceId.value = ''
-  if (workspaceId)
+  if (projectId)
+    await store.assignProjectGroup(projectId, groupId)
+  else if (workspaceId)
     await store.assignWorkspaceGroup(workspaceId, groupId)
 }
 
@@ -208,6 +374,20 @@ async function removeContextProject(workspaceId: string, projectIdOrKey: string)
   }
   catch (caught) {
     railActionError.value = t('removeFromWorkspaceFailed', { message: caught instanceof Error ? caught.message : String(caught) })
+  }
+}
+
+async function unregisterContextProject(projectId: string): Promise<void> {
+  const project = store.projects.find(item => item.id === projectId)
+  if (!project || !window.confirm(t('confirmUnregisterProject', { name: project.name })))
+    return
+  closeContextMenu()
+  railActionError.value = ''
+  try {
+    await store.unregisterProject(project.id)
+  }
+  catch (caught) {
+    railActionError.value = t('unregisterProjectFailed', { message: caught instanceof Error ? caught.message : String(caught) })
   }
 }
 
@@ -333,7 +513,7 @@ async function addExistingProjects(): Promise<void> {
 async function addProjectFoldersToWorkspace(workspaceId: string): Promise<void> {
   closeContextMenu()
   const paths = window.craftHubDesktop?.selectProjectDirectories
-    ? await window.craftHubDesktop.selectProjectDirectories()
+    ? await window.craftHubDesktop.selectProjectDirectories(store.repositoriesRoot)
     : [window.prompt(t('projectPath')) ?? ''].filter(Boolean)
   for (const selectedPath of paths ?? [])
     await store.addProjectPathToWorkspace(workspaceId, selectedPath)
@@ -435,14 +615,14 @@ async function locateProject(workspace: WorkspaceRecord, member: WorkspaceRecord
         // The imported path may have moved; let the user locate it below.
       }
       const locatedPath = window.craftHubDesktop?.selectProjectDirectory
-        ? await window.craftHubDesktop.selectProjectDirectory()
+        ? await window.craftHubDesktop.selectProjectDirectory(store.repositoriesRoot)
         : window.prompt(t('projectPath'))
       if (locatedPath)
         await store.registerWorkspaceMember(workspace, member.project, locatedPath)
       return
     }
     const selectedPath = window.craftHubDesktop?.selectProjectDirectory
-      ? await window.craftHubDesktop.selectProjectDirectory()
+      ? await window.craftHubDesktop.selectProjectDirectory(store.repositoriesRoot)
       : window.prompt(t('projectPath'))
     if (selectedPath)
       await store.locateWorkspaceProject(workspace.id, member.project, selectedPath)
@@ -453,8 +633,17 @@ async function locateProject(workspace: WorkspaceRecord, member: WorkspaceRecord
 }
 
 function startWorkspaceDrag(workspaceId: string, event: DragEvent): void {
+  draggedProjectId.value = ''
   draggedWorkspaceId.value = workspaceId
   event.dataTransfer?.setData('text/plain', workspaceId)
+  if (event.dataTransfer)
+    event.dataTransfer.effectAllowed = 'move'
+}
+
+function startProjectDrag(projectId: string, event: DragEvent): void {
+  draggedWorkspaceId.value = ''
+  draggedProjectId.value = projectId
+  event.dataTransfer?.setData('text/plain', projectId)
   if (event.dataTransfer)
     event.dataTransfer.effectAllowed = 'move'
 }
@@ -468,7 +657,7 @@ async function dropWorkspace(targetWorkspaceId: string): Promise<void> {
 
 async function importVscodeWorkspaces(): Promise<void> {
   const sourceDirectory = window.craftHubDesktop?.selectProjectDirectory
-    ? await window.craftHubDesktop.selectProjectDirectory()
+    ? await window.craftHubDesktop.selectProjectDirectory(store.repositoriesRoot)
     : window.prompt(t('workspaceImportPath'))
   if (!sourceDirectory)
     return
@@ -523,7 +712,7 @@ async function openAddProject(): Promise<void> {
   }
 
   try {
-    const selectedPath = await selectProjectDirectory()
+    const selectedPath = await selectProjectDirectory(store.repositoriesRoot)
     if (selectedPath)
       await addProjectPath(selectedPath)
   }
@@ -591,6 +780,53 @@ async function addProjectPath(projectPath: string): Promise<void> {
     </div>
     <div class="rail-content" :class="{ 'search-active': normalizedSearch }" :inert="activeView === 'marketplace'" :aria-hidden="activeView === 'marketplace'">
       <div class="rail-controls">
+        <div class="owner-scope-switcher">
+          <div class="owner-scope-select">
+            <Select :model-value="store.activeOwnerScopeId" @update:model-value="switchOwnerScope">
+              <SelectTrigger class="owner-scope-trigger" data-testid="owner-scope-trigger" :aria-label="t('ownerScope')">
+                <span v-if="store.activeOwnerScope" class="owner-scope-value">
+                  <span class="owner-scope-icon" :class="store.activeOwnerScope.kind" aria-hidden="true">
+                    <Icon :name="store.activeOwnerScope.kind === 'team' ? 'team' : 'personal'" />
+                  </span>
+                  <span class="owner-scope-name">{{ store.activeOwnerScope.name }}</span>
+                </span>
+                <span v-else class="owner-scope-name">{{ t('ownerScope') }}</span>
+              </SelectTrigger>
+              <SelectContent class="owner-scope-content" align="start">
+                <SelectGroup>
+                  <SelectItem v-for="scope in store.ownerScopes" :key="scope.id" class="owner-scope-item" :value="scope.id">
+                    <span class="owner-scope-icon" :class="scope.kind" aria-hidden="true">
+                      <Icon :name="scope.kind === 'team' ? 'team' : 'personal'" />
+                    </span>
+                    <span class="owner-scope-name">{{ scope.name }}</span>
+                  </SelectItem>
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+          </div>
+          <button
+            v-if="store.activeOwnerScope?.kind === 'team'"
+            type="button"
+            class="team-sync-indicator"
+            :class="[store.activeTeamSyncStatus?.state, { pending: store.activeTeamSyncStatus?.workingTreeChanged }]"
+            :disabled="teamSyncSubmitting"
+            :aria-label="store.activeTeamSyncStatus ? teamSyncTooltip() : t('syncTeam')"
+            :title="store.activeTeamSyncStatus ? teamSyncTooltip() : t('syncTeam')"
+            @click="synchronizeTeam()"
+          >
+            <Icon :name="teamSyncSubmitting ? 'loading' : store.activeTeamSyncStatus?.state === 'conflict' ? 'error' : store.activeTeamSyncStatus?.state === 'clean' && !store.activeTeamSyncStatus?.workingTreeChanged ? 'check' : 'refresh'" />
+          </button>
+          <button v-if="store.activeOwnerScope?.kind === 'team'" type="button" data-testid="manage-team" :aria-label="t('manageTeam')" :title="t('manageTeam')" @click="openTeamManagement"><Icon name="edit" /></button>
+          <button v-if="store.activeOwnerScope?.kind !== 'team'" type="button" :aria-label="t('createTeam')" :title="t('createTeam')" @click="teamDialogOpen = true"><Icon name="plus" /></button>
+        </div>
+        <div v-if="store.activeOwnerScope?.kind === 'team' && store.activeTeamSyncStatus && teamSyncNeedsAttention" class="team-sync-status" :class="store.activeTeamSyncStatus.state">
+          <span><Icon :name="store.activeTeamSyncStatus.state === 'conflict' ? 'error' : store.activeTeamSyncStatus.state === 'clean' ? 'check' : 'refresh'" />{{ teamSyncStateLabel() }}</span>
+          <small v-if="store.activeTeamSyncStatus.workingTreeChanged">{{ t('gitSyncPendingCommit') }}</small>
+          <div v-if="store.activeTeamSyncStatus.state === 'conflict'" class="team-sync-resolution">
+            <button type="button" :disabled="teamSyncSubmitting" @click="synchronizeTeam('use-local')">{{ t('useLocalConfiguration') }}</button>
+            <button type="button" :disabled="teamSyncSubmitting" @click="synchronizeTeam('use-repository')">{{ t('useRepositoryConfiguration') }}</button>
+          </div>
+        </div>
         <div class="rail-heading">
         <h1>{{ t('workspaces') }}</h1>
         <button class="rail-create-action" data-testid="add-workspace" :aria-label="t('addWorkspace')" :title="t('addWorkspace')" @click="openCreateWorkspace">
@@ -618,27 +854,45 @@ async function addProjectPath(projectPath: string): Promise<void> {
         </div>
       </div>
       <div class="rail-list">
-      <div
-        v-for="group in emptyVisibleGroups"
-        :key="group.id"
-        class="unassigned-heading collection-heading empty-workspace-group"
-        @dragover.prevent
-        @drop.prevent="dropWorkspaceIntoGroup(group.id)"
-        @contextmenu.prevent="openWorkspaceGroupContextMenu($event, group.id)"
-      >
-        <button class="collection-toggle" aria-expanded="false" @click="toggleGroup(group.id)">
-          <Icon name="arrowRight" />
-          <span class="collection-icon"><VisualIcon :icon="group.icon" fallback="collection" /></span>
-          <span class="collection-copy"><strong>{{ group.name }}</strong></span>
-          <small class="collection-count">0</small>
+      <template v-for="group in headerOnlyVisibleGroups" :key="group.id">
+        <div
+          class="unassigned-heading collection-heading"
+          :class="{ 'empty-workspace-group': groupWorkspaceCount(group.id) === 0 }"
+          @dragover.prevent
+          @drop.prevent="dropNavigationEntryIntoGroup(group.id)"
+          @contextmenu.prevent="openWorkspaceGroupContextMenu($event, group.id)"
+        >
+          <button class="collection-toggle" :aria-expanded="!isGroupCollapsed(group.id)" @click="toggleGroup(group.id)">
+            <Icon name="arrowRight" :class="{ expanded: !isGroupCollapsed(group.id) }" />
+            <span class="collection-icon"><VisualIcon :icon="group.icon" fallback="collection" /></span>
+            <span class="collection-copy"><strong>{{ group.name }}</strong></span>
+            <small class="collection-count">{{ groupWorkspaceCount(group.id) }}</small>
+          </button>
+        </div>
+        <button
+          v-for="project in standaloneProjectsForGroup(group.id)"
+          v-show="!isGroupCollapsed(group.id)"
+          :key="project.id"
+          class="project-row nested rail-root-entry standalone-project"
+          :class="{ selected: project.id === store.selectedProjectId }"
+          :style="projectAccentStyle(project.color)"
+          draggable="true"
+          @dragstart="startProjectDrag(project.id, $event)"
+          @dragend="draggedProjectId = ''"
+          @click="store.selectProject(project.id)"
+          @contextmenu.stop.prevent="openProjectContextMenu($event, project)"
+        >
+          <ProjectIcon class="rail-item-icon" :project="project" /><span class="project-name">{{ project.name }}</span>
+          <span class="project-trust" :class="project.trust" :aria-label="t(project.trust === 'trusted' ? 'trusted' : 'untrusted')"><Icon :name="project.trust" /></span>
+          <span v-if="projectHasConfigurationIssue(project.id)" class="project-config-warning" :aria-label="t('projectConfigInvalid')" :title="t('projectConfigInvalid')"><Icon name="error" /></span>
         </button>
-      </div>
+      </template>
       <template v-for="(workspace, workspaceIndex) in filteredWorkspaces" :key="workspace.id">
         <div
           v-if="workspace.groupId && isFirstGroupWorkspace(workspace, workspaceIndex)"
           class="unassigned-heading collection-heading"
           @dragover.prevent
-          @drop.prevent="dropWorkspaceIntoGroup(workspace.groupId)"
+          @drop.prevent="dropNavigationEntryIntoGroup(workspace.groupId)"
           @contextmenu.prevent="openWorkspaceGroupContextMenu($event, workspace.groupId)"
         >
           <button class="collection-toggle" :aria-expanded="!isGroupCollapsed(workspace.groupId)" @click="toggleGroup(workspace.groupId)">
@@ -650,11 +904,27 @@ async function addProjectPath(projectPath: string): Promise<void> {
             <small class="collection-count">{{ groupWorkspaceCount(workspace.groupId) }}</small>
           </button>
         </div>
+        <button
+          v-for="project in workspace.groupId && isFirstGroupWorkspace(workspace, workspaceIndex) && !isGroupCollapsed(workspace.groupId) ? standaloneProjectsForGroup(workspace.groupId) : []"
+          :key="project.id"
+          class="project-row nested rail-root-entry standalone-project"
+          :class="{ selected: project.id === store.selectedProjectId }"
+          :style="projectAccentStyle(project.color)"
+          draggable="true"
+          @dragstart="startProjectDrag(project.id, $event)"
+          @dragend="draggedProjectId = ''"
+          @click="store.selectProject(project.id)"
+          @contextmenu.stop.prevent="openProjectContextMenu($event, project)"
+        >
+          <ProjectIcon class="rail-item-icon" :project="project" /><span class="project-name">{{ project.name }}</span>
+          <span class="project-trust" :class="project.trust" :aria-label="t(project.trust === 'trusted' ? 'trusted' : 'untrusted')"><Icon :name="project.trust" /></span>
+          <span v-if="projectHasConfigurationIssue(project.id)" class="project-config-warning" :aria-label="t('projectConfigInvalid')" :title="t('projectConfigInvalid')"><Icon name="error" /></span>
+        </button>
         <div
           v-if="groupFilter === 'all' && store.workspaceGroups.length && isFirstUngroupedWorkspace(workspace, workspaceIndex)"
           class="unassigned-heading personal-heading"
           @dragover.prevent
-          @drop.prevent="dropWorkspaceIntoGroup()"
+          @drop.prevent="dropNavigationEntryIntoGroup()"
         >
           <h2>{{ t('ungroupedWorkspaces') }}</h2>
           <small>{{ ungroupedWorkspaceCount() }}</small>
@@ -662,6 +932,7 @@ async function addProjectPath(projectPath: string): Promise<void> {
         <section
         v-if="!workspace.groupId || normalizedSearch || !isGroupCollapsed(workspace.groupId)"
         class="workspace-group"
+        :class="{ 'grouped-workspace': workspace.groupId }"
         :style="projectAccentStyle(workspace.color)"
         draggable="true"
         @dragstart="startWorkspaceDrag(workspace.id, $event)"
@@ -701,6 +972,7 @@ async function addProjectPath(projectPath: string): Promise<void> {
                   :class="store.projects.find(project => project.id === member.projectId)!.trust"
                   :title="t(store.projects.find(project => project.id === member.projectId)!.trust === 'trusted' ? 'trusted' : 'untrusted')"
                 ><Icon :name="store.projects.find(project => project.id === member.projectId)!.trust" /></span>
+                <span v-if="projectHasConfigurationIssue(member.projectId)" class="project-config-warning" :aria-label="t('projectConfigInvalid')" :title="t('projectConfigInvalid')"><Icon name="error" /></span>
               </button>
             </template>
             <div v-else class="project-row nested unresolved" @contextmenu.stop.prevent="openWorkspaceMemberContextMenu($event, workspace, member)">
@@ -719,22 +991,26 @@ async function addProjectPath(projectPath: string): Promise<void> {
         </div>
         </section>
       </template>
-      <section v-if="filteredUnassignedProjects.length" class="unassigned-group">
+      <section v-if="filteredUngroupedProjects.length" class="unassigned-group" @dragover.prevent @drop.prevent="dropNavigationEntryIntoGroup()">
         <div class="unassigned-heading" :title="t('unassignedDescription')">
           <h2>{{ t('unassigned') }}</h2>
-          <small>{{ filteredUnassignedProjects.length }}</small>
+          <small>{{ filteredUngroupedProjects.length }}</small>
         </div>
         <button
-          v-for="project in filteredUnassignedProjects"
+          v-for="project in filteredUngroupedProjects"
           :key="project.id"
           class="project-row nested rail-root-entry"
           :class="{ selected: project.id === store.selectedProjectId }"
           :style="projectAccentStyle(project.color)"
+          draggable="true"
+          @dragstart="startProjectDrag(project.id, $event)"
+          @dragend="draggedProjectId = ''"
           @click="store.selectProject(project.id)"
           @contextmenu.stop.prevent="openProjectContextMenu($event, project)"
         >
           <ProjectIcon class="rail-item-icon" :project="project" /><span class="project-name">{{ project.name }}</span>
           <span class="project-trust" :class="project.trust" :aria-label="t(project.trust === 'trusted' ? 'trusted' : 'untrusted')"><Icon :name="project.trust" /></span>
+          <span v-if="projectHasConfigurationIssue(project.id)" class="project-config-warning" :aria-label="t('projectConfigInvalid')" :title="t('projectConfigInvalid')"><Icon name="error" /></span>
           <span v-if="runState(project.id)" class="project-run-state" :class="runState(project.id)" :aria-label="runStateTitle(project.id)" :title="runStateTitle(project.id)" :data-testid="`project-run-state-${project.id}`">
             <Icon v-if="runState(project.id) === 'starting'" name="refresh" />
             <Icon v-else-if="runState(project.id) === 'running'" name="terminal" />
@@ -754,12 +1030,50 @@ async function addProjectPath(projectPath: string): Promise<void> {
     </div>
   </aside>
 
-  <DialogRoot :open="dialogOpen" @update:open="dialogOpen = $event">
-    <DialogPortal>
-      <DialogOverlay class="dialog-overlay" />
-      <DialogContent class="add-project-dialog">
-        <DialogTitle>{{ t('addProject') }}</DialogTitle>
-        <DialogDescription>{{ t('addProjectDescription') }}</DialogDescription>
+  <DialogShell :open="teamDialogOpen" content-class="add-project-dialog team-create-dialog" @update:open="teamDialogOpen = $event">
+    <template #title>{{ t('createTeam') }}</template>
+    <template #description>{{ t('createTeamDescription') }}</template>
+    <form class="team-create-form" data-testid="create-team-form" @submit.prevent="createTeam">
+      <label><span>{{ t('teamName') }}</span><input v-model="teamName" name="team-name" autofocus></label>
+      <label>
+        <span>{{ t('teamGitRepository') }}</span>
+        <span class="dialog-path-entry">
+          <input v-model="teamRepositoryPath" name="team-repository-path" :placeholder="t('gitRepositoryPathPlaceholder')">
+          <UiButton v-if="canChooseTeamRepository" type="button" size="compact" data-testid="choose-team-repository" @click="chooseTeamRepository">
+            <Icon name="folder" /> {{ t('chooseGitRepository') }}
+          </UiButton>
+        </span>
+      </label>
+      <label><span>{{ t('gitSyncDirectory') }}</span><input v-model="teamDirectory" name="team-directory" :placeholder="`.craft-hub/teams/${teamName.trim().toLocaleLowerCase().replace(/[^a-z0-9]+/g, '-') || 'team'}`"></label>
+      <p v-if="teamError" class="error-message">{{ teamError }}</p>
+      <footer>
+        <UiButton @click="teamDialogOpen = false">{{ t('cancel') }}</UiButton>
+        <UiButton type="submit" variant="primary" :disabled="!teamName.trim() || !teamRepositoryPath.trim() || teamSubmitting">{{ teamSubmitting ? t('saving') : t('create') }}</UiButton>
+      </footer>
+    </form>
+  </DialogShell>
+
+  <DialogShell :open="teamManageDialogOpen" content-class="add-project-dialog team-manage-dialog" @update:open="teamManageDialogOpen = $event">
+    <template #title>{{ t('manageTeam') }}</template>
+    <template #description>{{ t('manageTeamDescription', { name: store.activeOwnerScope?.name ?? '' }) }}</template>
+    <form data-testid="rename-team-form" @submit.prevent="renameTeam">
+      <label><span>{{ t('teamName') }}</span><input v-model="teamRenameName" name="team-rename-name" autofocus></label>
+      <footer>
+        <UiButton type="submit" variant="primary" :disabled="!teamRenameName.trim() || teamManageSubmitting">{{ t('renameTeam') }}</UiButton>
+      </footer>
+    </form>
+    <section class="team-danger-zone">
+      <h3>{{ t('deleteTeam') }}</h3>
+      <p>{{ t('deleteTeamDescription', { name: store.activeOwnerScope?.name ?? '', count: String(store.workspaces.length) }) }}</p>
+      <label><span>{{ t('deleteTeamConfirmation', { name: store.activeOwnerScope?.name ?? '' }) }}</span><input v-model="teamDeleteConfirmation" name="team-delete-confirmation" autocomplete="off"></label>
+      <UiButton variant="danger" data-testid="delete-team" :disabled="teamDeleteConfirmation.trim() !== store.activeOwnerScope?.name || teamManageSubmitting" @click="deleteTeam">{{ t('deleteTeam') }}</UiButton>
+    </section>
+    <p v-if="teamManageError" class="error-message" role="alert">{{ teamManageError }}</p>
+  </DialogShell>
+
+  <DialogShell :open="dialogOpen" content-class="add-project-dialog" @update:open="dialogOpen = $event">
+    <template #title>{{ t('addProject') }}</template>
+    <template #description>{{ t('addProjectDescription') }}</template>
         <form data-testid="add-project-form" @submit.prevent="addProject">
           <label>
             <span>{{ t('projectPath') }}</span>
@@ -767,22 +1081,17 @@ async function addProjectPath(projectPath: string): Promise<void> {
           </label>
           <p v-if="error" class="error-message">{{ error }}</p>
           <footer>
-            <button type="button" class="secondary-button" @click="dialogOpen = false">{{ t('cancel') }}</button>
-            <button type="submit" class="primary-button" :disabled="!path.trim() || submitting">
+            <UiButton @click="dialogOpen = false">{{ t('cancel') }}</UiButton>
+            <UiButton type="submit" variant="primary" :disabled="!path.trim() || submitting">
               {{ submitting ? t('adding') : t('addProject') }}
-            </button>
+            </UiButton>
           </footer>
         </form>
-      </DialogContent>
-    </DialogPortal>
-  </DialogRoot>
+  </DialogShell>
 
-  <DialogRoot :open="workspaceGroupDialogOpen" @update:open="workspaceGroupDialogOpen = $event">
-    <DialogPortal>
-      <DialogOverlay class="dialog-overlay" />
-      <DialogContent class="add-project-dialog">
-        <DialogTitle>{{ t(workspaceGroupEditingId ? 'renameWorkspaceGroup' : 'createWorkspaceGroup') }}</DialogTitle>
-        <DialogDescription>{{ t('workspaceGroupDescription') }}</DialogDescription>
+  <DialogShell :open="workspaceGroupDialogOpen" content-class="add-project-dialog" @update:open="workspaceGroupDialogOpen = $event">
+    <template #title>{{ t(workspaceGroupEditingId ? 'renameWorkspaceGroup' : 'createWorkspaceGroup') }}</template>
+    <template #description>{{ t('workspaceGroupDescription') }}</template>
         <form data-testid="workspace-group-form" @submit.prevent="saveWorkspaceGroup">
           <label>
             <span>{{ t('workspaceGroupName') }}</span>
@@ -790,25 +1099,20 @@ async function addProjectPath(projectPath: string): Promise<void> {
           </label>
           <p v-if="workspaceGroupError" class="error-message">{{ workspaceGroupError }}</p>
           <footer>
-            <button type="button" class="secondary-button" @click="workspaceGroupDialogOpen = false">{{ t('cancel') }}</button>
-            <button type="submit" class="primary-button" :disabled="!workspaceGroupDraft.trim() || workspaceGroupSubmitting">
+            <UiButton @click="workspaceGroupDialogOpen = false">{{ t('cancel') }}</UiButton>
+            <UiButton type="submit" variant="primary" :disabled="!workspaceGroupDraft.trim() || workspaceGroupSubmitting">
               {{ workspaceGroupSubmitting ? t('saving') : t('save') }}
-            </button>
+            </UiButton>
           </footer>
         </form>
-      </DialogContent>
-    </DialogPortal>
-  </DialogRoot>
+  </DialogShell>
 
-  <DialogRoot :open="workspaceDialogOpen" @update:open="workspaceDialogOpen = $event">
-    <DialogPortal>
-      <DialogOverlay class="dialog-overlay" />
-      <DialogContent class="add-project-dialog workspace-dialog">
-        <DialogTitle>{{ t('addWorkspace') }}</DialogTitle>
-        <DialogDescription>{{ t('createWorkspaceDescription') }}</DialogDescription>
-        <button type="button" class="secondary-button workspace-import-button" @click="importVscodeWorkspaces">
+  <DialogShell :open="workspaceDialogOpen" content-class="add-project-dialog workspace-dialog" @update:open="workspaceDialogOpen = $event">
+    <template #title>{{ t('addWorkspace') }}</template>
+    <template #description>{{ t('createWorkspaceDescription') }}</template>
+        <UiButton class="workspace-import-button" @click="importVscodeWorkspaces">
           <Icon name="vscode" /> {{ t('importVscodeWorkspaces') }}
-        </button>
+        </UiButton>
         <form data-testid="add-workspace-form" @submit.prevent="createWorkspace">
           <label>
             <span>{{ t('workspaceName') }}</span>
@@ -820,15 +1124,14 @@ async function addProjectPath(projectPath: string): Promise<void> {
                 <strong>{{ t('workspaceFolders') }}</strong>
                 <small>{{ t('workspaceFoldersDescription') }}</small>
               </div>
-              <button
+              <UiButton
                 v-if="canChooseWorkspaceFolders"
-                type="button"
-                class="secondary-button compact-button"
+                size="compact"
                 data-testid="choose-workspace-folders"
                 @click="chooseWorkspaceFolders"
               >
                 <Icon name="folder" /> {{ t('chooseFolders') }}
-              </button>
+              </UiButton>
             </div>
             <div class="workspace-path-entry">
               <input
@@ -837,9 +1140,9 @@ async function addProjectPath(projectPath: string): Promise<void> {
                 :placeholder="t('workspacePathPlaceholder')"
                 @keydown.enter.prevent="addWorkspacePath"
               >
-              <button type="button" class="secondary-button" :disabled="!workspacePathDraft.trim()" @click="addWorkspacePath">
+              <UiButton :disabled="!workspacePathDraft.trim()" @click="addWorkspacePath">
                 {{ t('addFolder') }}
-              </button>
+              </UiButton>
             </div>
             <ul v-if="workspacePaths.length" class="workspace-folder-list">
               <li v-for="folderPath in workspacePaths" :key="folderPath" class="workspace-folder-item">
@@ -859,15 +1162,13 @@ async function addProjectPath(projectPath: string): Promise<void> {
           </section>
           <p v-if="workspaceError" class="error-message">{{ workspaceError }}</p>
           <footer>
-            <button type="button" class="secondary-button" @click="workspaceDialogOpen = false">{{ t('cancel') }}</button>
-            <button type="submit" class="primary-button" :disabled="!workspaceName.trim() || workspaceSubmitting">
+            <UiButton @click="workspaceDialogOpen = false">{{ t('cancel') }}</UiButton>
+            <UiButton type="submit" variant="primary" :disabled="!workspaceName.trim() || workspaceSubmitting">
               {{ workspaceSubmitting ? t('creating') : t('addWorkspace') }}
-            </button>
+            </UiButton>
           </footer>
         </form>
-      </DialogContent>
-    </DialogPortal>
-  </DialogRoot>
+  </DialogShell>
 
   <div
     v-if="contextMenu"
@@ -918,6 +1219,27 @@ async function addProjectPath(projectPath: string): Promise<void> {
     <template v-else-if="contextMenu.kind === 'project'">
       <strong>{{ store.projects.find(project => project.id === contextMenu!.id)?.name }}</strong>
       <button role="menuitem" @click="openAppearance('project', contextMenu!.id, contextMenu!.workspaceId)"><Icon name="palette" />{{ t('appearance') }}</button>
+      <label v-if="!contextMenu.workspaceId" class="context-menu-select">
+        <Icon name="collection" />
+        <span>{{ t('moveToWorkspaceGroup') }}</span>
+        <select
+          :value="store.projectGroupAssignments[contextMenu.id] ?? ''"
+          :aria-label="t('moveToWorkspaceGroup')"
+          @change="moveProjectToGroup(contextMenu!.id, $event)"
+        >
+          <option value="">{{ t('ungroupedWorkspaces') }}</option>
+          <option v-for="group in store.workspaceGroups" :key="group.id" :value="group.id">{{ group.name }}</option>
+        </select>
+      </label>
+      <template v-if="!contextMenu.workspaceId">
+        <span class="context-menu-separator" />
+        <button
+          class="danger-menu-item"
+          role="menuitem"
+          data-testid="unregister-project"
+          @click="unregisterContextProject(contextMenu!.id)"
+        ><Icon name="close" />{{ t('unregisterProject') }}</button>
+      </template>
       <button
         v-if="contextWorkspaceMember()"
         role="menuitem"
@@ -940,12 +1262,9 @@ async function addProjectPath(projectPath: string): Promise<void> {
     </template>
   </div>
 
-  <DialogRoot :open="addExistingOpen" @update:open="addExistingOpen = $event">
-    <DialogPortal>
-      <DialogOverlay class="dialog-overlay" />
-      <DialogContent class="dialog-content add-existing-dialog">
-        <DialogTitle>{{ t('addExistingProjects') }}</DialogTitle>
-        <DialogDescription>{{ t('addExistingProjectsDescription') }}</DialogDescription>
+  <DialogShell :open="addExistingOpen" content-class="dialog-content add-existing-dialog" @update:open="addExistingOpen = $event">
+    <template #title>{{ t('addExistingProjects') }}</template>
+    <template #description>{{ t('addExistingProjectsDescription') }}</template>
         <form data-testid="add-existing-projects-form" @submit.prevent="addExistingProjects">
           <div v-if="availableExistingProjects.length" class="existing-project-list">
             <label v-for="project in availableExistingProjects" :key="project.id" :style="projectAccentStyle(project.color)">
@@ -956,13 +1275,11 @@ async function addProjectPath(projectPath: string): Promise<void> {
           </div>
           <p v-else class="dialog-empty-state">{{ t('noProjectsAvailable') }}</p>
           <footer>
-            <button type="button" class="secondary-button" @click="addExistingOpen = false">{{ t('cancel') }}</button>
-            <button type="submit" class="primary-button" :disabled="!selectedExistingProjectIds.length">{{ t('addProject') }}</button>
+            <UiButton @click="addExistingOpen = false">{{ t('cancel') }}</UiButton>
+            <UiButton type="submit" variant="primary" :disabled="!selectedExistingProjectIds.length">{{ t('addProject') }}</UiButton>
           </footer>
         </form>
-      </DialogContent>
-    </DialogPortal>
-  </DialogRoot>
+  </DialogShell>
 
   <AppearanceDialog
     v-if="appearanceTarget"

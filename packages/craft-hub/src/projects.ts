@@ -1,9 +1,9 @@
 import type { CraftHubStore } from './store'
-import type { ProjectAccentColor, ProjectRecord, ProjectVisualInput, TrustState } from './types'
+import type { ProjectAccentColor, ProjectCatalogDiagnostic, ProjectCatalogSnapshot, ProjectRecord, ProjectVisualInput, TrustState } from './types'
 import { createHash } from 'node:crypto'
 import { realpath, stat } from 'node:fs/promises'
 import { basename, extname, isAbsolute, relative, resolve } from 'node:path'
-import { loadProjectConfig, saveProjectVisual } from './config'
+import { loadProjectConfig, projectConfigTargetPath, ProjectConfigValidationError, saveProjectVisual } from './config'
 import { projectAccentColors } from './types'
 
 const builtinProjectIcons = new Set(['folder', 'hub', 'skill', 'terminal'])
@@ -15,18 +15,27 @@ function projectId(path: string): string {
 export class ProjectRegistry {
   constructor(private readonly store: CraftHubStore) {}
 
-  /** List registered projects with metadata refreshed from each local project config. */
-  async list(): Promise<ProjectRecord[]> {
+  /** Read registered projects while isolating project-local metadata failures. */
+  async snapshot(): Promise<ProjectCatalogSnapshot> {
     const projects = await this.store.listProjects()
-    const refreshed = await Promise.all(projects.map(async (project) => {
-      const config = await loadProjectConfig(project.path)
-      const visual = await projectVisual(project.path, config?.project?.icon, config?.project?.color)
-      return {
-        ...project,
-        name: config?.project?.name ?? basename(project.path),
-        ...visual,
+    const entries = await Promise.all(projects.map(async (project) => {
+      try {
+        const config = await loadProjectConfig(project.path)
+        const visual = await projectVisual(project.path, config?.project?.icon, config?.project?.color)
+        return {
+          diagnostics: [] as ProjectCatalogDiagnostic[],
+          project: {
+            ...project,
+            name: config?.project?.name ?? basename(project.path),
+            ...visual,
+          },
+        }
+      }
+      catch (error) {
+        return { diagnostics: catalogDiagnostics(project, error), project }
       }
     }))
+    const refreshed = entries.map(entry => entry.project)
     const changed = refreshed.some((project, index) => {
       const previous = projects[index]
       return project.name !== previous?.name
@@ -36,7 +45,15 @@ export class ProjectRegistry {
     })
     if (changed)
       await this.store.saveProjects(refreshed)
-    return refreshed
+    return {
+      projects: refreshed,
+      diagnostics: entries.flatMap(entry => entry.diagnostics),
+    }
+  }
+
+  /** List registered projects with project-local metadata failures isolated. */
+  async list(): Promise<ProjectRecord[]> {
+    return (await this.snapshot()).projects
   }
 
   async add(inputPath: string): Promise<ProjectRecord> {
@@ -116,6 +133,24 @@ export class ProjectRegistry {
       return undefined
     return validateIconPath(project.path, project.icon)
   }
+}
+
+function catalogDiagnostics(project: ProjectRecord, error: unknown): ProjectCatalogDiagnostic[] {
+  if (error instanceof ProjectConfigValidationError) {
+    return error.diagnostics.map(diagnostic => ({
+      ...diagnostic,
+      projectId: project.id,
+      source: 'project-config',
+      targetPath: projectConfigTargetPath,
+    }))
+  }
+  return [{
+    projectId: project.id,
+    source: 'project',
+    targetPath: projectConfigTargetPath,
+    path: '/',
+    message: error instanceof Error ? error.message : String(error),
+  }]
 }
 
 async function projectVisual(projectPath: string, icon: unknown, color: unknown): Promise<Pick<ProjectRecord, 'color' | 'icon' | 'iconWarning'>> {

@@ -1,5 +1,5 @@
-import type { LocalizedText, ProjectCommandInputConfig } from './config'
-import type { Capability, CapabilityDiscoveryDiagnostic, CapabilityDiscoveryResult, CapabilitySource, CommandCapability, CommandCategory, CommandInputDefinition, CommandPackage, SkillCapability } from './types'
+import type { LocalizedText, ProjectCommandInputConfig, ProjectSkillInputConfig } from './config'
+import type { Capability, CapabilityDiscoveryDiagnostic, CapabilityDiscoveryResult, CapabilitySource, CommandCapability, CommandCategory, CommandInputDefinition, CommandPackage, SkillCapability, SkillInputDefinition } from './types'
 import { createHash } from 'node:crypto'
 import { access, readdir, readFile, realpath } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, join, relative, sep } from 'node:path'
@@ -24,10 +24,44 @@ function localizedText(value: LocalizedText | undefined, locale: string): string
   return candidates.map(candidate => value[candidate]).find(description => typeof description === 'string')
 }
 
-function configuredValue<T>(values: Record<string, T>, capability: CommandCapability): T | undefined {
+function configuredValue<T>(values: Record<string, T>, capability: Capability): T | undefined {
   return values[capability.id]
     ?? values[`${capability.source}:${capability.name}`]
     ?? values[capability.name]
+}
+
+function skillInputs(config: Record<string, ProjectSkillInputConfig>, locale: string): SkillInputDefinition[] {
+  const entries = Object.entries(config)
+  const ids = new Set(entries.map(([input]) => input))
+  return entries.map(([input, definition]) => {
+    if (!/^[a-z][\w-]*$/i.test(input))
+      throw new Error(`Invalid skill input id: ${input}`)
+    for (const condition of [definition.requiredWhen, definition.visibleWhen]) {
+      if (condition && (!ids.has(condition.input) || typeof condition.equals !== 'string'))
+        throw new Error(`Skill input ${input} references an unknown condition input`)
+    }
+    const pattern = definition.pattern ? new RegExp(definition.pattern) : undefined
+    const options = definition.options?.map(option => typeof option === 'string'
+      ? { value: option }
+      : { value: option.value, label: localizedText(option.label, locale) })
+    if (definition.type === 'select' && (!options?.length || options.some(option => !option.value)))
+      throw new Error(`Select skill input ${input} must declare non-empty options`)
+    if (definition.default && definition.type === 'select' && !options?.some(option => option.value === definition.default))
+      throw new Error(`Default value for skill input ${input} must match an option`)
+
+    return {
+      id: input,
+      type: definition.type,
+      label: localizedText(definition.label, locale),
+      description: localizedText(definition.description, locale),
+      options,
+      default: definition.default,
+      required: definition.required,
+      requiredWhen: definition.requiredWhen,
+      visibleWhen: definition.visibleWhen,
+      pattern: pattern ? definition.pattern : undefined,
+    }
+  })
 }
 
 function commandInputs(config: Record<string, ProjectCommandInputConfig>, locale: string): CommandInputDefinition[] {
@@ -48,9 +82,13 @@ function commandInputs(config: Record<string, ProjectCommandInputConfig>, locale
     }
     const pattern = definition.pattern ? new RegExp(definition.pattern) : undefined
 
-    const options = definition.options?.map(option => typeof option === 'string'
-      ? { value: option }
-      : { value: option.value, label: localizedText(option.label, locale) })
+    const options = definition.options?.map((option) => {
+      if (typeof option === 'string')
+        return { value: option }
+      if (option.omitArgument !== undefined && typeof option.omitArgument !== 'boolean')
+        throw new Error(`Select command input ${input} option ${option.value} has an invalid omitArgument`)
+      return { value: option.value, label: localizedText(option.label, locale), omitArgument: option.omitArgument }
+    })
     if (definition.type === 'select' && (!options?.length || options.some(option => !option.value)))
       throw new Error(`Select command input ${input} must declare non-empty options`)
     if (definition.default && definition.type === 'select' && !options?.some(option => option.value === definition.default))
@@ -381,17 +419,25 @@ export async function discoverCapabilitiesWithDiagnostics(cwd: string, locale = 
     discoverTaskfileTasks(cwd, commandPackage),
     discoverSkills(cwd),
   ])
-  const capabilityConfig = (await loadProjectConfig(cwd))?.capabilities
+  const projectConfig = await loadProjectConfig(cwd)
+  const capabilityConfig = projectConfig?.capabilities
   const hidden = new Set(capabilityConfig?.hidden ?? [])
   const descriptions = capabilityConfig?.descriptions ?? {}
   const inputs = capabilityConfig?.inputs ?? {}
+  const configuredSkillInputs = capabilityConfig?.skillInputs ?? {}
   const capabilities = [...groups.flat(), ...workspace.capabilities]
     .filter(capability => !hidden.has(capability.id) && !hidden.has(capability.name) && !hidden.has(`${capability.source}:${capability.name}`))
     .map((capability) => {
-      const configuredDescription = configuredValue(descriptions, capability as CommandCapability)
+      const configuredDescription = configuredValue(descriptions, capability)
       const description = localizedText(configuredDescription, locale)
-      if (capability.kind !== 'command')
-        return description ? { ...capability, description } : capability
+      if (capability.kind !== 'command') {
+        const configuredInputs = configuredValue(configuredSkillInputs, capability)
+        return {
+          ...capability,
+          ...(description ? { description } : {}),
+          ...(configuredInputs ? { inputs: skillInputs(configuredInputs, locale) } : {}),
+        }
+      }
       const configuredInputs = configuredValue(inputs, capability)
       return {
         ...capability,
@@ -405,7 +451,20 @@ export async function discoverCapabilitiesWithDiagnostics(cwd: string, locale = 
       }
     })
     .sort(compareCapabilities)
-  return { capabilities, diagnostics: workspace.diagnostics, packages: [commandPackage, ...workspace.packages] }
+  const packages = [commandPackage, ...workspace.packages].map((commandPackage) => {
+    const configuredDescription = localizedText(projectConfig?.packages?.[commandPackage.relativePath]?.description, locale)
+    return configuredDescription ? { ...commandPackage, description: configuredDescription } : commandPackage
+  })
+  const packageDescriptions = new Map(packages.map(commandPackage => [commandPackage.relativePath, commandPackage.description]))
+  const localizedCapabilities = capabilities.map((capability) => {
+    if (capability.kind !== 'command' || !capability.package)
+      return capability
+    const description = packageDescriptions.get(capability.package.relativePath)
+    return description === capability.package.description
+      ? capability
+      : { ...capability, package: { ...capability.package, description } }
+  })
+  return { capabilities: localizedCapabilities, diagnostics: workspace.diagnostics, packages }
 }
 
 /** Discover built-in command and skill capabilities for one project. */

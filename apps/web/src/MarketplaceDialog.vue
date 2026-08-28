@@ -2,6 +2,7 @@
 import type { CatalogPluginV1, InstalledPlugin, MarketplaceSource } from 'craft-hub'
 import { computed, ref, watch } from 'vue'
 import { api } from './api'
+import { Button as UiButton } from './components/ui/button'
 import { Icon } from './icons'
 import { useI18n } from './i18n'
 
@@ -157,9 +158,9 @@ function sourceKind(source: MarketplaceSource): string {
                 <dl><div><dt>{{ t('pluginPublisher') }}</dt><dd>{{ plugin.publisher }}</dd></div><div><dt>{{ t('pluginVersion') }}</dt><dd>{{ plugin.version }}</dd></div><div><dt>{{ t('pluginSource') }}</dt><dd>{{ plugin.sourceName }}</dd></div></dl>
                 <p class="permission-copy">{{ t('pluginPermissions') }} · {{ plugin.permissions.join(', ') || t('none') }}</p>
               </div>
-              <button class="primary-button" :disabled="busy !== '' || installedPackages.has(plugin.package)" @click="install(plugin)">
+              <UiButton size="compact" variant="primary" :disabled="busy !== '' || installedPackages.has(plugin.package)" @click="install(plugin)">
                 {{ busy === `install:${plugin.package}` ? t('installingPlugin') : installedPackages.has(plugin.package) ? t('installedPlugins') : t('installPlugin') }}
-              </button>
+              </UiButton>
             </article>
           </div>
           <p v-else class="marketplace-empty">{{ t('noPluginsFound') }}</p>
@@ -175,9 +176,9 @@ function sourceKind(source: MarketplaceSource): string {
                 <dl><div><dt>{{ t('pluginVersion') }}</dt><dd>{{ plugin.version }}</dd></div><div><dt>{{ t('pluginSource') }}</dt><dd>{{ plugin.sourceId }}</dd></div><div><dt>{{ t('pluginPermissions') }}</dt><dd>{{ plugin.manifest.permissions.join(', ') || t('none') }}</dd></div></dl>
               </div>
               <div class="plugin-actions">
-                <button class="secondary-button" :disabled="busy !== ''" @click="togglePlugin(plugin)">{{ t(plugin.enabled ? 'disablePlugin' : 'enablePlugin') }}</button>
-                <button class="secondary-button" :disabled="busy !== '' || !plugin.previousVersion" @click="rollback(plugin)">{{ t('rollbackPlugin') }}</button>
-                <button class="secondary-button danger-button" :disabled="busy !== ''" @click="removePlugin(plugin)">{{ t('uninstallPlugin') }}</button>
+                <UiButton size="compact" :disabled="busy !== ''" @click="togglePlugin(plugin)">{{ t(plugin.enabled ? 'disablePlugin' : 'enablePlugin') }}</UiButton>
+                <UiButton size="compact" :disabled="busy !== '' || !plugin.previousVersion" @click="rollback(plugin)">{{ t('rollbackPlugin') }}</UiButton>
+                <UiButton size="compact" variant="danger-secondary" :disabled="busy !== ''" @click="removePlugin(plugin)">{{ t('uninstallPlugin') }}</UiButton>
               </div>
             </article>
           </div>
@@ -189,8 +190,8 @@ function sourceKind(source: MarketplaceSource): string {
             <article v-for="source in sources" :key="source.id" class="source-row">
               <div><strong>{{ source.name }}</strong><small>{{ sourceKind(source) }} · {{ source.catalogUrl || source.id }}</small><p v-if="source.error">{{ source.error }}</p></div>
               <div class="plugin-actions">
-                <button v-if="source.catalogUrl" class="secondary-button" :disabled="busy !== ''" @click="refreshSource(source)">{{ t('refreshSource') }}</button>
-                <button v-if="source.kind === 'user'" class="secondary-button danger-button" :disabled="busy !== ''" @click="removeSource(source)">{{ t('removeSource') }}</button>
+                <UiButton v-if="source.catalogUrl" size="compact" :disabled="busy !== ''" @click="refreshSource(source)">{{ t('refreshSource') }}</UiButton>
+                <UiButton v-if="source.kind === 'user'" size="compact" variant="danger-secondary" :disabled="busy !== ''" @click="removeSource(source)">{{ t('removeSource') }}</UiButton>
               </div>
             </article>
           </div>
@@ -201,7 +202,7 @@ function sourceKind(source: MarketplaceSource): string {
               <label><span>{{ t('catalogUrl') }}</span><input v-model="catalogUrl" type="url" placeholder="https://…/catalog.json" required></label>
               <label><span>{{ t('registryUrl') }}</span><input v-model="registry" type="url" placeholder="https://registry.npmjs.org"></label>
             </div>
-            <button class="primary-button" :disabled="busy !== '' || !sourceName.trim() || !catalogUrl.trim()">{{ t('addMarketplaceSource') }}</button>
+            <UiButton variant="primary" type="submit" :disabled="busy !== '' || !sourceName.trim() || !catalogUrl.trim()">{{ t('addMarketplaceSource') }}</UiButton>
           </form>
         </section>
   </section>

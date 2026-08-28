@@ -18,12 +18,70 @@ async function setup() {
 }
 
 describe('portable workspaces', () => {
+  it('isolates Personal and Team workspaces, groups, project grouping, and UI state', async () => {
+    const fixture = await setup()
+    const personal = await fixture.workspaces.create('Personal App')
+    const personalGroup = await fixture.workspaces.createGroup('Personal Group')
+    const team = await fixture.workspaces.create('Team App', 'tencent')
+    const teamGroup = await fixture.workspaces.createGroup('Team Group', 'tencent')
+    const workspaceProjectPath = join(fixture.root, 'workspace-project')
+    await mkdir(workspaceProjectPath)
+    const workspaceProject = await fixture.projects.add(workspaceProjectPath)
+
+    await fixture.workspaces.assignGroup(personal.id, personalGroup.id, 'personal')
+    await fixture.workspaces.assignGroup(team.id, teamGroup.id, 'tencent')
+    await fixture.workspaces.addProject(team.id, workspaceProject.id, 'tencent')
+    await fixture.workspaces.assignProjectGroup(fixture.project.id, teamGroup.id, 'tencent')
+    await fixture.workspaces.updateUiState({ expandedWorkspaceIds: [team.id], selectedWorkspaceId: team.id }, 'tencent')
+
+    await expect(fixture.workspaces.list()).resolves.toMatchObject([{ id: personal.id, ownerScopeId: 'personal' }])
+    await expect(fixture.workspaces.list('tencent')).resolves.toMatchObject([{ id: team.id, ownerScopeId: 'tencent' }])
+    await expect(fixture.workspaces.groups()).resolves.toMatchObject([{ id: personalGroup.id }])
+    await expect(fixture.workspaces.groups('tencent')).resolves.toMatchObject([{ id: teamGroup.id, ownerScopeId: 'tencent' }])
+    await expect(fixture.workspaces.projectGroupAssignments()).resolves.toEqual({})
+    await expect(fixture.workspaces.projectGroupAssignments('tencent')).resolves.toEqual({ [fixture.project.id]: teamGroup.id })
+    await expect(fixture.workspaces.projectOwnerScopes(['personal', 'tencent'])).resolves.toEqual({
+      [fixture.project.id]: ['tencent'],
+      [workspaceProject.id]: ['tencent'],
+    })
+    await expect(fixture.workspaces.uiState()).resolves.toEqual({ expandedWorkspaceIds: [] })
+    await expect(fixture.workspaces.uiState('tencent')).resolves.toEqual({ expandedWorkspaceIds: [team.id], selectedWorkspaceId: team.id })
+    await expect(fixture.workspaces.assignGroup(team.id, personalGroup.id, 'tencent')).rejects.toThrow('same owner scope')
+    await expect(fixture.workspaces.get(team.id, 'personal')).rejects.toThrow('does not belong')
+  })
+
+  it('treats legacy manifests and groups without an owner scope as Personal', async () => {
+    const fixture = await setup()
+    const workspace = await fixture.workspaces.create('Legacy')
+    const group = await fixture.workspaces.createGroup('Legacy Group')
+
+    expect(workspace.ownerScopeId).toBe('personal')
+    expect(group.ownerScopeId).toBeUndefined()
+    await expect(fixture.workspaces.list('personal')).resolves.toHaveLength(1)
+    await expect(fixture.workspaces.list('team')).resolves.toEqual([])
+  })
+
+  it('rejects a Team snapshot whose group id belongs to another owner scope', async () => {
+    const fixture = await setup()
+    const personalGroup = await fixture.workspaces.createGroup('Shared')
+
+    await expect(fixture.workspaces.replacePortableSnapshot({
+      schemaVersion: 1,
+      workspaces: [],
+      workspaceOrder: [],
+      groups: [{ id: personalGroup.id, name: 'Foreign group' }],
+      workspaceGroups: {},
+    }, 'tencent')).rejects.toThrow('belongs to another owner scope')
+    await expect(fixture.workspaces.groups()).resolves.toHaveLength(1)
+    await expect(fixture.workspaces.groups('tencent')).resolves.toEqual([])
+  })
   it('owns editable groups separately from workspace manifests', async () => {
     const fixture = await setup()
     const workspace = await fixture.workspaces.create('Grouped')
     const group = await fixture.workspaces.createGroup('Cover')
 
     await expect(fixture.workspaces.assignGroup(workspace.id, group.id)).resolves.toMatchObject({ groupId: group.id })
+    await expect(fixture.workspaces.assignProjectGroup(fixture.project.id, group.id)).resolves.toEqual({ [fixture.project.id]: group.id })
     await expect(fixture.workspaces.setGroupIcon(group.id, 'emoji:🧧')).resolves.toEqual({ id: group.id, name: 'Cover', icon: 'emoji:🧧' })
     await expect(fixture.workspaces.renameGroup(group.id, 'Cover Hub')).resolves.toEqual({ id: group.id, name: 'Cover Hub', icon: 'emoji:🧧' })
     expect(await readFile(join(fixture.configDir, 'config.yaml'), 'utf8')).toContain('icon: emoji:🧧')
@@ -31,6 +89,7 @@ describe('portable workspaces', () => {
 
     await fixture.workspaces.deleteGroup(group.id)
     await expect(fixture.workspaces.list()).resolves.toEqual([expect.objectContaining({ id: workspace.id, groupId: undefined })])
+    await expect(fixture.workspaces.projectGroupAssignments()).resolves.toEqual({})
   })
 
   it('keeps portable membership separate from machine-local project bindings', async () => {

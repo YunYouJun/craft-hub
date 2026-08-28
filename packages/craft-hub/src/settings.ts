@@ -14,9 +14,36 @@ export const settingsExportFormatVersion = 1
 
 const localeSchema = z.enum(['en', 'zh-CN'])
 const themeSchema = z.enum(['system', 'light', 'dark'])
+const localPathSchema = z.string().trim().max(4096).refine(value => !value.includes('\0'), 'Local path cannot contain NUL')
+const shortcutsSchema = z.record(z.string(), z.string().trim().min(1).max(64))
+const codexReasoningEffortSchema = z.enum(['minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'])
+const codexSettingSchema = z.object({
+  model: z.string().trim().min(1).max(128).refine(value => !value.includes('\0'), 'Codex model cannot contain NUL').optional(),
+  reasoningEffort: codexReasoningEffortSchema.optional(),
+}).strict()
+const editorIdSchema = z.enum(['vscode', 'codebuddy', 'cursor', 'custom'])
+const customEditorSchema = z.object({
+  name: z.string().trim().min(1).max(64),
+  command: z.string().trim().min(1).max(1024).refine(value => !value.includes('\0'), 'Editor command cannot contain NUL'),
+  args: z.array(z.string().max(4096).refine(value => !value.includes('\0'), 'Editor argument cannot contain NUL')).max(32),
+}).strict().refine(value => value.args.some(argument => argument.includes('{path}')), {
+  message: 'Custom editor arguments must include {path}',
+  path: ['args'],
+})
+const editorSettingSchema = z.object({
+  default: editorIdSchema,
+  custom: customEditorSchema.optional(),
+}).strict().refine(value => value.default !== 'custom' || value.custom, {
+  message: 'Custom editor configuration is required when it is the default',
+  path: ['custom'],
+})
 const coreSettingsSchema = z.object({
+  'workbench.codex': codexSettingSchema.optional(),
+  'workbench.editor': editorSettingSchema.optional(),
   'workbench.locale': localeSchema.optional(),
+  'workbench.repositoriesRoot': localPathSchema.optional(),
   'workbench.theme': themeSchema.optional(),
+  'workbench.shortcuts': shortcutsSchema.optional(),
 }).strict()
 
 const exportEnvelopeSchema = z.object({
@@ -32,6 +59,16 @@ const exportEnvelopeSchema = z.object({
 export type WorkbenchLocale = z.infer<typeof localeSchema>
 /** Theme preference supported by the core workbench. */
 export type WorkbenchTheme = z.infer<typeof themeSchema>
+/** Reasoning effort values supported by the bundled Codex SDK. */
+export type WorkbenchCodexReasoningEffort = z.infer<typeof codexReasoningEffortSchema>
+/** Optional overrides for Craft Hub-managed Codex tasks. */
+export type WorkbenchCodexSetting = z.infer<typeof codexSettingSchema>
+/** Stable identifiers for built-in and user-defined editor launchers. */
+export type WorkbenchEditorId = z.infer<typeof editorIdSchema>
+/** A shell-free custom editor command and its arguments. */
+export type WorkbenchCustomEditor = z.infer<typeof customEditorSchema>
+/** Editor launcher preference shared by projects and workspaces. */
+export type WorkbenchEditorSetting = z.infer<typeof editorSettingSchema>
 /** Breadth of settings included in a portable export. */
 export type SettingsExportMode = 'minimal' | 'full'
 /** Strategy used when importing settings. */
@@ -39,7 +76,14 @@ export type SettingsImportStrategy = 'merge' | 'replace'
 
 /** Effective core settings. */
 export interface CraftHubSettings {
+  /** Empty values inherit the user's Codex configuration. */
+  'workbench.codex': WorkbenchCodexSetting
+  'workbench.editor': WorkbenchEditorSetting
   'workbench.locale': WorkbenchLocale
+  /** Optional local starting directory for repository and project folder pickers. */
+  'workbench.repositoriesRoot': string
+  /** Keyboard shortcuts keyed by stable workbench action identifier. */
+  'workbench.shortcuts': Record<string, string>
   'workbench.theme': WorkbenchTheme
 }
 
@@ -100,7 +144,11 @@ interface ValidatedSettingsFile {
 }
 
 const defaultSettings: CraftHubSettings = {
+  'workbench.codex': {},
+  'workbench.editor': { default: 'vscode' },
   'workbench.locale': 'en',
+  'workbench.repositoriesRoot': '',
+  'workbench.shortcuts': { 'workbench.showCommandPalette': 'Mod+K' },
   'workbench.theme': 'system',
 }
 
@@ -120,11 +168,12 @@ function validateSettingsFile(input: unknown): ValidatedSettingsFile {
   if (!input || typeof input !== 'object' || Array.isArray(input))
     throw new SettingsValidationError('Settings must be a JSON object')
   const record = input as Record<string, unknown>
-  const known = Object.fromEntries(Object.entries(record).filter(([key]) => key === 'workbench.locale' || key === 'workbench.theme'))
+  const knownKeys = new Set(['workbench.codex', 'workbench.editor', 'workbench.locale', 'workbench.repositoriesRoot', 'workbench.theme', 'workbench.shortcuts'])
+  const known = Object.fromEntries(Object.entries(record).filter(([key]) => knownKeys.has(key)))
   const parsed = coreSettingsSchema.parse(known)
   const extensions: Record<string, unknown> = {}
   for (const [key, value] of Object.entries(record)) {
-    if (key === '$schema' || key === 'workbench.locale' || key === 'workbench.theme')
+    if (key === '$schema' || knownKeys.has(key))
       continue
     if (!key.startsWith('extensions.'))
       throw new SettingsValidationError(`Unknown core setting: ${key}`)

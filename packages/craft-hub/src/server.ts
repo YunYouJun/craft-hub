@@ -1,7 +1,7 @@
 import type { IncomingMessage, Server, ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import type { PersonalGitSyncResolution } from './personal-git-sync'
-import type { CommandInputValues, ProjectAccentColor, ProjectRecord, WorkspaceManifest } from './types'
+import type { CommandInputValues, ProjectAccentColor, ProjectCatalogSnapshot, ProjectDescriptionChange, WorkspaceManifest } from './types'
 import { Buffer } from 'node:buffer'
 import { createReadStream } from 'node:fs'
 import { access } from 'node:fs/promises'
@@ -9,9 +9,11 @@ import { createServer } from 'node:http'
 import { extname, join, normalize } from 'node:path'
 import { ZodError } from 'zod'
 import { CommandInputValidationError } from './command-inputs'
+import { projectConfigSchemaRevision } from './config'
 import { CraftHubRuntime } from './runtime'
 import { SettingsConflictError, SettingsValidationError } from './settings'
-import { projectAccentColors } from './types'
+import { TeamLifecycleValidationError } from './teams'
+import { PERSONAL_OWNER_SCOPE_ID, projectAccentColors } from './types'
 import { ProjectWatcher } from './watcher'
 import { WorkspaceConflictError } from './workspaces'
 
@@ -40,6 +42,24 @@ function commandInputValues(value: unknown): CommandInputValues {
   if (!entries.every(([, input]) => typeof input === 'string'))
     throw new CommandInputValidationError('inputs must be an object of strings')
   return Object.fromEntries(entries) as CommandInputValues
+}
+
+function projectDescriptionChanges(value: unknown): ProjectDescriptionChange[] {
+  if (!Array.isArray(value))
+    throw new TypeError('changes must be an array')
+  return value.map((change) => {
+    if (!change || typeof change !== 'object' || Array.isArray(change))
+      throw new TypeError('Every description change must be an object')
+    const record = change as Record<string, unknown>
+    if (typeof record.id !== 'string' || (record.target !== 'command' && record.target !== 'package') || typeof record.key !== 'string')
+      throw new TypeError('Every description change must include id, target, and key')
+    if (!record.description || typeof record.description !== 'object' || Array.isArray(record.description))
+      throw new TypeError('Every description change must include localized description text')
+    const entries = Object.entries(record.description)
+    if (!entries.length || !entries.every((entry): entry is [string, string] => typeof entry[1] === 'string'))
+      throw new TypeError('Description locale values must be strings')
+    return { id: record.id, target: record.target, key: record.key, description: Object.fromEntries(entries) }
+  })
 }
 
 function sendJson(response: ServerResponse, status: number, value: unknown): void {
@@ -91,16 +111,28 @@ export async function startCraftHubServer(options: CraftHubServerOptions = {}): 
   const stopAgentTaskEvents = runtime.agentTasks.onChanged(task => broadcastEvent('agent-task-change', task))
   const stopSettingsEvents = runtime.settings.onChanged(snapshot => broadcastEvent('settings-change', snapshot))
   const stopPluginEvents = runtime.pluginManager.onChanged(() => broadcastEvent('plugin-change', { changedAt: new Date().toISOString() }))
-  const watchProjects = async (): Promise<ProjectRecord[]> => {
-    const projects = await runtime.projects.list()
-    await Promise.all(projects.map(project => watcher.watch(project)))
-    return projects
+  const watchProjects = async (): Promise<ProjectCatalogSnapshot> => {
+    const snapshot = await runtime.projects.snapshot()
+    await Promise.allSettled(snapshot.projects.map(project => watcher.watch(project)))
+    return snapshot
   }
   let heartbeat: ReturnType<typeof setInterval> | undefined
   const server = createServer(async (request, response) => {
     try {
       const url = new URL(request.url ?? '/', 'http://localhost')
       const parts = url.pathname.split('/').filter(Boolean)
+      const requestedOwnerScopeId = url.searchParams.get('ownerScopeId') ?? PERSONAL_OWNER_SCOPE_ID
+      const ownerScopeId = async (): Promise<string> => {
+        await runtime.ownerScopes.get(requestedOwnerScopeId)
+        return requestedOwnerScopeId
+      }
+
+      if (request.method === 'GET' && url.pathname === '/api/health') {
+        return sendJson(response, 200, {
+          projectConfigSchemaRevision,
+          status: 'ok',
+        })
+      }
 
       if (request.method === 'GET' && url.pathname === '/api/events') {
         response.writeHead(200, {
@@ -115,14 +147,83 @@ export async function startCraftHubServer(options: CraftHubServerOptions = {}): 
         return
       }
 
+      if (request.method === 'GET' && url.pathname === '/api/owner-scopes')
+        return sendJson(response, 200, await runtime.ownerScopes.list())
+
+      if (request.method === 'POST' && url.pathname === '/api/owner-scopes') {
+        const body = await jsonBody(request)
+        if (typeof body.name !== 'string' || !body.name.trim() || typeof body.repositoryPath !== 'string' || !body.repositoryPath.trim())
+          return sendJson(response, 400, { error: 'name and repositoryPath are required' })
+        if (body.directory !== undefined && typeof body.directory !== 'string')
+          return sendJson(response, 400, { error: 'directory must be a string when provided' })
+        return sendJson(response, 201, await runtime.teams.create({
+          name: body.name,
+          repositoryPath: body.repositoryPath,
+          directory: body.directory as string | undefined,
+        }))
+      }
+
+      if (parts[0] === 'api' && parts[1] === 'owner-scopes' && parts[2] && parts.length === 3) {
+        const scopeId = parts[2]
+        if (request.method === 'PATCH') {
+          const body = await jsonBody(request)
+          if (typeof body.name !== 'string' || !body.name.trim())
+            return sendJson(response, 400, { error: 'name is required' })
+          return sendJson(response, 200, await runtime.teams.rename(scopeId, body.name))
+        }
+        if (request.method === 'DELETE') {
+          const body = await jsonBody(request)
+          if (typeof body.confirmationName !== 'string')
+            return sendJson(response, 400, { error: 'confirmationName is required' })
+          return sendJson(response, 200, await runtime.teams.delete(scopeId, body.confirmationName))
+        }
+      }
+
+      if (request.method === 'GET' && url.pathname === '/api/owner-scopes/state')
+        return sendJson(response, 200, await runtime.ownerScopes.uiState())
+
+      if (request.method === 'PUT' && url.pathname === '/api/owner-scopes/state') {
+        const body = await jsonBody(request)
+        if (typeof body.activeScopeId !== 'string')
+          return sendJson(response, 400, { error: 'activeScopeId is required' })
+        return sendJson(response, 200, await runtime.ownerScopes.activate(body.activeScopeId))
+      }
+
+      if (parts[0] === 'api' && parts[1] === 'owner-scopes' && parts[2] && parts[3] === 'git-sync') {
+        const scopeId = parts[2]
+        if (request.method === 'GET' && parts.length === 4)
+          return sendJson(response, 200, await runtime.teamGitSync.status(scopeId))
+        if (request.method === 'PUT' && parts.length === 4) {
+          const body = await jsonBody(request)
+          if (typeof body.repositoryPath !== 'string' || (body.directory !== undefined && typeof body.directory !== 'string'))
+            return sendJson(response, 400, { error: 'repositoryPath is required and directory must be a string' })
+          return sendJson(response, 200, await runtime.teamGitSync.configure(scopeId, { repositoryPath: body.repositoryPath, directory: body.directory as string | undefined }))
+        }
+        if (request.method === 'POST' && parts[4] === 'synchronize') {
+          const body = await jsonBody(request)
+          const resolution = body.resolution ?? 'auto'
+          if (resolution !== 'auto' && resolution !== 'use-local' && resolution !== 'use-repository')
+            return sendJson(response, 400, { error: 'resolution must be auto, use-local, or use-repository' })
+          return sendJson(response, 200, await runtime.teamGitSync.synchronize(scopeId, resolution as PersonalGitSyncResolution))
+        }
+      }
+
       if (request.method === 'GET' && url.pathname === '/api/projects')
         return sendJson(response, 200, await watchProjects())
 
+      if (request.method === 'GET' && url.pathname === '/api/projects/owner-scopes') {
+        const teamIds = (await runtime.ownerScopes.list()).filter(scope => scope.kind === 'team').map(scope => scope.id)
+        return sendJson(response, 200, await runtime.workspaces.projectOwnerScopes(teamIds))
+      }
+
       if (request.method === 'GET' && url.pathname === '/api/workspaces')
-        return sendJson(response, 200, await runtime.workspaces.list())
+        return sendJson(response, 200, await runtime.workspaces.list(await ownerScopeId()))
 
       if (request.method === 'GET' && url.pathname === '/api/workspace-groups')
-        return sendJson(response, 200, await runtime.workspaces.groups())
+        return sendJson(response, 200, await runtime.workspaces.groups(await ownerScopeId()))
+
+      if (request.method === 'GET' && url.pathname === '/api/workspace-groups/project-assignments')
+        return sendJson(response, 200, await runtime.workspaces.projectGroupAssignments(await ownerScopeId()))
 
       if (request.method === 'GET' && url.pathname === '/api/personal-git-sync')
         return sendJson(response, 200, await runtime.personalGitSync.status())
@@ -149,7 +250,7 @@ export async function startCraftHubServer(options: CraftHubServerOptions = {}): 
         const body = await jsonBody(request)
         if (typeof body.name !== 'string' || !body.name.trim())
           return sendJson(response, 400, { error: 'name is required' })
-        return sendJson(response, 201, await runtime.workspaces.createGroup(body.name))
+        return sendJson(response, 201, await runtime.workspaces.createGroup(body.name, await ownerScopeId()))
       }
 
       if (request.method === 'POST' && url.pathname === '/api/workspaces/import/vscode/preview') {
@@ -159,6 +260,7 @@ export async function startCraftHubServer(options: CraftHubServerOptions = {}): 
         return sendJson(response, 200, await runtime.workspaceImports.previewVscodeDirectory(
           body.sourceDirectory,
           typeof body.groupName === 'string' ? body.groupName : undefined,
+          await ownerScopeId(),
         ))
       }
 
@@ -170,6 +272,7 @@ export async function startCraftHubServer(options: CraftHubServerOptions = {}): 
           body.sourceDirectory,
           typeof body.groupName === 'string' ? body.groupName : undefined,
           body.expectedRevision,
+          await ownerScopeId(),
         ))
       }
 
@@ -181,6 +284,7 @@ export async function startCraftHubServer(options: CraftHubServerOptions = {}): 
           body.workspaceId,
           body.project,
           typeof body.path === 'string' ? body.path : undefined,
+          await ownerScopeId(),
         ))
       }
 
@@ -188,18 +292,18 @@ export async function startCraftHubServer(options: CraftHubServerOptions = {}): 
         const body = await jsonBody(request)
         if (typeof body.name !== 'string' || !body.name.trim())
           return sendJson(response, 400, { error: 'name is required' })
-        return sendJson(response, 201, await runtime.workspaces.create(body.name))
+        return sendJson(response, 201, await runtime.workspaces.create(body.name, await ownerScopeId()))
       }
 
       if (request.method === 'PUT' && url.pathname === '/api/workspaces/order') {
         const body = await jsonBody(request)
         if (!Array.isArray(body.workspaceOrder) || !body.workspaceOrder.every(id => typeof id === 'string'))
           return sendJson(response, 400, { error: 'workspaceOrder must be an array of strings' })
-        return sendJson(response, 200, await runtime.workspaces.reorder(body.workspaceOrder))
+        return sendJson(response, 200, await runtime.workspaces.reorder(body.workspaceOrder, await ownerScopeId()))
       }
 
       if (request.method === 'GET' && url.pathname === '/api/workspaces/state')
-        return sendJson(response, 200, await runtime.workspaces.uiState())
+        return sendJson(response, 200, await runtime.workspaces.uiState(await ownerScopeId()))
 
       if (request.method === 'PUT' && url.pathname === '/api/workspaces/state') {
         const body = await jsonBody(request)
@@ -209,7 +313,7 @@ export async function startCraftHubServer(options: CraftHubServerOptions = {}): 
           expandedWorkspaceIds: body.expandedWorkspaceIds as string[],
           selectedWorkspaceId: typeof body.selectedWorkspaceId === 'string' ? body.selectedWorkspaceId : undefined,
           selectedProjectId: typeof body.selectedProjectId === 'string' ? body.selectedProjectId : undefined,
-        }))
+        }, await ownerScopeId()))
       }
 
       if (request.method === 'GET' && url.pathname === '/api/runs/summary')
@@ -231,6 +335,7 @@ export async function startCraftHubServer(options: CraftHubServerOptions = {}): 
           prompt: body.prompt,
           projectIds: body.projectIds as string[],
           primaryProjectId: body.primaryProjectId,
+          capabilityId: typeof body.capabilityId === 'string' ? body.capabilityId : undefined,
           workspaceId: typeof body.workspaceId === 'string' ? body.workspaceId : undefined,
           parentTaskId: typeof body.parentTaskId === 'string' ? body.parentTaskId : undefined,
         }))
@@ -389,14 +494,18 @@ export async function startCraftHubServer(options: CraftHubServerOptions = {}): 
 
       if (parts[0] === 'api' && parts[1] === 'workspaces' && parts[2]) {
         const workspaceId = parts[2]
+        const scopeId = await ownerScopeId()
         if (request.method === 'GET' && parts.length === 3)
-          return sendJson(response, 200, await runtime.workspaces.get(workspaceId))
+          return sendJson(response, 200, await runtime.workspaces.get(workspaceId, scopeId))
         if (request.method === 'PUT' && parts.length === 3) {
           const body = await jsonBody(request)
           if (!body.manifest || typeof body.manifest !== 'object' || Array.isArray(body.manifest))
             return sendJson(response, 400, { error: 'manifest is required' })
+          const manifest = body.manifest as WorkspaceManifest
+          if (manifest.ownerScopeId && manifest.ownerScopeId !== scopeId)
+            return sendJson(response, 400, { error: 'manifest ownerScopeId must match the requested owner scope' })
           return sendJson(response, 200, await runtime.workspaces.save({
-            manifest: body.manifest as WorkspaceManifest,
+            manifest: { ...manifest, ownerScopeId: scopeId === PERSONAL_OWNER_SCOPE_ID ? undefined : scopeId },
             revision: typeof body.revision === 'string' ? body.revision : undefined,
           }))
         }
@@ -404,53 +513,61 @@ export async function startCraftHubServer(options: CraftHubServerOptions = {}): 
           const body = await jsonBody(request)
           if (typeof body.revision !== 'string')
             return sendJson(response, 400, { error: 'revision is required' })
-          await runtime.workspaces.delete(workspaceId, body.revision)
+          await runtime.workspaces.delete(workspaceId, body.revision, scopeId)
           return sendJson(response, 200, { deleted: true })
         }
         if (request.method === 'POST' && parts[3] === 'bindings') {
           const body = await jsonBody(request)
           if (typeof body.project !== 'string' || typeof body.projectId !== 'string')
             return sendJson(response, 400, { error: 'project and projectId are required' })
-          await runtime.workspaces.bind(body.project, body.projectId)
-          return sendJson(response, 200, await runtime.workspaces.get(workspaceId))
+          await runtime.workspaces.get(workspaceId, scopeId)
+          await runtime.workspaces.bind(body.project, body.projectId, scopeId)
+          return sendJson(response, 200, await runtime.workspaces.get(workspaceId, scopeId))
         }
         if (request.method === 'POST' && parts[3] === 'members') {
           const body = await jsonBody(request)
           if (typeof body.projectId !== 'string')
             return sendJson(response, 400, { error: 'projectId is required' })
-          return sendJson(response, 200, await runtime.workspaces.addProject(workspaceId, body.projectId))
+          return sendJson(response, 200, await runtime.workspaces.addProject(workspaceId, body.projectId, scopeId))
         }
         if (request.method === 'DELETE' && parts[3] === 'members' && parts[4])
-          return sendJson(response, 200, await runtime.workspaces.removeProject(workspaceId, parts[4]))
+          return sendJson(response, 200, await runtime.workspaces.removeProject(workspaceId, parts[4], scopeId))
         if (request.method === 'PUT' && parts[3] === 'group') {
           const body = await jsonBody(request)
           if (body.groupId !== undefined && typeof body.groupId !== 'string')
             return sendJson(response, 400, { error: 'groupId must be a string when provided' })
-          return sendJson(response, 200, await runtime.workspaces.assignGroup(workspaceId, body.groupId || undefined))
+          return sendJson(response, 200, await runtime.workspaces.assignGroup(workspaceId, body.groupId || undefined, scopeId))
         }
       }
 
       if (parts[0] === 'api' && parts[1] === 'workspace-groups' && parts[2]) {
         const groupId = parts[2]
+        const scopeId = await ownerScopeId()
         if (request.method === 'PATCH' && parts.length === 3) {
           const body = await jsonBody(request)
           const icon = typeof body.icon === 'string' && body.icon.trim() ? body.icon.trim() : undefined
-          return sendJson(response, 200, await runtime.workspaces.setGroupIcon(groupId, icon))
+          return sendJson(response, 200, await runtime.workspaces.setGroupIcon(groupId, icon, scopeId))
         }
         if (request.method === 'PUT' && parts.length === 3) {
           const body = await jsonBody(request)
           if (typeof body.name !== 'string' || !body.name.trim())
             return sendJson(response, 400, { error: 'name is required' })
-          return sendJson(response, 200, await runtime.workspaces.renameGroup(groupId, body.name))
+          return sendJson(response, 200, await runtime.workspaces.renameGroup(groupId, body.name, scopeId))
         }
         if (request.method === 'DELETE' && parts.length === 3) {
-          await runtime.workspaces.deleteGroup(groupId)
+          await runtime.workspaces.deleteGroup(groupId, scopeId)
           return sendJson(response, 200, { deleted: true })
         }
       }
 
       if (parts[0] === 'api' && parts[1] === 'projects' && parts[2]) {
         const projectId = parts[2]
+        if (request.method === 'PUT' && parts[3] === 'group') {
+          const body = await jsonBody(request)
+          if (body.groupId !== undefined && typeof body.groupId !== 'string')
+            return sendJson(response, 400, { error: 'groupId must be a string when provided' })
+          return sendJson(response, 200, await runtime.workspaces.assignProjectGroup(projectId, body.groupId || undefined, await ownerScopeId()))
+        }
         if (request.method === 'PATCH' && parts.length === 3) {
           const body = await jsonBody(request)
           const icon = typeof body.icon === 'string' && body.icon.trim() ? body.icon.trim() : undefined
@@ -474,7 +591,15 @@ export async function startCraftHubServer(options: CraftHubServerOptions = {}): 
             return sendJson(response, 400, { error: 'locale must be en or zh-CN' })
           if (request.method === 'GET' && parts.length === 4)
             return sendJson(response, 200, await runtime.agentActions.list(projectId, locale))
-          if (request.method === 'POST' && parts[4] === 'improve-project-config')
+          if (request.method === 'GET' && parts[4] === 'improve-project-config' && parts[5] === 'audit')
+            return sendJson(response, 200, await runtime.agentActions.audit(projectId, locale))
+          if (request.method === 'POST' && parts[4] === 'improve-project-config' && parts[5] === 'apply') {
+            const body = await jsonBody(request)
+            if (typeof body.taskId !== 'string')
+              return sendJson(response, 400, { error: 'taskId is required' })
+            return sendJson(response, 200, await runtime.agentActions.apply(projectId, body.taskId, projectDescriptionChanges(body.changes)))
+          }
+          if (request.method === 'POST' && parts[4] === 'improve-project-config' && parts.length === 5)
             return sendJson(response, 202, await runtime.agentActions.start(projectId, 'improve-project-config', locale))
         }
         if (request.method === 'GET' && parts[3] === 'pins')
@@ -500,6 +625,17 @@ export async function startCraftHubServer(options: CraftHubServerOptions = {}): 
         }
         if (request.method === 'POST' && parts[3] === 'trust')
           return sendJson(response, 200, await runtime.projects.setTrust(projectId, 'trusted'))
+        if (request.method === 'POST' && parts[3] === 'config' && parts[4] === 'initialize') {
+          const body = await jsonBody(request)
+          if (body.mode !== 'preview' && body.mode !== 'apply')
+            return sendJson(response, 400, { error: 'mode must be preview or apply' })
+          if (body.mode === 'apply' && typeof body.expectedRevision !== 'string')
+            return sendJson(response, 400, { error: 'expectedRevision is required when applying' })
+          if (body.mode === 'apply' && (await runtime.projects.get(projectId)).trust !== 'trusted')
+            return sendJson(response, 403, { error: 'Project must be trusted before creating project configuration' })
+          const expectedRevision = typeof body.expectedRevision === 'string' ? body.expectedRevision : undefined
+          return sendJson(response, 200, await runtime.initializeProjectConfig(projectId, body.mode, expectedRevision))
+        }
         if (request.method === 'POST' && parts[3] === 'preview-command') {
           const body = await jsonBody(request)
           if (typeof body.capabilityId !== 'string')
@@ -543,7 +679,7 @@ export async function startCraftHubServer(options: CraftHubServerOptions = {}): 
         return sendJson(response, 409, { error: error.message, actualRevision: error.actualRevision })
       if (error instanceof WorkspaceConflictError)
         return sendJson(response, 409, { error: error.message, actualRevision: error.actualRevision })
-      if (error instanceof CommandInputValidationError || error instanceof SettingsValidationError || error instanceof ZodError || error instanceof SyntaxError)
+      if (error instanceof CommandInputValidationError || error instanceof SettingsValidationError || error instanceof TeamLifecycleValidationError || error instanceof ZodError || error instanceof SyntaxError)
         return sendJson(response, 400, { error: error.message })
       sendJson(response, 500, { error: error instanceof Error ? error.message : String(error) })
     }

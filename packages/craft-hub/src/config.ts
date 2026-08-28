@@ -1,14 +1,15 @@
 import type { ParseError } from 'jsonc-parser'
 import type { ProjectConfig } from './project-config-schema'
-import type { ProjectAccentColor, ProjectConfigPath } from './types'
+import type { ProjectAccentColor, ProjectConfigPath, ProjectDescriptionApplication, ProjectDescriptionChange } from './types'
 import { createHash, randomUUID } from 'node:crypto'
 import { link, mkdir, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises'
 import { dirname, isAbsolute, relative, resolve } from 'node:path'
 import { applyEdits, findNodeAtLocation, modify, parse as parseJsonc, parseTree, printParseErrorCode } from 'jsonc-parser'
 import { projectConfigSchema, projectConfigSchemaUrl } from './project-config-schema'
 
-export type { LocalizedText, ProjectCommandInputConfig, ProjectCommandInputOptionConfig, ProjectConfig } from './project-config-schema'
+export type { LocalizedText, ProjectCommandInputConfig, ProjectCommandInputOptionConfig, ProjectConfig, ProjectSkillInputConfig } from './project-config-schema'
 export { projectConfigJsonSchema, projectConfigSchema, projectConfigSchemaUrl } from './project-config-schema'
+export { projectConfigSchemaRevision } from './project-config-schema-revision'
 
 /** Repository-relative path of the optional Craft Hub project configuration. */
 export const projectConfigTargetPath = '.craft-hub/project.jsonc' as const
@@ -130,10 +131,68 @@ function configRevision(content: string): string {
   return createHash('sha256').update(content).digest('hex').slice(0, 16)
 }
 
+/** Return the revision used to guard incremental project configuration edits. */
+export async function projectConfigRevision(projectPath: string): Promise<string> {
+  return configRevision((await readProjectConfigSource(projectPath))?.content ?? '')
+}
+
 function setJsoncValue(content: string, path: (string | number)[], value: unknown): string {
   return applyEdits(content, modify(content, path, value, {
     formattingOptions: { insertSpaces: true, tabSize: 2, eol: '\n' },
   }))
+}
+
+/** Atomically merge reviewed descriptions while preserving comments and extension fields. */
+export async function applyProjectDescriptionChanges(
+  projectPath: string,
+  changes: ProjectDescriptionChange[],
+  expectedRevision: string,
+): Promise<ProjectDescriptionApplication> {
+  const source = await readProjectConfigSource(projectPath)
+  const path = source?.path ?? resolve(projectPath, projectConfigTargetPath)
+  const current = source?.content ?? ''
+  const previousRevision = configRevision(current)
+  if (previousRevision !== expectedRevision)
+    throw new Error('Project config changed after descriptions were reviewed. Analyze it again before applying.')
+
+  let content = current || `${JSON.stringify({ $schema: projectConfigSchemaUrl, version: 1 }, null, 2)}\n`
+  let config = parseProjectConfig(content)
+  content = setJsoncValue(content, ['$schema'], config.$schema ?? projectConfigSchemaUrl)
+  content = setJsoncValue(content, ['version'], 1)
+  for (const change of changes) {
+    const pathParts = change.target === 'command'
+      ? ['capabilities', 'descriptions', change.key]
+      : ['packages', change.key, 'description']
+    const existing = change.target === 'command'
+      ? config.capabilities?.descriptions?.[change.key]
+      : config.packages?.[change.key]?.description
+    if (existing && typeof existing === 'object' && !Array.isArray(existing)) {
+      for (const [locale, description] of Object.entries(change.description)) {
+        if (existing[locale] === undefined)
+          content = setJsoncValue(content, [...pathParts, locale], description)
+      }
+    }
+    else {
+      content = setJsoncValue(content, pathParts, {
+        ...change.description,
+        ...(typeof existing === 'string' ? { default: existing } : {}),
+      })
+    }
+    config = parseProjectConfig(content)
+  }
+  if (!content.endsWith('\n'))
+    content += '\n'
+  const temporary = `${path}.${randomUUID()}.tmp`
+  await mkdir(dirname(path), { recursive: true })
+  await assertInsideProject(projectPath, dirname(path), 'Project config directory')
+  await writeFile(temporary, content, 'utf8')
+  await rename(temporary, path)
+  return {
+    appliedCount: changes.length,
+    previousRevision,
+    revision: configRevision(content),
+    targetPath: projectConfigTargetPath,
+  }
 }
 
 /** One actionable project-configuration problem. */

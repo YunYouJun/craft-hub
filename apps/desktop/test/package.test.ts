@@ -49,6 +49,33 @@ describe('desktop package scripts', () => {
     expect(nodePtyPatch).toContain('fs.chmodSync(spawnHelper, 0o755)')
   })
 
+  it('creates architecture-specific DMG installers and ZIP update artifacts', async () => {
+    const packageMacSource = await readFile(new URL('../../../scripts/package-macos.ts', import.meta.url), 'utf8')
+    const releaseWorkflow = await readFile(new URL('../../../.github/workflows/release.yml', import.meta.url), 'utf8')
+
+    expect(packageMacSource).toContain('await symlink(\'/Applications\'')
+    expect(packageMacSource).toContain('await execFileAsync(\'hdiutil\'')
+    expect(packageMacSource).toContain('\'notarytool\',')
+    expect(packageMacSource).toContain('await execFileAsync(\'ditto\'')
+    expect(releaseWorkflow).toContain('Run mounted DMG startup smoke test')
+    expect(releaseWorkflow).toContain('needs: [validate, package-macos]')
+    expect(releaseWorkflow.indexOf('Upload verified macOS artifacts')).toBeGreaterThan(releaseWorkflow.indexOf('Run mounted DMG startup smoke test'))
+  })
+
+  it('keeps the alpha updater behind a narrow desktop IPC boundary', async () => {
+    const updater = await readFile(new URL('../src/updater.ts', import.meta.url), 'utf8')
+    const main = await readFile(new URL('../src/main.ts', import.meta.url), 'utf8')
+    const preload = await readFile(new URL('../preload.cjs', import.meta.url), 'utf8')
+
+    expect(updater).toContain('from \'update-electron-app\'')
+    expect(updater).toContain('UpdateSourceType.StaticStorage')
+    expect(updater).toContain('desktop-update.json')
+    expect(main).toContain('ipcMain.handle(\'craft-hub:check-for-updates\'')
+    expect(main).toContain('installUpdateAfterShutdown')
+    expect(preload).toContain('ipcRenderer.invoke(\'craft-hub:check-for-updates\')')
+    expect(preload).toContain('ipcRenderer.on(\'craft-hub:update-status-changed\'')
+  })
+
   it('brands the desktop shell and reserves the macOS title-bar safe area', async () => {
     const desktopMainUrl = new URL('../src/main.ts', import.meta.url)
     const webIndexUrl = new URL('../../web/index.html', import.meta.url)
@@ -77,6 +104,9 @@ describe('desktop package scripts', () => {
     expect(desktopMain).toContain('nativeTheme.themeSource = theme')
     expect(desktopMain).toContain('settings[\'workbench.theme\']')
     expect(desktopMain).toContain('nativeTheme.shouldUseDarkColors')
+    expect(desktopMain).toContain('Replay Getting Started')
+    expect(desktopMain).toContain('mainWindow?.webContents.send(\'craft-hub:replay-onboarding\')')
+    expect(await readFile(new URL('../preload.cjs', import.meta.url), 'utf8')).toContain('ipcRenderer.on(\'craft-hub:replay-onboarding\'')
   })
 
   it('runs one desktop instance and separates development from packaged ports', async () => {
@@ -124,8 +154,9 @@ describe('desktop package scripts', () => {
     expect(desktopMain).toContain('from \'./folder-picker.ts\'')
     expect(desktopMain).toContain('properties: [\'openDirectory\', \'createDirectory\']')
     expect(desktopMain).toContain('properties: [\'openDirectory\', \'multiSelections\', \'createDirectory\']')
-    expect(preload).toContain('ipcRenderer.invoke(\'craft-hub:select-project-directory\')')
-    expect(preload).toContain('ipcRenderer.invoke(\'craft-hub:select-project-directories\')')
+    expect(desktopMain).toContain('defaultPath: directoryDialogDefaultPath(defaultPath)')
+    expect(preload).toContain('ipcRenderer.invoke(\'craft-hub:select-project-directory\', defaultPath)')
+    expect(preload).toContain('ipcRenderer.invoke(\'craft-hub:select-project-directories\', defaultPath)')
     expect(JSON.parse(tsconfig).compilerOptions.allowImportingTsExtensions).toBe(true)
   })
 
@@ -137,19 +168,38 @@ describe('desktop package scripts', () => {
       readFile(preloadUrl, 'utf8'),
     ])
 
-    expect(desktopMain).toContain('craft-hub:open-capability-source-in-vscode')
+    expect(desktopMain).toContain('craft-hub:open-capability-source-in-editor')
+    expect(desktopMain).toContain('craft-hub:open-project-directory')
     expect(desktopMain).toContain('craft-hub:open-project-in-vscode')
+    expect(desktopMain).toContain('craft-hub:open-project-git-remote')
     expect(desktopMain).toContain('craft-hub:open-project-in-codex')
-    expect(desktopMain).toContain('craft-hub:open-workspace')
+    expect(desktopMain).toContain('craft-hub:open-workspace-in-codex')
+    expect(desktopMain).toContain('craft-hub:open-workspace-in-editor')
+    expect(desktopMain).not.toContain('ipcMain.handle(\'craft-hub:open-workspace\',')
+    expect(desktopMain).toContain('openCodexProject((await workspaceLaunchTarget(workspaceId)).primaryProjectPath)')
+    expect(desktopMain).toContain('craft-hub:start-workspace-in-codex')
+    expect(desktopMain).toContain('runtime.agentTasks.start')
+    expect(desktopMain).toContain('settings[\'workbench.codex\']')
+    expect(desktopMain).toContain('waitForAgentTaskThread')
+    const workspaceTaskHandler = desktopMain.slice(
+      desktopMain.indexOf('ipcMain.handle(\'craft-hub:start-workspace-in-codex\''),
+      desktopMain.indexOf('ipcMain.handle(\'craft-hub:open-codex-thread\''),
+    )
+    expect(workspaceTaskHandler).not.toContain('shell.openExternal')
     expect(desktopMain).toContain('craft-hub:start-project-in-codex')
     expect(desktopMain).toContain('clipboard.writeText(normalizedPrompt)')
     expect(desktopMain).toContain('craft-hub:open-project-in-terminal')
     expect(desktopMain).toContain('craft-hub:list-terminal-applications')
     expect(desktopMain).toContain('await craftHubServer.runtime.projects.get(projectId)')
-    expect(preload).toContain('openCapabilitySourceInVSCode')
+    expect(preload).toContain('openCapabilitySourceInEditor')
+    expect(preload).toContain('openProjectDirectory')
     expect(preload).toContain('openProjectInVSCode')
+    expect(preload).toContain('openProjectGitRemote')
     expect(preload).toContain('openProjectInCodex')
-    expect(preload).toContain('openWorkspace')
+    expect(preload).toContain('openWorkspaceInCodex')
+    expect(preload).toContain('openWorkspaceInEditor')
+    expect(preload).not.toContain('openWorkspace: (workspaceId, launcher)')
+    expect(preload).toContain('startWorkspaceInCodex')
     expect(preload).toContain('startProjectInCodex')
     expect(preload).toContain('openProjectInTerminal')
     expect(preload).toContain('listTerminalApplications')

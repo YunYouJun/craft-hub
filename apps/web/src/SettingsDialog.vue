@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import type { PersonalGitSyncResolution, PersonalGitSyncStatus } from 'craft-hub'
-import { DialogContent, DialogDescription, DialogOverlay, DialogPortal, DialogRoot, DialogTitle, TabsContent, TabsList, TabsRoot, TabsTrigger } from 'reka-ui'
-import { ref, watch } from 'vue'
+import type { PersonalGitSyncResolution, PersonalGitSyncStatus, WorkbenchCodexReasoningEffort, WorkbenchEditorId } from 'craft-hub'
+import { TabsContent, TabsList, TabsRoot, TabsTrigger } from 'reka-ui'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { api } from './api'
+import { DialogShell } from './components/ui/dialog'
 import { Icon } from './icons'
 import { useI18n } from './i18n'
+import { applicationShortcutReferences, capabilityShortcutId, commandPaletteShortcutId, defaultCommandPaletteShortcut, formatShortcut, shortcutFromKeyboardEvent } from './shortcuts'
 import { useWorkbenchStore } from './store'
 
 const props = defineProps<{ open: boolean }>()
@@ -13,10 +15,25 @@ const { locale, t } = useI18n()
 const store = useWorkbenchStore()
 const canOpenSettingsFile = Boolean(window.craftHubDesktop?.openSettingsFile)
 const canChooseGitRepository = Boolean(window.craftHubDesktop?.selectProjectDirectory)
+const canManageUpdates = Boolean(window.craftHubDesktop?.updateStatus)
+const canManageCodexActivity = Boolean(window.craftHubDesktop?.codexActivityStatus)
 const replaceOnImport = ref(false)
 const transferError = ref('')
 const transferring = ref(false)
 const cleanupMessage = ref('')
+const shortcutQuery = ref('')
+const recordingShortcutId = ref('')
+const shortcutError = ref('')
+const editorId = ref<WorkbenchEditorId>('vscode')
+const customEditorName = ref('')
+const customEditorCommand = ref('')
+const customEditorArgs = ref('{path}')
+const editorSaving = ref(false)
+const repositoriesRoot = ref('')
+const repositoriesRootSaving = ref(false)
+const codexModel = ref('')
+const codexReasoningEffort = ref<WorkbenchCodexReasoningEffort | ''>('')
+const codexSaving = ref(false)
 interface CloudStatus {
   state: 'disabled' | 'disconnected' | 'connecting' | 'connected' | 'error'
   deviceId?: string
@@ -29,11 +46,191 @@ const gitSyncStatus = ref<PersonalGitSyncStatus>({ state: 'unconfigured' })
 const gitRepositoryPath = ref('')
 const gitDirectory = ref('.craft-hub')
 const gitSyncBusy = ref(false)
+const updateStatus = ref<DesktopUpdateStatus>()
+const updateBusy = ref(false)
+const codexActivityStatus = ref<CodexActivityStatus>()
+const codexActivityBusy = ref(false)
+let removeUpdateListener: (() => void) | undefined
+let removeCodexActivityListener: (() => void) | undefined
+
+const shortcutRows = computed(() => {
+  const query = shortcutQuery.value.trim().toLowerCase()
+  const paletteRow = {
+    id: commandPaletteShortcutId,
+    label: t('showCommandPalette'),
+    description: t('showCommandPaletteDescription'),
+  }
+  const commandRows = store.paletteItems
+    .filter(item => item.capability.kind === 'command')
+    .map(item => ({
+      id: capabilityShortcutId(item.project.id, item.capability.id),
+      projectId: item.project.id,
+      label: item.capability.name,
+      description: `${item.project.name} · ${item.capability.kind === 'command' ? item.capability.package?.relativePath ?? item.capability.source : item.capability.source}`,
+    }))
+  if (query) {
+    const terms = query.split(/\s+/).filter(Boolean)
+    return [paletteRow, ...commandRows]
+      .filter(row => terms.every(term => `${row.label} ${row.description}`.toLowerCase().includes(term)))
+      .slice(0, 100)
+  }
+  const configured = new Set(Object.keys(store.settings?.settings['workbench.shortcuts'] ?? {}))
+  return [paletteRow, ...commandRows.filter(row => row.projectId === store.selectedProjectId || configured.has(row.id)).slice(0, 100)]
+})
+
+const shortcutReferenceRows = computed(() => applicationShortcutReferences.map(reference => ({
+  ...reference,
+  label: t(`shortcutReference_${reference.id}`),
+  description: t(`shortcutReference_${reference.id}Description`),
+  shortcuts: reference.shortcuts.map(shortcut => formatShortcut(shortcut)),
+})))
+
+function shortcutFor(id: string): string {
+  if (id === commandPaletteShortcutId)
+    return store.settings?.settings['workbench.shortcuts']?.[id] ?? defaultCommandPaletteShortcut
+  return store.settings?.settings['workbench.shortcuts']?.[id] ?? ''
+}
+
+async function saveShortcut(id: string, shortcut: string): Promise<void> {
+  const current = {
+    [commandPaletteShortcutId]: shortcutFor(commandPaletteShortcutId),
+    ...store.settings?.settings['workbench.shortcuts'],
+  }
+  const conflict = Object.entries(current).find(([otherId, value]) => otherId !== id && value === shortcut)
+  if (conflict) {
+    shortcutError.value = t('shortcutConflict', { shortcut: formatShortcut(shortcut) })
+    return
+  }
+  shortcutError.value = ''
+  try {
+    await store.updateShortcuts({ ...current, [id]: shortcut })
+    recordingShortcutId.value = ''
+  }
+  catch (error) {
+    shortcutError.value = error instanceof Error ? error.message : String(error)
+  }
+}
+
+async function clearShortcut(id: string): Promise<void> {
+  const next: Record<string, string> = {
+    [commandPaletteShortcutId]: shortcutFor(commandPaletteShortcutId),
+    ...store.settings?.settings['workbench.shortcuts'],
+  }
+  if (id === commandPaletteShortcutId)
+    next[id] = defaultCommandPaletteShortcut
+  else
+    delete next[id]
+  shortcutError.value = ''
+  recordingShortcutId.value = ''
+  try {
+    await store.updateShortcuts(next)
+  }
+  catch (error) {
+    shortcutError.value = error instanceof Error ? error.message : String(error)
+  }
+}
+
+function onShortcutKeydown(event: KeyboardEvent, id: string): void {
+  if (event.key === 'Escape') {
+    recordingShortcutId.value = ''
+    shortcutError.value = ''
+    return
+  }
+  if (event.key === 'Backspace' || event.key === 'Delete') {
+    void clearShortcut(id)
+    return
+  }
+  const shortcut = shortcutFromKeyboardEvent(event)
+  if (shortcut)
+    void saveShortcut(id, shortcut)
+}
 
 watch(() => props.open, (open) => {
-  if (open)
-    void Promise.all([refreshCloudStatus(), refreshGitSyncStatus()])
+  if (open) {
+    shortcutQuery.value = ''
+    recordingShortcutId.value = ''
+    shortcutError.value = ''
+    const editor = store.settings?.settings['workbench.editor']
+    editorId.value = editor?.default ?? 'vscode'
+    customEditorName.value = editor?.custom?.name ?? ''
+    customEditorCommand.value = editor?.custom?.command ?? ''
+    customEditorArgs.value = editor?.custom?.args.join('\n') ?? '{path}'
+    repositoriesRoot.value = store.settings?.settings['workbench.repositoriesRoot'] ?? ''
+    const codex = store.settings?.settings['workbench.codex']
+    codexModel.value = codex?.model ?? ''
+    codexReasoningEffort.value = codex?.reasoningEffort ?? ''
+    void Promise.all([refreshCloudStatus(), refreshGitSyncStatus(), refreshUpdateStatus(), refreshCodexActivityStatus()])
+  }
 }, { immediate: true })
+
+onMounted(() => {
+  removeUpdateListener = window.craftHubDesktop?.onUpdateStatus?.(status => updateStatus.value = status)
+  removeCodexActivityListener = window.craftHubDesktop?.onCodexActivityStatus?.(status => codexActivityStatus.value = status)
+})
+
+onUnmounted(() => {
+  removeUpdateListener?.()
+  removeCodexActivityListener?.()
+})
+
+async function refreshCodexActivityStatus(): Promise<void> {
+  if (canManageCodexActivity)
+    codexActivityStatus.value = await window.craftHubDesktop?.codexActivityStatus?.()
+}
+
+async function setCodexActivityHooks(enabled: boolean): Promise<void> {
+  codexActivityBusy.value = true
+  transferError.value = ''
+  try {
+    codexActivityStatus.value = enabled
+      ? await window.craftHubDesktop?.installCodexActivityHooks?.()
+      : await window.craftHubDesktop?.uninstallCodexActivityHooks?.()
+  }
+  catch (error) {
+    transferError.value = error instanceof Error ? error.message : String(error)
+  }
+  finally {
+    codexActivityBusy.value = false
+  }
+}
+
+async function refreshUpdateStatus(): Promise<void> {
+  if (canManageUpdates)
+    updateStatus.value = await window.craftHubDesktop?.updateStatus?.()
+}
+
+async function setAutomaticUpdates(enabled: boolean): Promise<void> {
+  updateBusy.value = true
+  transferError.value = ''
+  try {
+    updateStatus.value = await window.craftHubDesktop!.setAutomaticUpdates!(enabled)
+  }
+  catch (error) {
+    transferError.value = error instanceof Error ? error.message : String(error)
+  }
+  finally {
+    updateBusy.value = false
+  }
+}
+
+async function checkForUpdates(): Promise<void> {
+  updateBusy.value = true
+  transferError.value = ''
+  try {
+    updateStatus.value = await window.craftHubDesktop!.checkForUpdates!()
+  }
+  catch (error) {
+    transferError.value = error instanceof Error ? error.message : String(error)
+  }
+  finally {
+    updateBusy.value = false
+  }
+}
+
+function updateStatusLabel(): string {
+  const phase = updateStatus.value?.phase ?? 'idle'
+  return t(phase === 'up-to-date' ? 'updateStatus_upToDate' : `updateStatus_${phase}`)
+}
 
 async function refreshGitSyncStatus(): Promise<void> {
   gitSyncStatus.value = await api.personalGitSyncStatus()
@@ -56,9 +253,30 @@ async function configureGitSync(): Promise<void> {
 }
 
 async function chooseGitRepository(): Promise<void> {
-  const selected = await window.craftHubDesktop?.selectProjectDirectory?.()
+  const selected = await window.craftHubDesktop?.selectProjectDirectory?.(store.repositoriesRoot)
   if (selected)
     gitRepositoryPath.value = selected
+}
+
+async function chooseRepositoriesRoot(): Promise<void> {
+  const selected = await window.craftHubDesktop?.selectProjectDirectory?.(repositoriesRoot.value.trim() || store.repositoriesRoot)
+  if (selected)
+    repositoriesRoot.value = selected
+}
+
+async function saveRepositoriesRoot(): Promise<void> {
+  repositoriesRootSaving.value = true
+  transferError.value = ''
+  try {
+    await store.updateRepositoriesRoot(repositoriesRoot.value)
+    repositoriesRoot.value = store.repositoriesRoot ?? ''
+  }
+  catch (error) {
+    transferError.value = error instanceof Error ? error.message : String(error)
+  }
+  finally {
+    repositoriesRootSaving.value = false
+  }
 }
 
 async function synchronizeGit(resolution: PersonalGitSyncResolution = 'auto'): Promise<void> {
@@ -146,6 +364,44 @@ async function selectTheme(value: 'system' | 'light' | 'dark'): Promise<void> {
   }
 }
 
+async function saveEditorSetting(): Promise<void> {
+  transferError.value = ''
+  editorSaving.value = true
+  try {
+    const args = customEditorArgs.value.split('\n').map(value => value.trim()).filter(Boolean)
+    const custom = customEditorName.value.trim() || customEditorCommand.value.trim()
+      ? { name: customEditorName.value.trim(), command: customEditorCommand.value.trim(), args }
+      : undefined
+    if (editorId.value === 'custom' && !custom)
+      throw new Error(t('customEditorRequired'))
+    await store.updateEditorSetting({ default: editorId.value, ...(custom ? { custom } : {}) })
+  }
+  catch (error) {
+    transferError.value = error instanceof Error ? error.message : String(error)
+  }
+  finally {
+    editorSaving.value = false
+  }
+}
+
+async function saveCodexSetting(): Promise<void> {
+  transferError.value = ''
+  codexSaving.value = true
+  try {
+    const model = codexModel.value.trim()
+    await store.updateCodexSetting({
+      ...(model ? { model } : {}),
+      ...(codexReasoningEffort.value ? { reasoningEffort: codexReasoningEffort.value } : {}),
+    })
+  }
+  catch (error) {
+    transferError.value = error instanceof Error ? error.message : String(error)
+  }
+  finally {
+    codexSaving.value = false
+  }
+}
+
 async function downloadSettings(mode: 'minimal' | 'full'): Promise<void> {
   transferring.value = true
   transferError.value = ''
@@ -224,19 +480,14 @@ async function cleanupRuns(includeAllUnpinned: boolean): Promise<void> {
 </script>
 
 <template>
-  <DialogRoot :open="open" @update:open="emit('update:open', $event)">
-    <DialogPortal>
-      <DialogOverlay class="dialog-overlay" />
-      <DialogContent class="settings-dialog">
-        <header class="settings-header">
-          <div>
-            <DialogTitle>{{ t('settings') }}</DialogTitle>
-            <DialogDescription>{{ t('settingsDescription') }}</DialogDescription>
-          </div>
+  <DialogShell :open="open" content-class="settings-dialog" header-class="settings-header" @update:open="emit('update:open', $event)">
+    <template #title>{{ t('settings') }}</template>
+    <template #description>{{ t('settingsDescription') }}</template>
+    <template #header-actions>
           <button type="button" class="dialog-close" :aria-label="t('close')" @click="emit('update:open', false)">
             <Icon name="close" />
           </button>
-        </header>
+    </template>
 
         <div class="settings-body">
           <div v-if="store.settings?.diagnostic || transferError" class="settings-alerts">
@@ -249,6 +500,7 @@ async function cleanupRuns(includeAllUnpinned: boolean): Promise<void> {
           <TabsRoot class="settings-tabs" default-value="general" orientation="vertical">
             <TabsList class="settings-tab-list" :aria-label="t('settings')">
               <TabsTrigger value="general">{{ t('settingsGeneral') }}</TabsTrigger>
+              <TabsTrigger value="shortcuts">{{ t('keyboardShortcuts') }}</TabsTrigger>
               <TabsTrigger value="cloud">{{ t('personalCloud') }}</TabsTrigger>
               <TabsTrigger value="history">{{ t('runHistory') }}</TabsTrigger>
               <TabsTrigger value="transfer">{{ t('settingsTransfer') }}</TabsTrigger>
@@ -296,6 +548,157 @@ async function cleanupRuns(includeAllUnpinned: boolean): Promise<void> {
                     <span class="theme-preview" :class="option" aria-hidden="true"><i /><i /></span>
                     <strong>{{ t(option === 'system' ? 'themeSystem' : option === 'light' ? 'themeLight' : 'themeDark') }}</strong>
                   </button>
+                </div>
+              </section>
+              <section class="settings-section editor-settings repository-root-settings">
+                <h3>{{ t('localRepositoriesRoot') }}</h3>
+                <p>{{ t('localRepositoriesRootDescription') }}</p>
+                <label>
+                  <span>{{ t('repositoriesRoot') }}</span>
+                  <span class="settings-path-entry">
+                    <input v-model="repositoriesRoot" data-testid="repositories-root" :placeholder="t('repositoriesRootPlaceholder')">
+                    <button v-if="canChooseGitRepository" type="button" data-testid="choose-repositories-root" @click="chooseRepositoriesRoot">{{ t('chooseGitRepository') }}</button>
+                  </span>
+                </label>
+                <button type="button" class="settings-save-button" data-testid="save-repositories-root" :disabled="repositoriesRootSaving" @click="saveRepositoriesRoot">
+                  {{ repositoriesRootSaving ? t('saving') : t('save') }}
+                </button>
+              </section>
+              <section class="settings-section editor-settings">
+                <h3>{{ t('defaultEditor') }}</h3>
+                <p>{{ t('defaultEditorDescription') }}</p>
+                <label>
+                  <span>{{ t('editor') }}</span>
+                  <select v-model="editorId" data-testid="default-editor">
+                    <option value="vscode">VS Code</option>
+                    <option value="codebuddy">CodeBuddy</option>
+                    <option value="cursor">Cursor</option>
+                    <option value="custom">{{ t('customEditor') }}</option>
+                  </select>
+                </label>
+                <div class="custom-editor-fields">
+                  <label>
+                    <span>{{ t('editorName') }}</span>
+                    <input v-model="customEditorName" data-testid="custom-editor-name" :placeholder="t('editorNamePlaceholder')">
+                  </label>
+                  <label>
+                    <span>{{ t('editorCommand') }}</span>
+                    <input v-model="customEditorCommand" data-testid="custom-editor-command" :placeholder="t('editorCommandPlaceholder')">
+                  </label>
+                  <label class="editor-args-field">
+                    <span>{{ t('editorArguments') }}</span>
+                    <textarea v-model="customEditorArgs" data-testid="custom-editor-args" rows="3" :placeholder="t('editorArgumentsPlaceholder')" />
+                  </label>
+                </div>
+                <p class="editor-settings-hint">{{ t('editorArgumentsHint') }}</p>
+                <button type="button" class="settings-save-button" data-testid="save-editor-setting" :disabled="editorSaving" @click="saveEditorSetting">
+                  {{ editorSaving ? t('saving') : t('saveEditorSetting') }}
+                </button>
+              </section>
+              <section class="settings-section editor-settings">
+                <h3>{{ t('codexTaskDefaults') }}</h3>
+                <p>{{ t('codexTaskDefaultsDescription') }}</p>
+                <div class="custom-editor-fields">
+                  <label>
+                    <span>{{ t('codexModel') }}</span>
+                    <input v-model="codexModel" data-testid="codex-model" :placeholder="t('codexModelPlaceholder')">
+                  </label>
+                  <label>
+                    <span>{{ t('codexReasoningEffort') }}</span>
+                    <select v-model="codexReasoningEffort" data-testid="codex-reasoning-effort">
+                      <option value="">{{ t('inheritCodexDefault') }}</option>
+                      <option v-for="effort in (['minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'] as const)" :key="effort" :value="effort">
+                        {{ effort }}
+                      </option>
+                    </select>
+                  </label>
+                </div>
+                <p class="editor-settings-hint">{{ t('codexTaskDefaultsHint') }}</p>
+                <button type="button" class="settings-save-button" data-testid="save-codex-setting" :disabled="codexSaving" @click="saveCodexSetting">
+                  {{ codexSaving ? t('saving') : t('saveCodexDefaults') }}
+                </button>
+              </section>
+              <section v-if="canManageCodexActivity" class="settings-section codex-activity-settings">
+                <h3>{{ t('codexActivity') }}</h3>
+                <p>{{ t('codexActivityDescription') }}</p>
+                <div class="desktop-update-status">
+                  <span>
+                    <strong>{{ t(codexActivityStatus?.installed ? 'codexActivityEnabled' : 'codexActivityDisabled') }}</strong>
+                    <small>{{ t('codexActivityRunning', { count: String(codexActivityStatus?.runningSessionIds.length ?? 0) }) }}</small>
+                  </span>
+                  <button
+                    type="button"
+                    :disabled="codexActivityBusy || !codexActivityStatus?.supported"
+                    data-testid="toggle-codex-activity"
+                    @click="setCodexActivityHooks(!codexActivityStatus?.installed)"
+                  >
+                    {{ t(codexActivityStatus?.installed ? 'disable' : 'enable') }}
+                  </button>
+                </div>
+                <p v-if="codexActivityStatus?.requiresTrustReview" class="settings-note">{{ t('codexActivityTrustReview') }}</p>
+                <p v-if="codexActivityStatus?.diagnostic" class="error-message" role="alert">{{ codexActivityStatus.diagnostic }}</p>
+              </section>
+              <section v-if="canManageUpdates" class="settings-section desktop-update-settings">
+                <h3>{{ t('softwareUpdates') }}</h3>
+                <p>{{ t('softwareUpdatesDescription') }}</p>
+                <label class="settings-replace-option">
+                  <input
+                    type="checkbox"
+                    :checked="updateStatus?.automaticCheck"
+                    :disabled="updateBusy"
+                    data-testid="automatic-updates"
+                    @change="setAutomaticUpdates(($event.target as HTMLInputElement).checked)"
+                  >
+                  {{ t('checkUpdatesAutomatically') }}
+                </label>
+                <div class="desktop-update-status">
+                  <span><strong>{{ updateStatusLabel() }}</strong><small>{{ t('currentVersion', { version: updateStatus?.currentVersion ?? '—' }) }}</small></span>
+                  <button type="button" :disabled="updateBusy || updateStatus?.phase === 'checking' || updateStatus?.phase === 'downloaded'" data-testid="check-for-updates" @click="checkForUpdates">
+                    {{ t('checkNow') }}
+                  </button>
+                </div>
+                <p v-if="updateStatus?.message" class="error-message" role="alert">{{ updateStatus.message }}</p>
+              </section>
+            </TabsContent>
+
+            <TabsContent value="shortcuts" class="settings-tab-content">
+              <section class="settings-section shortcut-settings">
+                <h3>{{ t('keyboardShortcuts') }}</h3>
+                <p>{{ t('keyboardShortcutsDescription') }}</p>
+                <label class="shortcut-search">
+                  <Icon name="search" />
+                  <input v-model="shortcutQuery" :placeholder="t('searchShortcutCommands')">
+                </label>
+                <p v-if="shortcutError" class="error-message" role="alert">{{ shortcutError }}</p>
+                <div class="shortcut-list">
+                  <div v-for="row in shortcutRows" :key="row.id" class="shortcut-row">
+                    <span><strong>{{ row.label }}</strong><small>{{ row.description }}</small></span>
+                    <button
+                      type="button"
+                      class="shortcut-recorder"
+                      :class="{ recording: recordingShortcutId === row.id }"
+                      :data-testid="`shortcut-${row.id}`"
+                      @click="recordingShortcutId = row.id; shortcutError = ''"
+                      @keydown.stop.prevent="onShortcutKeydown($event, row.id)"
+                    >
+                      {{ recordingShortcutId === row.id ? t('pressShortcut') : shortcutFor(row.id) ? formatShortcut(shortcutFor(row.id)) : t('addShortcut') }}
+                    </button>
+                    <button v-if="shortcutFor(row.id)" type="button" class="shortcut-clear" :aria-label="t('clearShortcut', { command: row.label })" :title="t('clearShortcut', { command: row.label })" @click="clearShortcut(row.id)">
+                      <Icon name="close" />
+                    </button>
+                  </div>
+                </div>
+              </section>
+              <section class="settings-section shortcut-reference-section">
+                <h3>{{ t('applicationShortcutReference') }}</h3>
+                <p>{{ t('applicationShortcutReferenceDescription') }}</p>
+                <div class="shortcut-reference-list" :aria-label="t('applicationShortcutReference')">
+                  <div v-for="row in shortcutReferenceRows" :key="row.id" class="shortcut-reference-row">
+                    <span><strong>{{ row.label }}</strong><small>{{ row.description }}</small></span>
+                    <span class="shortcut-reference-keys">
+                      <kbd v-for="shortcut in row.shortcuts" :key="shortcut">{{ shortcut }}</kbd>
+                    </span>
+                  </div>
                 </div>
               </section>
             </TabsContent>
@@ -387,7 +790,5 @@ async function cleanupRuns(includeAllUnpinned: boolean): Promise<void> {
             </div>
           </TabsRoot>
         </div>
-      </DialogContent>
-    </DialogPortal>
-  </DialogRoot>
+  </DialogShell>
 </template>

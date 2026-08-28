@@ -1,6 +1,7 @@
 import type { ProjectRegistry } from './projects'
 import type { CraftHubStore } from './store'
 import type { AgentActionId, AgentActionResult, AgentTaskRecord } from './types'
+import { Buffer } from 'node:buffer'
 import { randomUUID } from 'node:crypto'
 
 /** Input accepted by a host-provided agent task adapter. */
@@ -8,14 +9,17 @@ export interface StartAgentTaskInput {
   prompt: string
   projectIds: string[]
   primaryProjectId: string
+  capabilityId?: string
   actionId?: AgentActionId
   workspaceId?: string
   parentTaskId?: string
+  /** Least filesystem access the host adapter should grant to this task. */
+  sandboxMode?: 'read-only' | 'workspace-write'
 }
 
 /** Optional work to perform after an agent task completes. */
 export interface StartAgentTaskOptions {
-  onCompleted?: () => Promise<AgentActionResult>
+  onCompleted?: (result: AgentTaskProviderResult, task: AgentTaskRecord) => Promise<AgentActionResult>
 }
 
 /** Fully resolved input passed to an agent task adapter. */
@@ -25,6 +29,8 @@ export interface AgentTaskProviderInput extends StartAgentTaskInput {
   primaryProjectPath: string
   signal: AbortSignal
   onThread: (threadId: string) => Promise<void>
+  /** Persist one human-readable progress chunk for the local task UI. */
+  onOutput: (chunk: string) => Promise<void>
 }
 
 /** Result returned by an agent task adapter. */
@@ -45,6 +51,20 @@ const unavailableAgentTaskProvider: AgentTaskProvider = {
   },
 }
 
+const maxAgentTaskOutputBytes = 512 * 1024
+const truncatedOutputMarker = Buffer.from('\n\n[Craft Hub truncated earlier agent output]\n\n')
+
+function appendAgentTaskOutput(current: string, chunk: string): { output: string, truncated: boolean } {
+  const combined = Buffer.concat([Buffer.from(current), Buffer.from(chunk)])
+  if (combined.length <= maxAgentTaskOutputBytes)
+    return { output: combined.toString('utf8'), truncated: false }
+  const tailLength = maxAgentTaskOutputBytes - truncatedOutputMarker.length
+  return {
+    output: Buffer.concat([truncatedOutputMarker, combined.subarray(combined.length - tailLength)]).toString('utf8'),
+    truncated: true,
+  }
+}
+
 /** Coordinate trusted, local, project-scoped agent tasks through a provider adapter. */
 /** Coordinate persisted, cancellable agent tasks through a host adapter. */
 export class AgentTaskManager {
@@ -58,7 +78,17 @@ export class AgentTaskManager {
   ) {}
 
   async list(): Promise<AgentTaskRecord[]> {
-    return this.store.listAgentTasks()
+    const tasks = await this.store.listAgentTasks()
+    await Promise.all(tasks.map(async (task) => {
+      if (task.status !== 'running' || this.active.has(task.id))
+        return
+      task.status = 'failed'
+      task.error = 'Task was interrupted when Craft Hub stopped'
+      task.finishedAt = new Date().toISOString()
+      await this.store.saveAgentTask(task)
+      this.emit(task)
+    }))
+    return tasks
   }
 
   async start(input: StartAgentTaskInput, options: StartAgentTaskOptions = {}): Promise<AgentTaskRecord> {
@@ -76,6 +106,7 @@ export class AgentTaskManager {
     const task: AgentTaskRecord = {
       id: randomUUID(),
       provider: this.provider.id,
+      capabilityId: input.capabilityId,
       actionId: input.actionId,
       workspaceId: input.workspaceId,
       projectIds: [...input.projectIds],
@@ -85,10 +116,16 @@ export class AgentTaskManager {
       startedAt: new Date().toISOString(),
       status: 'running',
     }
-    await this.store.saveAgentTask(task)
-    this.emit(task)
     const controller = new AbortController()
     this.active.set(task.id, controller)
+    try {
+      await this.store.saveAgentTask(task)
+    }
+    catch (error) {
+      this.active.delete(task.id)
+      throw error
+    }
+    this.emit(task)
     void this.provider.run({
       ...input,
       taskId: task.id,
@@ -100,10 +137,19 @@ export class AgentTaskManager {
         await this.store.saveAgentTask(task)
         this.emit(task)
       },
+      onOutput: async (chunk) => {
+        if (!chunk)
+          return
+        const appended = appendAgentTaskOutput(task.output ?? '', chunk)
+        task.output = appended.output
+        task.outputTruncated = task.outputTruncated || appended.truncated || undefined
+        await this.store.saveAgentTask(task)
+        this.emit(task)
+      },
     }).then(async (result) => {
       if (options.onCompleted) {
         try {
-          task.actionResult = await options.onCompleted()
+          task.actionResult = await options.onCompleted(result, task)
         }
         catch (error) {
           task.actionResult = {
@@ -135,6 +181,22 @@ export class AgentTaskManager {
     const task = await this.store.getAgentTask(id)
     if (!task)
       throw new Error(`Unknown agent task: ${id}`)
+    return task
+  }
+
+  /** Read one persisted task without exposing the store to workflow modules. */
+  async get(id: string): Promise<AgentTaskRecord | undefined> {
+    return this.store.getAgentTask(id)
+  }
+
+  /** Persist and publish a workflow-owned action result update. */
+  async setActionResult(id: string, result: AgentActionResult): Promise<AgentTaskRecord> {
+    const task = await this.store.getAgentTask(id)
+    if (!task)
+      throw new Error(`Unknown agent task: ${id}`)
+    task.actionResult = result
+    await this.store.saveAgentTask(task)
+    this.emit(task)
     return task
   }
 

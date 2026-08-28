@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { Capability, ProjectRecord, WorkspaceRecord } from 'craft-hub'
 import { computed, ref } from 'vue'
+import { Button as UiButton } from './components/ui/button'
 import { Icon } from './icons'
 import { useI18n } from './i18n'
 import { useWorkbenchStore } from './store'
@@ -76,7 +77,7 @@ async function addProject(): Promise<void> {
   if (!workspace.value)
     return
   const path = window.craftHubDesktop?.selectProjectDirectory
-    ? await window.craftHubDesktop.selectProjectDirectory()
+    ? await window.craftHubDesktop.selectProjectDirectory(store.repositoriesRoot)
     : window.prompt(t('projectPath'))
   if (!path)
     return
@@ -109,14 +110,14 @@ async function retry(): Promise<void> {
     <div v-else-if="store.workspaceError && !workspace" class="workspace-project-error">
       <Icon name="error" />
       <p>{{ t('workspaceLoadFailed', { message: store.workspaceError }) }}</p>
-      <button class="secondary-button" type="button" @click="retry">{{ t('retry') }}</button>
+      <UiButton @click="retry">{{ t('retry') }}</UiButton>
     </div>
     <div v-else-if="workspace && !workspace.members.length" class="workspace-project-empty">
       <Icon name="workspace" />
       <p>{{ t('workspaceEmpty') }}</p>
-      <button class="secondary-button" type="button" :disabled="adding" @click="addProject">
+      <UiButton :disabled="adding" @click="addProject">
         <Icon name="plus" /> {{ adding ? t('adding') : t('addProject') }}
-      </button>
+      </UiButton>
     </div>
     <div v-else class="workspace-project-summary-list">
       <article v-for="row in rows" :key="row.project.id" class="workspace-project-summary">
@@ -155,8 +156,8 @@ async function retry(): Promise<void> {
 
       <article v-for="member in workspace?.members.filter(item => !item.resolved)" :key="member.project" class="workspace-project-summary unresolved">
         <div class="workspace-project-open" aria-disabled="true">
-          <span class="workspace-project-icon"><Icon name="error" /></span>
-          <span class="workspace-project-copy"><strong>{{ member.label || member.project }}</strong><small>{{ t('unresolved') }}</small></span>
+          <span class="workspace-project-icon"><Icon :name="member.path ? 'folder' : 'error'" /></span>
+          <span class="workspace-project-copy"><strong>{{ member.label || member.project }}</strong><small class="workspace-project-status">{{ t(member.path ? 'availableProject' : 'unresolved') }}</small></span>
         </div>
       </article>
     </div>

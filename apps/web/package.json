@@ -17,11 +17,13 @@
     "craft-hub": "workspace:*",
     "pinia": "catalog:",
     "reka-ui": "catalog:",
+    "shiki": "catalog:",
     "vue": "catalog:",
     "vue-router": "catalog:"
   },
   "devDependencies": {
     "@iconify-json/ri": "catalog:",
+    "@iconify-json/svg-spinners": "catalog:",
     "@vitejs/plugin-vue": "catalog:",
     "@vue/test-utils": "catalog:",
     "happy-dom": "catalog:",

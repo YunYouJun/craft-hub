@@ -31,10 +31,13 @@ export function resolveCommandInvocation(capability: CommandCapability, provided
       continue
     }
 
-    if (input.type === 'select' && !input.options?.some(option => option.value === value))
+    const selectedOption = input.type === 'select' ? input.options?.find(option => option.value === value) : undefined
+    if (input.type === 'select' && !selectedOption)
       throw new CommandInputValidationError(`${input.label ?? input.id} must be one of: ${input.options?.map(option => option.value).join(', ') ?? ''}`)
     if (input.pattern && !new RegExp(input.pattern).test(value))
       throw new CommandInputValidationError(`${input.label ?? input.id} has an invalid value`)
+    if (selectedOption?.omitArgument)
+      continue
 
     if (input.argumentStyle === 'separate')
       inputArgs.push(input.flag, value)

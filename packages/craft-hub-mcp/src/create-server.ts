@@ -98,15 +98,84 @@ export function createCraftHubMcpServer(runtime = new CraftHubRuntime()): McpSer
   )
 
   server.registerTool(
+    'list_owner_scopes',
+    {
+      title: 'List Craft Hub owner scopes',
+      description: 'List the Personal owner scope and configured Git-backed Teams.',
+      inputSchema: {},
+      annotations: { readOnlyHint: true, openWorldHint: false },
+    },
+    async () => {
+      const ownerScopes = await runtime.ownerScopes.list()
+      return result({ ownerScopes }, `${ownerScopes.length} Craft Hub owner scope${ownerScopes.length === 1 ? '' : 's'} found.`)
+    },
+  )
+
+  server.registerTool(
+    'create_team',
+    {
+      title: 'Create a Craft Hub Team',
+      description: 'Create an isolated Team owner scope backed by a portable snapshot in an existing local Git checkout. Craft Hub does not commit or push.',
+      inputSchema: {
+        name: z.string().trim().min(1),
+        repositoryPath: z.string().min(1).refine(isAbsolute, 'Git repository path must be absolute'),
+        directory: z.string().min(1).optional(),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    },
+    async ({ name, repositoryPath, directory }) => {
+      const team = await runtime.teams.create({ name, repositoryPath, directory })
+      const sync = await runtime.teamGitSync.status(team.id)
+      return result({ team, sync }, `Created the Team ${team.name} and initialized its Git snapshot. Review and commit repository changes with Git.`)
+    },
+  )
+
+  server.registerTool(
+    'rename_team',
+    {
+      title: 'Rename a Craft Hub Team',
+      description: 'Rename a Team while preserving its stable owner-scope id and Git target. The local snapshot will need explicit synchronization.',
+      inputSchema: {
+        ownerScopeId: z.string().min(1),
+        name: z.string().trim().min(1),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    async ({ ownerScopeId, name }) => {
+      const team = await runtime.teams.rename(ownerScopeId, name)
+      const sync = await runtime.teamGitSync.status(ownerScopeId)
+      return result({ team, sync }, `Renamed the Team to ${team.name}. Its stable id remains ${team.id}; synchronize its local snapshot explicitly.`)
+    },
+  )
+
+  server.registerTool(
+    'delete_team',
+    {
+      title: 'Delete a Craft Hub Team',
+      description: 'Delete a Team\'s local workspaces, bindings, navigation state, and sync target after confirming its exact current name. The shared Git snapshot remains recoverable.',
+      inputSchema: {
+        ownerScopeId: z.string().min(1),
+        confirmationName: z.string().min(1),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+    },
+    async ({ ownerScopeId, confirmationName }) => {
+      const deletion = await runtime.teams.delete(ownerScopeId, confirmationName)
+      return result({ deletion }, `Deleted the local Team ${deletion.team.name}. Its shared Git snapshot remains at ${deletion.retainedSnapshotPath ?? 'the configured repository path'}.`)
+    },
+  )
+
+  server.registerTool(
     'list_workspaces',
     {
       title: 'List Craft Hub workspaces',
       description: 'List portable Craft Hub workspaces and their resolved local project members.',
-      inputSchema: {},
+      inputSchema: { ownerScopeId: z.string().min(1).default('personal') },
       annotations: { readOnlyHint: true },
     },
-    async () => {
-      const workspaces = await runtime.workspaces.list()
+    async ({ ownerScopeId }) => {
+      await runtime.ownerScopes.get(ownerScopeId)
+      const workspaces = await runtime.workspaces.list(ownerScopeId)
       return result({ workspaces }, `${workspaces.length} Craft Hub workspace${workspaces.length === 1 ? '' : 's'} found.`)
     },
   )
@@ -115,13 +184,17 @@ export function createCraftHubMcpServer(runtime = new CraftHubRuntime()): McpSer
     'list_workspace_groups',
     {
       title: 'List Craft Hub workspace groups',
-      description: 'List editable, user-owned workspace navigation groups.',
-      inputSchema: {},
+      description: 'List editable, user-owned navigation groups and machine-local standalone project assignments.',
+      inputSchema: { ownerScopeId: z.string().min(1).default('personal') },
       annotations: { readOnlyHint: true },
     },
-    async () => {
-      const groups = await runtime.workspaces.groups()
-      return result({ groups }, `${groups.length} Craft Hub workspace group${groups.length === 1 ? '' : 's'} found.`)
+    async ({ ownerScopeId }) => {
+      await runtime.ownerScopes.get(ownerScopeId)
+      const [groups, projectAssignments] = await Promise.all([
+        runtime.workspaces.groups(ownerScopeId),
+        runtime.workspaces.projectGroupAssignments(ownerScopeId),
+      ])
+      return result({ groups, projectAssignments }, `${groups.length} Craft Hub workspace group${groups.length === 1 ? '' : 's'} found.`)
     },
   )
 
@@ -129,13 +202,33 @@ export function createCraftHubMcpServer(runtime = new CraftHubRuntime()): McpSer
     'create_workspace_group',
     {
       title: 'Create a Craft Hub workspace group',
-      description: 'Create an editable, non-nesting navigation group for Craft Hub workspaces.',
-      inputSchema: { name: z.string().trim().min(1) },
+      description: 'Create an editable, non-nesting navigation group for Craft Hub workspaces and standalone projects.',
+      inputSchema: { name: z.string().trim().min(1), ownerScopeId: z.string().min(1).default('personal') },
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     },
-    async ({ name }) => {
-      const group = await runtime.workspaces.createGroup(name)
+    async ({ name, ownerScopeId }) => {
+      await runtime.ownerScopes.get(ownerScopeId)
+      const group = await runtime.workspaces.createGroup(name, ownerScopeId)
       return result({ group }, `Created the workspace group ${group.name}.`)
+    },
+  )
+
+  server.registerTool(
+    'assign_project_group',
+    {
+      title: 'Assign a Craft Hub project group',
+      description: 'Move a registered standalone project into a workspace group, or omit groupId to leave it ungrouped. This does not change workspace membership or execution authorization.',
+      inputSchema: {
+        projectId: z.string().min(1),
+        groupId: z.string().min(1).optional(),
+        ownerScopeId: z.string().min(1).default('personal'),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    async ({ projectId, groupId, ownerScopeId }) => {
+      const project = await runtime.projects.get(projectId)
+      const projectAssignments = await runtime.workspaces.assignProjectGroup(projectId, groupId, ownerScopeId)
+      return result({ project, projectAssignments }, groupId ? `Assigned ${project.name} to workspace group ${groupId}.` : `Left ${project.name} ungrouped.`)
     },
   )
 
@@ -147,11 +240,12 @@ export function createCraftHubMcpServer(runtime = new CraftHubRuntime()): McpSer
       inputSchema: {
         workspaceId: z.string().min(1),
         groupId: z.string().min(1).optional(),
+        ownerScopeId: z.string().min(1).default('personal'),
       },
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
-    async ({ workspaceId, groupId }) => {
-      const workspace = await runtime.workspaces.assignGroup(workspaceId, groupId)
+    async ({ workspaceId, groupId, ownerScopeId }) => {
+      const workspace = await runtime.workspaces.assignGroup(workspaceId, groupId, ownerScopeId)
       return result({ workspace }, groupId ? `Assigned ${workspace.name} to workspace group ${groupId}.` : `Left ${workspace.name} ungrouped.`)
     },
   )
@@ -164,11 +258,12 @@ export function createCraftHubMcpServer(runtime = new CraftHubRuntime()): McpSer
       inputSchema: {
         groupId: z.string().min(1),
         name: z.string().trim().min(1),
+        ownerScopeId: z.string().min(1).default('personal'),
       },
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
-    async ({ groupId, name }) => {
-      const group = await runtime.workspaces.renameGroup(groupId, name)
+    async ({ groupId, name, ownerScopeId }) => {
+      const group = await runtime.workspaces.renameGroup(groupId, name, ownerScopeId)
       return result({ group }, `Renamed the workspace group to ${group.name}.`)
     },
   )
@@ -177,16 +272,16 @@ export function createCraftHubMcpServer(runtime = new CraftHubRuntime()): McpSer
     'delete_workspace_group',
     {
       title: 'Delete a Craft Hub workspace group',
-      description: 'Delete a navigation group without deleting its workspaces; its workspaces become ungrouped.',
-      inputSchema: { groupId: z.string().min(1) },
+      description: 'Delete a navigation group without deleting its workspaces or projects; its contents become ungrouped.',
+      inputSchema: { groupId: z.string().min(1), ownerScopeId: z.string().min(1).default('personal') },
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
     },
-    async ({ groupId }) => {
-      const group = (await runtime.workspaces.groups()).find(item => item.id === groupId)
+    async ({ groupId, ownerScopeId }) => {
+      const group = (await runtime.workspaces.groups(ownerScopeId)).find(item => item.id === groupId)
       if (!group)
         throw new Error(`Unknown workspace group: ${groupId}`)
-      await runtime.workspaces.deleteGroup(groupId)
-      return result({ deleted: group }, `Deleted ${group.name}; its workspaces remain ungrouped.`)
+      await runtime.workspaces.deleteGroup(groupId, ownerScopeId)
+      return result({ deleted: group }, `Deleted ${group.name}; its workspaces and projects remain ungrouped.`)
     },
   )
 
@@ -243,11 +338,13 @@ export function createCraftHubMcpServer(runtime = new CraftHubRuntime()): McpSer
       inputSchema: {
         sourceDirectory: z.string().min(1).refine(isAbsolute, 'Source directory must be absolute'),
         groupName: z.string().trim().min(1).optional(),
+        ownerScopeId: z.string().min(1).default('personal'),
       },
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
-    async ({ sourceDirectory, groupName }) => {
-      const preview = await runtime.workspaceImports.previewVscodeDirectory(sourceDirectory, groupName)
+    async ({ sourceDirectory, groupName, ownerScopeId }) => {
+      await runtime.ownerScopes.get(ownerScopeId)
+      const preview = await runtime.workspaceImports.previewVscodeDirectory(sourceDirectory, groupName, ownerScopeId)
       return result({ preview }, preview.canImport
         ? `Validated ${preview.workspaces.length} workspace${preview.workspaces.length === 1 ? '' : 's'}. Pass revision ${preview.revision} to import_vscode_workspaces.`
         : `Import cannot continue: ${[...preview.conflicts, ...preview.diagnostics.map(item => item.message)].join('; ')}`)
@@ -263,11 +360,13 @@ export function createCraftHubMcpServer(runtime = new CraftHubRuntime()): McpSer
         sourceDirectory: z.string().min(1).refine(isAbsolute, 'Source directory must be absolute'),
         groupName: z.string().trim().min(1).optional(),
         expectedRevision: z.string().min(1),
+        ownerScopeId: z.string().min(1).default('personal'),
       },
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     },
-    async ({ sourceDirectory, groupName, expectedRevision }) => {
-      const imported = await runtime.workspaceImports.importVscodeDirectory(sourceDirectory, groupName, expectedRevision)
+    async ({ sourceDirectory, groupName, expectedRevision, ownerScopeId }) => {
+      await runtime.ownerScopes.get(ownerScopeId)
+      const imported = await runtime.workspaceImports.importVscodeDirectory(sourceDirectory, groupName, expectedRevision, ownerScopeId)
       return result({ imported }, `Imported and verified ${imported.workspaces.length} editable workspace${imported.workspaces.length === 1 ? '' : 's'} into ${imported.group.name}.`)
     },
   )
@@ -281,11 +380,12 @@ export function createCraftHubMcpServer(runtime = new CraftHubRuntime()): McpSer
         workspaceId: z.string().min(1),
         project: z.string().min(1),
         path: z.string().min(1).refine(isAbsolute, 'Project path must be absolute').optional(),
+        ownerScopeId: z.string().min(1).default('personal'),
       },
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
-    async ({ workspaceId, project, path }) => {
-      const workspace = await runtime.workspaces.registerImportedProject(workspaceId, project, path)
+    async ({ workspaceId, project, path, ownerScopeId }) => {
+      const workspace = await runtime.workspaces.registerImportedProject(workspaceId, project, path, ownerScopeId)
       const member = workspace.members.find(item => item.project === project)!
       const registered = await runtime.projects.get(member.projectId!)
       return result({ workspace, project: registered }, `Registered ${registered.name}. Craft Hub execution state: ${registered.trust}. No project code was run.`)
@@ -297,11 +397,12 @@ export function createCraftHubMcpServer(runtime = new CraftHubRuntime()): McpSer
     {
       title: 'Create a Craft Hub workspace',
       description: 'Create an empty portable Craft Hub workspace. This does not register projects or authorize Craft Hub execution.',
-      inputSchema: { name: z.string().trim().min(1) },
+      inputSchema: { name: z.string().trim().min(1), ownerScopeId: z.string().min(1).default('personal') },
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     },
-    async ({ name }) => {
-      const workspace = await runtime.workspaces.create(name)
+    async ({ name, ownerScopeId }) => {
+      await runtime.ownerScopes.get(ownerScopeId)
+      const workspace = await runtime.workspaces.create(name, ownerScopeId)
       return result({ workspace }, `Created the empty Craft Hub workspace ${workspace.name}.`)
     },
   )
@@ -314,14 +415,15 @@ export function createCraftHubMcpServer(runtime = new CraftHubRuntime()): McpSer
       inputSchema: {
         workspaceId: z.string().min(1),
         projectId: z.string().min(1),
+        ownerScopeId: z.string().min(1).default('personal'),
       },
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
-    async ({ workspaceId, projectId }) => {
+    async ({ workspaceId, projectId, ownerScopeId }) => {
       const project = await runtime.projects.get(projectId)
-      const before = await runtime.workspaces.get(workspaceId)
+      const before = await runtime.workspaces.get(workspaceId, ownerScopeId)
       const alreadyMember = before.members.some(member => member.projectId === projectId)
-      const workspace = await runtime.workspaces.addProject(workspaceId, projectId)
+      const workspace = await runtime.workspaces.addProject(workspaceId, projectId, ownerScopeId)
       return result(
         { workspace, project, added: !alreadyMember },
         alreadyMember

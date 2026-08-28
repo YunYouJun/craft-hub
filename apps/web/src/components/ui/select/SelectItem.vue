@@ -9,7 +9,7 @@ const forwarded = useForwardProps(props)
 
 <template>
   <SelectItem data-slot="select-item" v-bind="forwarded">
-    <SelectItemText>
+    <SelectItemText data-slot="select-item-text">
       <slot />
     </SelectItemText>
     <SelectItemIndicator data-slot="select-item-indicator">

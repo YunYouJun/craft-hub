@@ -9,6 +9,7 @@ Craft Hub is a local, cross-project developer workbench. Its Project Palette dis
 - Register and switch between local projects
 - Register projects and organize portable workspaces from the Craft Hub MCP adapter
 - Discover root and pnpm workspace `package.json` scripts, Makefile targets, and Taskfile tasks
+- Keep Personal and Git-backed Team workspaces in isolated Owner Scopes with fast navigation switching
 - Discover project-local skills from `.agents`, `.claude`, and `.codex`
 - Preview command, arguments, working directory, and required environment
 - Trust a project explicitly before running anything
