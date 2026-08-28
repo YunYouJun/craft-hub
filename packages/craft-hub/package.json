@@ -24,6 +24,7 @@
     "./cli": "./dist/cli.mjs",
     "./project-config-schema-revision": "./dist/project-config-schema-revision.mjs",
     "./skill-inputs": "./dist/skill-inputs.mjs",
+    "./skill-prompts": "./dist/skill-prompts.mjs",
     "./package.json": "./package.json"
   },
   "types": "./dist/index.d.mts",

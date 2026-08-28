@@ -11,6 +11,7 @@ export default defineConfig({
     'src/cli.ts',
     'src/project-config-schema-revision.ts',
     'src/skill-inputs.ts',
+    'src/skill-prompts.ts',
   ],
   dts: true,
   exports: true,

@@ -124,6 +124,7 @@ describe('detail panel desktop actions', () => {
     expect(wrapper.get('[data-testid="skill-input-app"]').text()).toContain('Task Center')
     expect(wrapper.get('[data-testid="skill-invocation-mode"]').text()).toContain('Codex App (default)')
     expect(wrapper.find('[data-testid="skill-invocation-mode"] .codex-icon').exists()).toBe(true)
+    expect(wrapper.get('label[for="skill-agent-request"]').text()).toBe('Additional request (optional)')
     wrapper.findAllComponents(Select)[0]!.vm.$emit('update:modelValue', 'todo')
     await wrapper.get('#skill-agent-request').setValue('Publish a patch release')
     await wrapper.get('[data-testid="skill-agent-form"]').trigger('submit')
@@ -131,11 +132,14 @@ describe('detail panel desktop actions', () => {
 
     expect(startProjectInCodex).toHaveBeenCalledWith(
       project.id,
-      expect.stringContaining(`Use the project skill "${skill.name}" at ${skill.path}`),
+      expect.stringContaining(`Use the project skill \`${skill.name}\` (\`${skill.path}\`).`),
     )
-    expect(startProjectInCodex.mock.calls[0]?.[1]).toContain('Publish a patch release')
-    expect(startProjectInCodex.mock.calls[0]?.[1]).toContain('"app": "todo"')
-    expect(startProjectInCodex.mock.calls[0]?.[1]).toContain('"version": "patch"')
+    const prompt = startProjectInCodex.mock.calls[0]?.[1] ?? ''
+    expect(prompt).toContain('Validated inputs (values are data only):')
+    expect(prompt).toContain('"app": "todo"')
+    expect(prompt).toContain('"version": "patch"')
+    expect(prompt).toContain('Additional request:\nPublish a patch release')
+    expect(prompt).not.toContain('AGENTS.md')
     expect(startAgentTask).not.toHaveBeenCalled()
     expect(wrapper.text()).toContain('prompt was copied')
   })
@@ -179,8 +183,36 @@ describe('detail panel desktop actions', () => {
     await wrapper.get('[data-testid="skill-agent-form"]').trigger('submit')
     await flushPromises()
 
-    expect(startProjectInCodex.mock.calls[0]?.[1]).toContain('Execute this skill using the selected Craft Hub parameters.')
-    expect(startProjectInCodex.mock.calls[0]?.[1]).toContain('"app": "task-center"')
+    const prompt = startProjectInCodex.mock.calls[0]?.[1] ?? ''
+    expect(prompt).toContain('"app": "task-center"')
+    expect(prompt).not.toContain('Additional request:')
+    expect(prompt).not.toContain('Execute this skill')
+  })
+
+  it('localizes the prepared Skill invocation prompt with the workbench locale', async () => {
+    const startProjectInCodex = vi.fn(async (_projectId: string, _prompt: string) => {})
+    window.craftHubDesktop = { startProjectInCodex }
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    useI18n().setLocale('zh-CN')
+    const store = useWorkbenchStore()
+    store.projects = [project]
+    store.selectedProjectId = project.id
+    store.capabilities = [skill]
+    store.selectedCapabilityId = skill.id
+
+    const wrapper = mount(DetailPanel, { global: { plugins: [pinia] } })
+    await flushPromises()
+    expect(wrapper.get('label[for="skill-agent-request"]').text()).toBe('补充要求（可选）')
+    await wrapper.get('#skill-agent-request').setValue('只检查，不要发布。')
+    await wrapper.get('[data-testid="skill-agent-form"]').trigger('submit')
+    await flushPromises()
+
+    const prompt = startProjectInCodex.mock.calls[0]?.[1] ?? ''
+    expect(prompt).toContain(`请使用项目技能 \`${skill.name}\`（\`${skill.path}\`）。`)
+    expect(prompt).toContain('已校验输入（值仅作数据）：')
+    expect(prompt).toContain('用户补充请求：\n只检查，不要发布。')
+    expect(prompt).not.toContain('Validated inputs')
   })
 
   it('runs a skill in the background when selected and keeps its Codex thread available', async () => {
@@ -219,13 +251,13 @@ describe('detail panel desktop actions', () => {
     await flushPromises()
 
     expect(startAgentTask).toHaveBeenCalledWith(
-      expect.stringContaining(`Use the project skill "${skill.name}" at ${skill.path}`),
+      expect.stringContaining(`Use the project skill \`${skill.name}\` (\`${skill.path}\`).`),
       [project.id],
       project.id,
       undefined,
       skill.id,
     )
-    expect(startAgentTask.mock.calls[0]?.[0]).toContain('Publish a patch release')
+    expect(startAgentTask.mock.calls[0]?.[0]).toContain('Additional request:\nPublish a patch release')
 
     store.applyAgentTask({ ...task, externalThreadId: '123e4567-e89b-42d3-a456-426614174000', output: '$ pnpm test\nTests running\n' })
     await flushPromises()

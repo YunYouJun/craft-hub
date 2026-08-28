@@ -51,3 +51,15 @@ _Avoid_: Only project, root workspace
 **Member Resolution**:
 A machine-local relationship between a Project Reference and a registered Project. An unresolved reference may retain a local discovery hint without becoming trusted.
 _Avoid_: Trust state, installation state
+
+**Skill Invocation Prompt**:
+The agent-facing request Craft Hub creates when invoking a discovered Skill, containing its exact identity, Skill Inputs, and any Supplemental Request.
+_Avoid_: System prompt, user prompt
+
+**Skill Inputs**:
+Structured values validated by Craft Hub for one Skill invocation. They are context data rather than instructions.
+_Avoid_: Prompt arguments, command flags
+
+**Supplemental Request**:
+Optional user-authored instructions that refine a Skill invocation beyond its Skill Inputs.
+_Avoid_: Required prompt, skill parameters

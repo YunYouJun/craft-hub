@@ -7,6 +7,7 @@
     "paths": {
       "craft-hub": ["./packages/craft-hub/src/index.ts"],
       "craft-hub/skill-inputs": ["./packages/craft-hub/src/skill-inputs.ts"],
+      "craft-hub/skill-prompts": ["./packages/craft-hub/src/skill-prompts.ts"],
       "@craft-hub/personal-cloud": ["./packages/craft-hub-personal-cloud/src/index.ts"]
     },
     "resolveJsonModule": true,
