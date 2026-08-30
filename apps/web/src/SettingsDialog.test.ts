@@ -6,6 +6,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useI18n } from './i18n'
 import SettingsDialog from './SettingsDialog.vue'
+import { isMacPlatform } from './shortcuts'
 import { useWorkbenchStore } from './store'
 
 describe('settings dialog', () => {
@@ -174,7 +175,8 @@ describe('settings dialog', () => {
 
     const recorder = document.body.querySelector<HTMLButtonElement>('[data-testid="shortcut-workbench.showCommandPalette"]')!
     recorder.click()
-    recorder.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'p', metaKey: true, shiftKey: true }))
+    const primaryModifier = isMacPlatform() ? { metaKey: true } : { ctrlKey: true }
+    recorder.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'p', shiftKey: true, ...primaryModifier }))
     await flushPromises()
 
     expect(useWorkbenchStore().settings?.settings['workbench.shortcuts']['workbench.showCommandPalette']).toBe('Mod+Shift+P')

@@ -9,6 +9,7 @@ import { nextTick } from 'vue'
 import { createMemoryHistory } from 'vue-router'
 import App from './App.vue'
 import { createWorkbenchRouter } from './router'
+import { isMacPlatform } from './shortcuts'
 import { useWorkbenchStore } from './store'
 
 const projects: ProjectRecord[] = [
@@ -345,10 +346,11 @@ describe('app startup', () => {
     await wrapper.get('.welcome-close').trigger('click')
     expect(wrapper.find('[data-testid="guided-first-run-welcome"]').exists()).toBe(false)
 
-    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'p', metaKey: true, shiftKey: true }))
+    const primaryModifier = isMacPlatform() ? { metaKey: true } : { ctrlKey: true }
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'p', shiftKey: true, ...primaryModifier }))
     await flushPromises()
     expect(document.body.querySelector('.command-palette')).not.toBeNull()
-    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'p', metaKey: true, shiftKey: true }))
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'p', shiftKey: true, ...primaryModifier }))
     await flushPromises()
     expect(document.body.querySelector('.command-palette')).toBeNull()
 

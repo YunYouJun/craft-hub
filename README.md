@@ -2,7 +2,7 @@
 
 Craft Hub is a local, cross-project developer workbench. Its Project Palette discovers the commands and agent skills already present in each repository, lets you inspect exactly what will run, and keeps execution behind an explicit project trust boundary.
 
-> Early alpha. Packages are private until the first usable release is ready.
+> Early alpha. The `craft-hub` CLI is published on npm under the `next` tag; APIs and persisted formats may still change before the first stable release.
 
 ## What works
 
@@ -62,6 +62,8 @@ pnpm run package:mac
 ## CLI
 
 ```bash
+pnpm dlx craft-hub@next app .
+
 craft-hub app .
 craft-hub app /absolute/path/to/project --no-open
 pnpm --filter craft-hub start -- project:add /absolute/path/to/project
@@ -175,5 +177,9 @@ Marketplace plugins are declarative packages listed by a Plugin Catalog. Craft H
   - Reuse the visual flow editor in the web workbench while keeping local operations behind the shared runtime.
 
 The Workflow Studio is a post-alpha direction, not part of the first public release. The public runtime will remain independent of any editor or agent vendor.
+
+## Contributing and security
+
+See [CONTRIBUTING.md](./CONTRIBUTING.md) to set up a development environment and submit changes. Please report vulnerabilities through GitHub's private vulnerability reporting flow as described in [SECURITY.md](./SECURITY.md), not through a public issue.
 
 MIT © YunYouJun

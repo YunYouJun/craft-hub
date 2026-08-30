@@ -32,6 +32,7 @@ jobs:
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
+      - run: pnpm audit --prod --audit-level high
       - run: pnpm schema:project:check
       - run: pnpm lint
       - run: pnpm typecheck
@@ -58,7 +59,7 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
-      - run: pnpm test
+      - run: pnpm test --run
 
   docs:
     name: Build docs

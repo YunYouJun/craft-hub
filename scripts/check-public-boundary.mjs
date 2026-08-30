@@ -27,7 +27,13 @@ const paths = stdout.split('\0').filter(Boolean)
 const violations = []
 
 for (const path of paths) {
-  const bytes = await readFile(path)
+  const bytes = await readFile(path).catch((error) => {
+    if (error.code === 'ENOENT')
+      return undefined
+    throw error
+  })
+  if (!bytes)
+    continue
   if (bytes.includes(0))
     continue
   const lines = bytes.toString('utf8').split(/\r?\n/)
