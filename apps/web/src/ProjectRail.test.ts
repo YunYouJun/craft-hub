@@ -36,25 +36,25 @@ describe('project rail', () => {
   it('creates a Git-backed Team from the owner scope switcher', async () => {
     const store = useWorkbenchStore()
     store.ownerScopes = [{ id: 'personal', kind: 'personal', name: 'Personal' }]
-    const createTeam = vi.fn(async () => ({ id: 'tencent', kind: 'team' as const, name: 'Tencent' }))
+    const createTeam = vi.fn(async () => ({ id: 'acme', kind: 'team' as const, name: 'Acme' }))
     store.createTeam = createTeam
     const wrapper = mount(ProjectRail, { attachTo: document.body })
 
     await wrapper.get('.owner-scope-switcher > button:last-child').trigger('click')
     const name = document.body.querySelector<HTMLInputElement>('input[name="team-name"]')!
     const repository = document.body.querySelector<HTMLInputElement>('input[name="team-repository-path"]')!
-    name.value = 'Tencent'
+    name.value = 'Acme'
     name.dispatchEvent(new Event('input', { bubbles: true }))
-    repository.value = '/repos/tencent-workbench'
+    repository.value = '/repos/acme-workbench'
     repository.dispatchEvent(new Event('input', { bubbles: true }))
     document.body.querySelector<HTMLFormElement>('[data-testid="create-team-form"]')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
     await flushPromises()
 
-    expect(createTeam).toHaveBeenCalledWith('Tencent', '/repos/tencent-workbench', undefined)
+    expect(createTeam).toHaveBeenCalledWith('Acme', '/repos/acme-workbench', undefined)
   })
 
   it('chooses a Team Git repository from the configured repositories root', async () => {
-    const selectProjectDirectory = vi.fn(async () => '/repos/tencent-workbench')
+    const selectProjectDirectory = vi.fn(async () => '/repos/acme-workbench')
     window.craftHubDesktop = { selectProjectDirectory }
     const store = useWorkbenchStore()
     store.ownerScopes = [{ id: 'personal', kind: 'personal', name: 'Personal' }]
@@ -78,7 +78,7 @@ describe('project rail', () => {
     await flushPromises()
 
     expect(selectProjectDirectory).toHaveBeenCalledWith('/repos')
-    expect(document.body.querySelector<HTMLInputElement>('input[name="team-repository-path"]')!.value).toBe('/repos/tencent-workbench')
+    expect(document.body.querySelector<HTMLInputElement>('input[name="team-repository-path"]')!.value).toBe('/repos/acme-workbench')
     expect(styles).toContain('.add-project-dialog input { width: 100%; height: var(--control-height-default);')
     expect(styles).toContain('.team-create-form { display: grid; gap: var(--space-3); }')
   })
@@ -87,7 +87,7 @@ describe('project rail', () => {
     const store = useWorkbenchStore()
     store.ownerScopes = [
       { id: 'personal', kind: 'personal', name: 'Personal' },
-      { id: 'tencent', kind: 'team', name: 'Tencent' },
+      { id: 'acme', kind: 'team', name: 'Acme' },
     ]
     store.activeOwnerScopeId = 'personal'
     store.switchOwnerScope = vi.fn(async () => {})
@@ -95,28 +95,28 @@ describe('project rail', () => {
 
     expect(wrapper.element.querySelector('[data-testid="owner-scope-trigger"] .i-ri-user-line')).not.toBeNull()
     expect(wrapper.get('[data-testid="owner-scope-trigger"]').text()).toBe('Personal')
-    store.activeOwnerScopeId = 'tencent'
+    store.activeOwnerScopeId = 'acme'
     await wrapper.vm.$nextTick()
     expect(wrapper.element.querySelector('[data-testid="owner-scope-trigger"] .i-ri-team-line')).not.toBeNull()
-    expect(wrapper.get('[data-testid="owner-scope-trigger"]').text()).toBe('Tencent')
+    expect(wrapper.get('[data-testid="owner-scope-trigger"]').text()).toBe('Acme')
     expect(styles).toContain('.owner-scope-trigger { width: 100%; height: 30px;')
     expect(styles).toContain('font-size: 12px; font-weight: 600;')
 
-    wrapper.getComponent(Select).vm.$emit('update:modelValue', 'tencent')
+    wrapper.getComponent(Select).vm.$emit('update:modelValue', 'acme')
     await flushPromises()
-    expect(store.switchOwnerScope).toHaveBeenCalledWith('tencent')
+    expect(store.switchOwnerScope).toHaveBeenCalledWith('acme')
   })
 
   it('renames and deletes the active Team only after exact-name confirmation', async () => {
     const store = useWorkbenchStore()
     store.ownerScopes = [
       { id: 'personal', kind: 'personal', name: 'Personal' },
-      { id: 'tencent', kind: 'team', name: 'Tencent' },
+      { id: 'acme', kind: 'team', name: 'Acme' },
     ]
-    store.activeOwnerScopeId = 'tencent'
-    store.renameTeam = vi.fn(async () => ({ id: 'tencent', kind: 'team' as const, name: 'Tencent Cloud' }))
+    store.activeOwnerScopeId = 'acme'
+    store.renameTeam = vi.fn(async () => ({ id: 'acme', kind: 'team' as const, name: 'Acme Platform' }))
     store.deleteTeam = vi.fn(async () => ({
-      team: { id: 'tencent', kind: 'team' as const, name: 'Tencent' },
+      team: { id: 'acme', kind: 'team' as const, name: 'Acme' },
       deletedWorkspaceCount: 0,
       deletedGroupCount: 0,
     }))
@@ -124,33 +124,33 @@ describe('project rail', () => {
 
     await wrapper.get('[data-testid="manage-team"]').trigger('click')
     const renameInput = document.body.querySelector<HTMLInputElement>('input[name="team-rename-name"]')!
-    renameInput.value = 'Tencent Cloud'
+    renameInput.value = 'Acme Platform'
     renameInput.dispatchEvent(new Event('input', { bubbles: true }))
     document.body.querySelector<HTMLFormElement>('[data-testid="rename-team-form"]')!
       .dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
     await flushPromises()
-    expect(store.renameTeam).toHaveBeenCalledWith('tencent', 'Tencent Cloud')
+    expect(store.renameTeam).toHaveBeenCalledWith('acme', 'Acme Platform')
 
     const deleteButton = document.body.querySelector<HTMLButtonElement>('[data-testid="delete-team"]')!
     expect(deleteButton.disabled).toBe(true)
     const confirmation = document.body.querySelector<HTMLInputElement>('input[name="team-delete-confirmation"]')!
-    confirmation.value = 'Tencent'
+    confirmation.value = 'Acme'
     confirmation.dispatchEvent(new Event('input', { bubbles: true }))
     await wrapper.vm.$nextTick()
     expect(deleteButton.disabled).toBe(false)
     await deleteButton.click()
     await flushPromises()
-    expect(store.deleteTeam).toHaveBeenCalledWith('tencent', 'Tencent')
+    expect(store.deleteTeam).toHaveBeenCalledWith('acme', 'Acme')
   })
 
   it('offers both explicit resolutions when Team Git sync diverges', async () => {
     const store = useWorkbenchStore()
     store.ownerScopes = [
       { id: 'personal', kind: 'personal', name: 'Personal' },
-      { id: 'tencent', kind: 'team', name: 'Tencent' },
+      { id: 'acme', kind: 'team', name: 'Acme' },
     ]
-    store.activeOwnerScopeId = 'tencent'
-    store.activeTeamSyncStatus = { ownerScopeId: 'tencent', state: 'conflict' }
+    store.activeOwnerScopeId = 'acme'
+    store.activeTeamSyncStatus = { ownerScopeId: 'acme', state: 'conflict' }
     store.synchronizeActiveTeam = vi.fn(async () => {})
     const wrapper = mount(ProjectRail, { attachTo: document.body })
 
@@ -166,10 +166,10 @@ describe('project rail', () => {
     const store = useWorkbenchStore()
     store.ownerScopes = [
       { id: 'personal', kind: 'personal', name: 'Personal' },
-      { id: 'tencent', kind: 'team', name: 'Tencent' },
+      { id: 'acme', kind: 'team', name: 'Acme' },
     ]
-    store.activeOwnerScopeId = 'tencent'
-    store.activeTeamSyncStatus = { ownerScopeId: 'tencent', state: 'clean', workingTreeChanged: false }
+    store.activeOwnerScopeId = 'acme'
+    store.activeTeamSyncStatus = { ownerScopeId: 'acme', state: 'clean', workingTreeChanged: false }
     const wrapper = mount(ProjectRail, { attachTo: document.body })
 
     const indicator = wrapper.get('.team-sync-indicator')
@@ -177,7 +177,7 @@ describe('project rail', () => {
     expect(indicator.find('.i-ri-checkbox-circle-fill').exists()).toBe(true)
     expect(wrapper.find('.team-sync-status').exists()).toBe(false)
 
-    store.activeTeamSyncStatus = { ownerScopeId: 'tencent', state: 'clean', workingTreeChanged: true }
+    store.activeTeamSyncStatus = { ownerScopeId: 'acme', state: 'clean', workingTreeChanged: true }
     await wrapper.vm.$nextTick()
     expect(wrapper.get('.team-sync-indicator').attributes('title')).toContain('uncommitted Git changes')
     expect(wrapper.get('.team-sync-status').text()).toContain('The snapshot has uncommitted Git changes.')

@@ -12,7 +12,7 @@ describe('skill invocation prompts', () => {
       skill,
       inputs: [
         { id: 'action', label: 'Action', value: 'check' },
-        { id: 'app', label: 'LiteApp', value: 'task-center' },
+        { id: 'app', label: 'Widget', value: 'task-center' },
       ],
       locale: 'en',
     })

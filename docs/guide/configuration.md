@@ -81,28 +81,34 @@ The “Improve project descriptions” workflow audits gaps locally, then runs C
 ## Parameterized commands
 
 Use `capabilities.inputs` to add form fields to a discovered command. Craft Hub renders `select`
-inputs as dropdowns and `text` inputs as text fields. The runtime validates every value and appends
-it as an individual argv entry instead of constructing a shell string.
+inputs as dropdowns, `text` inputs as text fields, and `boolean` inputs as checkboxes. The runtime
+validates every value and appends it as an individual argv entry instead of constructing a shell
+string. Enabled boolean inputs append the flag without a value; disabled inputs append nothing.
 
 ```jsonc
 {
   "capabilities": {
     "inputs": {
-      "apps/liteapp/package.json:deploy": {
+      "apps/widget/package.json:deploy": {
         "environment": {
           "type": "select",
           "label": "Environment",
-          "options": ["dev", "rdm"],
+          "options": ["dev", "staging"],
           "default": "dev",
           "flag": "--env"
         },
-        "uin": {
+        "account": {
           "type": "text",
-          "label": "UIN",
+          "label": "Account",
           "pattern": "^\\d+$",
-          "flag": "--uin",
+          "flag": "--account",
           "visibleWhen": { "input": "environment", "equals": "dev" },
           "requiredWhen": { "input": "environment", "equals": "dev" }
+        },
+        "silent": {
+          "type": "boolean",
+          "label": "Update without opening the page",
+          "flag": "--silent"
         }
       }
     }
@@ -111,10 +117,40 @@ it as an individual argv entry instead of constructing a shell string.
 ```
 
 `argumentStyle` accepts `equals` (the default, producing `--env=dev`) or `separate` (producing
-`--env dev`). Select inputs require `options`; text inputs may use `pattern`. `visibleWhen` and
-`requiredWhen` provide conditional form behavior and are enforced again by the runtime. An object
-option may set `omitArgument: true` to remain selectable while intentionally appending no flag,
-for example a “current developer” choice that lets the underlying CLI use its authenticated user.
+`--env dev`). Select inputs require `options`; text inputs may use `pattern`; boolean inputs accept
+an optional string default of `"true"` or `"false"`. Every input type accepts `default`: a select
+default must match an option, a text default may be any string, and a boolean default must be
+`"true"` or `"false"`. Craft Hub applies defaults to the initial form and command preview.
+`visibleWhen` and `requiredWhen` provide
+conditional form behavior and are enforced again by the runtime. A condition may be one object or
+an array whose entries must all match. An object option may set `omitArgument: true` to remain
+selectable while intentionally appending no flag, for example a “current developer” choice that
+lets the underlying CLI use its authenticated user.
+
+## Release operations
+
+A root `release` package script is automatically treated as a guarded release operation. Use
+`capabilities.operations` to attach repository policy and publication automation metadata:
+
+```jsonc
+{
+  "capabilities": {
+    "operations": {
+      "package.json:release": {
+        "kind": "release",
+        "requiresCleanGit": true,
+        "requiredBranch": "main",
+        "workflowPath": ".github/workflows/release.yml"
+      }
+    }
+  }
+}
+```
+
+Craft Hub shows a release plan with the current version, proposed tag, branch, worktree state, and
+workflow effects. Release execution requires a separate confirmation, and the runtime repeats the
+preflight immediately before running the command. Provider-specific status and release triggers can
+be contributed by plugins without replacing the host-owned safety checks.
 
 ## Skill inputs
 
@@ -159,7 +195,7 @@ not contain credentials or additional executable commands.
 
 Cross-project relationships belong to the user rather than to any member repository. Craft Hub stores one versioned manifest per workspace in `~/.craft-hub/workspaces/`; `CRAFT_HUB_CONFIG_DIR` overrides this portable configuration directory.
 
-Every workspace and workspace group has exactly one Owner Scope. Legacy manifests without `ownerScopeId` belong to the fixed `Personal` scope. A Team manifest records its stable Team id, for example `ownerScopeId: tencent`. The Team identity is independent from its Git checkout so the repository can move without changing ownership.
+Every workspace and workspace group has exactly one Owner Scope. Legacy manifests without `ownerScopeId` belong to the fixed `Personal` scope. A Team manifest records its stable Team id, for example `ownerScopeId: acme`. The Team identity is independent from its Git checkout so the repository can move without changing ownership.
 
 The workbench switches Owner Scopes as navigation state: each scope has an isolated workspace tree, project-reference bindings, standalone-project grouping, and remembered workspace selection. Registered project directories, trust, runs, and credentials remain machine-local. Team views show only projects referenced by that Team; unassigned local projects remain in Personal. The command palette can search across scopes and jumps to the selected scope before opening its workspace.
 
@@ -216,7 +252,7 @@ User preferences are separate from project configuration. Craft Hub stores stric
 
 `workbench.codex` supplies optional defaults for every Codex SDK task started by Craft Hub. Omit `model`, `reasoningEffort`, or the entire setting to inherit the user's Codex configuration from `~/.codex/config.toml`. The model is a free-form Codex model ID so Craft Hub does not freeze a versioned catalog. Supported explicit effort values in the bundled SDK are `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, and `ultra`; actual availability still depends on the selected model and account.
 
-The project and workspace toolbar share `workbench.editor`. Built-in values are `vscode`, `codebuddy`, and `cursor`; a custom editor uses a direct command plus individual arguments. Custom arguments must include `{path}`. Craft Hub substitutes that placeholder and launches the command with `shell: false`.
+The project and workspace toolbar share `workbench.editor`. Built-in values are `vscode` and `cursor`; a custom editor uses a direct command plus individual arguments. Custom arguments must include `{path}`. Craft Hub substitutes that placeholder and launches the command with `shell: false`.
 
 The Settings dialog can open this file in the desktop app and import or export portable JSON. Minimal exports include explicitly changed values; full snapshots include every effective, non-sensitive setting. Craft Hub execution authorizations, registered projects, run history, usernames, and machine paths are never exported. Replace imports create a backup and retain the five most recent backups.
 

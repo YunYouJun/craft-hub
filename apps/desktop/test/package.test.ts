@@ -169,6 +169,7 @@ describe('desktop package scripts', () => {
     ])
 
     expect(desktopMain).toContain('craft-hub:open-capability-source-in-editor')
+    expect(desktopMain).toContain('craft-hub:open-capability-working-directory')
     expect(desktopMain).toContain('craft-hub:open-project-directory')
     expect(desktopMain).toContain('craft-hub:open-project-in-vscode')
     expect(desktopMain).toContain('craft-hub:open-project-git-remote')
@@ -192,6 +193,7 @@ describe('desktop package scripts', () => {
     expect(desktopMain).toContain('craft-hub:list-terminal-applications')
     expect(desktopMain).toContain('await craftHubServer.runtime.projects.get(projectId)')
     expect(preload).toContain('openCapabilitySourceInEditor')
+    expect(preload).toContain('openCapabilityWorkingDirectory')
     expect(preload).toContain('openProjectDirectory')
     expect(preload).toContain('openProjectInVSCode')
     expect(preload).toContain('openProjectGitRemote')

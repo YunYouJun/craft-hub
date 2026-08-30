@@ -7,7 +7,8 @@ import { glob } from 'tinyglobby'
 import { isMap, isScalar, parseDocument, parse as parseYaml } from 'yaml'
 import { loadProjectConfig } from './config'
 
-function localizedText(value: LocalizedText | undefined, locale: string): string | undefined {
+/** Resolve localized configuration text using progressively broader locale fallbacks. */
+export function localizedText(value: LocalizedText | undefined, locale: string): string | undefined {
   if (typeof value === 'string')
     return value
   if (!value || Array.isArray(value))
@@ -36,8 +37,9 @@ function skillInputs(config: Record<string, ProjectSkillInputConfig>, locale: st
   return entries.map(([input, definition]) => {
     if (!/^[a-z][\w-]*$/i.test(input))
       throw new Error(`Invalid skill input id: ${input}`)
-    for (const condition of [definition.requiredWhen, definition.visibleWhen]) {
-      if (condition && (!ids.has(condition.input) || typeof condition.equals !== 'string'))
+    for (const configuredCondition of [definition.requiredWhen, definition.visibleWhen]) {
+      const conditions = configuredCondition ? (Array.isArray(configuredCondition) ? configuredCondition : [configuredCondition]) : []
+      if (conditions.some(condition => !ids.has(condition.input) || typeof condition.equals !== 'string'))
         throw new Error(`Skill input ${input} references an unknown condition input`)
     }
     const pattern = definition.pattern ? new RegExp(definition.pattern) : undefined
@@ -64,20 +66,22 @@ function skillInputs(config: Record<string, ProjectSkillInputConfig>, locale: st
   })
 }
 
-function commandInputs(config: Record<string, ProjectCommandInputConfig>, locale: string): CommandInputDefinition[] {
+/** Convert validated Project command-input configuration into runtime definitions. */
+export function commandInputs(config: Record<string, ProjectCommandInputConfig>, locale: string): CommandInputDefinition[] {
   const entries = Object.entries(config)
   const ids = new Set(entries.map(([input]) => input))
   return entries.map(([input, definition]) => {
     if (!/^[a-z][\w-]*$/i.test(input))
       throw new Error(`Invalid command input id: ${input}`)
-    if (!definition || !['select', 'text'].includes(definition.type))
-      throw new Error(`Command input ${input} must use type select or text`)
+    if (!definition || !['boolean', 'select', 'text'].includes(definition.type))
+      throw new Error(`Command input ${input} must use type boolean, select, or text`)
     if (typeof definition.flag !== 'string' || !definition.flag.startsWith('-') || /\s/.test(definition.flag))
       throw new Error(`Command input ${input} must declare a flag without whitespace`)
     if (definition.argumentStyle && !['equals', 'separate'].includes(definition.argumentStyle))
       throw new Error(`Command input ${input} has an invalid argumentStyle`)
-    for (const condition of [definition.requiredWhen, definition.visibleWhen]) {
-      if (condition && (!ids.has(condition.input) || typeof condition.equals !== 'string'))
+    for (const configuredCondition of [definition.requiredWhen, definition.visibleWhen]) {
+      const conditions = configuredCondition ? (Array.isArray(configuredCondition) ? configuredCondition : [configuredCondition]) : []
+      if (conditions.some(condition => !ids.has(condition.input) || typeof condition.equals !== 'string'))
         throw new Error(`Command input ${input} references an unknown condition input`)
     }
     const pattern = definition.pattern ? new RegExp(definition.pattern) : undefined
@@ -87,12 +91,14 @@ function commandInputs(config: Record<string, ProjectCommandInputConfig>, locale
         return { value: option }
       if (option.omitArgument !== undefined && typeof option.omitArgument !== 'boolean')
         throw new Error(`Select command input ${input} option ${option.value} has an invalid omitArgument`)
-      return { value: option.value, label: localizedText(option.label, locale), omitArgument: option.omitArgument }
+      return { value: option.value, label: localizedText(option.label, locale), omitArgument: option.omitArgument, arguments: option.arguments }
     })
     if (definition.type === 'select' && (!options?.length || options.some(option => !option.value)))
       throw new Error(`Select command input ${input} must declare non-empty options`)
     if (definition.default && definition.type === 'select' && !options?.some(option => option.value === definition.default))
       throw new Error(`Default value for command input ${input} must match an option`)
+    if (definition.type === 'boolean' && definition.default && !['true', 'false'].includes(definition.default))
+      throw new Error(`Default value for boolean command input ${input} must be true or false`)
 
     return {
       id: input,
@@ -100,13 +106,15 @@ function commandInputs(config: Record<string, ProjectCommandInputConfig>, locale
       label: localizedText(definition.label, locale),
       description: localizedText(definition.description, locale),
       options,
-      default: definition.default,
+      default: definition.type === 'boolean' ? definition.default ?? 'false' : definition.default,
       required: definition.required,
       requiredWhen: definition.requiredWhen,
       visibleWhen: definition.visibleWhen,
       pattern: pattern ? definition.pattern : undefined,
       flag: definition.flag,
       argumentStyle: definition.argumentStyle,
+      private: definition.private,
+      redactInHistory: definition.redactInHistory,
     }
   })
 }

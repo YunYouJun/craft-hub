@@ -22,7 +22,7 @@ describe('team Git sync', () => {
     const project = await projects.add(projectPath)
     const scopes = new OwnerScopeService(configDir, dataDir)
     const workspaces = new WorkspaceService(configDir, dataDir, projects)
-    const team = await scopes.createTeam('Tencent')
+    const team = await scopes.createTeam('Acme')
     await workspaces.create('Personal App')
     const teamWorkspace = await workspaces.create('Shared App', team.id)
     await workspaces.addProject(teamWorkspace.id, project.id, team.id)

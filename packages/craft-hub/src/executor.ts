@@ -24,6 +24,7 @@ export async function executeCommand(
   project: ProjectRecord,
   capability: CommandCapability,
   onOutput?: (event: RunOutputEvent) => void,
+  persistedInvocation = capability.invocation,
 ): Promise<RunHandle> {
   if (project.trust !== 'trusted')
     throw new Error(`Project ${project.name} is untrusted. Trust it before running commands.`)
@@ -34,9 +35,9 @@ export async function executeCommand(
     projectId: project.id,
     capabilityId: capability.id,
     capabilitySource: capability.source,
-    command: capability.invocation.command,
-    args: capability.invocation.args,
-    cwd: capability.invocation.cwd,
+    command: persistedInvocation.command,
+    args: persistedInvocation.args,
+    cwd: persistedInvocation.cwd,
     startedAt: new Date().toISOString(),
     stdout: '',
     stderr: '',
@@ -44,8 +45,8 @@ export async function executeCommand(
   }
   void store.saveRun(run)
 
-  const terminal = spawn(run.command, run.args, {
-    cwd: run.cwd,
+  const terminal = spawn(capability.invocation.command, capability.invocation.args, {
+    cwd: capability.invocation.cwd,
     cols: 120,
     env: process.env,
     name: 'xterm-256color',

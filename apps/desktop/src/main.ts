@@ -18,7 +18,7 @@ import { CodexAgentTaskProvider } from './codex-agent-task-provider.ts'
 import { openCodexThreadAfterTaskRelease, waitForAgentTaskThread } from './codex-agent-task-thread.ts'
 import { DeviceVault } from './device-vault.ts'
 import { selectedDirectoryPath, selectedDirectoryPaths } from './folder-picker.ts'
-import { codexThreadUrl, editorTargetPaths, externalHttpUrl, focusCodexApplication, gitRemoteHttpUrl, macTerminalApplications, openCodeBuddyWorkspace, openCodexProject, openCursorEditor, openCustomEditor, openMacTerminalProject, projectContainsPath, vscodeUrl } from './open-targets.ts'
+import { codexThreadUrl, editorTargetPaths, externalHttpUrl, focusCodexApplication, gitRemoteHttpUrl, macTerminalApplications, openCodexProject, openCursorEditor, openCustomEditor, openMacTerminalProject, projectContainsPath, vscodeUrl } from './open-targets.ts'
 import { DesktopUpdater } from './updater.ts'
 import { resolveWorkspaceLaunchTarget } from './workspace-launch-target.ts'
 
@@ -31,6 +31,7 @@ let shutdown: Promise<void> | undefined
 let readyToQuit = false
 let personalCloud: PersonalCloudController | undefined
 let pendingCloudCallback: string | undefined
+let pendingMarketplaceSourceImport: string | undefined
 let desktopUpdater: DesktopUpdater | undefined
 let codexActivityMonitor: CodexActivityMonitor | undefined
 let installUpdateAfterShutdown = false
@@ -160,7 +161,7 @@ nativeTheme.on('updated', () => {
 app.setAsDefaultProtocolClient('craft-hub')
 app.on('open-url', (event, url) => {
   event.preventDefault()
-  void handleCloudCallback(url)
+  void handleProtocolUrl(url)
 })
 
 function directoryDialogDefaultPath(value: unknown): string | undefined {
@@ -208,10 +209,6 @@ async function openConfiguredEditor(path: string, line?: number, column?: number
     for (const target of targets)
       await shell.openExternal(vscodeUrl(target, target === path ? line : undefined))
   }
-  else if (editor.default === 'codebuddy') {
-    for (const target of targets)
-      await openCodeBuddyWorkspace(target)
-  }
   else if (editor.default === 'cursor') {
     for (const target of targets)
       await openCursorEditor(target)
@@ -228,7 +225,7 @@ async function projectOwnedTarget(projectId: string, targetPath: string): Promis
   const projectRoot = await realpath(await projectPath(projectId))
   const target = await realpath(targetPath)
   if (!projectContainsPath(projectRoot, target))
-    throw new Error('Capability source must stay inside the project')
+    throw new Error('Capability target must stay inside the project')
   return { projectRoot, target }
 }
 
@@ -289,6 +286,18 @@ ipcMain.handle('craft-hub:open-capability-source-in-editor', async (_event, proj
     throw new Error(`No source file is available for ${capability.name}`)
   const { projectRoot, target } = await projectOwnedTarget(projectId, path)
   await openConfiguredEditor(target, line, undefined, projectRoot)
+})
+
+ipcMain.handle('craft-hub:open-capability-working-directory', async (_event, projectId: string, capabilityId: string) => {
+  if (!craftHubServer)
+    throw new Error('Craft Hub is still starting')
+  const capability = (await craftHubServer.runtime.capabilities(projectId)).find(item => item.id === capabilityId)
+  if (capability?.kind !== 'command')
+    throw new Error(`No command working directory is available for ${capabilityId}`)
+  const { target } = await projectOwnedTarget(projectId, capability.invocation.cwd)
+  const error = await shell.openPath(target)
+  if (error)
+    throw new Error(error)
 })
 
 ipcMain.handle('craft-hub:open-project-in-codex', async (_event, projectId: string) => {
@@ -398,6 +407,39 @@ ipcMain.handle('craft-hub:cloud-status', () => personalCloud?.status() ?? { stat
 ipcMain.handle('craft-hub:cloud-connect', () => personalCloud?.connect())
 ipcMain.handle('craft-hub:cloud-disconnect', () => personalCloud?.disconnect())
 ipcMain.handle('craft-hub:cloud-synchronize', () => personalCloud?.synchronize())
+ipcMain.handle('craft-hub:consume-marketplace-source-import', () => {
+  const catalogUrl = pendingMarketplaceSourceImport
+  pendingMarketplaceSourceImport = undefined
+  return catalogUrl
+})
+
+async function handleProtocolUrl(url: string): Promise<void> {
+  if (url.startsWith('craft-hub://cloud/connect')) {
+    await handleCloudCallback(url)
+    return
+  }
+  let parsed: URL
+  try {
+    parsed = new URL(url)
+  }
+  catch {
+    return
+  }
+  if (parsed.host !== 'marketplace' || parsed.pathname !== '/sources/import')
+    return
+  const catalog = parsed.searchParams.get('catalog')
+  if (!catalog)
+    return
+  try {
+    const catalogUrl = new URL(catalog)
+    if (catalogUrl.protocol !== 'https:' || catalogUrl.username || catalogUrl.password)
+      return
+    pendingMarketplaceSourceImport = catalogUrl.href
+    await showMainWindow()
+    mainWindow?.webContents.send('craft-hub:marketplace-source-import', catalogUrl.href)
+  }
+  catch {}
+}
 
 async function handleCloudCallback(url: string): Promise<void> {
   if (!url.startsWith('craft-hub://cloud/connect'))
@@ -559,9 +601,9 @@ async function startDesktopApp(): Promise<void> {
   app.on('activate', () => void showMainWindow())
   app.on('second-instance', () => void showMainWindow())
   app.on('second-instance', (_event, argv) => {
-    const callback = argv.find(argument => argument.startsWith('craft-hub://cloud/connect'))
+    const callback = argv.find(argument => argument.startsWith('craft-hub://'))
     if (callback)
-      void handleCloudCallback(callback)
+      void handleProtocolUrl(callback)
   })
 }
 

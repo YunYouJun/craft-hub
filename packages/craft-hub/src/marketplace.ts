@@ -1,16 +1,50 @@
 import type { ChildProcessWithoutNullStreams } from 'node:child_process'
+import type { PluginCommandContributions } from './command-contributions'
 import type { CapabilityProvider } from './extensions'
 import type { Capability, ProjectRecord } from './types'
 import { spawn } from 'node:child_process'
 import { createHash, randomUUID } from 'node:crypto'
 import { access, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { satisfies, valid, validRange } from 'semver'
 import { z } from 'zod'
+import { commandPresetContributionSchema, commandTemplateContributionSchema } from './command-contributions'
+import { craftHubVersion } from './version'
 
 const packageNamePattern = /^@[a-z0-9][a-z0-9._-]*\/(?:craft-hub-plugin-[a-z0-9][a-z0-9._-]*|plugin-[a-z0-9][a-z0-9._-]*)$/
 const lifecycleScripts = new Set(['preinstall', 'install', 'postinstall'])
+const catalogResponseLimit = 1024 * 1024
+const catalogRedirectLimit = 5
+const catalogTimeoutMs = 10_000
 
 const safeRelativePath = z.string().min(1).refine(value => !isAbsolute(value) && !value.split(/[\\/]/).includes('..'), 'Path must stay inside the plugin package')
+const secureHttpsUrlSchema = z.string().min(1).refine(isSecureHttpsUrl, 'URL must use HTTPS and must not contain credentials')
+const pluginPermissionSchema = z.enum(['command-presets', 'commands', 'read-project-files'])
+const permissionReasonsSchema = z.record(z.string(), z.string().min(1))
+const pluginLinksV1Schema = z.object({
+  documentation: secureHttpsUrlSchema.optional(),
+  repository: secureHttpsUrlSchema.optional(),
+  feedback: secureHttpsUrlSchema.optional(),
+  homepage: secureHttpsUrlSchema.optional(),
+})
+const pluginMaintainerV1Schema = z.object({
+  handle: z.string().regex(/^[a-z][\w.-]*$/i).optional(),
+  name: z.string().min(1).optional(),
+  url: secureHttpsUrlSchema.optional(),
+}).refine(maintainer => maintainer.handle || maintainer.url, 'Maintainer must declare a handle or HTTPS profile URL')
+const pluginLocalizationV1Schema = z.object({
+  displayName: z.string().min(1).optional(),
+  description: z.string().min(1).optional(),
+  permissionReasons: permissionReasonsSchema.optional(),
+})
+const marketplaceMetadataShape = {
+  slug: z.string().regex(/^[a-z0-9][a-z0-9-]*$/).optional(),
+  links: pluginLinksV1Schema.optional(),
+  icon: z.union([secureHttpsUrlSchema, safeRelativePath]).optional(),
+  maintainers: z.array(pluginMaintainerV1Schema).optional(),
+  permissionReasons: permissionReasonsSchema.optional(),
+  localizations: z.record(z.string().regex(/^[a-z]{2}(?:-[A-Z]{2})?$/), pluginLocalizationV1Schema).optional(),
+}
 const commandContributionSchema = z.object({
   id: z.string().regex(/^[a-z0-9][a-z0-9._-]*$/),
   name: z.string().min(1),
@@ -27,31 +61,52 @@ export const pluginManifestV1Schema = z.object({
   id: z.string().regex(packageNamePattern, 'Plugin id must follow the scoped Craft Hub package naming convention'),
   displayName: z.string().min(1),
   description: z.string().min(1).optional(),
-  craftHub: z.object({ minVersion: z.string().min(1).optional() }).default({}),
+  ...marketplaceMetadataShape,
+  craftHub: z.object({
+    minVersion: z.string().refine(value => valid(value) !== null, 'Craft Hub minimum version must be valid SemVer').optional(),
+  }).default({}),
   projectFiles: z.array(safeRelativePath).default([]),
-  permissions: z.array(z.enum(['commands', 'read-project-files'])).default([]),
+  permissions: z.array(pluginPermissionSchema).default([]),
   contributes: z.object({
     commands: z.array(commandContributionSchema).default([]),
+    commandPresets: z.array(commandPresetContributionSchema).default([]),
+    commandTemplates: z.array(commandTemplateContributionSchema).default([]),
     skills: z.array(skillContributionSchema).default([]),
     projectTemplates: z.array(z.object({ id: z.string().min(1), path: safeRelativePath })).default([]),
   }),
 }).superRefine((manifest, context) => {
   if (manifest.contributes.commands.length && !manifest.permissions.includes('commands'))
     context.addIssue({ code: 'custom', message: 'Command contributions require the commands permission', path: ['permissions'] })
+  if ((manifest.contributes.commandPresets.length || manifest.contributes.commandTemplates.length) && !manifest.permissions.includes('command-presets'))
+    context.addIssue({ code: 'custom', message: 'Command presets and templates require the command-presets permission', path: ['permissions'] })
   if (manifest.projectFiles.length && !manifest.permissions.includes('read-project-files'))
     context.addIssue({ code: 'custom', message: 'Project detection requires the read-project-files permission', path: ['permissions'] })
+  for (const issue of permissionMetadataIssues(manifest))
+    context.addIssue({ code: 'custom', ...issue })
 })
 
 /** Validation schema for one catalog plugin entry. */
 export const catalogPluginV1Schema = z.object({
   package: z.string().regex(packageNamePattern),
-  version: z.string().min(1),
+  version: z.string().refine(value => valid(value) !== null, 'Plugin version must be exact SemVer'),
   displayName: z.string().min(1),
   description: z.string().min(1).optional(),
+  ...marketplaceMetadataShape,
   publisher: z.string().min(1),
-  integrity: z.string().min(1).optional(),
-  permissions: z.array(z.enum(['commands', 'read-project-files'])).default([]),
+  integrity: z.string().regex(/^sha512-[A-Za-z0-9+/=]+$/, 'Catalog integrity must be an SHA-512 SRI value'),
+  permissions: z.array(pluginPermissionSchema).default([]),
   categories: z.array(z.string()).default([]),
+  status: z.enum(['active', 'deprecated', 'blocked']).default('active'),
+  statusReason: z.string().min(1).optional(),
+  replacement: z.string().regex(packageNamePattern).optional(),
+  requires: z.string().refine(value => validRange(value) !== null, 'Craft Hub requirement must be a valid SemVer range').optional(),
+}).superRefine((plugin, context) => {
+  for (const issue of permissionMetadataIssues(plugin))
+    context.addIssue({ code: 'custom', ...issue })
+  if (plugin.status !== 'active' && !plugin.statusReason)
+    context.addIssue({ code: 'custom', message: `${plugin.status} plugins must explain their status`, path: ['statusReason'] })
+  if (plugin.replacement === plugin.package)
+    context.addIssue({ code: 'custom', message: 'Replacement plugin must use a different package name', path: ['replacement'] })
 })
 
 /** Validation schema for a complete plugin catalog. */
@@ -80,6 +135,15 @@ export interface MarketplaceSource {
   catalog?: PluginCatalogV1
   lastRefreshedAt?: string
   error?: string
+}
+
+/** Validated source metadata shown before a user explicitly imports it. */
+export interface MarketplaceSourcePreview {
+  name: string
+  catalogUrl: string
+  finalCatalogUrl: string
+  registry?: string
+  catalog: PluginCatalogV1
 }
 
 /** Persisted metadata for one installed plugin package. */
@@ -136,7 +200,13 @@ export class NpmPluginPackageInstaller implements PluginPackageInstaller {
       const packageJson = JSON.parse(await readFile(join(packagePath, 'package.json'), 'utf8')) as Record<string, unknown>
       assertNoRuntimeInstallSurface(packageJson)
       const lock = JSON.parse(await readFile(join(staging, 'package-lock.json'), 'utf8')) as { packages?: Record<string, { integrity?: string }> }
-      const integrity = lock.packages?.[`node_modules/${input.package}`]?.integrity
+      const lockKey = Object.keys(lock.packages ?? {}).find((key) => {
+        const portableKey = key.replaceAll('\\', '/')
+        return portableKey === `node_modules/${input.package}` || portableKey.endsWith(`/node_modules/${input.package}`)
+      })
+      const integrity = lockKey ? lock.packages?.[lockKey]?.integrity : undefined
+      if (!integrity)
+        throw new Error(`npm did not record package integrity for ${input.package}@${input.version}`)
       const target = join(input.destination, 'packages', encodeURIComponent(input.package), input.version)
       await mkdir(join(target, '..'), { recursive: true })
       await rm(target, { recursive: true, force: true })
@@ -162,6 +232,8 @@ export class PluginManager {
     readonly dataDir: string,
     builtinSources: MarketplaceSource[] = [],
     private readonly installer: PluginPackageInstaller = new NpmPluginPackageInstaller(),
+    private readonly fetcher: typeof fetch = fetch,
+    private readonly applicationVersion = craftHubVersion,
   ) {
     this.statePath = join(dataDir, 'plugins.json')
     this.state = { schemaVersion: 1, sources: normalizeSources(builtinSources), installed: [] }
@@ -210,24 +282,38 @@ export class PluginManager {
   }
 
   async addSource(input: { name: string, catalogUrl: string, registry?: string }): Promise<MarketplaceSource> {
-    const url = new URL(input.catalogUrl)
-    if (url.protocol !== 'https:')
-      throw new Error('User marketplace sources must use HTTPS')
+    const preview = await this.previewSource(input)
     await this.initialize()
     const source: MarketplaceSource = {
-      id: `user:${createHash('sha256').update(url.href).digest('hex').slice(0, 16)}`,
-      name: input.name,
+      id: `user:${createHash('sha256').update(preview.catalogUrl).digest('hex').slice(0, 16)}`,
+      name: preview.name,
       kind: 'user',
-      catalogUrl: url.href,
-      registry: input.registry,
+      catalogUrl: preview.catalogUrl,
+      registry: preview.registry,
       enabled: true,
+      catalog: preview.catalog,
+      lastRefreshedAt: new Date().toISOString(),
     }
     if (this.state.sources.some(item => item.id === source.id))
-      throw new Error(`Marketplace source already exists: ${url.href}`)
+      throw new Error(`Marketplace source already exists: ${preview.catalogUrl}`)
     await this.mutate(() => {
       this.state.sources.push(source)
     })
     return structuredClone(source)
+  }
+
+  /** Fetch and validate a marketplace source without changing persisted state. */
+  async previewSource(input: { name?: string, catalogUrl: string, registry?: string }): Promise<MarketplaceSourcePreview> {
+    const catalogUrl = secureHttpsUrl(input.catalogUrl, 'Marketplace catalog')
+    const registry = input.registry ? secureHttpsUrl(input.registry, 'Plugin registry').href : undefined
+    const { catalog, finalUrl } = await fetchCatalog(this.fetcher, catalogUrl)
+    return {
+      name: input.name?.trim() || catalog.name,
+      catalogUrl: catalogUrl.href,
+      finalCatalogUrl: finalUrl,
+      registry,
+      catalog,
+    }
   }
 
   async removeSource(id: string): Promise<void> {
@@ -248,10 +334,7 @@ export class PluginManager {
     if (!source.catalogUrl)
       return structuredClone(source)
     try {
-      const response = await fetch(source.catalogUrl, { headers: { accept: 'application/json' } })
-      if (!response.ok)
-        throw new Error(`Catalog request failed: ${response.status}`)
-      const catalog = pluginCatalogV1Schema.parse(await response.json())
+      const { catalog } = await fetchCatalog(this.fetcher, secureHttpsUrl(source.catalogUrl, 'Marketplace catalog'))
       await this.mutate(() => Object.assign(source, { catalog, lastRefreshedAt: new Date().toISOString(), error: undefined }))
     }
     catch (error) {
@@ -268,6 +351,10 @@ export class PluginManager {
     const catalogEntry = source.catalog?.plugins.find(item => item.package === request.package && (!request.version || item.version === request.version))
     if (!catalogEntry)
       throw new Error(`Plugin is not listed by marketplace source: ${request.package}`)
+    if (catalogEntry.status === 'blocked')
+      throw new Error(`Plugin is blocked by marketplace source: ${request.package}`)
+    if (catalogEntry.requires && !satisfies(this.applicationVersion, catalogEntry.requires, { includePrerelease: true }))
+      throw new Error(`${catalogEntry.package}@${catalogEntry.version} requires Craft Hub ${catalogEntry.requires}; current version is ${this.applicationVersion}`)
     const candidateRoot = join(this.dataDir, 'plugins', '.candidates', randomUUID())
     try {
       const installedPackage = await this.installer.install({
@@ -281,6 +368,12 @@ export class PluginManager {
       const manifest = await readPackageManifest(installedPackage.packagePath, catalogEntry.package, catalogEntry.version)
       if (!sameStringSet(manifest.permissions, catalogEntry.permissions))
         throw new Error(`Catalog permissions do not match the package manifest for ${catalogEntry.package}`)
+      if (!sameStringRecord(manifest.permissionReasons ?? {}, catalogEntry.permissionReasons ?? {}))
+        throw new Error(`Catalog permission reasons do not match the package manifest for ${catalogEntry.package}`)
+      if (manifest.craftHub.minVersion && !satisfies(this.applicationVersion, `>=${manifest.craftHub.minVersion}`, { includePrerelease: true }))
+        throw new Error(`${catalogEntry.package}@${catalogEntry.version} requires Craft Hub >=${manifest.craftHub.minVersion}; current version is ${this.applicationVersion}`)
+      if (catalogEntry.requires && manifest.craftHub.minVersion && !satisfies(manifest.craftHub.minVersion, catalogEntry.requires, { includePrerelease: true }))
+        throw new Error(`Catalog requirement does not include the package minimum Craft Hub version for ${catalogEntry.package}`)
       const target = packageVersionPath(this.dataDir, catalogEntry.package, catalogEntry.version)
       await mkdir(join(target, '..'), { recursive: true })
       await rm(target, { recursive: true, force: true })
@@ -350,9 +443,23 @@ export class PluginManager {
     void plugin
   }
 
+  /** Return active declarative command contributions without executing plugin code. */
+  async commandContributions(): Promise<PluginCommandContributions[]> {
+    await this.initialize()
+    return this.state.installed
+      .filter(plugin => this.pluginActive(plugin))
+      .filter(plugin => plugin.manifest.contributes.commandPresets.length || plugin.manifest.contributes.commandTemplates.length)
+      .map(plugin => ({
+        pluginId: plugin.package,
+        source: `plugin:${plugin.package}@${plugin.version}`,
+        presets: structuredClone(plugin.manifest.contributes.commandPresets),
+        templates: structuredClone(plugin.manifest.contributes.commandTemplates),
+      }))
+  }
+
   private async discover(project: Readonly<ProjectRecord>): Promise<Capability[]> {
     await this.initialize()
-    const snapshot = this.state.installed.filter(plugin => plugin.enabled && !plugin.error)
+    const snapshot = this.state.installed.filter(plugin => this.pluginActive(plugin))
     const capabilities: Capability[] = []
     for (const plugin of snapshot) {
       if (!(await matchesProject(plugin.manifest, project.path)))
@@ -383,6 +490,15 @@ export class PluginManager {
       }
     }
     return capabilities
+  }
+
+  private pluginActive(plugin: InstalledPlugin): boolean {
+    if (!plugin.enabled || plugin.error)
+      return false
+    const source = this.state.sources.find(item => item.id === plugin.sourceId)
+    const catalogEntry = source?.catalog?.plugins.find(item => item.package === plugin.package && item.version === plugin.version)
+    return catalogEntry?.status !== 'blocked'
+      && (!catalogEntry?.requires || satisfies(this.applicationVersion, catalogEntry.requires, { includePrerelease: true }))
   }
 
   private requireSource(id: string): MarketplaceSource {
@@ -453,6 +569,79 @@ function normalizeSources(sources: MarketplaceSource[]): MarketplaceSource[] {
   })
 }
 
+function isSecureHttpsUrl(value: string): boolean {
+  try {
+    const url = new URL(value)
+    return url.protocol === 'https:' && !url.username && !url.password
+  }
+  catch {
+    return false
+  }
+}
+
+function permissionMetadataIssues(plugin: {
+  permissions: string[]
+  permissionReasons?: Record<string, string>
+  localizations?: Record<string, { permissionReasons?: Record<string, string> }>
+}): Array<{ message: string, path: Array<string | number> }> {
+  const declared = new Set(plugin.permissions)
+  const issues: Array<{ message: string, path: Array<string | number> }> = []
+  for (const permission of Object.keys(plugin.permissionReasons ?? {})) {
+    if (!declared.has(permission))
+      issues.push({ message: `Permission reason references undeclared permission: ${permission}`, path: ['permissionReasons', permission] })
+  }
+  for (const [locale, localization] of Object.entries(plugin.localizations ?? {})) {
+    for (const permission of Object.keys(localization.permissionReasons ?? {})) {
+      if (!declared.has(permission))
+        issues.push({ message: `Localized permission reason references undeclared permission: ${permission}`, path: ['localizations', locale, 'permissionReasons', permission] })
+    }
+  }
+  return issues
+}
+
+function secureHttpsUrl(value: string, label: string): URL {
+  const url = new URL(value)
+  if (url.protocol !== 'https:')
+    throw new Error(`${label} must use HTTPS`)
+  if (url.username || url.password)
+    throw new Error(`${label} must not contain credentials`)
+  return url
+}
+
+async function fetchCatalog(fetcher: typeof fetch, initialUrl: URL): Promise<{ catalog: PluginCatalogV1, finalUrl: string }> {
+  let url = initialUrl
+  for (let redirect = 0; redirect <= catalogRedirectLimit; redirect++) {
+    const response = await fetcher(url, {
+      headers: { accept: 'application/json' },
+      redirect: 'manual',
+      signal: AbortSignal.timeout(catalogTimeoutMs),
+    })
+    if (response.status >= 300 && response.status < 400) {
+      const location = response.headers.get('location')
+      if (!location)
+        throw new Error(`Catalog redirect is missing a location: ${response.status}`)
+      if (redirect === catalogRedirectLimit)
+        throw new Error('Catalog redirected too many times')
+      url = secureHttpsUrl(new URL(location, url).href, 'Marketplace catalog redirect')
+      continue
+    }
+    if (!response.ok)
+      throw new Error(`Catalog request failed: ${response.status}`)
+    const contentType = response.headers.get('content-type')?.toLowerCase() ?? ''
+    if (!contentType.includes('application/json') && !contentType.includes('+json'))
+      throw new Error('Catalog response must use a JSON content type')
+    const declaredLength = Number(response.headers.get('content-length'))
+    if (Number.isFinite(declaredLength) && declaredLength > catalogResponseLimit)
+      throw new Error('Catalog response is too large')
+    const bytes = new Uint8Array(await response.arrayBuffer())
+    if (bytes.byteLength > catalogResponseLimit)
+      throw new Error('Catalog response is too large')
+    const document = JSON.parse(new TextDecoder().decode(bytes)) as unknown
+    return { catalog: pluginCatalogV1Schema.parse(document), finalUrl: url.href }
+  }
+  throw new Error('Catalog redirected too many times')
+}
+
 function mergeManagedSources(configured: MarketplaceSource[], persisted: MarketplaceSource[]): MarketplaceSource[] {
   const configuredIds = new Set(configured.map(source => source.id))
   return [...configured, ...persisted.filter(source => source.kind === 'user' && !configuredIds.has(source.id))]
@@ -493,6 +682,12 @@ function skillName(content: string, path: string): string {
 function sameStringSet(left: string[], right: string[]): boolean {
   const sortedRight = [...right].sort()
   return left.length === right.length && [...left].sort().every((value, index) => value === sortedRight[index])
+}
+
+function sameStringRecord(left: Record<string, string>, right: Record<string, string>): boolean {
+  const leftEntries = Object.entries(left).sort(([leftKey], [rightKey]) => leftKey.localeCompare(rightKey))
+  const rightEntries = Object.entries(right).sort(([leftKey], [rightKey]) => leftKey.localeCompare(rightKey))
+  return JSON.stringify(leftEntries) === JSON.stringify(rightEntries)
 }
 
 function runProcess(child: ChildProcessWithoutNullStreams): Promise<void> {

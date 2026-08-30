@@ -63,3 +63,35 @@ _Avoid_: Prompt arguments, command flags
 **Supplemental Request**:
 Optional user-authored instructions that refine a Skill invocation beyond its Skill Inputs.
 _Avoid_: Required prompt, skill parameters
+
+**Host Plugin**:
+A trusted code dependency explicitly loaded by a Craft Hub host and allowed to contribute runtime providers.
+_Avoid_: Marketplace Plugin, Catalog Plugin
+
+**Marketplace Plugin**:
+A declarative package listed by a Plugin Catalog and installed without executing plugin package code.
+_Avoid_: Host Plugin, Codex Plugin, extension
+
+**Plugin Marketplace**:
+The user-level capability for discovering and managing Marketplace Plugins from one or more Marketplace Sources.
+_Avoid_: Host plugin loader, Project Catalog
+
+**Marketplace Source**:
+A configured origin that supplies one Plugin Catalog and, optionally, a package registry.
+_Avoid_: Registry, Plugin Catalog
+
+**Managed Source**:
+A Marketplace Source controlled by a Distribution rather than added or removed by an individual user.
+_Avoid_: Built-in plugin, user source
+
+**Plugin Catalog**:
+A versioned, machine-readable collection of immutable Marketplace Plugin listings published by one Marketplace Source.
+_Avoid_: Project Catalog, package registry, plugin manifest
+
+**Catalog Entry**:
+The source-curated listing for one Marketplace Plugin version, including integrity, compatibility, permission disclosure, status, and discovery metadata.
+_Avoid_: Plugin Manifest, installed plugin
+
+**Plugin Manifest**:
+The declaration shipped inside a Marketplace Plugin package that describes its identity, permissions, project matching, and contributed capabilities.
+_Avoid_: Catalog Entry, Codex plugin manifest

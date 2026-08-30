@@ -1,12 +1,13 @@
 import type { RunHandle } from './executor'
 import type { CapabilityProvider, CraftHubOptions, DistributionConfig } from './extensions'
 import type { CraftHubPlugin, PluginDiagnostic } from './plugins'
-import type { Capability, CapabilityDiscoveryDiagnostic, CapabilityDiscoveryResult, CapabilityPins, CapabilityReference, CommandCapability, CommandInputValues, CommandInvocation, CommandPackage, ProjectConfigInitializationMode, ProjectConfigInitializationResult, ProjectRecord, ProjectRunSummary, RunCleanupOptions, RunCleanupResult, RunOutputEvent, RunRecord } from './types'
+import type { Capability, CapabilityDiscoveryDiagnostic, CapabilityDiscoveryResult, CapabilityPins, CapabilityReference, CommandCapability, CommandInputValues, CommandInvocation, CommandPackage, ProjectConfigInitializationMode, ProjectConfigInitializationResult, ProjectRecord, ProjectRunSummary, ReleasePlan, RunCleanupOptions, RunCleanupResult, RunOutputEvent, RunRecord } from './types'
 import { resolve } from 'node:path'
 import process from 'node:process'
 import { AgentActionService } from './agent-actions'
 import { AgentTaskManager } from './agent-tasks'
-import { resolveCommandInvocation } from './command-inputs'
+import { resolveCommandContributions } from './command-contributions'
+import { resolveCommandInvocation, resolvePersistedCommandInvocation } from './command-inputs'
 import { applyProjectConfigInitialization, previewProjectConfigInitialization } from './config'
 import { executeCommand } from './executor'
 import { builtinCapabilityProvider, communityDistribution } from './extensions'
@@ -16,6 +17,7 @@ import { assertCommandWorkingDirectory } from './path-security'
 import { PersonalGitSyncService } from './personal-git-sync'
 import { getCraftHubConfigDir, getCraftHubDataDir } from './platform'
 import { ProjectRegistry } from './projects'
+import { ReleasePlanner } from './release-planner'
 import { CraftHubSettingsService } from './settings'
 import { CraftHubStore } from './store'
 import { TeamGitSyncService } from './team-git-sync'
@@ -36,6 +38,7 @@ export class CraftHubRuntime {
   readonly agentTasks: AgentTaskManager
   readonly agentActions: AgentActionService
   readonly pluginManager: PluginManager
+  readonly releasePlanner = new ReleasePlanner()
   readonly distribution: DistributionConfig
   private readonly capabilityProviders: Array<{ pluginId?: string, provider: CapabilityProvider }>
   private readonly activeRuns = new Map<string, RunHandle>()
@@ -144,7 +147,17 @@ export class CraftHubRuntime {
         })
       }
     }
-    return { capabilities, diagnostics, packages: [...packages.values()] }
+    const commandContributions = await resolveCommandContributions({
+      projectPath: project.path,
+      locale,
+      capabilities,
+      packages: [...packages.values()],
+      plugins: await this.pluginManager.commandContributions(),
+    })
+    diagnostics.push(...commandContributions.diagnostics)
+    const resolvedIds = new Set<string>()
+    await validateCapabilities(commandContributions.capabilities, resolvedIds, project.path)
+    return { capabilities: commandContributions.capabilities, diagnostics, packages: [...packages.values()] }
   }
 
   /** Return the current capability ids represented by this project's machine-local pin order. */
@@ -189,7 +202,18 @@ export class CraftHubRuntime {
       throw new Error(`Unknown capability: ${capabilityId}`)
     if (capability.kind !== 'command')
       throw new Error('Skills are inspected or handed to an agent; they are not shell commands')
+    if (capability.availability?.available === false)
+      throw new Error(capability.availability.diagnostic ?? `Command is unavailable: ${capability.invocation.command}`)
     return resolveCommandInvocation(capability, inputs)
+  }
+
+  /** Compute a fresh release preflight without mutating the repository. */
+  async releasePlan(projectId: string, capabilityId: string): Promise<ReleasePlan> {
+    const project = await this.projects.get(projectId)
+    const capability = (await this.capabilities(projectId)).find(item => item.id === capabilityId)
+    if (!capability || capability.kind !== 'command')
+      throw new Error(`Unknown command capability: ${capabilityId}`)
+    return this.releasePlanner.plan(project, capability)
   }
 
   /** Execute a discovered command capability after rechecking project trust and resolving inputs. */
@@ -200,8 +224,16 @@ export class CraftHubRuntime {
       throw new Error(`Unknown capability: ${capabilityId}`)
     if (capability.kind !== 'command')
       throw new Error('Skills are inspected or handed to an agent; they are not shell commands')
+    if (capability.availability?.available === false)
+      throw new Error(capability.availability.diagnostic ?? `Command is unavailable: ${capability.invocation.command}`)
+    if (capability.operation?.kind === 'release') {
+      const plan = await this.releasePlanner.plan(project, capability)
+      if (plan.blockers.length)
+        throw new Error(`Release preflight failed: ${plan.blockers.join(' ')}`)
+    }
     const invocation = resolveCommandInvocation(capability, inputs)
-    const handle = await executeCommand(this.store, project, { ...capability, invocation } as CommandCapability, onOutput)
+    const persistedInvocation = resolvePersistedCommandInvocation(capability, inputs)
+    const handle = await executeCommand(this.store, project, { ...capability, invocation } as CommandCapability, onOutput, persistedInvocation)
     this.activeRuns.set(handle.run.id, handle)
     this.emitRunSummary(projectId)
     void handle.completion.then((run) => {

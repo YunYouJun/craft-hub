@@ -496,27 +496,27 @@ describe('owner scope navigation', () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const path = typeof input === 'string' ? input : input.toString()
       if (path === '/api/owner-scopes/state' && init?.method === 'PUT')
-        return new Response(JSON.stringify({ activeScopeId: 'tencent' }))
-      if (path === '/api/workspaces?ownerScopeId=tencent')
-        return new Response(JSON.stringify([{ schemaVersion: 1, id: 'team-app', ownerScopeId: 'tencent', name: 'Team App', members: [], revision: 'r' }]))
-      if (path === '/api/workspace-groups?ownerScopeId=tencent' || path === '/api/workspace-groups/project-assignments?ownerScopeId=tencent')
+        return new Response(JSON.stringify({ activeScopeId: 'acme' }))
+      if (path === '/api/workspaces?ownerScopeId=acme')
+        return new Response(JSON.stringify([{ schemaVersion: 1, id: 'team-app', ownerScopeId: 'acme', name: 'Team App', members: [], revision: 'r' }]))
+      if (path === '/api/workspace-groups?ownerScopeId=acme' || path === '/api/workspace-groups/project-assignments?ownerScopeId=acme')
         return new Response(JSON.stringify(path.includes('project-assignments') ? {} : []))
-      if (path === '/api/workspaces/state?ownerScopeId=tencent')
+      if (path === '/api/workspaces/state?ownerScopeId=acme')
         return new Response(JSON.stringify({ expandedWorkspaceIds: ['team-app'], selectedWorkspaceId: 'team-app' }))
-      if (path === '/api/owner-scopes/tencent/git-sync')
-        return new Response(JSON.stringify({ ownerScopeId: 'tencent', state: 'clean' }))
+      if (path === '/api/owner-scopes/acme/git-sync')
+        return new Response(JSON.stringify({ ownerScopeId: 'acme', state: 'clean' }))
       throw new Error(`Unexpected request: ${String(init?.method ?? 'GET')} ${path}`)
     })
     vi.stubGlobal('fetch', fetchMock)
     const store = useWorkbenchStore()
     store.ownerScopes = [
       { id: 'personal', kind: 'personal', name: 'Personal' },
-      { id: 'tencent', kind: 'team', name: 'Tencent' },
+      { id: 'acme', kind: 'team', name: 'Acme' },
     ]
 
-    await store.switchOwnerScope('tencent')
+    await store.switchOwnerScope('acme')
 
-    expect(store.activeOwnerScopeId).toBe('tencent')
+    expect(store.activeOwnerScopeId).toBe('acme')
     expect(store.workspaces.map(workspace => workspace.name)).toEqual(['Team App'])
     expect(store.selectedWorkspaceId).toBe('team-app')
     expect(store.unassignedProjects).toEqual([])
@@ -526,10 +526,10 @@ describe('owner scope navigation', () => {
     const store = useWorkbenchStore()
     const teamProject = { ...project, id: 'team-project', name: 'Team project' }
     const globalProject = { ...project, id: 'global-project', name: 'Global project' }
-    store.activeOwnerScopeId = 'tencent'
+    store.activeOwnerScopeId = 'acme'
     store.projects = [teamProject, globalProject]
     store.projectGroupAssignments = { [teamProject.id]: 'wxfed' }
-    store.teamProjectOwnerScopes = { [teamProject.id]: ['tencent'] }
+    store.teamProjectOwnerScopes = { [teamProject.id]: ['acme'] }
 
     expect(store.unassignedProjects.map(item => item.name)).toEqual(['Team project'])
   })
@@ -540,7 +540,7 @@ describe('owner scope navigation', () => {
     const personalProject = { ...project, id: 'personal-project', name: 'Personal project' }
     store.activeOwnerScopeId = 'personal'
     store.projects = [teamProject, personalProject]
-    store.teamProjectOwnerScopes = { [teamProject.id]: ['tencent'] }
+    store.teamProjectOwnerScopes = { [teamProject.id]: ['acme'] }
 
     expect(store.unassignedProjects.map(item => item.name)).toEqual(['Personal project'])
   })
@@ -562,22 +562,22 @@ describe('owner scope navigation', () => {
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
       const path = typeof input === 'string' ? input : input.toString()
       if (path === '/api/owner-scopes')
-        return new Response(JSON.stringify([{ id: 'personal', kind: 'personal', name: 'Personal' }, { id: 'tencent', kind: 'team', name: 'Tencent' }]))
+        return new Response(JSON.stringify([{ id: 'personal', kind: 'personal', name: 'Personal' }, { id: 'acme', kind: 'team', name: 'Acme' }]))
       if (path === '/api/owner-scopes/state')
-        return new Response(JSON.stringify({ activeScopeId: 'tencent' }))
+        return new Response(JSON.stringify({ activeScopeId: 'acme' }))
       if (path === '/api/projects/owner-scopes')
-        return new Response(JSON.stringify({ project: ['tencent'] }))
-      if (path === '/api/owner-scopes/tencent/git-sync')
-        return new Response(JSON.stringify({ ownerScopeId: 'tencent', state: 'local-ahead' }))
+        return new Response(JSON.stringify({ project: ['acme'] }))
+      if (path === '/api/owner-scopes/acme/git-sync')
+        return new Response(JSON.stringify({ ownerScopeId: 'acme', state: 'local-ahead' }))
       throw new Error(`Unexpected request: ${path}`)
     }))
     const store = useWorkbenchStore()
 
     await store.loadOwnerScopes()
 
-    expect(store.activeOwnerScopeId).toBe('tencent')
-    expect(store.activeTeamSyncStatus).toMatchObject({ ownerScopeId: 'tencent', state: 'local-ahead' })
-    expect(store.teamProjectOwnerScopes).toEqual({ project: ['tencent'] })
+    expect(store.activeOwnerScopeId).toBe('acme')
+    expect(store.activeTeamSyncStatus).toMatchObject({ ownerScopeId: 'acme', state: 'local-ahead' })
+    expect(store.teamProjectOwnerScopes).toEqual({ project: ['acme'] })
   })
 })
 

@@ -1,4 +1,4 @@
-import type { AgentActionId, AgentActionSummary, AgentTaskRecord, Capability, CapabilityDiscoveryResult, CapabilityPins, CatalogPluginV1, CommandInputValues, CommandInvocation, InstalledPlugin, MarketplaceSource, OwnerScope, OwnerScopeUiState, PersonalGitSyncResolution, PersonalGitSyncStatus, ProjectCatalogSnapshot, ProjectChangeEvent, ProjectConfigInitializationResult, ProjectDescriptionApplication, ProjectDescriptionAudit, ProjectDescriptionChange, ProjectRecord, ProjectRunSummary, ProjectVisualInput, RunCleanupOptions, RunCleanupResult, RunRecord, RunStreamEvent, RuntimeHealth, SettingsExportEnvelope, SettingsExportMode, SettingsImportPreview, SettingsImportStrategy, SettingsSnapshot, TeamDeletionResult, TeamGitSyncStatus, WorkbenchLocale, WorkspaceCatalog, WorkspaceGroup, WorkspaceImportPreview, WorkspaceImportResult, WorkspaceManifest, WorkspaceRecord, WorkspaceUiState } from 'craft-hub'
+import type { AgentActionId, AgentActionSummary, AgentTaskRecord, Capability, CapabilityDiscoveryResult, CapabilityPins, CatalogPluginV1, CommandInputValues, CommandInvocation, InstalledPlugin, MarketplaceSource, MarketplaceSourcePreview, OwnerScope, OwnerScopeUiState, PersonalGitSyncResolution, PersonalGitSyncStatus, ProjectCatalogSnapshot, ProjectChangeEvent, ProjectConfigInitializationResult, ProjectDescriptionApplication, ProjectDescriptionAudit, ProjectDescriptionChange, ProjectRecord, ProjectRunSummary, ProjectVisualInput, ReleasePlan, RunCleanupOptions, RunCleanupResult, RunRecord, RunStreamEvent, RuntimeHealth, SettingsExportEnvelope, SettingsExportMode, SettingsImportPreview, SettingsImportStrategy, SettingsSnapshot, TeamDeletionResult, TeamGitSyncStatus, WorkbenchLocale, WorkspaceCatalog, WorkspaceGroup, WorkspaceImportPreview, WorkspaceImportResult, WorkspaceManifest, WorkspaceRecord, WorkspaceUiState } from 'craft-hub'
 
 export class ApiRequestError extends Error {
   constructor(message: string, readonly status: number) {
@@ -108,6 +108,7 @@ export const api = {
   projects: projectCatalog,
   marketplaceCatalog: () => request<Array<CatalogPluginV1 & { sourceId: string, sourceName: string, sourceKind: MarketplaceSource['kind'] }>>('/api/marketplace/catalog'),
   marketplaceSources: () => request<MarketplaceSource[]>('/api/marketplace/sources'),
+  previewMarketplaceSource: (input: { name?: string, catalogUrl: string, registry?: string }) => request<MarketplaceSourcePreview>('/api/marketplace/sources/preview', { method: 'POST', body: JSON.stringify(input) }),
   addMarketplaceSource: (input: { name: string, catalogUrl: string, registry?: string }) => request<MarketplaceSource>('/api/marketplace/sources', { method: 'POST', body: JSON.stringify(input) }),
   removeMarketplaceSource: (sourceId: string) => request<{ deleted: true }>(`/api/marketplace/sources/${encodeURIComponent(sourceId)}`, { method: 'DELETE' }),
   refreshMarketplaceSource: (sourceId: string) => request<MarketplaceSource>(`/api/marketplace/sources/${encodeURIComponent(sourceId)}/refresh`, { method: 'POST' }),
@@ -180,6 +181,7 @@ export const api = {
     method: 'POST',
     body: JSON.stringify({ capabilityId, inputs }),
   }),
+  releasePlan: (projectId: string, capabilityId: string) => request<ReleasePlan>(`/api/projects/${projectId}/release-plan/${encodeURIComponent(capabilityId)}`),
   runSummaries: () => request<ProjectRunSummary[]>('/api/runs/summary'),
   runs: () => request<RunRecord[]>('/api/runs'),
   cleanupRuns: (options: RunCleanupOptions) => request<RunCleanupResult>('/api/runs/cleanup', { method: 'POST', body: JSON.stringify(options) }),

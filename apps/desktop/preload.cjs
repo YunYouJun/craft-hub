@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld('craftHubDesktop', {
   openProjectEvidenceInEditor: (projectId, path, line, column) => ipcRenderer.invoke('craft-hub:open-project-evidence-in-editor', projectId, path, line, column),
   openProjectGitRemote: projectId => ipcRenderer.invoke('craft-hub:open-project-git-remote', projectId),
   openCapabilitySourceInEditor: (projectId, capabilityId) => ipcRenderer.invoke('craft-hub:open-capability-source-in-editor', projectId, capabilityId),
+  openCapabilityWorkingDirectory: (projectId, capabilityId) => ipcRenderer.invoke('craft-hub:open-capability-working-directory', projectId, capabilityId),
   openProjectInCodex: projectId => ipcRenderer.invoke('craft-hub:open-project-in-codex', projectId),
   openWorkspaceInCodex: workspaceId => ipcRenderer.invoke('craft-hub:open-workspace-in-codex', workspaceId),
   openWorkspaceInEditor: workspaceId => ipcRenderer.invoke('craft-hub:open-workspace-in-editor', workspaceId),
@@ -49,4 +50,10 @@ contextBridge.exposeInMainWorld('craftHubDesktop', {
   cloudConnect: () => ipcRenderer.invoke('craft-hub:cloud-connect'),
   cloudDisconnect: () => ipcRenderer.invoke('craft-hub:cloud-disconnect'),
   cloudSynchronize: () => ipcRenderer.invoke('craft-hub:cloud-synchronize'),
+  consumeMarketplaceSourceImport: () => ipcRenderer.invoke('craft-hub:consume-marketplace-source-import'),
+  onMarketplaceSourceImport: (callback) => {
+    const listener = (_event, catalogUrl) => callback(catalogUrl)
+    ipcRenderer.on('craft-hub:marketplace-source-import', listener)
+    return () => ipcRenderer.removeListener('craft-hub:marketplace-source-import', listener)
+  },
 })

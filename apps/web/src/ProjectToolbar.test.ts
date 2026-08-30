@@ -66,7 +66,6 @@ describe('project toolbar', () => {
     expect((wrapper.get('[data-testid="terminal-application"]').element as HTMLSelectElement).value).toBe('Ghostty')
     expect(wrapper.get('[data-testid="open-project-directory"]').attributes('title')).toBe('Open project in Finder')
     expect(wrapper.element.querySelector('[data-testid="open-project-editor"] .vscode-icon')).not.toBeNull()
-    expect(wrapper.element.querySelector('.editor-action-menu .codebuddy-icon')).not.toBeNull()
     expect(wrapper.element.querySelector('[data-testid="select-editor-cursor"] .cursor-icon')).not.toBeNull()
     expect(wrapper.get('[data-testid="open-project-terminal"]').attributes('title')).toBe('Open project in Ghostty')
 

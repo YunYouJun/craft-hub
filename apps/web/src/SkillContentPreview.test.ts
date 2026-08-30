@@ -13,6 +13,7 @@ describe('skill content preview', () => {
 
     await vi.waitFor(() => expect(wrapper.find('.shiki').exists()).toBe(true))
     expect(wrapper.html()).toContain('--shiki-light')
+    expect(wrapper.get('.shiki').attributes('style')).not.toMatch(/(?:^|;)color:/)
     expect(wrapper.html()).not.toContain('<script>alert(1)</script>')
     expect(wrapper.text()).toContain('pnpm release:patch')
   })

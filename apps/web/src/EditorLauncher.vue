@@ -14,7 +14,6 @@ const menuOpen = ref(false)
 const setting = computed(() => store.settings?.settings['workbench.editor'] ?? { default: 'vscode' as const })
 const builtInEditors: Array<{ id: Exclude<WorkbenchEditorId, 'custom'>, icon: IconName, name: string }> = [
   { id: 'vscode', name: 'VS Code', icon: 'vscode' },
-  { id: 'codebuddy', name: 'CodeBuddy', icon: 'codebuddy' },
   { id: 'cursor', name: 'Cursor', icon: 'cursor' },
 ]
 const choices = computed<Array<{ id: WorkbenchEditorId, icon: IconName, name: string }>>(() => [

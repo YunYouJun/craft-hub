@@ -1,12 +1,12 @@
 <script setup lang="ts">
-import type { CatalogPluginV1, InstalledPlugin, MarketplaceSource } from 'craft-hub'
+import type { CatalogPluginV1, InstalledPlugin, MarketplaceSource, MarketplaceSourcePreview } from 'craft-hub'
 import { computed, ref, watch } from 'vue'
 import { api } from './api'
 import { Button as UiButton } from './components/ui/button'
 import { Icon } from './icons'
 import { useI18n } from './i18n'
 
-const props = defineProps<{ open: boolean }>()
+const props = defineProps<{ open: boolean, importCatalogUrl?: string }>()
 const { t } = useI18n()
 type CatalogItem = CatalogPluginV1 & { sourceId: string, sourceName: string, sourceKind: MarketplaceSource['kind'] }
 
@@ -20,6 +20,7 @@ const error = ref('')
 const sourceName = ref('')
 const catalogUrl = ref('')
 const registry = ref('')
+const sourcePreview = ref<MarketplaceSourcePreview>()
 
 const filteredCatalog = computed(() => {
   const normalized = query.value.trim().toLowerCase()
@@ -33,6 +34,14 @@ const installedPackages = computed(() => new Set(installed.value.map(plugin => p
 watch(() => props.open, (open) => {
   if (open)
     void load()
+}, { immediate: true })
+
+watch(() => props.importCatalogUrl, (value) => {
+  if (!value)
+    return
+  activeTab.value = 'sources'
+  catalogUrl.value = value
+  sourceName.value ||= new URL(value).hostname
 }, { immediate: true })
 
 async function load(): Promise<void> {
@@ -81,20 +90,37 @@ async function removePlugin(plugin: InstalledPlugin): Promise<void> {
   })
 }
 
-async function addSource(): Promise<void> {
+async function previewSource(): Promise<void> {
   if (!sourceName.value.trim() || !catalogUrl.value.trim())
     return
-  await operate('add-source', async () => {
-    await api.addMarketplaceSource({
+  await operate('preview-source', async () => {
+    sourcePreview.value = await api.previewMarketplaceSource({
       name: sourceName.value.trim(),
       catalogUrl: catalogUrl.value.trim(),
       registry: registry.value.trim() || undefined,
     })
+  }, true)
+}
+
+async function addSource(): Promise<void> {
+  if (!sourcePreview.value)
+    return
+  await operate('add-source', async () => {
+    await api.addMarketplaceSource({
+      name: sourcePreview.value!.name,
+      catalogUrl: sourcePreview.value!.catalogUrl,
+      registry: sourcePreview.value!.registry,
+    })
     sourceName.value = ''
     catalogUrl.value = ''
     registry.value = ''
+    sourcePreview.value = undefined
   }, true)
 }
+
+watch([sourceName, catalogUrl, registry], () => {
+  sourcePreview.value = undefined
+})
 
 async function refreshSource(source: MarketplaceSource): Promise<void> {
   await operate(`refresh:${source.id}`, async () => {
@@ -195,14 +221,18 @@ function sourceKind(source: MarketplaceSource): string {
               </div>
             </article>
           </div>
-          <form class="source-form" @submit.prevent="addSource">
+          <form class="source-form" @submit.prevent="previewSource">
             <h3>{{ t('addMarketplaceSource') }}</h3>
             <div class="source-fields">
               <label><span>{{ t('sourceName') }}</span><input v-model="sourceName" required></label>
               <label><span>{{ t('catalogUrl') }}</span><input v-model="catalogUrl" type="url" placeholder="https://…/catalog.json" required></label>
               <label><span>{{ t('registryUrl') }}</span><input v-model="registry" type="url" placeholder="https://registry.npmjs.org"></label>
             </div>
-            <UiButton variant="primary" type="submit" :disabled="busy !== '' || !sourceName.trim() || !catalogUrl.trim()">{{ t('addMarketplaceSource') }}</UiButton>
+            <UiButton variant="primary" type="submit" :disabled="busy !== '' || !sourceName.trim() || !catalogUrl.trim()">{{ t('previewMarketplaceSource') }}</UiButton>
+            <article v-if="sourcePreview" class="source-preview">
+              <div><strong>{{ sourcePreview.catalog.name }}</strong><small>{{ sourcePreview.finalCatalogUrl }}</small><p>{{ t('sourcePreviewPlugins', { count: sourcePreview.catalog.plugins.length }) }}</p></div>
+              <UiButton variant="primary" type="button" :disabled="busy !== ''" @click="addSource">{{ t('confirmMarketplaceSourceImport') }}</UiButton>
+            </article>
           </form>
         </section>
   </section>

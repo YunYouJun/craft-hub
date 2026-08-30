@@ -11,6 +11,7 @@ interface Window {
     openProjectEvidenceInEditor?: (projectId: string, path: string, line?: number, column?: number) => Promise<void>
     openProjectGitRemote?: (projectId: string) => Promise<void>
     openCapabilitySourceInEditor?: (projectId: string, capabilityId: string) => Promise<void>
+    openCapabilityWorkingDirectory?: (projectId: string, capabilityId: string) => Promise<void>
     openProjectInCodex?: (projectId: string) => Promise<void>
     openWorkspaceInCodex?: (workspaceId: string) => Promise<void>
     openWorkspaceInEditor?: (workspaceId: string) => Promise<void>
@@ -41,6 +42,8 @@ interface Window {
     cloudConnect?: () => Promise<void>
     cloudDisconnect?: () => Promise<void>
     cloudSynchronize?: () => Promise<void>
+    consumeMarketplaceSourceImport?: () => Promise<string | undefined>
+    onMarketplaceSourceImport?: (callback: (catalogUrl: string) => void) => () => void
   }
 }
 

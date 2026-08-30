@@ -43,6 +43,9 @@ catalogs:
     '@types/node':
       specifier: ^26.3.0
       version: 26.3.0
+    '@types/semver':
+      specifier: ^7.8.0
+      version: 7.8.0
     '@unocss/reset':
       specifier: ^66.8.1
       version: 66.8.1
@@ -115,6 +118,9 @@ catalogs:
     reka-ui:
       specifier: ^2.10.4
       version: 2.10.4
+    semver:
+      specifier: ^7.8.5
+      version: 7.8.5
     shiki:
       specifier: ^4.4.3
       version: 4.4.3
@@ -437,6 +443,9 @@ importers:
       node-pty:
         specifier: 'catalog:'
         version: 1.1.0(patch_hash=01cd818d7698a2bb3e93d44742be26be924b317b9a699a61a64a01672387993d)
+      semver:
+        specifier: 'catalog:'
+        version: 7.8.5
       tinyglobby:
         specifier: 'catalog:'
         version: 0.2.17
@@ -446,6 +455,10 @@ importers:
       zod:
         specifier: 'catalog:'
         version: 4.4.3
+    devDependencies:
+      '@types/semver':
+        specifier: 'catalog:'
+        version: 7.8.0
 
   packages/craft-hub-mcp:
     dependencies:
@@ -1635,6 +1648,9 @@ packages:
 
   '@types/node@26.3.0':
     resolution: {integrity: sha512-L3fgrnchriRC2ExBflb8j4uZZURHZfQsmQeyVzhjcHW4kkwVyo8/0h1B2MVzMTrYUJYu6G7EWs14hW/L9putqw==}
+
+  '@types/semver@7.8.0':
+    resolution: {integrity: sha512-1mAINjtQCXXeLkJ9ehXkwOcBpqtLxiVtKhpUf83DdRNdQKV0iXZpaHYqRr7nj+wvxuJzoAmAwXI+sCNMv1CzLQ==}
 
   '@types/unist@3.0.3':
     resolution: {integrity: sha512-ko/gIFJRv177XgZsZcBwnqJN5x/Gien8qNOn0D5bQU/zAzVf9Zt3BlcUiLqhV9y4ARk0GbT3tnUiPNgnTXzc/Q==}
@@ -6051,6 +6067,8 @@ snapshots:
   '@types/node@26.3.0':
     dependencies:
       undici-types: 8.3.0
+
+  '@types/semver@7.8.0': {}
 
   '@types/unist@3.0.3': {}
 

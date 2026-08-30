@@ -23,7 +23,7 @@ describe('project watcher', () => {
   it('coalesces relevant file changes into semantic project events', async () => {
     const root = await mkdtemp(join(tmpdir(), 'craft-hub-watcher-'))
     await writeFile(join(root, 'package.json'), JSON.stringify({ scripts: { test: 'vitest' } }))
-    await mkdir(join(root, 'apps', 'liteapp'), { recursive: true })
+    await mkdir(join(root, 'apps', 'widget'), { recursive: true })
     await mkdir(join(root, 'dist', 'generated'), { recursive: true })
     const project: ProjectRecord = {
       id: 'project',
@@ -44,7 +44,7 @@ describe('project watcher', () => {
       await new Promise(resolve => setTimeout(resolve, 150))
 
       const workspaceCapabilityEvent = nextEvent(events, 1)
-      await writeFile(join(root, 'apps', 'liteapp', 'package.json'), JSON.stringify({ scripts: { deploy: 'liteapp deploy' } }))
+      await writeFile(join(root, 'apps', 'widget', 'package.json'), JSON.stringify({ scripts: { deploy: 'widget deploy' } }))
       await expect(workspaceCapabilityEvent).resolves.toEqual({ projectId: 'project', scopes: ['capabilities'] })
 
       await mkdir(join(root, '.craft-hub'), { recursive: true })

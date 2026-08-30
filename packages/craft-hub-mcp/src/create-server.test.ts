@@ -119,18 +119,18 @@ describe('craft hub MCP write tools', () => {
     try {
       const repositoryPath = join(fixture.root, 'team-repository')
       await execFileAsync('git', ['init', repositoryPath])
-      const created = await callTool(fixture.client, 'create_team', { name: 'Tencent', repositoryPath })
+      const created = await callTool(fixture.client, 'create_team', { name: 'Acme', repositoryPath })
       const team = created.team as { id: string, name: string }
       await callTool(fixture.client, 'create_workspace', { name: 'Team App', ownerScopeId: team.id })
 
-      await expect(callTool(fixture.client, 'rename_team', { ownerScopeId: team.id, name: 'Tencent Cloud' }))
+      await expect(callTool(fixture.client, 'rename_team', { ownerScopeId: team.id, name: 'Acme Platform' }))
         .resolves
-        .toMatchObject({ team: { id: team.id, name: 'Tencent Cloud' }, sync: { state: 'local-ahead' } })
-      const rejected = await fixture.client.callTool({ name: 'delete_team', arguments: { ownerScopeId: team.id, confirmationName: 'Tencent' } })
+        .toMatchObject({ team: { id: team.id, name: 'Acme Platform' }, sync: { state: 'local-ahead' } })
+      const rejected = await fixture.client.callTool({ name: 'delete_team', arguments: { ownerScopeId: team.id, confirmationName: 'Acme' } })
       expect(rejected.isError).toBe(true)
       expect(rejected.content).toEqual(expect.arrayContaining([expect.objectContaining({ text: expect.stringContaining('Type the Team name exactly') })]))
-      const deleted = await callTool(fixture.client, 'delete_team', { ownerScopeId: team.id, confirmationName: 'Tencent Cloud' })
-      expect(deleted).toMatchObject({ deletion: { deletedWorkspaceCount: 1, team: { id: team.id, name: 'Tencent Cloud' } } })
+      const deleted = await callTool(fixture.client, 'delete_team', { ownerScopeId: team.id, confirmationName: 'Acme Platform' })
+      expect(deleted).toMatchObject({ deletion: { deletedWorkspaceCount: 1, team: { id: team.id, name: 'Acme Platform' } } })
       await expect(fixture.runtime.ownerScopes.get(team.id)).rejects.toThrow('Unknown owner scope')
     }
     finally {
@@ -323,7 +323,7 @@ describe('craft hub MCP write tools', () => {
         capabilities: {
           inputs: {
             'apps/web/package.json:deploy': {
-              environment: { type: 'select', options: ['dev', 'rdm'], flag: '--env' },
+              environment: { type: 'select', options: ['dev', 'staging'], flag: '--env' },
             },
           },
         },
@@ -342,9 +342,9 @@ describe('craft hub MCP write tools', () => {
       ]))
       expect(listed.diagnostics).toEqual([expect.objectContaining({ path: 'packages/broken/package.json' })])
       const deploy = (listed.capabilities as Array<{ id: string, name: string }>).find(item => item.name === 'deploy')!
-      await expect(callTool(fixture.client, 'preview_command', { projectId: project.id, capabilityId: deploy.id, inputs: { environment: 'rdm' } })).resolves.toMatchObject({
+      await expect(callTool(fixture.client, 'preview_command', { projectId: project.id, capabilityId: deploy.id, inputs: { environment: 'staging' } })).resolves.toMatchObject({
         preview: {
-          args: ['run', 'deploy', '--', '--env=rdm'],
+          args: ['run', 'deploy', '--', '--env=staging'],
           category: 'deploy',
           package: { relativePath: 'apps/web' },
           cwd: await realpath(join(fixture.projectPath, 'apps', 'web')),

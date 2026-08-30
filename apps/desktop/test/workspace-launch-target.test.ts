@@ -12,7 +12,7 @@ describe('desktop workspace launch target', () => {
       configDir: join(root, 'config'),
       dataDir: join(root, 'data'),
     })
-    const team = await runtime.ownerScopes.createTeam('Tencent')
+    const team = await runtime.ownerScopes.createTeam('Acme')
     const projectPath = join(root, 'wetools')
     const docsPath = join(root, 'docs')
     await mkdir(projectPath)

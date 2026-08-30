@@ -7,6 +7,7 @@ import { cac } from 'cac'
 import { launchCraftHubApp } from './app'
 import { CraftHubRuntime } from './runtime'
 import { startCraftHubServer } from './server'
+import { craftHubVersion } from './version'
 
 const cli = cac('craft-hub')
 const runtime = new CraftHubRuntime()
@@ -271,7 +272,7 @@ cli.command('ui', 'Start the local Craft Hub workbench').option('--port <port>',
 })
 
 cli.help()
-cli.version('0.0.1-alpha.0')
+cli.version(craftHubVersion)
 cli.parse()
 
 process.on('unhandledRejection', (error) => {

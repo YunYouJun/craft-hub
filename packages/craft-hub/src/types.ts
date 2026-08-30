@@ -301,7 +301,7 @@ export interface ProjectDescriptionApplication {
 export interface CapabilityDiscoveryDiagnostic {
   message: string
   path: string
-  source: 'pnpm-workspace' | 'project'
+  source: 'plugin' | 'pnpm-workspace' | 'project'
 }
 
 /** Capabilities and non-fatal diagnostics produced by one discovery pass. */
@@ -320,11 +320,20 @@ export interface CommandInvocation {
   requiredEnv: string[]
 }
 
+/** Discovery-time availability of a direct executable contributed by a plugin. */
+export interface CommandAvailability {
+  available: boolean
+  diagnostic?: string
+}
+
 /** Conditional visibility or requiredness for one command input. */
 export interface CommandInputCondition {
   input: string
   equals: string
 }
+
+/** One condition or a conjunction of conditions that must all match. */
+export type CommandInputConditions = CommandInputCondition | CommandInputCondition[]
 
 /** One allowed value for a select command input. */
 export interface CommandInputOption {
@@ -332,22 +341,28 @@ export interface CommandInputOption {
   label?: string
   /** Whether selecting this option intentionally omits the input's command-line argument. */
   omitArgument?: boolean
+  /** Exact structured argv contributed by this option instead of flag/value formatting. */
+  arguments?: string[]
 }
 
 /** Project-owned form input that is resolved into structured command arguments. */
 export interface CommandInputDefinition {
   id: string
-  type: 'select' | 'text'
+  type: 'boolean' | 'select' | 'text'
   label?: string
   description?: string
   options?: CommandInputOption[]
   default?: string
   required?: boolean
-  requiredWhen?: CommandInputCondition
-  visibleWhen?: CommandInputCondition
+  requiredWhen?: CommandInputConditions
+  visibleWhen?: CommandInputConditions
   pattern?: string
   flag: string
   argumentStyle?: 'equals' | 'separate'
+  /** Treat the current value as a private identifier and omit it from persisted run history. */
+  private?: boolean
+  /** Redact the resolved argument in persisted run history. */
+  redactInHistory?: boolean
 }
 
 /** Project-owned form input that is added to an agent skill request as structured context. */
@@ -359,13 +374,38 @@ export interface SkillInputDefinition {
   options?: CommandInputOption[]
   default?: string
   required?: boolean
-  requiredWhen?: CommandInputCondition
-  visibleWhen?: CommandInputCondition
+  requiredWhen?: CommandInputConditions
+  visibleWhen?: CommandInputConditions
   pattern?: string
 }
 
 /** User-provided values for a parameterized command capability. */
 export type CommandInputValues = Record<string, string>
+
+/** Built-in high-risk operation metadata understood by the Craft Hub host. */
+export interface ReleaseOperation {
+  kind: 'release'
+  /** Require a clean Git worktree before execution. Defaults to true. */
+  requiresCleanGit: boolean
+  /** Optional branch required by the repository release policy. */
+  requiredBranch?: string
+  /** Repository-relative automation workflow that performs publication. */
+  workflowPath?: string
+}
+
+/** Fresh release preflight information used by both the UI and runtime guard. */
+export interface ReleasePlan {
+  capabilityId: string
+  branch?: string
+  clean: boolean
+  currentVersion?: string
+  proposedTag?: string
+  workflowPath?: string
+  workflowExists?: boolean
+  effects: string[]
+  blockers: string[]
+  warnings: string[]
+}
 
 /** Executable command capability. */
 export interface CommandCapability {
@@ -386,6 +426,8 @@ export interface CommandCapability {
   inputs?: CommandInputDefinition[]
   /** Separator inserted before resolved inputs for package-manager script invocations. */
   inputArgSeparator?: '--'
+  availability?: CommandAvailability
+  operation?: ReleaseOperation
 }
 
 /** Agent-readable skill capability. */

@@ -88,12 +88,12 @@ describe('capability discovery', () => {
 
   it('discovers, classifies, and scopes pnpm workspace package scripts', async () => {
     const root = await mkdtemp(join(tmpdir(), 'craft-hub-monorepo-'))
-    const liteapp = join(root, 'apps', 'liteapp')
+    const widget = join(root, 'apps', 'widget')
     const broken = join(root, 'packages', 'broken')
     const empty = join(root, 'packages', 'empty')
     const ignored = join(root, 'packages', 'ignored')
     await Promise.all([
-      mkdir(liteapp, { recursive: true }),
+      mkdir(widget, { recursive: true }),
       mkdir(broken, { recursive: true }),
       mkdir(empty, { recursive: true }),
       mkdir(ignored, { recursive: true }),
@@ -101,35 +101,35 @@ describe('capability discovery', () => {
     ])
     await writeFile(join(root, 'package.json'), JSON.stringify({ name: 'root', description: 'Root workspace', packageManager: 'pnpm@10.0.0', scripts: { dev: 'vite' } }))
     await writeFile(join(root, 'pnpm-workspace.yaml'), ['packages:', '  - apps/*', '  - packages/*', '  - "!packages/ignored"'].join('\n'))
-    await writeFile(join(liteapp, 'package.json'), JSON.stringify({ name: '@scope/liteapp', description: 'LiteApp package', private: true, scripts: { 'build:liteapp': 'liteapp compile', 'deploy': 'liteapp deploy', 'prepublishOnly': 'echo prepare' } }))
+    await writeFile(join(widget, 'package.json'), JSON.stringify({ name: '@scope/widget', description: 'Widget package', private: true, scripts: { 'build:widget': 'widget compile', 'deploy': 'widget deploy', 'prepublishOnly': 'echo prepare' } }))
     await writeFile(join(broken, 'package.json'), '{ broken json')
     await writeFile(join(empty, 'package.json'), JSON.stringify({ name: '@scope/empty', description: '_description_', private: true }))
     await writeFile(join(ignored, 'package.json'), JSON.stringify({ scripts: { hidden: 'echo hidden' } }))
     await writeProjectConfig(root, {
       version: 1,
-      capabilities: { descriptions: { 'apps/liteapp/package.json:deploy': 'Deploy the LiteApp package.' } },
+      capabilities: { descriptions: { 'apps/widget/package.json:deploy': 'Deploy the Widget package.' } },
     })
 
     const discovery = await discoverCapabilitiesWithDiagnostics(root)
     const commands = discovery.capabilities.filter(item => item.kind === 'command')
     expect(commands.map(command => [command.package?.relativePath, command.name])).toEqual([
       ['.', 'dev'],
-      ['apps/liteapp', 'build:liteapp'],
-      ['apps/liteapp', 'deploy'],
-      ['apps/liteapp', 'prepublishOnly'],
+      ['apps/widget', 'build:widget'],
+      ['apps/widget', 'deploy'],
+      ['apps/widget', 'prepublishOnly'],
     ])
     expect(commands.find(command => command.name === 'deploy')).toMatchObject({
       category: 'deploy',
-      description: 'Deploy the LiteApp package.',
-      source: 'apps/liteapp/package.json',
-      package: { name: '@scope/liteapp', description: 'LiteApp package', relativePath: 'apps/liteapp', root: false },
-      invocation: { command: 'pnpm', args: ['run', 'deploy'], cwd: await realpath(liteapp) },
+      description: 'Deploy the Widget package.',
+      source: 'apps/widget/package.json',
+      package: { name: '@scope/widget', description: 'Widget package', relativePath: 'apps/widget', root: false },
+      invocation: { command: 'pnpm', args: ['run', 'deploy'], cwd: await realpath(widget) },
     })
-    expect(commands.find(command => command.name === 'build:liteapp')?.category).toBe('build')
+    expect(commands.find(command => command.name === 'build:widget')?.category).toBe('build')
     expect(commands.find(command => command.name === 'prepublishOnly')?.category).toBe('deploy')
     expect(discovery.packages).toEqual([
       { name: 'root', description: 'Root workspace', relativePath: '.', root: true },
-      { name: '@scope/liteapp', description: 'LiteApp package', relativePath: 'apps/liteapp', root: false },
+      { name: '@scope/widget', description: 'Widget package', relativePath: 'apps/widget', root: false },
       { name: '@scope/empty', description: undefined, relativePath: 'packages/empty', root: false },
     ])
     expect(discovery.diagnostics).toEqual([
@@ -246,15 +246,15 @@ describe('capability discovery', () => {
             environment: {
               type: 'select',
               label: { 'default': 'Environment', 'zh-CN': '环境' },
-              options: ['dev', { value: 'rdm', label: 'Random test' }],
+              options: ['dev', { value: 'staging', label: 'Random test' }],
               default: 'dev',
               flag: '--env',
             },
-            uin: {
+            account: {
               type: 'text',
-              label: 'UIN',
+              label: 'Account',
               pattern: '^\\d+$',
-              flag: '--uin',
+              flag: '--account',
               visibleWhen: { input: 'environment', equals: 'dev' },
               requiredWhen: { input: 'environment', equals: 'dev' },
             },
@@ -266,7 +266,7 @@ describe('capability discovery', () => {
     const command = (await discoverCapabilities(root, 'zh-CN')).find(item => item.kind === 'command')!
     expect(command.inputs).toEqual([
       expect.objectContaining({ id: 'environment', type: 'select', label: '环境', default: 'dev', flag: '--env' }),
-      expect.objectContaining({ id: 'uin', type: 'text', label: 'UIN', pattern: '^\\d+$', flag: '--uin' }),
+      expect.objectContaining({ id: 'account', type: 'text', label: 'Account', pattern: '^\\d+$', flag: '--account' }),
     ])
   })
 
@@ -435,11 +435,11 @@ describe('trusted execution', () => {
       capabilities: {
         inputs: {
           'package.json:hello': {
-            environment: { type: 'select', options: ['dev', 'rdm'], default: 'dev', flag: '--env' },
-            uin: {
+            environment: { type: 'select', options: ['dev', 'staging'], default: 'dev', flag: '--env' },
+            account: {
               type: 'text',
               pattern: '^\\d+$',
-              flag: '--uin',
+              flag: '--account',
               visibleWhen: { input: 'environment', equals: 'dev' },
               requiredWhen: { input: 'environment', equals: 'dev' },
             },
@@ -451,18 +451,18 @@ describe('trusted execution', () => {
     const project = await runtime.addProject(root)
     const command = (await runtime.capabilities(project.id)).find(item => item.kind === 'command')!
 
-    await expect(runtime.previewCommand(project.id, command.id, { environment: 'dev', uin: '12345' }))
+    await expect(runtime.previewCommand(project.id, command.id, { environment: 'dev', account: '12345' }))
       .resolves
-      .toMatchObject({ args: ['run', 'hello', '--', '--env=dev', '--uin=12345'] })
-    await expect(runtime.previewCommand(project.id, command.id, { environment: 'rdm', uin: '12345' }))
+      .toMatchObject({ args: ['run', 'hello', '--', '--env=dev', '--account=12345'] })
+    await expect(runtime.previewCommand(project.id, command.id, { environment: 'staging', account: '12345' }))
       .resolves
-      .toMatchObject({ args: ['run', 'hello', '--', '--env=rdm'] })
+      .toMatchObject({ args: ['run', 'hello', '--', '--env=staging'] })
     await expect(runtime.previewCommand(project.id, command.id, { environment: 'release' }))
       .rejects
       .toThrow('must be one of')
     await expect(runtime.previewCommand(project.id, command.id, { environment: 'dev' }))
       .rejects
-      .toThrow('uin is required')
+      .toThrow('account is required')
   })
 
   it('omits argv for select options configured as display-only choices', async () => {
@@ -479,7 +479,7 @@ describe('trusted execution', () => {
                 { value: '12345', label: 'Named account' },
               ],
               default: 'current',
-              flag: '--uin',
+              flag: '--account',
             },
           },
         },
@@ -494,7 +494,48 @@ describe('trusted execution', () => {
       .toMatchObject({ args: ['run', 'hello'] })
     await expect(runtime.previewCommand(project.id, command.id, { target: '12345' }))
       .resolves
-      .toMatchObject({ args: ['run', 'hello', '--', '--uin=12345'] })
+      .toMatchObject({ args: ['run', 'hello', '--', '--account=12345'] })
+  })
+
+  it('appends boolean flags without values and supports conjunctive visibility conditions', async () => {
+    const root = await fixture()
+    await writeProjectConfig(root, {
+      version: 1,
+      capabilities: {
+        inputs: {
+          'package.json:hello': {
+            environment: { type: 'select', options: ['dev', 'staging'], default: 'dev', flag: '--env' },
+            askAccount: { type: 'boolean', default: 'false', flag: '--ask-account' },
+            account: {
+              type: 'text',
+              flag: '--account',
+              visibleWhen: [
+                { input: 'environment', equals: 'dev' },
+                { input: 'askAccount', equals: 'false' },
+              ],
+            },
+            silent: { type: 'boolean', default: 'false', flag: '--silent' },
+            confirm: { type: 'boolean', default: 'false', flag: '--confirm', requiredWhen: { input: 'environment', equals: 'staging' } },
+          },
+        },
+      },
+    })
+    const runtime = new CraftHubRuntime(join(root, '.input-data'))
+    const project = await runtime.addProject(root)
+    const command = (await runtime.capabilities(project.id)).find(item => item.kind === 'command')!
+
+    await expect(runtime.previewCommand(project.id, command.id, { environment: 'dev', askAccount: 'true', account: '12345', silent: 'true' }))
+      .resolves
+      .toMatchObject({ args: ['run', 'hello', '--', '--env=dev', '--ask-account', '--silent'] })
+    await expect(runtime.previewCommand(project.id, command.id, { environment: 'dev', askAccount: 'false', account: '12345', silent: 'false' }))
+      .resolves
+      .toMatchObject({ args: ['run', 'hello', '--', '--env=dev', '--account=12345'] })
+    await expect(runtime.previewCommand(project.id, command.id, { environment: 'dev', askAccount: 'sometimes' }))
+      .rejects
+      .toThrow('must be true or false')
+    await expect(runtime.previewCommand(project.id, command.id, { environment: 'staging', confirm: 'false' }))
+      .rejects
+      .toThrow('confirm is required')
   })
 
   it('blocks untrusted projects and captures output after trust', async () => {

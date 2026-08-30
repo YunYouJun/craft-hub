@@ -9,10 +9,15 @@ const localizedTextSchema = z.union([
   z.object({ default: z.string().min(1) }).catchall(z.string().min(1)),
 ])
 
-const inputConditionSchema = z.strictObject({
+const singleInputConditionSchema = z.strictObject({
   input: z.string().min(1),
   equals: z.string(),
 })
+
+const inputConditionSchema = z.union([
+  singleInputConditionSchema,
+  z.array(singleInputConditionSchema).min(1),
+])
 
 const inputOptionBaseShape = {
   value: z.string().min(1),
@@ -24,6 +29,7 @@ const inputOptionSchema = z.union([
   z.strictObject({
     ...inputOptionBaseShape,
     omitArgument: z.boolean().optional(),
+    arguments: z.array(z.string()).min(1).optional(),
   }),
 ])
 
@@ -39,6 +45,8 @@ const capabilityInputBaseShape = {
   required: z.boolean().optional(),
   requiredWhen: inputConditionSchema.optional(),
   visibleWhen: inputConditionSchema.optional(),
+  private: z.boolean().optional(),
+  redactInHistory: z.boolean().optional(),
 }
 
 const commandInputBaseShape = {
@@ -47,7 +55,8 @@ const commandInputBaseShape = {
   argumentStyle: z.enum(['equals', 'separate']).optional(),
 }
 
-const projectCommandInputSchema = z.discriminatedUnion('type', [
+/** Validation schema for a Project-defined command input. */
+export const projectCommandInputSchema = z.discriminatedUnion('type', [
   z.strictObject({
     ...commandInputBaseShape,
     type: z.literal('select'),
@@ -59,6 +68,15 @@ const projectCommandInputSchema = z.discriminatedUnion('type', [
     type: z.literal('text'),
     options: z.never().optional(),
     pattern: z.string().optional(),
+  }),
+  z.strictObject({
+    ...capabilityInputBaseShape,
+    type: z.literal('boolean'),
+    default: z.enum(['true', 'false']).optional(),
+    options: z.never().optional(),
+    pattern: z.never().optional(),
+    flag: commandInputBaseShape.flag,
+    argumentStyle: z.never().optional(),
   }),
 ])
 
@@ -77,6 +95,13 @@ const projectSkillInputSchema = z.discriminatedUnion('type', [
   }),
 ])
 
+const projectOperationSchema = z.strictObject({
+  kind: z.literal('release'),
+  requiresCleanGit: z.boolean().optional(),
+  requiredBranch: z.string().min(1).optional(),
+  workflowPath: z.string().min(1).optional(),
+})
+
 /** Runtime validator and single source of truth for project.jsonc. */
 export const projectConfigSchema = z.strictObject({
   $schema: z.string().optional(),
@@ -94,6 +119,8 @@ export const projectConfigSchema = z.strictObject({
     descriptions: z.record(z.string(), localizedTextSchema).optional(),
     inputs: z.record(z.string(), z.record(z.string(), projectCommandInputSchema)).optional(),
     skillInputs: z.record(z.string(), z.record(z.string(), projectSkillInputSchema)).optional(),
+    disabledPresets: z.array(z.string().min(1)).optional(),
+    operations: z.record(z.string(), projectOperationSchema).optional(),
   }).optional(),
   packages: z.record(z.string(), z.strictObject({
     description: localizedTextSchema.optional(),

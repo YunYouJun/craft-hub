@@ -117,9 +117,10 @@ Zero configuration is the default. A repository may add `.craft-hub/project.json
 }
 ```
 
-Discovered commands can also declare safe form inputs under `capabilities.inputs`. Select and
-text values are validated by the runtime and appended as individual argv entries, preserving
-Craft Hub's structured execution model without invoking a shell.
+Discovered commands can also declare safe form inputs under `capabilities.inputs`. Select, text,
+and boolean values are validated by the runtime and appended as individual argv entries. Boolean
+inputs append their flag only when enabled, preserving Craft Hub's structured execution model
+without invoking a shell.
 
 ## Repository layout
 
@@ -134,30 +135,34 @@ Craft Hub's structured execution model without invoking a shell.
 Community discovery, trust, execution, and storage remain in this repository. A downstream distribution contributes branding and capabilities through the plugin seam:
 
 ```ts
-import { createWoaCraftHubOptions } from '@tencent/craft-hub'
+import { createDistributionOptions } from '@acme/craft-hub-distribution'
 import { createCraftHub } from 'craft-hub'
 
-const runtime = createCraftHub(createWoaCraftHubOptions())
+const runtime = createCraftHub(createDistributionOptions())
 ```
 
 Capability providers only discover structured capabilities. They cannot bypass the community runtime's project trust or execution validation.
 
-### Plugins
+### Host plugins
 
 A plugin is a trusted npm/workspace dependency explicitly installed by the host. It contributes capabilities while Craft Hub retains discovery validation, project trust, and command execution:
 
 ```ts
 import { createCraftHub, defineCraftHubPlugin } from 'craft-hub'
 
-const tapdPlugin = defineCraftHubPlugin({
-  id: '@tencent/craft-hub-plugin-tapd',
-  capabilityProviders: [tapdCapabilityProvider],
+const issuePlugin = defineCraftHubPlugin({
+  id: '@acme/craft-hub-plugin-issues',
+  capabilityProviders: [issueCapabilityProvider],
 })
 
-const runtime = createCraftHub({ plugins: [tapdPlugin] })
+const runtime = createCraftHub({ plugins: [issuePlugin] })
 ```
 
 Hosts that accept package names from configuration can call `loadCraftHubPlugins(specifiers, { baseDir })`. A plugin package exports its plugin object as `default` or `plugin`. Loading executes package code, so only explicitly configured, trusted dependencies should be accepted. Broken plugins are returned as diagnostics and do not prevent healthy plugins from loading; discovery failures are available through `runtime.getPluginDiagnostics()`.
+
+### Marketplace plugins
+
+Marketplace plugins are declarative packages listed by a Plugin Catalog. Craft Hub installs immutable versions with lifecycle scripts disabled, validates their SHA-512 integrity and permission disclosure, and never imports package code. See the [plugin marketplace contract](./docs/guide/plugin-marketplace.md).
 
 ## Roadmap
 

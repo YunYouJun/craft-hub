@@ -23,6 +23,7 @@ const { t } = useI18n()
 const paletteOpen = ref(false)
 const settingsOpen = ref(false)
 const marketplaceOpen = ref(false)
+const marketplaceImportCatalogUrl = ref('')
 const onboardingOpen = ref(false)
 const eventStreamConnected = ref(false)
 const codexActivityStatus = ref<CodexActivityStatus>()
@@ -40,6 +41,12 @@ const runningCodexTaskCount = computed(() => {
 let stopProjectEvents: (() => void) | undefined
 let stopCodexActivityEvents: (() => void) | undefined
 let stopOnboardingEvents: (() => void) | undefined
+let stopMarketplaceImportEvents: (() => void) | undefined
+
+function openMarketplaceSourceImport(catalogUrl: string): void {
+  marketplaceImportCatalogUrl.value = catalogUrl
+  marketplaceOpen.value = true
+}
 
 async function openShortcutCapability(shortcutId: string): Promise<void> {
   const target = parseCapabilityShortcutId(shortcutId)
@@ -117,6 +124,10 @@ onBeforeMount(async () => {
     marketplaceOpen.value = false
     onboardingOpen.value = true
   })
+  stopMarketplaceImportEvents = window.craftHubDesktop?.onMarketplaceSourceImport?.(openMarketplaceSourceImport)
+  const pendingMarketplaceImport = await window.craftHubDesktop?.consumeMarketplaceSourceImport?.()
+  if (pendingMarketplaceImport)
+    openMarketplaceSourceImport(pendingMarketplaceImport)
 })
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeydown)
@@ -125,6 +136,7 @@ onBeforeUnmount(() => {
   stopProjectEvents?.()
   stopCodexActivityEvents?.()
   stopOnboardingEvents?.()
+  stopMarketplaceImportEvents?.()
 })
 </script>
 
@@ -218,7 +230,7 @@ onBeforeUnmount(() => {
     </footer>
     <CommandPalette v-model:open="paletteOpen" />
     <SettingsDialog v-model:open="settingsOpen" />
-    <MarketplaceDialog :open="marketplaceOpen" />
+    <MarketplaceDialog :open="marketplaceOpen" :import-catalog-url="marketplaceImportCatalogUrl" />
     <ProjectAgentActionDialog v-model:open="store.agentActionDialogOpen" />
   </div>
 </template>

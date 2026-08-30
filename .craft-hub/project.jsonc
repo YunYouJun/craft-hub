@@ -63,8 +63,8 @@
         "zh-CN": "对整个 TypeScript 工作区进行类型检查。"
       },
       "package.json:release": {
-        "default": "Prepare version bumps and publish workspace packages.",
-        "zh-CN": "准备版本更新并发布工作区包。"
+        "default": "Prepare version bumps and push a Git tag for OIDC publication.",
+        "zh-CN": "准备版本更新并推送 Git 标签，由 OIDC 工作流完成发布。"
       },
       "package.json:schema:project": {
         "default": "Regenerate the versioned project configuration JSON Schema.",
@@ -73,6 +73,14 @@
       "package.json:schema:project:check": {
         "default": "Verify that the checked-in project configuration schema matches its Zod source.",
         "zh-CN": "检查已提交的项目配置 Schema 是否与 Zod 源定义一致。"
+      }
+    },
+    "operations": {
+      "package.json:release": {
+        "kind": "release",
+        "requiresCleanGit": true,
+        "requiredBranch": "main",
+        "workflowPath": ".github/workflows/release.yml"
       }
     }
   }

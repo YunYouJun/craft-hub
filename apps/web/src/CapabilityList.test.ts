@@ -184,22 +184,22 @@ describe('capability list', () => {
         invocation: { command: 'pnpm', args: ['run', 'dev'], cwd: project.path, requiredEnv: [] },
       },
       {
-        id: 'liteapp-build',
+        id: 'widget-build',
         kind: 'command',
         name: 'build',
-        source: 'apps/liteapp/package.json',
+        source: 'apps/widget/package.json',
         category: 'build',
-        package: { name: '@scope/liteapp', relativePath: 'apps/liteapp', root: false },
-        invocation: { command: 'pnpm', args: ['run', 'build'], cwd: '/project/apps/liteapp', requiredEnv: [] },
+        package: { name: '@scope/widget', relativePath: 'apps/widget', root: false },
+        invocation: { command: 'pnpm', args: ['run', 'build'], cwd: '/project/apps/widget', requiredEnv: [] },
       },
       {
-        id: 'liteapp-deploy',
+        id: 'widget-deploy',
         kind: 'command',
         name: 'deploy',
-        source: 'apps/liteapp/package.json',
+        source: 'apps/widget/package.json',
         category: 'deploy',
-        package: { name: '@scope/liteapp', relativePath: 'apps/liteapp', root: false },
-        invocation: { command: 'pnpm', args: ['run', 'deploy'], cwd: '/project/apps/liteapp', requiredEnv: [] },
+        package: { name: '@scope/widget', relativePath: 'apps/widget', root: false },
+        invocation: { command: 'pnpm', args: ['run', 'deploy'], cwd: '/project/apps/widget', requiredEnv: [] },
       },
     ]
     const pinia = createPinia()
@@ -214,8 +214,8 @@ describe('capability list', () => {
 
     const wrapper = mount(CapabilityList, { global: { plugins: [pinia] } })
 
-    expect(wrapper.findAll('.capability-group-heading strong').map(item => item.text())).toEqual(['Project root', 'apps/liteapp'])
-    expect(wrapper.text()).toContain('@scope/liteapp')
+    expect(wrapper.findAll('.capability-group-heading strong').map(item => item.text())).toEqual(['Project root', 'apps/widget'])
+    expect(wrapper.text()).toContain('@scope/widget')
     expect(wrapper.get('.capability-diagnostics').text()).toContain('packages/broken/package.json')
 
     const deployFilter = wrapper.findAll('.category-filters button').find(button => button.text() === 'Deploy/Release')!
@@ -224,7 +224,7 @@ describe('capability list', () => {
 
     await wrapper.get('.capability-group-heading').trigger('click')
     expect(wrapper.find('.capability-row').exists()).toBe(false)
-    expect(window.localStorage.getItem(`craft-hub-capability-groups:${project.id}`)).toContain('apps/liteapp')
+    expect(window.localStorage.getItem(`craft-hub-capability-groups:${project.id}`)).toContain('apps/widget')
   })
 
   it('summarizes monorepo packages and scopes commands when a package is selected', async () => {

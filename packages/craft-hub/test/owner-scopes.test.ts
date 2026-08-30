@@ -10,10 +10,10 @@ describe('owner scopes', () => {
     const scopes = new OwnerScopeService(join(root, 'config'), join(root, 'data'))
 
     await expect(scopes.list()).resolves.toEqual([{ id: 'personal', kind: 'personal', name: 'Personal' }])
-    const team = await scopes.createTeam('Tencent')
+    const team = await scopes.createTeam('Acme')
     await expect(scopes.list()).resolves.toEqual([
       { id: 'personal', kind: 'personal', name: 'Personal' },
-      { id: 'tencent', kind: 'team', name: 'Tencent' },
+      { id: 'acme', kind: 'team', name: 'Acme' },
     ])
     await expect(scopes.activate(team.id)).resolves.toEqual({ activeScopeId: team.id })
     await expect(scopes.uiState()).resolves.toEqual({ activeScopeId: team.id })
@@ -32,10 +32,10 @@ describe('owner scopes', () => {
   it('renames a Team without changing its stable id', async () => {
     const root = await mkdtemp(join(tmpdir(), 'craft-hub-owner-scopes-'))
     const scopes = new OwnerScopeService(join(root, 'config'), join(root, 'data'))
-    const team = await scopes.createTeam('Tencent')
+    const team = await scopes.createTeam('Acme')
     await scopes.createTeam('YunLeFun')
 
-    await expect(scopes.renameTeam(team.id, 'Tencent Cloud')).resolves.toEqual({ id: team.id, kind: 'team', name: 'Tencent Cloud' })
+    await expect(scopes.renameTeam(team.id, 'Acme Platform')).resolves.toEqual({ id: team.id, kind: 'team', name: 'Acme Platform' })
     await expect(scopes.renameTeam(team.id, 'yunlefun')).rejects.toThrow('already exists')
     await expect(scopes.renameTeam('personal', 'Mine')).rejects.toThrow('Unknown owner scope')
   })

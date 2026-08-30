@@ -1,7 +1,6 @@
 name: Release
 
 permissions:
-  id-token: write
   contents: write
   pages: write
 
@@ -165,9 +164,50 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+  publish-npm:
+    name: Publish craft-hub to npm
+    needs: release
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+        with:
+          run_install: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+          registry-url: https://registry.npmjs.org/
+          package-manager-cache: false
+      - run: pnpm install --frozen-lockfile
+      - name: Verify npm trusted publishing support
+        run: |
+          node -e "const { execFileSync } = require('node:child_process'); const version = execFileSync('npm', ['--version'], { encoding: 'utf8' }).trim(); const [major, minor] = version.split('.').map(Number); if (major < 11 || (major === 11 && minor < 5)) throw new Error('npm 11.5.1 or newer is required for OIDC trusted publishing; found ' + version)"
+      - name: Pack and publish public package
+        shell: bash
+        run: |
+          package_version="$(node -p "require('./packages/craft-hub/package.json').version")"
+          package_dir="$RUNNER_TEMP/npm-package"
+          tarball="$package_dir/craft-hub-$package_version.tgz"
+          mkdir -p "$package_dir"
+
+          pnpm --filter craft-hub pack --pack-destination "$package_dir"
+          test -f "$tarball"
+
+          if [[ "$package_version" == *-* ]]; then
+            dist_tag=next
+          else
+            dist_tag=latest
+          fi
+
+          npm publish "$tarball" --access public --tag "$dist_tag"
+
   publish-update-feed:
     name: Publish alpha update feed
-    needs: release
+    needs: [release, publish-npm]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     environment:

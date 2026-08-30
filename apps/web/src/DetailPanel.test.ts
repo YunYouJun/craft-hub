@@ -32,7 +32,7 @@ const skill: SkillCapability = {
   id: 'skill-id',
   kind: 'skill',
   name: 'wetools-release',
-  description: 'Release LiteApp safely.',
+  description: 'Release Widget safely.',
   source: 'agent-skill',
   path: '/workspace/example/.agents/skills/wetools-release/SKILL.md',
   contentHash: 'hash',
@@ -53,8 +53,10 @@ describe('detail panel desktop actions', () => {
   it('shows the source path and delegates open actions through the desktop bridge', async () => {
     useI18n().setLocale('en')
     const openCapabilitySourceInEditor = vi.fn(async () => {})
+    const openCapabilityWorkingDirectory = vi.fn(async () => {})
     window.craftHubDesktop = {
       openCapabilitySourceInEditor,
+      openCapabilityWorkingDirectory,
     }
     const pinia = createPinia()
     setActivePinia(pinia)
@@ -70,11 +72,17 @@ describe('detail panel desktop actions', () => {
     expect(wrapper.get('[data-testid="open-source-editor"]').attributes('aria-label')).toBe('Open source in VS Code')
     expect(wrapper.get('[data-testid="open-source-editor"]').classes()).toContain('ui-button--ghost')
     expect(wrapper.get('[data-testid="open-source-editor"] .app-icon').classes()).toContain('i-ri-file-search-line')
+    expect(wrapper.get('[data-testid="open-source-location"]').attributes('title')).toBe('Open source in VS Code')
+    expect(wrapper.get('[data-testid="open-working-directory"]').attributes('title')).toBe('Open working directory in file manager')
 
     await wrapper.get('[data-testid="open-source-editor"]').trigger('click')
+    await wrapper.get('[data-testid="open-source-location"]').trigger('click')
+    await wrapper.get('[data-testid="open-working-directory"]').trigger('click')
     await flushPromises()
 
-    expect(openCapabilitySourceInEditor).toHaveBeenCalledWith(project.id, command.id)
+    expect(openCapabilitySourceInEditor).toHaveBeenCalledTimes(2)
+    expect(openCapabilitySourceInEditor).toHaveBeenLastCalledWith(project.id, command.id)
+    expect(openCapabilityWorkingDirectory).toHaveBeenCalledWith(project.id, command.id)
   })
 
   it('labels the source action with the configured editor', () => {
@@ -153,16 +161,44 @@ describe('detail panel desktop actions', () => {
     store.selectedProjectId = project.id
     store.capabilities = [{
       ...skill,
-      description: 'Release LiteApp safely. Use when publishing a reviewed version or updating its release MR.',
+      description: 'Release Widget safely. Use when publishing a reviewed version or updating its release MR.',
     }]
     store.selectedCapabilityId = skill.id
 
     const wrapper = mount(DetailPanel, { global: { plugins: [pinia] } })
     const overview = wrapper.get('[data-testid="skill-overview"]')
-    expect(overview.get('.skill-overview-summary').text()).toBe('Release LiteApp safely.')
+    expect(overview.get('.skill-overview-summary').text()).toBe('Release Widget safely.')
     expect(overview.get('.skill-use-when').text()).toContain('Best used when')
     expect(overview.get('.skill-use-when').text()).toContain('publishing a reviewed version')
     expect(overview.text()).not.toContain('Use when')
+  })
+
+  it('keeps the full SKILL.md preview collapsed until requested', async () => {
+    useI18n().setLocale('en')
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    const store = useWorkbenchStore()
+    store.projects = [project]
+    store.selectedProjectId = project.id
+    store.capabilities = [skill]
+    store.selectedCapabilityId = skill.id
+
+    const wrapper = mount(DetailPanel, { global: { plugins: [pinia] } })
+    const toggle = wrapper.get('[data-testid="skill-content-toggle"]')
+
+    expect(toggle.text()).toContain('SKILL.md')
+    expect(toggle.attributes('aria-expanded')).toBe('false')
+    expect(wrapper.find('[data-testid="skill-content-preview"]').exists()).toBe(false)
+
+    await toggle.trigger('click')
+    await flushPromises()
+    expect(toggle.attributes('aria-expanded')).toBe('true')
+    await vi.waitFor(() => expect(wrapper.find('[data-testid="skill-content-preview"]').exists()).toBe(true))
+    expect(wrapper.get('[data-testid="skill-content-preview"]').text()).toContain('Release skill')
+
+    await toggle.trigger('click')
+    expect(toggle.attributes('aria-expanded')).toBe('false')
+    expect(wrapper.find('[data-testid="skill-content-preview"]').exists()).toBe(false)
   })
 
   it('allows a configured skill to run directly from its default selections', async () => {
@@ -287,8 +323,23 @@ describe('detail panel desktop actions', () => {
       ...command,
       name: 'deploy',
       inputs: [
-        { id: 'environment', type: 'select', label: 'Environment', options: [{ value: 'dev' }, { value: 'rdm' }], default: 'dev', flag: '--env' },
-        { id: 'uin', type: 'text', label: 'UIN', description: 'Choose a target account.', flag: '--uin', visibleWhen: { input: 'environment', equals: 'dev' }, requiredWhen: { input: 'environment', equals: 'dev' } },
+        { id: 'environment', type: 'select', label: 'Environment', options: [{ value: 'dev' }, { value: 'staging' }], default: 'dev', flag: '--env' },
+        { id: 'askAccount', type: 'boolean', label: 'Choose account interactively', default: 'false', flag: '--ask-account' },
+        {
+          id: 'account',
+          type: 'text',
+          label: 'Account',
+          description: 'Choose a target account.',
+          flag: '--account',
+          visibleWhen: [
+            { input: 'environment', equals: 'dev' },
+            { input: 'askAccount', equals: 'false' },
+          ],
+          requiredWhen: [
+            { input: 'environment', equals: 'dev' },
+            { input: 'askAccount', equals: 'false' },
+          ],
+        },
       ],
     }
     store.projects = [{ ...project, trust: 'trusted' }]
@@ -297,28 +348,116 @@ describe('detail panel desktop actions', () => {
     store.selectedCapabilityId = parameterized.id
     const preview = vi.spyOn(store, 'previewSelectedCommand').mockImplementation(async (inputs = {}) => ({
       ...parameterized.invocation,
-      args: ['run', 'deploy', '--', `--env=${inputs.environment}`, ...(inputs.environment === 'dev' && inputs.uin ? [`--uin=${inputs.uin}`] : [])],
+      args: [
+        'run',
+        'deploy',
+        '--',
+        `--env=${inputs.environment}`,
+        ...(inputs.askAccount === 'true' ? ['--ask-account'] : []),
+        ...(inputs.environment === 'dev' && inputs.askAccount !== 'true' && inputs.account ? [`--account=${inputs.account}`] : []),
+      ],
     }))
     const run = vi.spyOn(store, 'runSelected').mockResolvedValue()
 
     const wrapper = mount(DetailPanel, { attachTo: document.body, global: { plugins: [pinia] } })
     await flushPromises()
-    expect(wrapper.get('.command-input-fields').findAll('.command-input-field')).toHaveLength(2)
+    expect(wrapper.get('.command-input-fields').findAll('.command-input-field')).toHaveLength(3)
     expect(wrapper.get('.command-input-actions').get('button').attributes('type')).toBe('submit')
     expect(wrapper.get('[role="combobox"]').text()).toContain('dev')
-    expect(wrapper.get('input').attributes('required')).toBeDefined()
+    expect((wrapper.get('input[type="checkbox"]').element as HTMLInputElement).checked).toBe(false)
+    expect(wrapper.get('input[type="text"]').attributes('required')).toBeDefined()
 
-    await wrapper.get('input').setValue('12345')
+    await wrapper.get('input[type="text"]').setValue('12345')
     await flushPromises()
-    expect(preview).toHaveBeenLastCalledWith({ environment: 'dev', uin: '12345' })
-    expect(wrapper.text()).toContain('--uin=12345')
+    expect(preview).toHaveBeenLastCalledWith({ environment: 'dev', askAccount: 'false', account: '12345' })
+    expect(wrapper.text()).toContain('--account=12345')
 
-    wrapper.getComponent(Select).vm.$emit('update:modelValue', 'rdm')
+    await wrapper.get('input[type="checkbox"]').setValue(true)
     await flushPromises()
-    expect(wrapper.get('input').element.closest<HTMLElement>('.command-input-field')?.style.display).toBe('none')
+    expect(preview).toHaveBeenLastCalledWith({ environment: 'dev', askAccount: 'true', account: '12345' })
+    expect(wrapper.text()).toContain('--ask-account')
+    expect(wrapper.get('input[type="text"]').element.closest<HTMLElement>('.command-input-field')?.style.display).toBe('none')
+
+    wrapper.getComponent(Select).vm.$emit('update:modelValue', 'staging')
+    await flushPromises()
+    expect(wrapper.get('input[type="text"]').element.closest<HTMLElement>('.command-input-field')?.style.display).toBe('none')
     await wrapper.get('form').trigger('submit')
     await flushPromises()
-    expect(run).toHaveBeenCalledWith({ environment: 'rdm', uin: '12345' })
+    expect(run).toHaveBeenCalledWith({ environment: 'staging', askAccount: 'true', account: '12345' })
+  })
+
+  it('initializes select, text, and boolean command inputs from configured defaults', async () => {
+    useI18n().setLocale('en')
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    const parameterized: CommandCapability = {
+      ...command,
+      name: 'deploy',
+      inputs: [
+        { id: 'environment', type: 'select', label: 'Environment', options: [{ value: 'dev' }, { value: 'staging' }], default: 'staging', flag: '--env' },
+        { id: 'entry', type: 'text', label: 'Initial page', default: 'pages/home/index?pf=ios', flag: '--entry' },
+        { id: 'silent', type: 'boolean', label: 'Update without opening', default: 'true', flag: '--silent' },
+      ],
+    }
+    const store = useWorkbenchStore()
+    store.projects = [{ ...project, trust: 'trusted' }]
+    store.selectedProjectId = project.id
+    store.capabilities = [parameterized]
+    store.selectedCapabilityId = parameterized.id
+    const preview = vi.spyOn(store, 'previewSelectedCommand').mockResolvedValue({
+      ...parameterized.invocation,
+      args: ['run', 'deploy', '--', '--env=staging', '--entry=pages/home/index?pf=ios', '--silent'],
+    })
+
+    const wrapper = mount(DetailPanel, { attachTo: document.body, global: { plugins: [pinia] } })
+    await flushPromises()
+
+    expect(wrapper.get('[role="combobox"]').text()).toContain('staging')
+    expect((wrapper.get('#command-input-entry').element as HTMLInputElement).value).toBe('pages/home/index?pf=ios')
+    expect((wrapper.get('#command-input-silent').element as HTMLInputElement).checked).toBe(true)
+    expect(preview).toHaveBeenCalledWith({ environment: 'staging', entry: 'pages/home/index?pf=ios', silent: 'true' })
+    expect(wrapper.text()).toContain('pnpm run deploy -- --env=staging --entry=pages/home/index?pf=ios --silent')
+  })
+
+  it('shows a release plan and requires a separate per-run confirmation', async () => {
+    useI18n().setLocale('en')
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    const store = useWorkbenchStore()
+    const release: CommandCapability = {
+      ...command,
+      id: 'release-command',
+      name: 'release',
+      operation: { kind: 'release', requiresCleanGit: true, workflowPath: '.github/workflows/release.yml' },
+    }
+    store.projects = [{ ...project, trust: 'trusted' }]
+    store.selectedProjectId = project.id
+    store.capabilities = [release]
+    store.selectedCapabilityId = release.id
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+      capabilityId: release.id,
+      branch: 'main',
+      clean: true,
+      currentVersion: '0.1.0',
+      proposedTag: 'v0.1.0',
+      workflowPath: '.github/workflows/release.yml',
+      workflowExists: true,
+      effects: ['Update versions.', 'Create tag.', 'Publish with OIDC.'],
+      blockers: [],
+      warnings: [],
+    }), { status: 200, headers: { 'content-type': 'application/json' } }))
+    const run = vi.spyOn(store, 'runSelected').mockResolvedValue()
+
+    const wrapper = mount(DetailPanel, { attachTo: document.body, global: { plugins: [pinia] } })
+    await flushPromises()
+    expect(wrapper.get('[data-testid="release-plan"]').text()).toContain('v0.1.0')
+    expect(wrapper.get('[data-testid="release-plan"]').text()).toContain('Ready')
+
+    await wrapper.get('button.ui-button--primary').trigger('click')
+    expect(run).not.toHaveBeenCalled()
+    expect(wrapper.get('[data-testid="release-confirmation"]').text()).toContain('Confirm this release')
+    await wrapper.get('[data-testid="confirm-release"]').trigger('click')
+    expect(run).toHaveBeenCalledWith({})
   })
 
   it('reviews the exact command before trusting and running an untrusted project', async () => {

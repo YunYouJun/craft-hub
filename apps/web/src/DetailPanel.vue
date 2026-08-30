@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import type { AgentTaskRecord, CommandInputCondition, CommandInputDefinition, CommandInputValues, CommandInvocation, SkillCapability, SkillInputDefinition } from 'craft-hub'
+import type { AgentTaskRecord, CommandInputConditions, CommandInputDefinition, CommandInputValues, CommandInvocation, ReleasePlan, SkillCapability, SkillInputDefinition } from 'craft-hub'
 import { resolveSkillInputSelections } from 'craft-hub/skill-inputs'
 import { buildSkillInvocationPrompt } from 'craft-hub/skill-prompts'
 import { computed, defineAsyncComponent, ref, watch } from 'vue'
 import AgentTaskOutput from './AgentTaskOutput.vue'
+import { api } from './api'
 import { Button as UiButton } from './components/ui/button'
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from './components/ui/select'
 import { Icon } from './icons'
@@ -34,13 +35,12 @@ const sourceEditorName = computed(() => {
   const editor = store.settings?.settings['workbench.editor']
   if (!editor || editor.default === 'vscode')
     return 'VS Code'
-  if (editor.default === 'codebuddy')
-    return 'CodeBuddy'
   if (editor.default === 'cursor')
     return 'Cursor'
   return editor.custom?.name ?? t('editor')
 })
 const openSourceLabel = computed(() => t('openSourceInEditor', { editor: sourceEditorName.value }))
+const openWorkingDirectoryLabel = computed(() => t(desktopActions.value?.platform === 'darwin' ? 'openWorkingDirectoryInFinder' : 'openWorkingDirectoryInFileManager'))
 const commandInputs = computed(() => store.activeCapability?.kind === 'command' ? store.activeCapability.inputs ?? [] : [])
 const skillInputs = computed(() => store.activeCapability?.kind === 'skill' ? store.activeCapability.inputs ?? [] : [])
 const inputValues = ref<CommandInputValues>({})
@@ -48,11 +48,16 @@ const skillInputValues = ref<CommandInputValues>({})
 const resolvedInvocation = ref<CommandInvocation>()
 const previewError = ref('')
 const trustRunOpen = ref(false)
+const releasePlan = ref<ReleasePlan>()
+const releasePlanLoading = ref(false)
+const releasePlanError = ref('')
+const releaseConfirmationOpen = ref(false)
 const skillSupplementalRequest = ref('')
 const skillTaskId = ref('')
 const skillTaskStarting = ref(false)
 const skillNotice = ref('')
 const skillInvocation = ref<'codex-app' | 'background'>('codex-app')
+const skillContentExpanded = ref(false)
 const skillInputError = computed(() => {
   const skill = store.activeCapability
   if (skill?.kind !== 'skill')
@@ -100,8 +105,11 @@ const skillTask = computed(() => {
     ?? store.agentTasks.find(task => task.capabilityId === capability.id && task.primaryProjectId === project.id)
 })
 
-function conditionMatches(condition: CommandInputCondition | undefined, values: CommandInputValues): boolean {
-  return condition === undefined || values[condition.input] === condition.equals
+function conditionMatches(condition: CommandInputConditions | undefined, values: CommandInputValues): boolean {
+  if (condition === undefined)
+    return true
+  const conditions = Array.isArray(condition) ? condition : [condition]
+  return conditions.every(item => values[item.input] === item.equals)
 }
 
 function inputVisible(input: CommandInputDefinition): boolean {
@@ -110,6 +118,28 @@ function inputVisible(input: CommandInputDefinition): boolean {
 
 function inputRequired(input: CommandInputDefinition): boolean {
   return input.required === true || (input.requiredWhen !== undefined && conditionMatches(input.requiredWhen, inputValues.value))
+}
+
+function releaseEffectText(effect: string): string {
+  if (effect === 'Update workspace package versions.')
+    return t('releaseEffectVersions')
+  if (effect === 'Create a release commit and Git tag.')
+    return t('releaseEffectGitTag')
+  if (effect.startsWith('Push the tag so '))
+    return t('releaseEffectWorkflow', { workflow: releasePlan.value?.workflowPath ?? '' })
+  return effect
+}
+
+function releaseIssueText(issue: string): string {
+  if (issue === 'Git worktree has uncommitted changes.')
+    return t('releaseIssueDirty')
+  if (issue === 'No publication workflow is associated with this release command.')
+    return t('releaseIssueNoWorkflow')
+  return issue
+}
+
+function updateBooleanInput(input: CommandInputDefinition, event: Event): void {
+  inputValues.value[input.id] = (event.target as HTMLInputElement).checked ? 'true' : 'false'
 }
 
 function skillInputVisible(input: SkillInputDefinition): boolean {
@@ -133,6 +163,7 @@ watch(() => store.activeCapability?.id, () => {
   skillTaskId.value = ''
   skillNotice.value = ''
   skillInvocation.value = 'codex-app'
+  skillContentExpanded.value = false
 }, { immediate: true })
 watch(
   [() => store.activeProject?.id, () => store.activeCapability?.id, () => ({ ...inputValues.value })],
@@ -167,9 +198,40 @@ const displayedInvocation = computed(() => {
   return resolvedInvocation.value ?? capability.invocation
 })
 
+const isRelease = computed(() => store.activeCapability?.kind === 'command' && store.activeCapability.operation?.kind === 'release')
+
+watch(
+  [() => store.activeProject?.id, () => store.activeCapability?.id],
+  async ([projectId, capabilityId]) => {
+    releasePlan.value = undefined
+    releasePlanError.value = ''
+    releaseConfirmationOpen.value = false
+    if (!projectId || !capabilityId || !isRelease.value)
+      return
+    releasePlanLoading.value = true
+    try {
+      releasePlan.value = await api.releasePlan(projectId, capabilityId)
+    }
+    catch (caught) {
+      releasePlanError.value = caught instanceof Error ? caught.message : String(caught)
+    }
+    finally {
+      releasePlanLoading.value = false
+    }
+  },
+  { immediate: true },
+)
+
 async function runCommand(): Promise<void> {
   if (previewError.value)
     return
+  if (isRelease.value && !releaseConfirmationOpen.value) {
+    releaseConfirmationOpen.value = true
+    return
+  }
+  if (isRelease.value && (!releasePlan.value || releasePlan.value.blockers.length))
+    return
+  releaseConfirmationOpen.value = false
   await store.runSelected({ ...inputValues.value })
 }
 
@@ -190,6 +252,14 @@ function openSource(): Promise<void> {
   const capability = store.activeCapability
   return openTarget(project && capability
     ? () => desktopActions.value?.openCapabilitySourceInEditor?.(project.id, capability.id) ?? Promise.resolve()
+    : undefined)
+}
+
+function openWorkingDirectory(): Promise<void> {
+  const project = store.activeProject
+  const capability = store.activeCapability
+  return openTarget(project && capability?.kind === 'command'
+    ? () => desktopActions.value?.openCapabilityWorkingDirectory?.(project.id, capability.id) ?? Promise.resolve()
     : undefined)
 }
 
@@ -264,44 +334,89 @@ function openSkillThread(): Promise<void> {
           {{ store.activeCapability.description }}
         </p>
         <dl class="preview-grid">
-          <template v-if="sourceLocation"><dt>{{ t('sourceFile') }}</dt><dd class="source-path">{{ sourceLocation }}</dd></template>
+          <template v-if="sourceLocation">
+            <dt>{{ t('sourceFile') }}</dt>
+            <dd class="source-path">
+              <button v-if="desktopActions" class="preview-path-link" type="button" data-testid="open-source-location" :aria-label="openSourceLabel" :title="openSourceLabel" @click="openSource">
+                {{ sourceLocation }}
+              </button>
+              <template v-else>{{ sourceLocation }}</template>
+            </dd>
+          </template>
           <dt>{{ t('command') }}</dt><dd><code>{{ displayedInvocation ? [displayedInvocation.command, ...displayedInvocation.args].join(' ') : '' }}</code></dd>
-          <dt>{{ t('workingDirectory') }}</dt><dd>{{ displayedInvocation?.cwd }}</dd>
+          <dt>{{ t('workingDirectory') }}</dt>
+          <dd>
+            <button v-if="desktopActions" class="preview-path-link" type="button" data-testid="open-working-directory" :aria-label="openWorkingDirectoryLabel" :title="openWorkingDirectoryLabel" @click="openWorkingDirectory">
+              {{ displayedInvocation?.cwd }}
+            </button>
+            <template v-else>{{ displayedInvocation?.cwd }}</template>
+          </dd>
           <dt>{{ t('requiredEnvironment') }}</dt><dd>{{ displayedInvocation?.requiredEnv.join(', ') || t('none') }}</dd>
         </dl>
+        <section v-if="isRelease" class="release-plan" data-testid="release-plan">
+          <header><span><Icon name="rocket" /> {{ t('releasePlanTitle') }}</span><em v-if="releasePlan" :class="releasePlan.blockers.length ? 'blocked' : 'ready'">{{ t(releasePlan.blockers.length ? 'releaseBlocked' : 'releaseReady') }}</em></header>
+          <p v-if="releasePlanLoading">{{ t('releaseChecking') }}</p>
+          <p v-else-if="releasePlanError" class="error-message">{{ releasePlanError }}</p>
+          <template v-else-if="releasePlan">
+            <dl>
+              <div><dt>{{ t('releaseVersion') }}</dt><dd>{{ releasePlan.currentVersion || t('unknown') }}<template v-if="releasePlan.proposedTag"> · {{ releasePlan.proposedTag }}</template></dd></div>
+              <div><dt>{{ t('releaseBranch') }}</dt><dd>{{ releasePlan.branch || t('detachedHead') }}</dd></div>
+              <div><dt>{{ t('releaseWorktree') }}</dt><dd>{{ t(releasePlan.clean ? 'releaseWorktreeClean' : 'releaseWorktreeDirty') }}</dd></div>
+              <div v-if="releasePlan.workflowPath"><dt>{{ t('releaseWorkflow') }}</dt><dd><code>{{ releasePlan.workflowPath }}</code></dd></div>
+            </dl>
+            <h4>{{ t('releaseEffects') }}</h4>
+            <ol><li v-for="effect in releasePlan.effects" :key="effect">{{ releaseEffectText(effect) }}</li></ol>
+            <p v-for="blocker in releasePlan.blockers" :key="blocker" class="release-issue blocked"><Icon name="close" /> {{ releaseIssueText(blocker) }}</p>
+            <p v-for="warning in releasePlan.warnings" :key="warning" class="release-issue warning"><Icon name="error" /> {{ releaseIssueText(warning) }}</p>
+          </template>
+        </section>
         <form v-if="commandInputs.length" class="command-input-form" @submit.prevent="runCommand">
           <div class="command-input-fields">
             <div v-for="input in commandInputs" v-show="inputVisible(input)" :key="input.id" class="command-input-field">
-              <label :for="`command-input-${input.id}`">{{ input.label ?? input.id }}<small v-if="inputRequired(input)"> *</small></label>
-              <Select v-if="input.type === 'select'" v-model="inputValues[input.id]" :required="inputRequired(input)">
-                <SelectTrigger :id="`command-input-${input.id}`" :aria-required="inputRequired(input)">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectGroup>
-                    <SelectItem v-for="option in input.options" :key="option.value" :value="option.value">
-                      {{ option.label ?? option.value }}
-                    </SelectItem>
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
-              <input v-else :id="`command-input-${input.id}`" v-model.trim="inputValues[input.id]" type="text" :pattern="input.pattern" :required="inputRequired(input)">
+              <label v-if="input.type === 'boolean'" class="command-input-toggle" :for="`command-input-${input.id}`">
+                <input :id="`command-input-${input.id}`" type="checkbox" :checked="inputValues[input.id] === 'true'" :required="inputRequired(input)" :aria-required="inputRequired(input)" @change="updateBooleanInput(input, $event)">
+                <span>{{ input.label ?? input.id }}<small v-if="inputRequired(input)"> *</small></span>
+              </label>
+              <template v-else>
+                <label :for="`command-input-${input.id}`">{{ input.label ?? input.id }}<small v-if="inputRequired(input)"> *</small></label>
+                <Select v-if="input.type === 'select'" v-model="inputValues[input.id]" :required="inputRequired(input)">
+                  <SelectTrigger :id="`command-input-${input.id}`" :aria-required="inputRequired(input)">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      <SelectItem v-for="option in input.options" :key="option.value" :value="option.value">
+                        {{ option.label ?? option.value }}
+                      </SelectItem>
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+                <input v-else :id="`command-input-${input.id}`" v-model.trim="inputValues[input.id]" :type="input.private ? 'password' : 'text'" :autocomplete="input.private ? 'off' : undefined" :pattern="input.pattern" :required="inputRequired(input)">
+              </template>
               <small v-if="input.description" class="command-input-description">{{ input.description }}</small>
             </div>
           </div>
           <p v-if="previewError" class="error-message">{{ previewError }}</p>
           <div v-if="store.activeProject?.trust === 'trusted'" class="command-input-actions">
-            <UiButton variant="primary" type="submit" :disabled="store.busy || Boolean(previewError)">
-              <Icon name="play" /> {{ store.busy ? t('running') : t('runCommand') }}
+            <UiButton variant="primary" type="submit" :disabled="store.busy || Boolean(previewError) || store.activeCapability.availability?.available === false">
+              <Icon :name="isRelease ? 'rocket' : 'play'" /> {{ store.busy ? t('running') : t(isRelease ? 'reviewRelease' : 'runCommand') }}
             </UiButton>
           </div>
         </form>
-        <UiButton v-if="store.activeProject?.trust !== 'trusted'" data-testid="review-trust" variant="warning" :disabled="store.busy || Boolean(previewError)" @click="trustRunOpen = true">
+        <UiButton v-if="store.activeProject?.trust !== 'trusted'" data-testid="review-trust" variant="warning" :disabled="store.busy || Boolean(previewError) || store.activeCapability.availability?.available === false" @click="trustRunOpen = true">
           <Icon name="trusted" /> {{ t('reviewTrustAndRun') }}
         </UiButton>
-        <UiButton v-else-if="!commandInputs.length" variant="primary" :disabled="store.busy" @click="runCommand">
-          <Icon name="play" /> {{ store.busy ? t('running') : t('runCommand') }}
+        <UiButton v-else-if="!commandInputs.length" variant="primary" :disabled="store.busy || store.activeCapability.availability?.available === false" @click="runCommand">
+          <Icon :name="isRelease ? 'rocket' : 'play'" /> {{ store.busy ? t('running') : t(isRelease ? 'reviewRelease' : 'runCommand') }}
         </UiButton>
+        <section v-if="isRelease && releaseConfirmationOpen" class="release-confirmation" data-testid="release-confirmation">
+          <div><strong>{{ t('confirmReleaseTitle') }}</strong><p>{{ t('confirmReleaseDescription', { tag: releasePlan?.proposedTag ?? t('unknown') }) }}</p></div>
+          <span>
+            <UiButton @click="releaseConfirmationOpen = false">{{ t('cancel') }}</UiButton>
+            <UiButton data-testid="confirm-release" variant="warning" :disabled="store.busy || !releasePlan || releasePlan.blockers.length > 0" @click="runCommand"><Icon name="rocket" /> {{ t('confirmRelease') }}</UiButton>
+          </span>
+        </section>
+        <p v-if="store.activeCapability.availability?.available === false" class="error-message">{{ store.activeCapability.availability.diagnostic }}</p>
         <p v-if="store.error" class="error-message">{{ store.error }}</p>
 
         <section v-if="store.terminalVisible" class="run-panel">
@@ -411,7 +526,23 @@ function openSkillThread(): Promise<void> {
           <AgentTaskOutput v-if="skillTask" :task="skillTask" />
           <p v-if="skillTask?.finalResponse" class="skill-agent-response">{{ skillTask.finalResponse }}</p>
         </form>
-        <SkillContentPreview :content="store.activeCapability.content" />
+        <section class="skill-source-disclosure">
+          <button
+            class="skill-source-toggle"
+            type="button"
+            data-testid="skill-content-toggle"
+            :aria-expanded="skillContentExpanded"
+            aria-controls="skill-source-content"
+            @click="skillContentExpanded = !skillContentExpanded"
+          >
+            <span class="skill-source-label">
+              <Icon name="docs" />
+              <span><strong>SKILL.md</strong><small>{{ t('skillSourceDescription') }}</small></span>
+            </span>
+            <Icon name="arrowDown" />
+          </button>
+          <SkillContentPreview v-if="skillContentExpanded" id="skill-source-content" :content="store.activeCapability.content" />
+        </section>
       </template>
     </template>
     <TrustRunDialog v-model:open="trustRunOpen" :invocation="displayedInvocation" :inputs="inputValues" :source="sourceLocation" />

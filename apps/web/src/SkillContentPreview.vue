@@ -25,6 +25,7 @@ watch(() => props.content, async (content) => {
     const html = instance.codeToHtml(content, {
       lang: 'markdown',
       themes: { light: 'github-light', dark: 'github-dark' },
+      defaultColor: false,
     })
     if (sequence === renderSequence)
       highlighted.value = html

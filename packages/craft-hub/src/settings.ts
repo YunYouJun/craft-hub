@@ -4,6 +4,7 @@ import { copyFile, mkdir, readdir, readFile, rename, rm, writeFile } from 'node:
 import { basename, dirname, join } from 'node:path'
 import { watch } from 'chokidar'
 import { z } from 'zod'
+import { craftHubVersion } from './version'
 
 /** File name used for editable global settings. */
 export const settingsFileName = 'settings.json'
@@ -21,7 +22,7 @@ const codexSettingSchema = z.object({
   model: z.string().trim().min(1).max(128).refine(value => !value.includes('\0'), 'Codex model cannot contain NUL').optional(),
   reasoningEffort: codexReasoningEffortSchema.optional(),
 }).strict()
-const editorIdSchema = z.enum(['vscode', 'codebuddy', 'cursor', 'custom'])
+const editorIdSchema = z.enum(['vscode', 'cursor', 'custom'])
 const customEditorSchema = z.object({
   name: z.string().trim().min(1).max(64),
   command: z.string().trim().min(1).max(1024).refine(value => !value.includes('\0'), 'Editor command cannot contain NUL'),
@@ -231,7 +232,7 @@ export class CraftHubSettingsService {
   private readonly listeners = new Set<(snapshot: SettingsSnapshot) => void>()
   private writeTail: Promise<void> = Promise.resolve()
 
-  constructor(readonly dataDir: string, readonly applicationVersion = '0.0.1-alpha.0') {
+  constructor(readonly dataDir: string, readonly applicationVersion = craftHubVersion) {
     this.path = join(dataDir, settingsFileName)
     this.schemaPath = join(dataDir, settingsSchemaFileName)
     this.lastGoodPath = join(dataDir, 'settings.last-good.json')

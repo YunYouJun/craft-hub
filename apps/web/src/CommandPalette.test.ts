@@ -62,21 +62,21 @@ describe('command palette', () => {
     const store = useWorkbenchStore()
     store.ownerScopes = [
       { id: 'personal', kind: 'personal', name: 'Personal' },
-      { id: 'tencent', kind: 'team', name: 'Tencent' },
+      { id: 'acme', kind: 'team', name: 'Acme' },
     ]
     store.loadOwnerScopeWorkspaceIndex = vi.fn(async () => {})
     store.switchOwnerScope = vi.fn(async () => {})
     mount(CommandPalette, { props: { open: true }, global: { plugins: [pinia] }, attachTo: document.body })
     await flushPromises()
     const input = document.body.querySelector<HTMLInputElement>('.palette-search input')!
-    input.value = 'Tencent'
+    input.value = 'Acme'
     input.dispatchEvent(new Event('input', { bubbles: true }))
     await flushPromises()
 
-    const option = [...document.body.querySelectorAll<HTMLButtonElement>('[role="option"]')].find(item => item.textContent?.includes('Tencent'))!
+    const option = [...document.body.querySelectorAll<HTMLButtonElement>('[role="option"]')].find(item => item.textContent?.includes('Acme'))!
     option.click()
     await flushPromises()
 
-    expect(store.switchOwnerScope).toHaveBeenCalledWith('tencent')
+    expect(store.switchOwnerScope).toHaveBeenCalledWith('acme')
   })
 })

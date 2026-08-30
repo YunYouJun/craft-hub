@@ -14,21 +14,21 @@ describe('team lifecycle', () => {
     const repositoryPath = join(root, 'shared')
     await execFileAsync('git', ['init', repositoryPath])
     const runtime = new CraftHubRuntime({ dataDir: join(root, 'data'), configDir: join(root, 'config') })
-    const team = await runtime.teams.create({ name: 'Tencent', repositoryPath })
+    const team = await runtime.teams.create({ name: 'Acme', repositoryPath })
     const workspace = await runtime.workspaces.create('Shared App', team.id)
     const group = await runtime.workspaces.createGroup('Products', team.id)
     await runtime.workspaces.assignGroup(workspace.id, group.id, team.id)
     await runtime.workspaces.updateUiState({ expandedWorkspaceIds: [workspace.id], selectedWorkspaceId: workspace.id }, team.id)
 
-    await expect(runtime.teams.rename(team.id, 'Tencent Cloud')).resolves.toEqual({ ...team, name: 'Tencent Cloud' })
+    await expect(runtime.teams.rename(team.id, 'Acme Platform')).resolves.toEqual({ ...team, name: 'Acme Platform' })
     await expect(runtime.teamGitSync.status(team.id)).resolves.toMatchObject({ state: 'local-ahead' })
-    await expect(runtime.teams.delete(team.id, 'Tencent')).rejects.toThrow('Type the Team name exactly')
+    await expect(runtime.teams.delete(team.id, 'Acme')).rejects.toThrow('Type the Team name exactly')
     await expect(runtime.workspaces.list(team.id)).resolves.toHaveLength(1)
 
-    const result = await runtime.teams.delete(team.id, 'Tencent Cloud')
+    const result = await runtime.teams.delete(team.id, 'Acme Platform')
 
     expect(result).toMatchObject({
-      team: { id: team.id, name: 'Tencent Cloud' },
+      team: { id: team.id, name: 'Acme Platform' },
       deletedWorkspaceCount: 1,
       deletedGroupCount: 1,
     })

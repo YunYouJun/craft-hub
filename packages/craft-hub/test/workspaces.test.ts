@@ -22,31 +22,31 @@ describe('portable workspaces', () => {
     const fixture = await setup()
     const personal = await fixture.workspaces.create('Personal App')
     const personalGroup = await fixture.workspaces.createGroup('Personal Group')
-    const team = await fixture.workspaces.create('Team App', 'tencent')
-    const teamGroup = await fixture.workspaces.createGroup('Team Group', 'tencent')
+    const team = await fixture.workspaces.create('Team App', 'acme')
+    const teamGroup = await fixture.workspaces.createGroup('Team Group', 'acme')
     const workspaceProjectPath = join(fixture.root, 'workspace-project')
     await mkdir(workspaceProjectPath)
     const workspaceProject = await fixture.projects.add(workspaceProjectPath)
 
     await fixture.workspaces.assignGroup(personal.id, personalGroup.id, 'personal')
-    await fixture.workspaces.assignGroup(team.id, teamGroup.id, 'tencent')
-    await fixture.workspaces.addProject(team.id, workspaceProject.id, 'tencent')
-    await fixture.workspaces.assignProjectGroup(fixture.project.id, teamGroup.id, 'tencent')
-    await fixture.workspaces.updateUiState({ expandedWorkspaceIds: [team.id], selectedWorkspaceId: team.id }, 'tencent')
+    await fixture.workspaces.assignGroup(team.id, teamGroup.id, 'acme')
+    await fixture.workspaces.addProject(team.id, workspaceProject.id, 'acme')
+    await fixture.workspaces.assignProjectGroup(fixture.project.id, teamGroup.id, 'acme')
+    await fixture.workspaces.updateUiState({ expandedWorkspaceIds: [team.id], selectedWorkspaceId: team.id }, 'acme')
 
     await expect(fixture.workspaces.list()).resolves.toMatchObject([{ id: personal.id, ownerScopeId: 'personal' }])
-    await expect(fixture.workspaces.list('tencent')).resolves.toMatchObject([{ id: team.id, ownerScopeId: 'tencent' }])
+    await expect(fixture.workspaces.list('acme')).resolves.toMatchObject([{ id: team.id, ownerScopeId: 'acme' }])
     await expect(fixture.workspaces.groups()).resolves.toMatchObject([{ id: personalGroup.id }])
-    await expect(fixture.workspaces.groups('tencent')).resolves.toMatchObject([{ id: teamGroup.id, ownerScopeId: 'tencent' }])
+    await expect(fixture.workspaces.groups('acme')).resolves.toMatchObject([{ id: teamGroup.id, ownerScopeId: 'acme' }])
     await expect(fixture.workspaces.projectGroupAssignments()).resolves.toEqual({})
-    await expect(fixture.workspaces.projectGroupAssignments('tencent')).resolves.toEqual({ [fixture.project.id]: teamGroup.id })
-    await expect(fixture.workspaces.projectOwnerScopes(['personal', 'tencent'])).resolves.toEqual({
-      [fixture.project.id]: ['tencent'],
-      [workspaceProject.id]: ['tencent'],
+    await expect(fixture.workspaces.projectGroupAssignments('acme')).resolves.toEqual({ [fixture.project.id]: teamGroup.id })
+    await expect(fixture.workspaces.projectOwnerScopes(['personal', 'acme'])).resolves.toEqual({
+      [fixture.project.id]: ['acme'],
+      [workspaceProject.id]: ['acme'],
     })
     await expect(fixture.workspaces.uiState()).resolves.toEqual({ expandedWorkspaceIds: [] })
-    await expect(fixture.workspaces.uiState('tencent')).resolves.toEqual({ expandedWorkspaceIds: [team.id], selectedWorkspaceId: team.id })
-    await expect(fixture.workspaces.assignGroup(team.id, personalGroup.id, 'tencent')).rejects.toThrow('same owner scope')
+    await expect(fixture.workspaces.uiState('acme')).resolves.toEqual({ expandedWorkspaceIds: [team.id], selectedWorkspaceId: team.id })
+    await expect(fixture.workspaces.assignGroup(team.id, personalGroup.id, 'acme')).rejects.toThrow('same owner scope')
     await expect(fixture.workspaces.get(team.id, 'personal')).rejects.toThrow('does not belong')
   })
 
@@ -71,9 +71,9 @@ describe('portable workspaces', () => {
       workspaceOrder: [],
       groups: [{ id: personalGroup.id, name: 'Foreign group' }],
       workspaceGroups: {},
-    }, 'tencent')).rejects.toThrow('belongs to another owner scope')
+    }, 'acme')).rejects.toThrow('belongs to another owner scope')
     await expect(fixture.workspaces.groups()).resolves.toHaveLength(1)
-    await expect(fixture.workspaces.groups('tencent')).resolves.toEqual([])
+    await expect(fixture.workspaces.groups('acme')).resolves.toEqual([])
   })
   it('owns editable groups separately from workspace manifests', async () => {
     const fixture = await setup()

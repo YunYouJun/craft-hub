@@ -367,6 +367,17 @@ export async function startCraftHubServer(options: CraftHubServerOptions = {}): 
       if (request.method === 'GET' && url.pathname === '/api/marketplace/sources')
         return sendJson(response, 200, await runtime.pluginManager.listSources())
 
+      if (request.method === 'POST' && url.pathname === '/api/marketplace/sources/preview') {
+        const body = await jsonBody(request)
+        if (typeof body.catalogUrl !== 'string')
+          return sendJson(response, 400, { error: 'catalogUrl is required' })
+        return sendJson(response, 200, await runtime.pluginManager.previewSource({
+          name: typeof body.name === 'string' ? body.name : undefined,
+          catalogUrl: body.catalogUrl,
+          registry: typeof body.registry === 'string' ? body.registry : undefined,
+        }))
+      }
+
       if (request.method === 'POST' && url.pathname === '/api/marketplace/sources') {
         const body = await jsonBody(request)
         if (typeof body.name !== 'string' || typeof body.catalogUrl !== 'string')
@@ -585,6 +596,8 @@ export async function startCraftHubServer(options: CraftHubServerOptions = {}): 
           return sendJson(response, 200, await runtime.capabilities(projectId))
         if (request.method === 'GET' && parts[3] === 'capability-discovery')
           return sendJson(response, 200, await runtime.capabilityDiscovery(projectId))
+        if (request.method === 'GET' && parts[3] === 'release-plan' && parts[4])
+          return sendJson(response, 200, await runtime.releasePlan(projectId, decodeURIComponent(parts[4])))
         if (parts[3] === 'agent-actions') {
           const locale = url.searchParams.get('locale') ?? (await runtime.settings.get()).settings['workbench.locale']
           if (locale !== 'en' && locale !== 'zh-CN')

@@ -1,11 +1,11 @@
 import type { VNode } from 'vue'
 import { h } from 'vue'
 
-export type IconName = 'arrowDown' | 'arrowRight' | 'calendar' | 'chart' | 'check' | 'close' | 'cloud' | 'code' | 'codebuddy' | 'codex' | 'collection' | 'cursor' | 'database' | 'design' | 'docs' | 'drag' | 'edit' | 'error' | 'experiment' | 'folder' | 'folderOpen' | 'gitRepository' | 'hub' | 'loading' | 'mobile' | 'more' | 'package' | 'palette' | 'personal' | 'plugins' | 'plus' | 'rocket' | 'search' | 'security' | 'settings' | 'source' | 'star' | 'starFilled' | 'stop' | 'team' | 'terminal' | 'terminalApp' | 'skill' | 'play' | 'trusted' | 'untrusted' | 'refresh' | 'vscode' | 'web' | 'workspace'
+export type IconName = 'arrowDown' | 'arrowRight' | 'calendar' | 'chart' | 'check' | 'close' | 'cloud' | 'code' | 'codex' | 'collection' | 'cursor' | 'database' | 'design' | 'docs' | 'drag' | 'edit' | 'error' | 'experiment' | 'folder' | 'folderOpen' | 'gitRepository' | 'hub' | 'loading' | 'mobile' | 'more' | 'package' | 'palette' | 'personal' | 'plugins' | 'plus' | 'rocket' | 'search' | 'security' | 'settings' | 'source' | 'star' | 'starFilled' | 'stop' | 'team' | 'terminal' | 'terminalApp' | 'skill' | 'play' | 'trusted' | 'untrusted' | 'refresh' | 'vscode' | 'web' | 'workspace'
 
 export const visualIconNames = ['workspace', 'folder', 'hub', 'code', 'docs', 'design', 'database', 'package', 'rocket', 'team', 'experiment', 'security', 'cloud', 'mobile', 'web', 'terminal', 'skill', 'settings', 'calendar', 'chart'] as const satisfies readonly IconName[]
 
-export const iconClasses: Record<Exclude<IconName, 'codebuddy' | 'codex' | 'cursor' | 'plugins' | 'vscode'>, string> = {
+export const iconClasses: Record<Exclude<IconName, 'codex' | 'cursor' | 'plugins' | 'vscode'>, string> = {
   arrowDown: 'i-ri-arrow-down-s-line',
   arrowRight: 'i-ri-arrow-right-s-line',
   calendar: 'i-ri-calendar-line',
@@ -81,19 +81,6 @@ export function Icon(props: { name: IconName }): VNode {
       h('path', { fill: '#0065a9', d: 'm29.01 5.03-5.766-2.776a1.74 1.74 0 0 0-1.989.338L2.38 19.8a1.166 1.166 0 0 0-.08 1.647q.037.04.077.077l1.541 1.4a1.165 1.165 0 0 0 1.489.066L28.142 5.75A1.158 1.158 0 0 1 30 6.672v-.067a1.75 1.75 0 0 0-.99-1.575' }),
       h('path', { fill: '#007acc', d: 'm29.01 26.97-5.766 2.777a1.745 1.745 0 0 1-1.989-.338L2.38 12.2a1.166 1.166 0 0 1-.08-1.647q.037-.04.077-.077l1.541-1.4A1.165 1.165 0 0 1 5.41 9.01l22.732 17.24A1.158 1.158 0 0 0 30 25.328v.072a1.75 1.75 0 0 1-.99 1.57' }),
       h('path', { fill: '#1f9cf0', d: 'M23.244 29.747a1.745 1.745 0 0 1-1.989-.338A1.025 1.025 0 0 0 23 28.684V3.316a1.024 1.024 0 0 0-1.749-.724a1.74 1.74 0 0 1 1.989-.339l5.765 2.772A1.75 1.75 0 0 1 30 6.6v18.8a1.75 1.75 0 0 1-.991 1.576Z' }),
-    ])
-  }
-
-  if (props.name === 'codebuddy') {
-    return h('svg', {
-      'aria-hidden': 'true',
-      'class': ['app-icon', 'codebuddy-icon'],
-      'viewBox': '0 0 60 60',
-    }, [
-      h('rect', { width: '60', height: '60', rx: '12.9474', fill: '#654cff' }),
-      h('path', { fill: 'white', d: 'M45.887 4.69c.588-.527.623-.548 1.054-.574.7-.05 1.34.285 2.43 1.277 2.546 2.313 6.091 7.07 8.295 11.132l.852 1.576 1.202.598c1.161.587 3.066 1.789 3.862 2.435.36.297.41.303.784.158 1.689-.658 4.107.214 6.24 2.26 1.921 1.841 3.76 4.986 4.464 7.61.103.423.24 1.33.289 2.007.16 2.374-.6 4.27-2.067 5.13-.3.172-.32.219-.31.966.067 3.556-.892 7.106-2.818 10.568-2.174 3.887-6.044 7.907-11.283 11.695-2.813 2.048-9.469 5.926-12.478 7.287-7.209 3.246-12.987 4.49-18.007 3.875-2.994-.362-6.383-1.531-8.388-2.888-.528-.365-.612-.386-1.015-.271-2.146.617-4.958-.651-7.346-3.302-.952-1.06-2.49-3.661-2.988-5.054-1.153-3.258-.924-6.199.612-7.955.396-.453.41-.472.323-1.233a25 25 0 0 1-.09-4.277l.052-1.11-1.668-2.95c-2.582-4.595-4.222-8.454-4.855-11.402-.334-1.616-.314-2.333.096-2.864.25-.32 1.069-.652 2.057-.834 2.485-.437 7.907-.042 13.938 1.023l.627.108 1.376-1.218c2.286-2.024 3.804-3.16 6.603-4.905 2.917-1.826 6.21-3.327 9.919-4.516l1.19-.381.653-1.717c2.341-6.181 4.739-10.738 6.449-12.254ZM26.275 36.364c-2.647 1.527-3.97 2.291-4.942 3.147-3.937 3.467-5.409 8.959-3.733 13.93.414 1.227 1.178 2.55 2.706 5.197 1.528 2.646 2.292 3.97 3.148 4.942 3.467 3.937 8.958 5.408 13.93 3.732 1.227-.414 2.55-1.178 5.196-2.706l15.223-8.789c2.647-1.528 3.97-2.291 4.942-3.148 3.937-3.466 5.409-8.958 3.733-13.93-.414-1.227-1.179-2.55-2.706-5.196-1.528-2.646-2.292-3.97-3.148-4.942-3.467-3.937-8.958-5.409-13.93-3.732-1.227.414-2.55 1.178-5.196 2.706Z' }),
-      h('rect', { x: '27.743', y: '47', width: '6.014', height: '12.49', rx: '3.007', transform: 'rotate(-30 27.743 47)', fill: 'white' }),
-      h('rect', { x: '43.969', y: '37.633', width: '6.014', height: '12.49', rx: '3.007', transform: 'rotate(-30 43.969 37.633)', fill: 'white' }),
     ])
   }
 

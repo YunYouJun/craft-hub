@@ -84,7 +84,7 @@ describe('craft hub server lifecycle', () => {
       const teamResponse = await fetch(`${app.url}/api/owner-scopes`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ name: 'Tencent', repositoryPath }),
+        body: JSON.stringify({ name: 'Acme', repositoryPath }),
       })
       expect(teamResponse.status).toBe(201)
       const team = await teamResponse.json() as { id: string }
@@ -108,19 +108,19 @@ describe('craft hub server lifecycle', () => {
       const renamed = await fetch(`${app.url}/api/owner-scopes/${team.id}`, {
         method: 'PATCH',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ name: 'Tencent Cloud' }),
+        body: JSON.stringify({ name: 'Acme Platform' }),
       })
-      await expect(renamed.json()).resolves.toMatchObject({ id: team.id, name: 'Tencent Cloud' })
+      await expect(renamed.json()).resolves.toMatchObject({ id: team.id, name: 'Acme Platform' })
       const rejectedDelete = await fetch(`${app.url}/api/owner-scopes/${team.id}`, {
         method: 'DELETE',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ confirmationName: 'Tencent' }),
+        body: JSON.stringify({ confirmationName: 'Acme' }),
       })
       expect(rejectedDelete.status).toBe(400)
       const deleted = await fetch(`${app.url}/api/owner-scopes/${team.id}`, {
         method: 'DELETE',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ confirmationName: 'Tencent Cloud' }),
+        body: JSON.stringify({ confirmationName: 'Acme Platform' }),
       })
       await expect(deleted.json()).resolves.toMatchObject({ deletedWorkspaceCount: 1, deletedGroupCount: 1 })
       await expect(fetch(`${app.url}/api/owner-scopes`).then(response => response.json())).resolves.toEqual([{ id: 'personal', kind: 'personal', name: 'Personal' }])
@@ -196,7 +196,7 @@ describe('craft hub server lifecycle', () => {
       '      "package.json:deploy": {',
       '        "environment": {',
       '          "type": "select",',
-      '          "options": ["dev", "rdm"],',
+      '          "options": ["dev", "staging"],',
       '          "default": "dev",',
       '          "flag": "--env",',
       '        },',
@@ -214,9 +214,9 @@ describe('craft hub server lifecycle', () => {
       const previewResponse = await fetch(`${app.url}/api/projects/${project.id}/preview-command`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ capabilityId: command.id, inputs: { environment: 'rdm' } }),
+        body: JSON.stringify({ capabilityId: command.id, inputs: { environment: 'staging' } }),
       })
-      await expect(previewResponse.json()).resolves.toMatchObject({ args: ['run', 'deploy', '--', '--env=rdm'] })
+      await expect(previewResponse.json()).resolves.toMatchObject({ args: ['run', 'deploy', '--', '--env=staging'] })
 
       const invalidResponse = await fetch(`${app.url}/api/projects/${project.id}/preview-command`, {
         method: 'POST',
@@ -375,8 +375,10 @@ describe('craft hub server lifecycle', () => {
               version: '1.0.0',
               displayName: 'Test plugin',
               publisher: 'Acme',
+              integrity: 'sha512-dGVzdA==',
               permissions: [],
               categories: [],
+              status: 'active',
             }],
           },
         }],

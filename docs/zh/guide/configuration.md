@@ -81,28 +81,34 @@ Agent 可以通过 MCP 的 `init_project_config` 工具初始化这个可选文�
 ## 参数化命令
 
 `capabilities.inputs` 可以为已发现的命令声明表单字段。Craft Hub 在界面中把
-`select` 渲染为下拉框、把 `text` 渲染为文本框；runtime 会校验值并将其作为独立
-argv 参数追加，不会拼装 shell 字符串。
+`select` 渲染为下拉框、把 `text` 渲染为文本框、把 `boolean` 渲染为复选框；runtime
+会校验值并将其作为独立 argv 参数追加，不会拼装 shell 字符串。布尔输入启用时只追加
+flag 本身，关闭时不追加参数。
 
 ```jsonc
 {
   "capabilities": {
     "inputs": {
-      "apps/liteapp/package.json:deploy": {
+      "apps/widget/package.json:deploy": {
         "environment": {
           "type": "select",
           "label": "部署环境",
-          "options": ["dev", "rdm"],
+          "options": ["dev", "staging"],
           "default": "dev",
           "flag": "--env"
         },
-        "uin": {
+        "account": {
           "type": "text",
-          "label": "UIN",
+          "label": "Account",
           "pattern": "^\\d+$",
-          "flag": "--uin",
+          "flag": "--account",
           "visibleWhen": { "input": "environment", "equals": "dev" },
           "requiredWhen": { "input": "environment", "equals": "dev" }
+        },
+        "silent": {
+          "type": "boolean",
+          "label": "仅更新，不打开页面",
+          "flag": "--silent"
         }
       }
     }
@@ -111,10 +117,38 @@ argv 参数追加，不会拼装 shell 字符串。
 ```
 
 输入项支持 `equals`（默认，生成 `--env=dev`）与 `separate`（生成 `--env dev`）
-两种 `argumentStyle`。下拉框必须声明 `options`；文本框可以通过 `pattern` 校验。
-`visibleWhen` 控制条件显示，`requiredWhen` 控制条件必填。所有输入在预览和实际执行时
-都会由 runtime 再次校验。对象形式的选项可以设置 `omitArgument: true`，使该选项仍可
-在界面中选择，但不追加对应 flag；例如“当前登录开发者”可以交由底层 CLI 使用当前身份。
+两种 `argumentStyle`。下拉框必须声明 `options`；文本框可以通过 `pattern` 校验；布尔输入
+可使用字符串 `"true"` 或 `"false"` 作为默认值。所有输入类型都支持 `default`：下拉框默认值
+必须匹配一个选项，文本框默认值可以是任意字符串，布尔默认值必须是 `"true"` 或 `"false"`。
+Craft Hub 会把默认值同时应用到初始表单与命令预览。`visibleWhen` 控制条件显示，
+`requiredWhen` 控制条件必填；条件既可以是单个对象，也可以是必须全部匹配的对象数组。
+所有输入在预览和实际执行时都会由 runtime 再次校验。对象形式的选项可以设置
+`omitArgument: true`，使该选项仍可在界面中选择，但不追加对应 flag；例如“当前登录开发者”
+可以交由底层 CLI 使用当前身份。
+
+## Release 操作
+
+根目录中的 `release` package script 会自动识别为受保护的发布操作。可以通过
+`capabilities.operations` 关联仓库策略与发布自动化信息：
+
+```jsonc
+{
+  "capabilities": {
+    "operations": {
+      "package.json:release": {
+        "kind": "release",
+        "requiresCleanGit": true,
+        "requiredBranch": "main",
+        "workflowPath": ".github/workflows/release.yml"
+      }
+    }
+  }
+}
+```
+
+Craft Hub 会展示当前版本、拟创建标签、分支、工作区状态与工作流效果。每次发布都需要单独确认，
+runtime 会在执行前再次完成相同预检。发布平台状态和触发器可以由插件扩展，但不会替换宿主内置的
+安全检查。
 
 ## Skill 参数
 
@@ -157,7 +191,7 @@ Skill 可以使用能力 ID、名称或“来源:名称”作为 key；推荐使
 
 跨项目关系属于用户，而不属于任一成员仓库。Craft Hub 在 `~/.craft-hub/workspaces/` 中为每个工作空间保存一份带版本的 manifest；可通过 `CRAFT_HUB_CONFIG_DIR` 覆盖此便携配置目录。
 
-每个工作空间和工作空间组都只属于一个 Owner Scope。旧 manifest 未声明 `ownerScopeId` 时归入固定的 `Personal`；Team manifest 会记录稳定的 Team ID，例如 `ownerScopeId: tencent`。Team 身份与 Git 工作区相互独立，因此迁移仓库不会改变所有权。
+每个工作空间和工作空间组都只属于一个 Owner Scope。旧 manifest 未声明 `ownerScopeId` 时归入固定的 `Personal`；Team manifest 会记录稳定的 Team ID，例如 `ownerScopeId: acme`。Team 身份与 Git 工作区相互独立，因此迁移仓库不会改变所有权。
 
 工作台将 Owner Scope 切换视为即时导航：每个 Scope 独立维护工作空间树、项目引用绑定、独立项目分组和上次选中的工作空间。本机注册目录、信任状态、运行记录和凭据仍只属于当前设备。Team 视图只显示该 Team 引用的项目，未分配的本机项目只显示在 Personal。命令面板可以跨 Scope 搜索，并在打开工作空间前先切换到它所属的 Scope。
 
@@ -212,7 +246,7 @@ members:
 
 `workbench.codex` 为 Craft Hub 启动的所有 Codex SDK 任务提供可选默认值。省略 `model`、`reasoningEffort` 或整个设置时，会沿用用户 `~/.codex/config.toml` 中的 Codex 配置。模型使用自由填写的 Codex model ID，避免 Craft Hub 固化容易过期的版本列表。当前内置 SDK 可显式设置 `minimal`、`low`、`medium`、`high`、`xhigh`、`max` 和 `ultra`；实际可用范围仍取决于所选模型与账号。
 
-项目与工作空间顶部按钮共用 `workbench.editor`。内置值为 `vscode`、`codebuddy` 与 `cursor`；自定义编辑器使用一个直接执行的命令及独立参数。自定义参数必须包含 `{path}`，Craft Hub 会替换该占位符，并始终以 `shell: false` 启动命令。
+项目与工作空间顶部按钮共用 `workbench.editor`。内置值为 `vscode` 与 `cursor`；自定义编辑器使用一个直接执行的命令及独立参数。自定义参数必须包含 `{path}`，Craft Hub 会替换该占位符，并始终以 `shell: false` 启动命令。
 
 桌面端的设置弹窗可以打开此文件，也可以导入或导出便携 JSON。精简导出只包含用户明确修改的值，完整快照包含全部有效且非敏感的设置。Craft Hub 执行授权、项目注册记录、运行历史、用户名和机器路径永远不会导出。替换导入前会自动备份，并保留最近五份。
 

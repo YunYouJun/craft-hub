@@ -571,7 +571,6 @@ async function cleanupRuns(includeAllUnpinned: boolean): Promise<void> {
                   <span>{{ t('editor') }}</span>
                   <select v-model="editorId" data-testid="default-editor">
                     <option value="vscode">VS Code</option>
-                    <option value="codebuddy">CodeBuddy</option>
                     <option value="cursor">Cursor</option>
                     <option value="custom">{{ t('customEditor') }}</option>
                   </select>

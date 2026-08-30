@@ -1,8 +1,8 @@
 {
   "name": "craft-hub",
   "type": "module",
-  "version": "0.0.1-alpha.0",
-  "private": true,
+  "version": "0.0.1-alpha.2",
+  "private": false,
   "description": "A local, cross-project workbench for project commands and agent skills.",
   "author": "YunYouJun",
   "license": "MIT",
@@ -48,8 +48,12 @@
     "chokidar": "catalog:",
     "jsonc-parser": "catalog:",
     "node-pty": "catalog:",
+    "semver": "catalog:",
     "tinyglobby": "catalog:",
     "yaml": "catalog:",
     "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@types/semver": "catalog:"
   }
 }
