@@ -12,6 +12,8 @@ Craft Hub is a local, cross-project developer workbench. Project Palette discove
 
 Keep the runtime vendor-neutral. Agent integrations belong behind adapters; editor or desktop clients consume public runtime contracts.
 
+Keep runtime code, fixtures, examples, documentation, and tests free of organization-specific product, account-system, package-scope, registry, editor, and intranet-domain names. Those belong only in downstream distributions. Run `pnpm check:public-boundary`; CI treats any denylist match as a hard failure.
+
 ## Safety boundary
 
 Capability discovery is read-only. A new project is `untrusted`, and command execution requires explicit trust. Represent execution as `command` plus `args`, set `shell: false`, and preserve the project working directory. Add raw shell support only through an explicit future config surface with its own review.
