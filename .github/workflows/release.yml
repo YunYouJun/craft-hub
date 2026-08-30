@@ -2,7 +2,6 @@ name: Release
 
 permissions:
   contents: write
-  pages: write
 
 on:
   push:
@@ -205,27 +204,13 @@ jobs:
 
           npm publish "$tarball" --access public --tag "$dist_tag"
 
-  publish-update-feed:
-    name: Publish alpha update feed
+  deploy-site:
+    name: Deploy documentation and update feed
     needs: [release, publish-npm]
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - uses: actions/configure-pages@v5
-      - name: Generate architecture-specific Squirrel.Mac feeds
-        env:
-          RELEASE_TAG: ${{ github.ref_name }}
-        run: |
-          mkdir -p _site/updates/alpha/darwin/arm64 _site/updates/alpha/darwin/x64
-          for arch in arm64 x64; do
-            ARCH="$arch" node -e "const fs=require('fs');const tag=process.env.RELEASE_TAG;const version=tag.slice(1).split('-')[0];const arch=process.env.ARCH;const asset='Craft-Hub-macOS-'+arch+'.zip';const update={currentRelease:version,releases:[{version,updateTo:{version,pub_date:new Date().toISOString(),notes:'Craft Hub '+tag+' alpha update',name:version,url:'https://github.com/YunYouJun/craft-hub/releases/download/'+tag+'/'+asset}}]};fs.writeFileSync('_site/updates/alpha/darwin/'+arch+'/RELEASES.json',JSON.stringify(update,null,2)+'\n')"
-          done
-      - uses: actions/upload-pages-artifact@v4
-        with:
-          path: _site
-      - name: Deploy update feed to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+    permissions:
+      contents: read
+      id-token: write
+      pages: write
+    uses: ./.github/workflows/deploy-site.yml
+    with:
+      release_tag: ${{ github.ref_name }}

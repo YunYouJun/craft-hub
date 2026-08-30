@@ -1,0 +1,98 @@
+name: Deploy site
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Optional alpha release tag whose update feed should be published
+        required: false
+        type: string
+  workflow_call:
+    inputs:
+      release_tag:
+        description: Optional alpha release tag whose update feed should be published
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+  pages: write
+
+concurrency:
+  group: github-pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build site
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+        with:
+          run_install: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm docs:build
+      - name: Stage VitePress site
+        run: |
+          mkdir -p _site
+          cp -R docs/.vitepress/dist/. _site/
+          touch _site/.nojekyll
+      - name: Resolve alpha release
+        id: alpha_release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REQUESTED_RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          release_tag="$REQUESTED_RELEASE_TAG"
+          if [[ -z "$release_tag" ]]; then
+            release_tag="$(gh release list --repo "$GITHUB_REPOSITORY" --limit 100 --json tagName,isDraft,publishedAt --jq '[.[] | select((.isDraft | not) and (.tagName | test("^v[0-9]+\\.[0-9]+\\.[0-9]+-alpha\\.[0-9]+$")))] | sort_by(.publishedAt) | last | .tagName // ""')"
+          fi
+          if [[ -z "$release_tag" ]]; then
+            echo 'No published alpha release is available; deploying documentation without an update feed.'
+            exit 0
+          fi
+          if [[ ! "$release_tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-alpha\.[0-9]+$ ]]; then
+            echo "Ignoring non-alpha release tag: $release_tag"
+            exit 0
+          fi
+          published_at="$(gh release view "$release_tag" --repo "$GITHUB_REPOSITORY" --json publishedAt --jq .publishedAt)"
+          echo "tag=$release_tag" >> "$GITHUB_OUTPUT"
+          echo "published_at=$published_at" >> "$GITHUB_OUTPUT"
+      - name: Generate architecture-specific Squirrel.Mac feeds
+        if: steps.alpha_release.outputs.tag != ''
+        env:
+          RELEASE_PUBLISHED_AT: ${{ steps.alpha_release.outputs.published_at }}
+          RELEASE_TAG: ${{ steps.alpha_release.outputs.tag }}
+        run: |
+          mkdir -p _site/updates/alpha/darwin/arm64 _site/updates/alpha/darwin/x64
+          for arch in arm64 x64; do
+            ARCH="$arch" node -e "const fs=require('fs');const tag=process.env.RELEASE_TAG;const version=tag.slice(1).split('-')[0];const arch=process.env.ARCH;const asset='Craft-Hub-macOS-'+arch+'.zip';const update={currentRelease:version,releases:[{version,updateTo:{version,pub_date:process.env.RELEASE_PUBLISHED_AT,notes:'Craft Hub '+tag+' alpha update',name:version,url:'https://github.com/'+process.env.GITHUB_REPOSITORY+'/releases/download/'+tag+'/'+asset}}]};fs.writeFileSync('_site/updates/alpha/darwin/'+arch+'/RELEASES.json',JSON.stringify(update,null,2)+'\n')"
+          done
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: _site
+
+  deploy:
+    name: Deploy GitHub Pages
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy site
+        id: deployment
+        uses: actions/deploy-pages@v4
