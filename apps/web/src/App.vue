@@ -4,6 +4,7 @@ import { SplitterGroup, SplitterPanel, SplitterResizeHandle } from 'reka-ui'
 import { subscribeToProjectChanges } from './api'
 import CapabilityList from './CapabilityList.vue'
 import CommandPalette from './CommandPalette.vue'
+import DesktopNavigationDialog from './DesktopNavigationDialog.vue'
 import DetailPanel from './DetailPanel.vue'
 import { Icon } from './icons'
 import { useI18n } from './i18n'
@@ -25,6 +26,7 @@ const settingsOpen = ref(false)
 const marketplaceOpen = ref(false)
 const marketplaceImportCatalogUrl = ref('')
 const onboardingOpen = ref(false)
+const desktopNavigation = ref<Extract<DesktopNavigation, { kind: 'project' }>>()
 const eventStreamConnected = ref(false)
 const codexActivityStatus = ref<CodexActivityStatus>()
 const runningCodexTaskCount = computed(() => {
@@ -42,10 +44,26 @@ let stopProjectEvents: (() => void) | undefined
 let stopCodexActivityEvents: (() => void) | undefined
 let stopOnboardingEvents: (() => void) | undefined
 let stopMarketplaceImportEvents: (() => void) | undefined
+let stopDesktopNavigationEvents: (() => void) | undefined
 
 function openMarketplaceSourceImport(catalogUrl: string): void {
   marketplaceImportCatalogUrl.value = catalogUrl
   marketplaceOpen.value = true
+}
+
+async function openDesktopNavigation(navigation: DesktopNavigation): Promise<void> {
+  marketplaceOpen.value = false
+  onboardingOpen.value = false
+  if (navigation.kind === 'home') {
+    desktopNavigation.value = undefined
+    return
+  }
+  if (navigation.matches.length === 1) {
+    await store.selectProject(navigation.matches[0]!.id)
+    desktopNavigation.value = undefined
+    return
+  }
+  desktopNavigation.value = navigation
 }
 
 async function openShortcutCapability(shortcutId: string): Promise<void> {
@@ -125,9 +143,13 @@ onBeforeMount(async () => {
     onboardingOpen.value = true
   })
   stopMarketplaceImportEvents = window.craftHubDesktop?.onMarketplaceSourceImport?.(openMarketplaceSourceImport)
+  stopDesktopNavigationEvents = window.craftHubDesktop?.onDesktopNavigation?.(navigation => void openDesktopNavigation(navigation))
   const pendingMarketplaceImport = await window.craftHubDesktop?.consumeMarketplaceSourceImport?.()
   if (pendingMarketplaceImport)
     openMarketplaceSourceImport(pendingMarketplaceImport)
+  const pendingDesktopNavigation = await window.craftHubDesktop?.consumeDesktopNavigation?.()
+  if (pendingDesktopNavigation)
+    await openDesktopNavigation(pendingDesktopNavigation)
 })
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeydown)
@@ -137,6 +159,7 @@ onBeforeUnmount(() => {
   stopCodexActivityEvents?.()
   stopOnboardingEvents?.()
   stopMarketplaceImportEvents?.()
+  stopDesktopNavigationEvents?.()
 })
 </script>
 
@@ -232,5 +255,12 @@ onBeforeUnmount(() => {
     <SettingsDialog v-model:open="settingsOpen" />
     <MarketplaceDialog :open="marketplaceOpen" :import-catalog-url="marketplaceImportCatalogUrl" />
     <ProjectAgentActionDialog v-model:open="store.agentActionDialogOpen" />
+    <DesktopNavigationDialog
+      v-if="desktopNavigation"
+      :matches="desktopNavigation.matches"
+      :reference="desktopNavigation.reference"
+      @close="desktopNavigation = undefined"
+      @resolved="desktopNavigation = undefined"
+    />
   </div>
 </template>

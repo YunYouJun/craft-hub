@@ -3,6 +3,7 @@ import type { CloudDevice, CloudRequest } from './api'
 import { computed, onMounted, ref } from 'vue'
 import { cloudRequest } from './api'
 import { login, restoreSession } from './auth'
+import OpenDesktopAction from './OpenDesktopAction.vue'
 
 const loading = ref(true)
 const busy = ref(false)
@@ -15,6 +16,7 @@ const targetDeviceId = ref('')
 const projectKey = ref('')
 const capabilityId = ref('')
 const availableDevices = computed(() => devices.value.filter(deviceAvailable))
+const isDesktopConnectPage = window.location.pathname === '/connect'
 
 onMounted(async () => {
   try {
@@ -86,7 +88,7 @@ function rememberDesktopConnect(): void {
   const publicKey = url.searchParams.get('public_key')
   const challenge = url.searchParams.get('challenge')
   const callback = url.searchParams.get('callback')
-  if (url.pathname === '/connect' && publicKey && challenge && callback === 'craft-hub://cloud/connect')
+  if (url.pathname === '/connect' && publicKey && challenge && (callback === 'craft-hub://cloud/connect' || callback === 'craft-hub-dev://cloud/connect'))
     sessionStorage.setItem('craft-hub-device-connect', JSON.stringify({ publicKey, challenge, callback }))
 }
 
@@ -122,6 +124,8 @@ async function finishDesktopConnect(): Promise<void> {
         <h1>让电脑执行已有命令</h1>
         <span>云端只负责投递；项目路径、信任、终端输出与 Codex 任务保留在电脑本地。</span>
       </header>
+
+      <OpenDesktopAction v-if="!isDesktopConnectPage" :primary="!availableDevices.length" />
 
       <p v-if="loading" class="notice">正在检查会话…</p>
       <button v-else-if="!userId" class="primary" type="button" @click="login">使用 YunLeFun 登录</button>

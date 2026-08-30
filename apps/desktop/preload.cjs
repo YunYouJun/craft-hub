@@ -50,10 +50,25 @@ contextBridge.exposeInMainWorld('craftHubDesktop', {
   cloudConnect: () => ipcRenderer.invoke('craft-hub:cloud-connect'),
   cloudDisconnect: () => ipcRenderer.invoke('craft-hub:cloud-disconnect'),
   cloudSynchronize: () => ipcRenderer.invoke('craft-hub:cloud-synchronize'),
+  consumeDesktopNavigation: () => ipcRenderer.invoke('craft-hub:consume-desktop-navigation'),
+  onDesktopNavigation: (callback) => {
+    const listener = async () => {
+      const navigation = await ipcRenderer.invoke('craft-hub:consume-desktop-navigation')
+      if (navigation)
+        callback(navigation)
+    }
+    ipcRenderer.on('craft-hub:desktop-navigation-available', listener)
+    return () => ipcRenderer.removeListener('craft-hub:desktop-navigation-available', listener)
+  },
+  verifyProjectReference: (reference, path) => ipcRenderer.invoke('craft-hub:verify-project-reference', reference, path),
   consumeMarketplaceSourceImport: () => ipcRenderer.invoke('craft-hub:consume-marketplace-source-import'),
   onMarketplaceSourceImport: (callback) => {
-    const listener = (_event, catalogUrl) => callback(catalogUrl)
-    ipcRenderer.on('craft-hub:marketplace-source-import', listener)
-    return () => ipcRenderer.removeListener('craft-hub:marketplace-source-import', listener)
+    const listener = async () => {
+      const catalogUrl = await ipcRenderer.invoke('craft-hub:consume-marketplace-source-import')
+      if (catalogUrl)
+        callback(catalogUrl)
+    }
+    ipcRenderer.on('craft-hub:marketplace-source-import-available', listener)
+    return () => ipcRenderer.removeListener('craft-hub:marketplace-source-import-available', listener)
   },
 })

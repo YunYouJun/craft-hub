@@ -198,6 +198,22 @@ kbd { border: 1px solid var(--border-strong); border-radius: 5px; background: va
 .dialog-overlay[data-state="open"] { animation: overlay-in 180ms ease-out; }
 .dialog-overlay[data-state="closed"] { animation: overlay-out 140ms ease-in; }
 .add-project-dialog, .agent-action-dialog, .trust-run-dialog, .dialog-content { position: fixed; z-index: 21; top: 50%; left: 50%; width: min(520px, calc(100vw - 40px)); transform: translate(-50%, -50%); border: 1px solid var(--border-strong); border-radius: var(--dialog-radius); background: var(--surface); box-shadow: 0 20px 60px rgb(30 38 50 / 25%); padding: var(--space-5); }
+.desktop-navigation-dialog { width: min(560px, calc(100vw - 40px)); }
+.desktop-navigation-mark { display: grid; width: 38px; height: 38px; place-items: center; margin-bottom: 14px; border-radius: 10px; background: var(--accent-soft); color: var(--accent); }
+.desktop-navigation-mark .app-icon { width: 22px; height: 22px; }
+.desktop-reference { display: grid; gap: 8px; margin: 0; border: 1px solid var(--border); border-radius: 9px; background: var(--surface-muted); padding: 12px; }
+.desktop-reference div { display: grid; grid-template-columns: 88px minmax(0, 1fr); gap: 10px; }
+.desktop-reference dt { color: var(--muted); font-size: 11px; }
+.desktop-reference dd { overflow: hidden; margin: 0; font: 11px ui-monospace, SFMono-Regular, Menlo, monospace; text-overflow: ellipsis; white-space: nowrap; }
+.desktop-project-matches { display: grid; gap: 8px; margin-top: 14px; }
+.desktop-project-matches .ui-button { justify-content: flex-start; text-align: left; }
+.desktop-project-matches .ui-button > span { display: grid; min-width: 0; gap: 2px; }
+.desktop-project-matches strong, .desktop-project-matches small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.desktop-project-matches small { color: var(--muted); font-size: 10px; font-weight: 400; }
+.desktop-link-safety { margin-bottom: 0 !important; border-left: 2px solid var(--accent); background: var(--accent-soft); padding: 9px 11px; }
+.desktop-selected-checkout { display: flex; min-width: 0; align-items: center; gap: 8px; margin-top: 12px; border: 1px solid var(--success); border-radius: 8px; padding: 9px 10px; color: var(--success); font-size: 11px; }
+.desktop-selected-checkout span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.desktop-navigation-dialog footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
 .workspace-dialog { width: min(560px, calc(100vw - 40px)); max-height: calc(100vh - 40px); overflow-y: auto; }
 .add-project-dialog[data-state="open"], .settings-dialog[data-state="open"], .agent-action-dialog[data-state="open"], .trust-run-dialog[data-state="open"] { animation: dialog-in 180ms cubic-bezier(.2, .8, .2, 1); }
 .add-project-dialog[data-state="closed"], .settings-dialog[data-state="closed"], .agent-action-dialog[data-state="closed"], .trust-run-dialog[data-state="closed"] { animation: dialog-out 140ms ease-in; }

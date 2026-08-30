@@ -193,6 +193,7 @@ async function main(): Promise<void> {
       out: outputDirectory,
       overwrite: true,
       platform: 'darwin',
+      protocols: [{ name: 'Craft Hub Desktop Links', schemes: ['craft-hub'] }],
       prune: false,
       ...getSigningOptions(),
     })

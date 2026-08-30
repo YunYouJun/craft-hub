@@ -1,4 +1,4 @@
-import type { CraftHubServer } from 'craft-hub'
+import type { CraftHubServer, ProjectReference } from 'craft-hub'
 import type { BrowserWindow as BrowserWindowType, MenuItemConstructorOptions, OpenDialogOptions } from 'electron'
 import type { DesktopUpdateStatus } from './updater.ts'
 import type { WorkspaceLaunchTarget } from './workspace-launch-target.ts'
@@ -16,6 +16,7 @@ import { aboutDocument, aboutPanelOptions, projectUrl } from './about.ts'
 import { CodexActivityMonitor } from './codex-activity.ts'
 import { CodexAgentTaskProvider } from './codex-agent-task-provider.ts'
 import { openCodexThreadAfterTaskRelease, waitForAgentTaskThread } from './codex-agent-task-thread.ts'
+import { DesktopLinkCoordinator, DesktopLinkError, developmentDesktopScheme, findDesktopLinkArgument, productionDesktopScheme } from './deep-links.ts'
 import { DeviceVault } from './device-vault.ts'
 import { selectedDirectoryPath, selectedDirectoryPaths } from './folder-picker.ts'
 import { codexThreadUrl, editorTargetPaths, externalHttpUrl, focusCodexApplication, gitRemoteHttpUrl, macTerminalApplications, openCodexProject, openCursorEditor, openCustomEditor, openMacTerminalProject, projectContainsPath, vscodeUrl } from './open-targets.ts'
@@ -30,8 +31,6 @@ let craftHubServer: CraftHubServer | undefined
 let shutdown: Promise<void> | undefined
 let readyToQuit = false
 let personalCloud: PersonalCloudController | undefined
-let pendingCloudCallback: string | undefined
-let pendingMarketplaceSourceImport: string | undefined
 let desktopUpdater: DesktopUpdater | undefined
 let codexActivityMonitor: CodexActivityMonitor | undefined
 let installUpdateAfterShutdown = false
@@ -43,6 +42,8 @@ const developmentUrl = process.env.CRAFT_HUB_DEV_URL
 if (developmentUrl)
   app.setPath('userData', resolve(app.getPath('appData'), 'Craft Hub Dev'))
 const windowTitle = developmentUrl ? 'Craft Hub — Dev' : 'Craft Hub'
+const desktopProtocol = developmentUrl ? developmentDesktopScheme : productionDesktopScheme
+const desktopLinks = new DesktopLinkCoordinator()
 
 type DesktopTheme = 'system' | 'light' | 'dark'
 
@@ -158,10 +159,17 @@ nativeTheme.on('updated', () => {
   mainWindow?.setBackgroundColor(nativeTheme.shouldUseDarkColors ? '#1f232b' : '#ffffff')
 })
 
-app.setAsDefaultProtocolClient('craft-hub')
+app.setAsDefaultProtocolClient(desktopProtocol)
 app.on('open-url', (event, url) => {
   event.preventDefault()
   void handleProtocolUrl(url)
+})
+app.on('second-instance', (_event, argv) => {
+  const link = findDesktopLinkArgument(argv)
+  if (link)
+    void handleProtocolUrl(link)
+  else if (app.isReady())
+    void showMainWindow()
 })
 
 function directoryDialogDefaultPath(value: unknown): string | undefined {
@@ -407,53 +415,60 @@ ipcMain.handle('craft-hub:cloud-status', () => personalCloud?.status() ?? { stat
 ipcMain.handle('craft-hub:cloud-connect', () => personalCloud?.connect())
 ipcMain.handle('craft-hub:cloud-disconnect', () => personalCloud?.disconnect())
 ipcMain.handle('craft-hub:cloud-synchronize', () => personalCloud?.synchronize())
-ipcMain.handle('craft-hub:consume-marketplace-source-import', () => {
-  const catalogUrl = pendingMarketplaceSourceImport
-  pendingMarketplaceSourceImport = undefined
-  return catalogUrl
+ipcMain.handle('craft-hub:consume-marketplace-source-import', () => desktopLinks.consumeMarketplaceImport())
+ipcMain.handle('craft-hub:consume-desktop-navigation', async () => {
+  const navigation = desktopLinks.consumeNavigation()
+  if (!navigation || navigation.kind === 'home')
+    return navigation
+  if (!craftHubServer)
+    throw new Error('Craft Hub is still starting')
+  return {
+    ...navigation,
+    matches: await craftHubServer.runtime.projects.resolveReference(navigation.reference),
+  }
+})
+ipcMain.handle('craft-hub:verify-project-reference', async (_event, reference: ProjectReference, path: unknown) => {
+  if (!craftHubServer)
+    throw new Error('Craft Hub is still starting')
+  if (!reference || typeof reference.repository !== 'string' || (reference.subdir !== undefined && typeof reference.subdir !== 'string') || typeof path !== 'string')
+    throw new TypeError('Project Reference and local directory are required')
+  await craftHubServer.runtime.projects.verifyReference(path, reference)
+  return true
 })
 
 async function handleProtocolUrl(url: string): Promise<void> {
-  if (url.startsWith('craft-hub://cloud/connect')) {
-    await handleCloudCallback(url)
-    return
-  }
-  let parsed: URL
   try {
-    parsed = new URL(url)
-  }
-  catch {
-    return
-  }
-  if (parsed.host !== 'marketplace' || parsed.pathname !== '/sources/import')
-    return
-  const catalog = parsed.searchParams.get('catalog')
-  if (!catalog)
-    return
-  try {
-    const catalogUrl = new URL(catalog)
-    if (catalogUrl.protocol !== 'https:' || catalogUrl.username || catalogUrl.password)
+    const link = desktopLinks.accept(url, [desktopProtocol])
+    if (!app.isReady())
       return
-    pendingMarketplaceSourceImport = catalogUrl.href
+    if (link.kind === 'cloud-connect') {
+      await handlePendingCloudCallback()
+      return
+    }
     await showMainWindow()
-    mainWindow?.webContents.send('craft-hub:marketplace-source-import', catalogUrl.href)
+    mainWindow?.webContents.send(link.kind === 'marketplace-import'
+      ? 'craft-hub:marketplace-source-import-available'
+      : 'craft-hub:desktop-navigation-available')
   }
-  catch {}
+  catch (error) {
+    const reason = error instanceof DesktopLinkError ? error.code : 'unexpected-error'
+    writeApplicationLog('error', `Desktop Link rejected: ${reason}`)
+  }
 }
 
-async function handleCloudCallback(url: string): Promise<void> {
-  if (!url.startsWith('craft-hub://cloud/connect'))
+async function handlePendingCloudCallback(): Promise<void> {
+  if (!personalCloud)
     return
-  if (!personalCloud) {
-    pendingCloudCallback = url
+  const url = desktopLinks.consumeCloudConnect()
+  if (!url)
     return
-  }
   try {
     await personalCloud.adopt(url)
     focusMainWindow()
   }
   catch (error) {
     const message = error instanceof Error ? error.message : String(error)
+    writeApplicationLog('error', `Personal cloud connection failed: ${message}`)
     if (mainWindow)
       await dialog.showMessageBox(mainWindow, { type: 'error', title: '个人云连接失败', message })
   }
@@ -465,6 +480,7 @@ async function initializePersonalCloud(): Promise<void> {
   personalCloud = new PersonalCloudController({
     endpoint: process.env.CRAFT_HUB_CLOUD_ENDPOINT,
     webOrigin: process.env.CRAFT_HUB_CLOUD_ORIGIN,
+    callbackScheme: desktopProtocol,
     dataDir: craftHubServer.runtime.store.dataDir,
     platform: process.platform,
     runtime: craftHubServer.runtime,
@@ -486,11 +502,7 @@ async function initializePersonalCloud(): Promise<void> {
     },
   })
   await personalCloud.start()
-  if (pendingCloudCallback) {
-    const callback = pendingCloudCallback
-    pendingCloudCallback = undefined
-    await handleCloudCallback(callback)
-  }
+  await handlePendingCloudCallback()
 }
 
 async function loadUrlWithRetry(window: BrowserWindowType, url: string): Promise<void> {
@@ -550,6 +562,10 @@ async function createWindow(): Promise<void> {
   })
   await loadUrlWithRetry(mainWindow, developmentUrl ?? craftHubServer.url)
   mainWindow.setTitle(windowTitle)
+  if (desktopLinks.hasMarketplaceImport())
+    mainWindow.webContents.send('craft-hub:marketplace-source-import-available')
+  if (desktopLinks.hasNavigation())
+    mainWindow.webContents.send('craft-hub:desktop-navigation-available')
   if (process.env.CRAFT_HUB_SMOKE_TEST === 'true')
     writeApplicationLog('info', 'Startup smoke test completed')
 }
@@ -582,6 +598,16 @@ async function startDesktopApp(): Promise<void> {
   })
   await codexActivityMonitor.start()
 
+  const startupLink = findDesktopLinkArgument(process.argv)
+  if (startupLink) {
+    try {
+      desktopLinks.accept(startupLink, [desktopProtocol])
+    }
+    catch (error) {
+      const reason = error instanceof DesktopLinkError ? error.code : 'unexpected-error'
+      writeApplicationLog('error', `Desktop Link rejected: ${reason}`)
+    }
+  }
   await createWindow()
   if (process.env.CRAFT_HUB_SMOKE_TEST === 'true') {
     app.quit()
@@ -599,12 +625,6 @@ async function startDesktopApp(): Promise<void> {
   })
   await desktopUpdater.initialize()
   app.on('activate', () => void showMainWindow())
-  app.on('second-instance', () => void showMainWindow())
-  app.on('second-instance', (_event, argv) => {
-    const callback = argv.find(argument => argument.startsWith('craft-hub://'))
-    if (callback)
-      void handleProtocolUrl(callback)
-  })
 }
 
 if (!hasSingleInstanceLock) {

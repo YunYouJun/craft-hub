@@ -16,6 +16,10 @@ _Avoid_: Project configuration, workspace list, repository index
 A portable identity for a codebase that can be resolved to a different Project on each machine.
 _Avoid_: Project path, checkout, trusted project
 
+**Desktop Link**:
+A versioned, navigation-only request that asks an installed Craft Hub desktop host to show the Workbench or one Project Reference.
+_Avoid_: Command link, execution URL, trust link
+
 **Owner Scope**:
 The exclusive owner of a Workspace or Workspace Group: either Personal or one Team.
 _Avoid_: Tenant, organization, repository

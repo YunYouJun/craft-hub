@@ -18,6 +18,12 @@ export interface ProjectRecord {
   addedAt: string
 }
 
+/** Portable Git-backed identity used to resolve a Project on one machine. */
+export interface ProjectReference {
+  repository: string
+  subdir?: string
+}
+
 /** Non-fatal problem found while refreshing one registered project. */
 export interface ProjectCatalogDiagnostic {
   projectId: string

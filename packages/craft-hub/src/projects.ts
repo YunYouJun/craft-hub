@@ -1,9 +1,10 @@
 import type { CraftHubStore } from './store'
-import type { ProjectAccentColor, ProjectCatalogDiagnostic, ProjectCatalogSnapshot, ProjectRecord, ProjectVisualInput, TrustState } from './types'
+import type { ProjectAccentColor, ProjectCatalogDiagnostic, ProjectCatalogSnapshot, ProjectRecord, ProjectReference, ProjectVisualInput, TrustState } from './types'
 import { createHash } from 'node:crypto'
 import { realpath, stat } from 'node:fs/promises'
 import { basename, extname, isAbsolute, relative, resolve } from 'node:path'
 import { loadProjectConfig, projectConfigTargetPath, ProjectConfigValidationError, saveProjectVisual } from './config'
+import { identifyProjectReference, resolveProjectReference, verifyProjectReference } from './project-reference'
 import { projectAccentColors } from './types'
 
 const builtinProjectIcons = new Set(['folder', 'hub', 'skill', 'terminal'])
@@ -85,6 +86,21 @@ export class ProjectRegistry {
     if (!project)
       throw new Error(`Unknown project: ${id}`)
     return project
+  }
+
+  /** Derive the portable Project Reference represented by one local directory. */
+  async identify(path: string): Promise<ProjectReference> {
+    return identifyProjectReference(path)
+  }
+
+  /** Resolve every registered Project that exactly matches a portable reference. */
+  async resolveReference(reference: ProjectReference): Promise<ProjectRecord[]> {
+    return resolveProjectReference(await this.list(), reference)
+  }
+
+  /** Verify a user-selected directory before an unresolved Project is registered. */
+  async verifyReference(path: string, reference: ProjectReference): Promise<ProjectReference> {
+    return verifyProjectReference(path, reference)
   }
 
   async setTrust(id: string, trust: TrustState): Promise<ProjectRecord> {

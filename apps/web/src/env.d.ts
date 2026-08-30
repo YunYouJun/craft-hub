@@ -1,5 +1,9 @@
 /// <reference types="vite/client" />
 
+type DesktopNavigation
+  = | { kind: 'home' }
+    | { kind: 'project', reference: import('craft-hub').ProjectReference, matches: import('craft-hub').ProjectRecord[] }
+
 interface Window {
   craftHubDesktop?: {
     platform?: string
@@ -42,6 +46,9 @@ interface Window {
     cloudConnect?: () => Promise<void>
     cloudDisconnect?: () => Promise<void>
     cloudSynchronize?: () => Promise<void>
+    consumeDesktopNavigation?: () => Promise<DesktopNavigation | undefined>
+    onDesktopNavigation?: (callback: (navigation: DesktopNavigation) => void) => () => void
+    verifyProjectReference?: (reference: import('craft-hub').ProjectReference, path: string) => Promise<boolean>
     consumeMarketplaceSourceImport?: () => Promise<string | undefined>
     onMarketplaceSourceImport?: (callback: (catalogUrl: string) => void) => () => void
   }

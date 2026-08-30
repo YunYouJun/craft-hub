@@ -37,6 +37,7 @@ export interface PersonalCloudStatus {
 export interface PersonalCloudControllerOptions {
   endpoint?: string
   webOrigin?: string
+  callbackScheme?: 'craft-hub' | 'craft-hub-dev'
   dataDir: string
   platform: NodeJS.Platform
   runtime: CraftHubRuntime
@@ -84,7 +85,7 @@ export class PersonalCloudController {
     const url = new URL('/connect', this.options.webOrigin)
     url.searchParams.set('public_key', this.identity.publicKey)
     url.searchParams.set('challenge', this.pendingChallenge)
-    url.searchParams.set('callback', 'craft-hub://cloud/connect')
+    url.searchParams.set('callback', `${this.options.callbackScheme ?? 'craft-hub'}://cloud/connect`)
     await this.options.openExternal(url.toString())
   }
 
@@ -227,7 +228,7 @@ export class PersonalCloudController {
 /** Validate a one-time desktop connection callback. */
 export function parseCloudConnectCallback(callbackUrl: string, pendingChallenge: string): { challenge: string, code: string } {
   const url = new URL(callbackUrl)
-  if (url.protocol !== 'craft-hub:' || url.hostname !== 'cloud' || url.pathname !== '/connect')
+  if ((url.protocol !== 'craft-hub:' && url.protocol !== 'craft-hub-dev:') || url.hostname !== 'cloud' || url.pathname !== '/connect')
     throw new Error('Unexpected personal cloud callback')
   const code = url.searchParams.get('code')
   const challenge = url.searchParams.get('challenge')

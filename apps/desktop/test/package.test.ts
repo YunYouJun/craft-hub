@@ -39,6 +39,7 @@ describe('desktop package scripts', () => {
     expect(mainSource).toContain('icon: applicationIcon')
     expect(mainSource).toContain('app.dock?.setIcon(applicationIcon)')
     expect(packageMacSource).toContain('icon: resolve(repositoryRoot, \'apps/desktop/assets/icon.icns\')')
+    expect(packageMacSource).toContain('protocols: [{ name: \'Craft Hub Desktop Links\', schemes: [\'craft-hub\'] }]')
   })
 
   it('unpacks the native PTY module from the Electron asar archive', async () => {
@@ -115,7 +116,8 @@ describe('desktop package scripts', () => {
     expect(desktopMain).toContain('app.requestSingleInstanceLock()')
     expect(desktopMain).toContain('if (!hasSingleInstanceLock) {\n  process.exit(0)\n}')
     expect(desktopMain).toContain('app.setPath(\'userData\', resolve(app.getPath(\'appData\'), \'Craft Hub Dev\'))')
-    expect(desktopMain).toContain('app.on(\'second-instance\', () => void showMainWindow())')
+    expect(desktopMain).toContain('app.on(\'second-instance\', (_event, argv) => {')
+    expect(desktopMain).toContain('findDesktopLinkArgument(argv)')
     expect(desktopMain).toContain('mainWindow.restore()')
     expect(desktopMain).toContain('mainWindow.focus()')
     expect(desktopMain).toContain('port: developmentUrl ? 4318 : 0')

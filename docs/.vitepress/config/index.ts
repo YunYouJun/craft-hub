@@ -28,6 +28,7 @@ const ZH_MARKDOWN = {
 const EN_GUIDES: DefaultTheme.NavItemWithLink[] = [
   { text: 'What is starter-monorepo?', link: '/guide/what-is' },
   { text: 'Getting Started', link: '/guide/getting-started' },
+  { text: 'Desktop Links', link: '/guide/desktop-links' },
   { text: 'Codex Tasks', link: '/guide/codex-tasks' },
   { text: 'Plugin Marketplace', link: '/guide/plugin-marketplace' },
   { text: 'Nuxt Web Application', link: '/guide/web-app' },
@@ -37,6 +38,7 @@ const EN_GUIDES: DefaultTheme.NavItemWithLink[] = [
 const ZH_GUIDES: DefaultTheme.NavItemWithLink[] = [
   { text: '什么是 starter-monorepo？', link: '/zh/guide/what-is' },
   { text: '快速开始', link: '/zh/guide/getting-started' },
+  { text: '桌面链接', link: '/zh/guide/desktop-links' },
   { text: 'Codex 任务', link: '/zh/guide/codex-tasks' },
   { text: '插件市场', link: '/zh/guide/plugin-marketplace' },
   { text: 'Nuxt Web 应用', link: '/zh/guide/web-app' },
