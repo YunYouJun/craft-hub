@@ -18,7 +18,7 @@ const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../.
 
 async function startCliApp(projectPath: string): Promise<{ child: ChildProcess, url: string }> {
   const cliPath = resolve(repositoryRoot, 'packages/craft-hub/src/cli.ts')
-  const child = spawn('pnpm', ['exec', 'tsx', cliPath, 'app', relative(repositoryRoot, projectPath), '--no-open'], {
+  const child = spawn(process.execPath, ['--import', 'tsx', cliPath, 'app', relative(repositoryRoot, projectPath), '--no-open'], {
     cwd: repositoryRoot,
     env: { ...process.env, CRAFT_HUB_DATA_DIR: join(projectPath, '.cli-data') },
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -39,6 +39,17 @@ async function startCliApp(projectPath: string): Promise<{ child: ChildProcess, 
       clearTimeout(timeout)
       reject(new Error(`CLI exited with ${String(code)}: ${output}`))
     })
+  })
+}
+
+async function stopChild(child: ChildProcess): Promise<void> {
+  if (child.exitCode !== null || child.signalCode !== null)
+    return
+
+  await new Promise<void>((resolvePromise) => {
+    child.once('exit', () => resolvePromise())
+    if (!child.kill())
+      resolvePromise()
   })
 }
 
@@ -99,7 +110,7 @@ describe('app launcher', () => {
       expect(new URL(url).searchParams.get('project')).toBe(catalog.projects[0]?.id)
     }
     finally {
-      child.kill('SIGTERM')
+      await stopChild(child)
     }
   })
 
