@@ -142,24 +142,27 @@ describe('global settings', () => {
     const snapshot = await service.get()
     await service.update({ 'workbench.locale': 'zh-CN' }, snapshot.revision)
     await service.startWatching()
-    const changed = new Promise<void>((resolve) => {
-      service.onChanged((next) => {
-        if (next.diagnostic)
-          resolve()
+    let changed = false
+    service.onChanged((next) => {
+      if (next.diagnostic)
+        changed = true
+    })
+
+    try {
+      await writeFile(join(root, 'settings.json'), '{ invalid json', 'utf8')
+      await vi.waitFor(() => expect(changed).toBe(true), { timeout: 3_000 })
+
+      expect(await service.get()).toMatchObject({
+        diagnostic: expect.stringContaining('JSON'),
+        settings: { 'workbench.locale': 'zh-CN' },
       })
-    })
-
-    await writeFile(join(root, 'settings.json'), '{ invalid json', 'utf8')
-    await changed
-
-    expect(await service.get()).toMatchObject({
-      diagnostic: expect.stringContaining('JSON'),
-      settings: { 'workbench.locale': 'zh-CN' },
-    })
-    const invalid = await service.get()
-    await expect(service.update({ 'workbench.locale': 'en' }, invalid.revision)).rejects.toThrow('was not overwritten')
-    expect(await readFile(join(root, 'settings.json'), 'utf8')).toBe('{ invalid json')
-    await service.close()
+      const invalid = await service.get()
+      await expect(service.update({ 'workbench.locale': 'en' }, invalid.revision)).rejects.toThrow('was not overwritten')
+      expect(await readFile(join(root, 'settings.json'), 'utf8')).toBe('{ invalid json')
+    }
+    finally {
+      await service.close()
+    }
 
     await expect(new CraftHubSettingsService(root).get()).resolves.toMatchObject({
       diagnostic: expect.stringContaining('JSON'),
