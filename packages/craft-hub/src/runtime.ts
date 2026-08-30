@@ -208,12 +208,12 @@ export class CraftHubRuntime {
   }
 
   /** Compute a fresh release preflight without mutating the repository. */
-  async releasePlan(projectId: string, capabilityId: string): Promise<ReleasePlan> {
+  async releasePlan(projectId: string, capabilityId: string, inputs: CommandInputValues = {}): Promise<ReleasePlan> {
     const project = await this.projects.get(projectId)
     const capability = (await this.capabilities(projectId)).find(item => item.id === capabilityId)
     if (!capability || capability.kind !== 'command')
       throw new Error(`Unknown command capability: ${capabilityId}`)
-    return this.releasePlanner.plan(project, capability)
+    return this.releasePlanner.plan(project, capability, inputs)
   }
 
   /** Execute a discovered command capability after rechecking project trust and resolving inputs. */
@@ -227,7 +227,7 @@ export class CraftHubRuntime {
     if (capability.availability?.available === false)
       throw new Error(capability.availability.diagnostic ?? `Command is unavailable: ${capability.invocation.command}`)
     if (capability.operation?.kind === 'release') {
-      const plan = await this.releasePlanner.plan(project, capability)
+      const plan = await this.releasePlanner.plan(project, capability, inputs)
       if (plan.blockers.length)
         throw new Error(`Release preflight failed: ${plan.blockers.join(' ')}`)
     }

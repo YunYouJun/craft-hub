@@ -1102,6 +1102,18 @@
               "workflowPath": {
                 "type": "string",
                 "minLength": 1
+              },
+              "versionInput": {
+                "type": "string",
+                "minLength": 1
+              },
+              "customVersionInput": {
+                "type": "string",
+                "minLength": 1
+              },
+              "prereleaseIdInput": {
+                "type": "string",
+                "minLength": 1
               }
             },
             "required": [

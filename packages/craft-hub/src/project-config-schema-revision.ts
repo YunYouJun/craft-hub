@@ -1,2 +1,2 @@
 /** Generated fingerprint of the bundled project configuration schema. */
-export const projectConfigSchemaRevision = 'sha256:aca8b13e12f6579eeadf65c6dfdad248f0027b79aba35e50972a1f33545cc840' as const
+export const projectConfigSchemaRevision = 'sha256:9f9df7ceeaf12b94de0b5792af9b37ea87e131f7fcb98db8721f3c08781f4d7d' as const

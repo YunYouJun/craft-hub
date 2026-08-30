@@ -140,7 +140,10 @@ A root `release` package script is automatically treated as a guarded release op
         "kind": "release",
         "requiresCleanGit": true,
         "requiredBranch": "main",
-        "workflowPath": ".github/workflows/release.yml"
+        "workflowPath": ".github/workflows/release.yml",
+        "versionInput": "release",
+        "customVersionInput": "customVersion",
+        "prereleaseIdInput": "prereleaseId"
       }
     }
   }
@@ -151,6 +154,9 @@ Craft Hub shows a release plan with the current version, proposed tag, branch, w
 workflow effects. Release execution requires a separate confirmation, and the runtime repeats the
 preflight immediately before running the command. Provider-specific status and release triggers can
 be contributed by plugins without replacing the host-owned safety checks.
+When the optional input names are configured, the plan resolves `major`, `minor`, `patch`,
+`prerelease`, and an exact SemVer into the target version and tag. The inputs remain ordinary safe
+command inputs, so the previewed invocation and executed invocation cannot diverge.
 
 ## Skill inputs
 

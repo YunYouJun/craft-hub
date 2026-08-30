@@ -139,7 +139,10 @@ Craft Hub 会把默认值同时应用到初始表单与命令预览。`visibleWh
         "kind": "release",
         "requiresCleanGit": true,
         "requiredBranch": "main",
-        "workflowPath": ".github/workflows/release.yml"
+        "workflowPath": ".github/workflows/release.yml",
+        "versionInput": "release",
+        "customVersionInput": "customVersion",
+        "prereleaseIdInput": "prereleaseId"
       }
     }
   }
@@ -149,6 +152,8 @@ Craft Hub 会把默认值同时应用到初始表单与命令预览。`visibleWh
 Craft Hub 会展示当前版本、拟创建标签、分支、工作区状态与工作流效果。每次发布都需要单独确认，
 runtime 会在执行前再次完成相同预检。发布平台状态和触发器可以由插件扩展，但不会替换宿主内置的
 安全检查。
+配置可选的输入名称后，发布计划会把 `major`、`minor`、`patch`、`prerelease` 或指定的 SemVer
+解析成目标版本与标签。这些字段仍使用安全命令参数机制，因此界面预览与实际执行不会出现参数分叉。
 
 ## Skill 参数
 

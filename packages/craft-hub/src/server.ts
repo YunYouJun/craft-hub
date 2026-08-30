@@ -596,8 +596,10 @@ export async function startCraftHubServer(options: CraftHubServerOptions = {}): 
           return sendJson(response, 200, await runtime.capabilities(projectId))
         if (request.method === 'GET' && parts[3] === 'capability-discovery')
           return sendJson(response, 200, await runtime.capabilityDiscovery(projectId))
-        if (request.method === 'GET' && parts[3] === 'release-plan' && parts[4])
-          return sendJson(response, 200, await runtime.releasePlan(projectId, decodeURIComponent(parts[4])))
+        if (request.method === 'POST' && parts[3] === 'release-plan' && parts[4]) {
+          const body = await jsonBody(request)
+          return sendJson(response, 200, await runtime.releasePlan(projectId, decodeURIComponent(parts[4]), commandInputValues(body.inputs)))
+        }
         if (parts[3] === 'agent-actions') {
           const locale = url.searchParams.get('locale') ?? (await runtime.settings.get()).settings['workbench.locale']
           if (locale !== 'en' && locale !== 'zh-CN')

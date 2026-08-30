@@ -428,36 +428,52 @@ describe('detail panel desktop actions', () => {
       ...command,
       id: 'release-command',
       name: 'release',
-      operation: { kind: 'release', requiresCleanGit: true, workflowPath: '.github/workflows/release.yml' },
+      inputs: [
+        { id: 'release', type: 'select', label: 'Version change', flag: '--release', default: 'prerelease', options: [{ value: 'prerelease' }, { value: 'minor' }] },
+      ],
+      operation: { kind: 'release', requiresCleanGit: true, workflowPath: '.github/workflows/release.yml', versionInput: 'release' },
     }
     store.projects = [{ ...project, trust: 'trusted' }]
     store.selectedProjectId = project.id
     store.capabilities = [release]
     store.selectedCapabilityId = release.id
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
-      capabilityId: release.id,
-      branch: 'main',
-      clean: true,
-      currentVersion: '0.1.0',
-      proposedTag: 'v0.1.0',
-      workflowPath: '.github/workflows/release.yml',
-      workflowExists: true,
-      effects: ['Update versions.', 'Create tag.', 'Publish with OIDC.'],
-      blockers: [],
-      warnings: [],
-    }), { status: 200, headers: { 'content-type': 'application/json' } }))
+    vi.spyOn(store, 'previewSelectedCommand').mockImplementation(async (inputs = {}) => ({
+      ...release.invocation,
+      args: ['run', 'release', '--', `--release=${inputs.release ?? 'prerelease'}`],
+    }))
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (_input, init) => {
+      const inputs = JSON.parse(String(init?.body)) as { inputs?: { release?: string } }
+      const target = inputs.inputs?.release === 'minor' ? '0.2.0' : '0.1.1-alpha.0'
+      return new Response(JSON.stringify({
+        capabilityId: release.id,
+        branch: 'main',
+        clean: true,
+        currentVersion: '0.1.0',
+        proposedVersion: target,
+        proposedTag: `v${target}`,
+        workflowPath: '.github/workflows/release.yml',
+        workflowExists: true,
+        effects: ['Update versions.', 'Create tag.', 'Publish with OIDC.'],
+        blockers: [],
+        warnings: [],
+      }), { status: 200, headers: { 'content-type': 'application/json' } })
+    })
     const run = vi.spyOn(store, 'runSelected').mockResolvedValue()
 
     const wrapper = mount(DetailPanel, { attachTo: document.body, global: { plugins: [pinia] } })
     await flushPromises()
-    expect(wrapper.get('[data-testid="release-plan"]').text()).toContain('v0.1.0')
+    expect(wrapper.get('[data-testid="release-plan"]').text()).toContain('v0.1.1-alpha.0')
     expect(wrapper.get('[data-testid="release-plan"]').text()).toContain('Ready')
+
+    wrapper.getComponent(Select).vm.$emit('update:modelValue', 'minor')
+    await flushPromises()
+    expect(wrapper.get('[data-testid="release-plan"]').text()).toContain('0.1.0 → 0.2.0')
 
     await wrapper.get('button.ui-button--primary').trigger('click')
     expect(run).not.toHaveBeenCalled()
     expect(wrapper.get('[data-testid="release-confirmation"]').text()).toContain('Confirm this release')
     await wrapper.get('[data-testid="confirm-release"]').trigger('click')
-    expect(run).toHaveBeenCalledWith({})
+    expect(run).toHaveBeenCalledWith({ release: 'minor' })
   })
 
   it('reviews the exact command before trusting and running an untrusted project', async () => {

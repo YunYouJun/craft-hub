@@ -33,8 +33,8 @@ jobs:
           workspace_version="$(node -p "require('./package.json').version")"
           test "$tag_version" = "$workspace_version"
           node -e "const fs=require('fs');const root=require('./package.json').version;for(const path of ['apps/cloud/package.json','apps/desktop/package.json','apps/web/package.json','packages/craft-hub-mcp/package.json','packages/craft-hub-personal-cloud/package.json','packages/craft-hub/package.json']){const version=JSON.parse(fs.readFileSync(path)).version;if(version!==root)throw new Error(path+' has '+version+', expected '+root)}"
-          if [[ "$tag_version" == *-alpha.* && ! "$tag_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+-alpha\.0$ ]]; then
-            echo 'Distributed alpha versions must increment the numeric core and use the alpha.0 suffix.' >&2
+          if [[ "$tag_version" == *-alpha.* && ! "$tag_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+-alpha\.[0-9]+$ ]]; then
+            echo 'Distributed alpha versions must use a numeric alpha prerelease suffix.' >&2
             exit 1
           fi
       - run: pnpm lint

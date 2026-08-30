@@ -75,12 +75,50 @@
         "zh-CN": "检查已提交的项目配置 Schema 是否与 Zod 源定义一致。"
       }
     },
+    "inputs": {
+      "package.json:release": {
+        "release": {
+          "type": "select",
+          "label": { "default": "Version change", "zh-CN": "版本变更" },
+          "description": { "default": "Choose a SemVer release type or enter an exact version.", "zh-CN": "选择 SemVer 版本类型，或输入具体版本。" },
+          "default": "prerelease",
+          "flag": "--release",
+          "options": [
+            { "value": "prerelease", "label": { "default": "Prerelease", "zh-CN": "预发布版本" } },
+            { "value": "patch", "label": { "default": "Patch", "zh-CN": "补丁版本" } },
+            { "value": "minor", "label": { "default": "Minor", "zh-CN": "次版本" } },
+            { "value": "major", "label": { "default": "Major", "zh-CN": "主版本" } },
+            { "value": "custom", "label": { "default": "Exact version…", "zh-CN": "指定版本…" }, "omitArgument": true }
+          ]
+        },
+        "prereleaseId": {
+          "type": "select",
+          "label": { "default": "Prerelease ID", "zh-CN": "预发布标识" },
+          "default": "alpha",
+          "flag": "--preid",
+          "visibleWhen": { "input": "release", "equals": "prerelease" },
+          "options": ["alpha", "beta", "rc"]
+        },
+        "customVersion": {
+          "type": "text",
+          "label": { "default": "Exact SemVer", "zh-CN": "指定 SemVer 版本" },
+          "description": { "default": "For example: 1.0.0-beta.1", "zh-CN": "例如：1.0.0-beta.1" },
+          "flag": "--release",
+          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$",
+          "visibleWhen": { "input": "release", "equals": "custom" },
+          "requiredWhen": { "input": "release", "equals": "custom" }
+        }
+      }
+    },
     "operations": {
       "package.json:release": {
         "kind": "release",
         "requiresCleanGit": true,
         "requiredBranch": "main",
-        "workflowPath": ".github/workflows/release.yml"
+        "workflowPath": ".github/workflows/release.yml",
+        "versionInput": "release",
+        "customVersionInput": "customVersion",
+        "prereleaseIdInput": "prereleaseId"
       }
     }
   }

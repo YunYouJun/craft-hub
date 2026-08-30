@@ -391,6 +391,12 @@ export interface ReleaseOperation {
   requiredBranch?: string
   /** Repository-relative automation workflow that performs publication. */
   workflowPath?: string
+  /** Command input containing a SemVer release type or exact version. */
+  versionInput?: string
+  /** Command input containing an exact version when versionInput is "custom". */
+  customVersionInput?: string
+  /** Command input containing the prerelease identifier. */
+  prereleaseIdInput?: string
 }
 
 /** Fresh release preflight information used by both the UI and runtime guard. */
@@ -399,6 +405,7 @@ export interface ReleasePlan {
   branch?: string
   clean: boolean
   currentVersion?: string
+  proposedVersion?: string
   proposedTag?: string
   workflowPath?: string
   workflowExists?: boolean

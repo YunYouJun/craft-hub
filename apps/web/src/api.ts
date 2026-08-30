@@ -181,7 +181,10 @@ export const api = {
     method: 'POST',
     body: JSON.stringify({ capabilityId, inputs }),
   }),
-  releasePlan: (projectId: string, capabilityId: string) => request<ReleasePlan>(`/api/projects/${projectId}/release-plan/${encodeURIComponent(capabilityId)}`),
+  releasePlan: (projectId: string, capabilityId: string, inputs: CommandInputValues) => request<ReleasePlan>(`/api/projects/${projectId}/release-plan/${encodeURIComponent(capabilityId)}`, {
+    method: 'POST',
+    body: JSON.stringify({ inputs }),
+  }),
   runSummaries: () => request<ProjectRunSummary[]>('/api/runs/summary'),
   runs: () => request<RunRecord[]>('/api/runs'),
   cleanupRuns: (options: RunCleanupOptions) => request<RunCleanupResult>('/api/runs/cleanup', { method: 'POST', body: JSON.stringify(options) }),

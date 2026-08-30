@@ -135,6 +135,15 @@ function releaseIssueText(issue: string): string {
     return t('releaseIssueDirty')
   if (issue === 'No publication workflow is associated with this release command.')
     return t('releaseIssueNoWorkflow')
+  const branchMatch = /^Release must run from branch (.+); current branch is (.+)\.$/.exec(issue)
+  if (branchMatch)
+    return t('releaseIssueBranch', { required: branchMatch[1]!, current: branchMatch[2]! })
+  const workflowMatch = /^Release workflow does not exist: (.+)$/.exec(issue)
+  if (workflowMatch)
+    return t('releaseIssueWorkflowMissing', { workflow: workflowMatch[1]! })
+  const semverMatch = /^Invalid SemVer release: (.+)$/.exec(issue)
+  if (semverMatch)
+    return t('releaseIssueInvalidSemver', { version: semverMatch[1]! })
   return issue
 }
 
@@ -201,7 +210,7 @@ const displayedInvocation = computed(() => {
 const isRelease = computed(() => store.activeCapability?.kind === 'command' && store.activeCapability.operation?.kind === 'release')
 
 watch(
-  [() => store.activeProject?.id, () => store.activeCapability?.id],
+  [() => store.activeProject?.id, () => store.activeCapability?.id, () => ({ ...inputValues.value })],
   async ([projectId, capabilityId]) => {
     releasePlan.value = undefined
     releasePlanError.value = ''
@@ -210,7 +219,7 @@ watch(
       return
     releasePlanLoading.value = true
     try {
-      releasePlan.value = await api.releasePlan(projectId, capabilityId)
+      releasePlan.value = await api.releasePlan(projectId, capabilityId, { ...inputValues.value })
     }
     catch (caught) {
       releasePlanError.value = caught instanceof Error ? caught.message : String(caught)
@@ -359,7 +368,7 @@ function openSkillThread(): Promise<void> {
           <p v-else-if="releasePlanError" class="error-message">{{ releasePlanError }}</p>
           <template v-else-if="releasePlan">
             <dl>
-              <div><dt>{{ t('releaseVersion') }}</dt><dd>{{ releasePlan.currentVersion || t('unknown') }}<template v-if="releasePlan.proposedTag"> · {{ releasePlan.proposedTag }}</template></dd></div>
+              <div><dt>{{ t('releaseVersion') }}</dt><dd>{{ releasePlan.currentVersion || t('unknown') }}<template v-if="releasePlan.proposedVersion"> → {{ releasePlan.proposedVersion }}</template><template v-if="releasePlan.proposedTag"> · {{ releasePlan.proposedTag }}</template></dd></div>
               <div><dt>{{ t('releaseBranch') }}</dt><dd>{{ releasePlan.branch || t('detachedHead') }}</dd></div>
               <div><dt>{{ t('releaseWorktree') }}</dt><dd>{{ t(releasePlan.clean ? 'releaseWorktreeClean' : 'releaseWorktreeDirty') }}</dd></div>
               <div v-if="releasePlan.workflowPath"><dt>{{ t('releaseWorkflow') }}</dt><dd><code>{{ releasePlan.workflowPath }}</code></dd></div>

@@ -100,6 +100,9 @@ const projectOperationSchema = z.strictObject({
   requiresCleanGit: z.boolean().optional(),
   requiredBranch: z.string().min(1).optional(),
   workflowPath: z.string().min(1).optional(),
+  versionInput: z.string().min(1).optional(),
+  customVersionInput: z.string().min(1).optional(),
+  prereleaseIdInput: z.string().min(1).optional(),
 })
 
 /** Runtime validator and single source of truth for project.jsonc. */
