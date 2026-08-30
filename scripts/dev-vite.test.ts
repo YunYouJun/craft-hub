@@ -1,10 +1,13 @@
 import type { AddressInfo } from 'node:net'
 import { createServer as createHttpServer } from 'node:http'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { startWebDevServer } from './dev-vite.ts'
 
 describe('web development server', () => {
+  afterEach(() => vi.unstubAllEnvs())
+
   it('reports the actual URL when the preferred port is occupied', async () => {
+    vi.stubEnv('FORCE_COLOR', '1')
     const occupiedServer = createHttpServer()
     await new Promise<void>((resolve, reject) => {
       occupiedServer.once('error', reject)

@@ -4,6 +4,7 @@ import { spawn } from 'node:child_process'
 import { dirname, resolve } from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
+import { stripVTControlCharacters } from 'node:util'
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const webRoot = resolve(repositoryRoot, 'apps/web')
@@ -101,7 +102,7 @@ function developmentUrl(child: ChildProcess): Promise<string> {
     let cleanup = () => {}
     const onData = (chunk: Buffer) => {
       output += chunk.toString()
-      const match = output.match(/Local:[^\n]*?(http:\/\/127\.0\.0\.1:\d+\/)/)
+      const match = stripVTControlCharacters(output).match(/Local:[^\n]*?(http:\/\/127\.0\.0\.1:\d+\/)/)
       if (!match)
         return
       cleanup()
