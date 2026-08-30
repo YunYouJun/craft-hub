@@ -53,6 +53,21 @@ async function stopChild(child: ChildProcess): Promise<void> {
   })
 }
 
+async function readChunk<T>(reader: ReadableStreamDefaultReader<T>, timeoutMs = 5_000): Promise<ReadableStreamReadResult<T>> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      reader.read(),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error('Timed out waiting for streamed response data')), timeoutMs)
+      }),
+    ])
+  }
+  finally {
+    clearTimeout(timer)
+  }
+}
+
 describe('app launcher', () => {
   it('registers the requested project and starts on a random port', async () => {
     const projectPath = await projectFixture()
@@ -131,7 +146,7 @@ describe('app launcher', () => {
       let output = ''
       const timeout = Date.now() + 3_000
       while (!output.includes('event: project-change') && Date.now() < timeout) {
-        const chunk = await reader.read()
+        const chunk = await readChunk(reader, Math.max(timeout - Date.now(), 1))
         if (chunk.done)
           break
         output += new TextDecoder().decode(chunk.value)
@@ -170,7 +185,7 @@ describe('app launcher', () => {
       let output = ''
       const timeout = Date.now() + 3_000
       while (!output.includes('event: settings-change') && Date.now() < timeout) {
-        const chunk = await reader.read()
+        const chunk = await readChunk(reader, Math.max(timeout - Date.now(), 1))
         if (chunk.done)
           break
         output += new TextDecoder().decode(chunk.value)
@@ -304,7 +319,7 @@ describe('app launcher', () => {
       let output = ''
       let runId = ''
       while (!runId) {
-        const chunk = await reader.read()
+        const chunk = await readChunk(reader)
         output += chunk.value ?? ''
         for (const line of output.split('\n').slice(0, -1).filter(Boolean)) {
           const event = JSON.parse(line) as { type: string, run?: { id: string } }
@@ -320,7 +335,7 @@ describe('app launcher', () => {
       })
       expect(inputResponse.status).toBe(202)
       while (true) {
-        const chunk = await reader.read()
+        const chunk = await readChunk(reader)
         output += chunk.value ?? ''
         if (chunk.done)
           break
