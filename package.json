@@ -47,7 +47,8 @@
     "typedoc-vitepress-theme": "catalog:",
     "typescript": "catalog:",
     "vite": "catalog:",
-    "vitest": "catalog:"
+    "vitest": "catalog:",
+    "wrangler": "catalog:"
   },
   "simple-git-hooks": {
     "pre-commit": "pnpm lint-staged"

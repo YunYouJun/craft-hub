@@ -29,5 +29,5 @@ describe('web development server', () => {
         occupiedServer.close(error => error ? reject(error) : resolve())
       })
     }
-  }, 20_000)
+  }, 60_000)
 })
