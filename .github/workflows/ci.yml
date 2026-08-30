@@ -59,7 +59,10 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
-      - run: pnpm test --run
+      - name: Run unit tests
+        run: pnpm test --run --exclude scripts/dev-vite.test.ts
+      - name: Run Vite process integration test
+        run: pnpm test --run scripts/dev-vite.test.ts
 
   docs:
     name: Build docs
