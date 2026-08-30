@@ -1,6 +1,6 @@
 import type { FSWatcher } from 'chokidar'
 import { createHash, randomUUID } from 'node:crypto'
-import { copyFile, mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import { copyFile, mkdir, readdir, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
 import { watch } from 'chokidar'
 import { z } from 'zod'
@@ -353,7 +353,8 @@ export class CraftHubSettingsService {
     await this.initialize()
     if (this.watcher)
       return
-    this.watcher = watch(this.path, { ignoreInitial: true, awaitWriteFinish: { stabilityThreshold: 100, pollInterval: 20 } })
+    const watchPath = join(await realpath(this.dataDir), settingsFileName)
+    this.watcher = watch(watchPath, { ignoreInitial: true, awaitWriteFinish: { stabilityThreshold: 100, pollInterval: 20 } })
     this.watcher.on('add', () => void this.reloadFromDisk())
     this.watcher.on('change', () => void this.reloadFromDisk())
     this.watcher.on('unlink', () => void this.reloadFromDisk())

@@ -1,7 +1,8 @@
 import { execFile } from 'node:child_process'
-import { mkdir, mkdtemp, readFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, symlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import process from 'node:process'
 import { promisify } from 'node:util'
 import { describe, expect, it } from 'vitest'
 import { CraftHubStore, OwnerScopeService, ProjectRegistry, TeamGitSyncService, WorkspaceService } from '../src/index'
@@ -46,5 +47,23 @@ describe('team Git sync', () => {
     const sync = new TeamGitSyncService(dataDir, scopes, workspaces)
 
     await expect(sync.status('personal')).rejects.toThrow('requires a Team')
+  })
+
+  it('rejects a sync directory that resolves outside the repository', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'craft-hub-team-sync-'))
+    const repositoryPath = join(root, 'shared')
+    const outside = join(root, 'outside')
+    await Promise.all([
+      execFileAsync('git', ['init', repositoryPath]),
+      mkdir(join(outside, 'craft-hub'), { recursive: true }),
+    ])
+    await symlink(outside, join(repositoryPath, 'linked'), process.platform === 'win32' ? 'junction' : 'dir')
+    const dataDir = join(root, 'data')
+    const configDir = join(root, 'config')
+    const scopes = new OwnerScopeService(configDir, dataDir)
+    const team = await scopes.createTeam('Acme')
+    const sync = new TeamGitSyncService(dataDir, scopes, new WorkspaceService(configDir, dataDir, new ProjectRegistry(new CraftHubStore(dataDir))))
+
+    await expect(sync.configure(team.id, { repositoryPath, directory: 'linked/craft-hub' })).rejects.toThrow('outside the selected repository')
   })
 })

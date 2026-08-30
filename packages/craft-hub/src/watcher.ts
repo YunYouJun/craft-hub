@@ -1,5 +1,6 @@
 import type { FSWatcher } from 'chokidar'
 import type { ProjectRecord } from './types'
+import { realpath } from 'node:fs/promises'
 import { extname, relative, sep } from 'node:path'
 import chokidar from 'chokidar'
 
@@ -71,13 +72,14 @@ export class ProjectWatcher {
     if (this.watchers.has(project.id))
       return
 
-    const watcher = chokidar.watch(project.path, {
+    const watchRoot = await realpath(project.path)
+    const watcher = chokidar.watch(watchRoot, {
       atomic: true,
       depth: projectWatchDepth,
       followSymlinks: false,
       ignoreInitial: true,
       ignored: (path, stats) => {
-        const relativePath = normalizedRelativePath(project.path, path)
+        const relativePath = normalizedRelativePath(watchRoot, path)
         if (relativePath.split('/').some(part => ignoredDirectoryNames.has(part)))
           return true
         if (stats?.isDirectory() || (!stats && !extname(relativePath)))
@@ -89,7 +91,7 @@ export class ProjectWatcher {
     watcher.on('all', (event, path) => {
       if (event === 'addDir' || event === 'unlinkDir')
         return
-      this.queue(project.id, normalizedRelativePath(project.path, path))
+      this.queue(project.id, normalizedRelativePath(watchRoot, path))
     })
     watcher.on('error', () => {})
     await new Promise<void>((resolvePromise) => {

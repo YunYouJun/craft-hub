@@ -5,7 +5,7 @@ import type { WorkspaceService } from './workspaces'
 import { execFile } from 'node:child_process'
 import { createHash, randomUUID } from 'node:crypto'
 import { mkdir, readFile, realpath, rename, writeFile } from 'node:fs/promises'
-import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { promisify } from 'node:util'
 
 const execFileAsync = promisify(execFile)
@@ -176,9 +176,9 @@ export class TeamGitSyncService {
     if (createDirectory)
       await mkdir(directory, { recursive: true })
     const existing = await nearestExistingPath(directory)
-    const resolved = await realpath(existing)
-    const location = relative(target.repositoryPath, resolved)
-    if (location === '..' || location.startsWith('../') || isAbsolute(location))
+    const [repositoryPath, resolved] = await Promise.all([realpath(target.repositoryPath), realpath(existing)])
+    const location = relative(repositoryPath, resolved)
+    if (location === '..' || location.startsWith(`..${sep}`) || isAbsolute(location))
       throw new Error('Git sync directory resolves outside the selected repository')
     return this.snapshotPath(ownerScopeId, target)
   }
