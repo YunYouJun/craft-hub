@@ -44,6 +44,7 @@ jobs:
         run: |
           mkdir -p _site
           cp -R docs/.vitepress/dist/. _site/
+          test -f _site/marketplace.html
           touch _site/.nojekyll
       - name: Resolve alpha release
         id: alpha_release
