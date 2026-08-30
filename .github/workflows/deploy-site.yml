@@ -19,16 +19,14 @@ on:
 
 permissions:
   contents: read
-  id-token: write
-  pages: write
 
 concurrency:
-  group: github-pages
+  group: cloudflare-pages
   cancel-in-progress: true
 
 jobs:
-  build:
-    name: Build site
+  deploy:
+    name: Build and deploy site
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -79,20 +77,9 @@ jobs:
           for arch in arm64 x64; do
             ARCH="$arch" node -e "const fs=require('fs');const tag=process.env.RELEASE_TAG;const version=tag.slice(1).split('-')[0];const arch=process.env.ARCH;const asset='Craft-Hub-macOS-'+arch+'.zip';const update={currentRelease:version,releases:[{version,updateTo:{version,pub_date:process.env.RELEASE_PUBLISHED_AT,notes:'Craft Hub '+tag+' alpha update',name:version,url:'https://github.com/'+process.env.GITHUB_REPOSITORY+'/releases/download/'+tag+'/'+asset}}]};fs.writeFileSync('_site/updates/alpha/darwin/'+arch+'/RELEASES.json',JSON.stringify(update,null,2)+'\n')"
           done
-      - uses: actions/configure-pages@v5
-      - uses: actions/upload-pages-artifact@v4
+      - name: Deploy Cloudflare Pages
+        uses: cloudflare/wrangler-action@v4
         with:
-          path: _site
-
-  deploy:
-    name: Deploy GitHub Pages
-    needs: build
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - name: Deploy site
-        id: deployment
-        uses: actions/deploy-pages@v4
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          command: pages deploy _site --project-name=craft-hub --branch=main

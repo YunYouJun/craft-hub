@@ -209,8 +209,7 @@ jobs:
     needs: [release, publish-npm]
     permissions:
       contents: read
-      id-token: write
-      pages: write
     uses: ./.github/workflows/deploy-site.yml
+    secrets: inherit
     with:
       release_tag: ${{ github.ref_name }}
