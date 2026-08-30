@@ -9,6 +9,7 @@ const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const webRoot = resolve(repositoryRoot, 'apps/web')
 const vitePackagePath = fileURLToPath(import.meta.resolve('vite/package.json'))
 const viteCliPath = resolve(dirname(vitePackagePath), 'bin/vite.js')
+const processShutdownTimeoutMs = 2_000
 
 export interface DevelopmentProcessExit {
   code: number | null
@@ -46,19 +47,47 @@ export async function startWebDevServer(options: WebDevServerOptions = {}): Prom
   try {
     const url = await developmentUrl(child)
     return {
-      close: async () => {
-        if (child.exitCode === null && child.signalCode === null)
-          child.kill('SIGTERM')
-        await closed
-      },
+      close: () => terminateProcess(child, closed),
       closed,
       url,
     }
   }
   catch (error) {
-    child.kill('SIGTERM')
-    await closed.catch(() => {})
+    await terminateProcess(child, closed).catch(() => {})
     throw error
+  }
+}
+
+async function terminateProcess(child: ChildProcess, closed: Promise<DevelopmentProcessExit>): Promise<void> {
+  if (child.exitCode !== null || child.signalCode !== null) {
+    await closed
+    return
+  }
+
+  child.kill('SIGTERM')
+  if (await settlesWithin(closed, processShutdownTimeoutMs))
+    return
+
+  if (child.exitCode === null && child.signalCode === null)
+    child.kill('SIGKILL')
+  if (!await settlesWithin(closed, processShutdownTimeoutMs))
+    throw new Error('Vite did not exit after SIGTERM and SIGKILL')
+}
+
+async function settlesWithin<T>(promise: Promise<T>, timeoutMs: number): Promise<boolean> {
+  let timer: NodeJS.Timeout | undefined
+  try {
+    return await Promise.race([
+      promise.then(() => true),
+      new Promise<boolean>((resolveTimeout) => {
+        timer = setTimeout(resolveTimeout, timeoutMs, false)
+        timer.unref()
+      }),
+    ])
+  }
+  finally {
+    if (timer)
+      clearTimeout(timer)
   }
 }
 
