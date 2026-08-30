@@ -243,7 +243,7 @@ describe('craft hub server lifecycle', () => {
     const root = await mkdtemp(join(tmpdir(), 'craft-hub-server-git-sync-'))
     const repositoryPath = join(root, 'dotfiles')
     await execFileAsync('git', ['init', repositoryPath])
-    const canonicalRepositoryPath = await realpath(repositoryPath)
+    const canonicalRepositoryPath = (await realpath(repositoryPath)).replaceAll('\\', '/')
     const runtime = new CraftHubRuntime({ dataDir: join(root, 'data'), configDir: join(root, 'config') })
     const app = await startCraftHubServer({ port: 0, runtime })
     try {
