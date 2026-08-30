@@ -6,7 +6,9 @@ import { groupIconMdPlugin } from 'vitepress-plugin-group-icons'
 import { version } from '../../../package.json' with { type: 'json' }
 import typedocSidebar from '../../api/typedoc-sidebar.json' with { type: 'json' }
 
-const REPOSITORY_URL = 'https://github.com/YunYouJun/starter-monorepo'
+const REPOSITORY_URL = 'https://github.com/YunYouJun/craft-hub'
+const SITE_DESCRIPTION = 'A local, cross-project workbench for project commands and agent skills.'
+const ZH_SITE_DESCRIPTION = '本地、跨项目的命令与 Agent Skills 开发工作台。'
 
 const ZH_MARKDOWN = {
   container: {
@@ -26,7 +28,7 @@ const ZH_MARKDOWN = {
 }
 
 const EN_GUIDES: DefaultTheme.NavItemWithLink[] = [
-  { text: 'What is starter-monorepo?', link: '/guide/what-is' },
+  { text: 'What is Craft Hub?', link: '/guide/what-is' },
   { text: 'Getting Started', link: '/guide/getting-started' },
   { text: 'Desktop Links', link: '/guide/desktop-links' },
   { text: 'Codex Tasks', link: '/guide/codex-tasks' },
@@ -36,7 +38,7 @@ const EN_GUIDES: DefaultTheme.NavItemWithLink[] = [
 ]
 
 const ZH_GUIDES: DefaultTheme.NavItemWithLink[] = [
-  { text: '什么是 starter-monorepo？', link: '/zh/guide/what-is' },
+  { text: 'Craft Hub 是什么？', link: '/zh/guide/what-is' },
   { text: '快速开始', link: '/zh/guide/getting-started' },
   { text: '桌面链接', link: '/zh/guide/desktop-links' },
   { text: 'Codex 任务', link: '/zh/guide/codex-tasks' },
@@ -64,8 +66,8 @@ const vpConfig = getVitepressConfig({
 export default defineConfig({
   ...vpConfig,
 
-  title: 'starter-monorepo',
-  description: 'TypeScript Monorepo Starter with VitePress Documentation',
+  title: 'Craft Hub',
+  description: SITE_DESCRIPTION,
   locales: {
     root: {
       label: 'English',
@@ -75,7 +77,7 @@ export default defineConfig({
       label: '简体中文',
       lang: 'zh-CN',
       link: '/zh/',
-      description: '基于 TypeScript、内置 VitePress 文档的 Monorepo 起始模板',
+      description: ZH_SITE_DESCRIPTION,
       markdown: ZH_MARKDOWN,
       themeConfig: {
         nav: [
@@ -255,7 +257,7 @@ export default defineConfig({
     },
 
     socialLinks: [
-      { icon: 'github', link: 'https://github.com/YunYouJun/starter-monorepo' },
+      { icon: 'github', link: REPOSITORY_URL },
     ],
 
     footer: {
@@ -267,8 +269,8 @@ export default defineConfig({
   head: [
     ['link', { rel: 'icon', href: '/favicon.svg', type: 'image/svg+xml' }],
     ['meta', { name: 'author', content: 'YunYouJun' }],
-    ['meta', { property: 'og:title', content: 'starter-monorepo' }],
-    ['meta', { property: 'og:description', content: 'TypeScript Monorepo Starter with VitePress Documentation' }],
+    ['meta', { property: 'og:title', content: 'Craft Hub' }],
+    ['meta', { property: 'og:description', content: SITE_DESCRIPTION }],
     ['meta', { name: 'viewport', content: 'width=device-width, initial-scale=1.0, viewport-fit=cover' }],
   ],
 })

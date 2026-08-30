@@ -1,6 +1,7 @@
 import { createPinia } from 'pinia'
-import { createApp } from 'vue'
-import App from './App.vue'
+import { createApp, h } from 'vue'
+import { RouterView } from 'vue-router'
+import { createWorkbenchRouter } from './router'
 import { applyWorkbenchTheme } from './theme'
 import 'virtual:uno.css'
 import './desktop.css'
@@ -15,4 +16,7 @@ if (desktopPlatform)
 
 applyWorkbenchTheme('system')
 
-createApp(App).use(createPinia()).mount('#app')
+createApp({ render: () => h(RouterView) })
+  .use(createPinia())
+  .use(createWorkbenchRouter())
+  .mount('#app')

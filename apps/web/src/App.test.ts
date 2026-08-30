@@ -6,7 +6,9 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { nextTick } from 'vue'
+import { createMemoryHistory } from 'vue-router'
 import App from './App.vue'
+import { createWorkbenchRouter } from './router'
 import { useWorkbenchStore } from './store'
 
 const projects: ProjectRecord[] = [
@@ -41,6 +43,16 @@ class FakeEventSource {
   }
 }
 
+async function mountApp(pinia: ReturnType<typeof createPinia>, path = '/') {
+  const router = createWorkbenchRouter(createMemoryHistory())
+  await router.push(path)
+  await router.isReady()
+  return {
+    router,
+    wrapper: mount(App, { global: { plugins: [pinia, router] }, attachTo: document.body }),
+  }
+}
+
 describe('app startup', () => {
   afterEach(() => {
     FakeEventSource.instances = []
@@ -72,7 +84,7 @@ describe('app startup', () => {
     const pinia = createPinia()
     setActivePinia(pinia)
 
-    const wrapper = mount(App, { global: { plugins: [pinia] }, attachTo: document.body })
+    const { wrapper } = await mountApp(pinia)
     await flushPromises()
 
     expect(wrapper.get('[data-testid="project-load-error"]').text()).toContain('runtime unavailable')
@@ -117,7 +129,7 @@ describe('app startup', () => {
     const pinia = createPinia()
     setActivePinia(pinia)
 
-    const wrapper = mount(App, { global: { plugins: [pinia] }, attachTo: document.body })
+    const { wrapper } = await mountApp(pinia)
     await flushPromises()
 
     expect(wrapper.get('[data-testid="project-config-diagnostic"]').text()).toContain('Unrecognized key: "unknown"')
@@ -148,7 +160,7 @@ describe('app startup', () => {
     vi.stubGlobal('EventSource', FakeEventSource)
     const pinia = createPinia()
     setActivePinia(pinia)
-    const wrapper = mount(App, { global: { plugins: [pinia] }, attachTo: document.body })
+    const { wrapper } = await mountApp(pinia)
     await flushPromises()
     const store = useWorkbenchStore()
 
@@ -193,7 +205,7 @@ describe('app startup', () => {
     vi.stubGlobal('EventSource', FakeEventSource)
     const pinia = createPinia()
     setActivePinia(pinia)
-    const wrapper = mount(App, { global: { plugins: [pinia] }, attachTo: document.body })
+    const { wrapper } = await mountApp(pinia)
     await flushPromises()
 
     expect(wrapper.get('.workspace-dashboard h2').text()).toBe(workspace.name)
@@ -209,10 +221,42 @@ describe('app startup', () => {
     wrapper.unmount()
   })
 
+  it('opens the marketplace directly and keeps rail navigation in the route', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const path = typeof input === 'string' ? input : input.toString()
+      const body = path === '/api/settings'
+        ? { explicitKeys: [], path: '/settings.json', revision: 'initial', settings: { 'workbench.locale': 'en', 'workbench.shortcuts': {}, 'workbench.theme': 'system' } }
+        : path === '/api/workspaces/state'
+          ? { expandedWorkspaceIds: [] }
+          : []
+      return new Response(JSON.stringify(body), { status: 200 })
+    }))
+    vi.stubGlobal('EventSource', FakeEventSource)
+    const pinia = createPinia()
+    setActivePinia(pinia)
+
+    const { router, wrapper } = await mountApp(pinia, '/marketplace')
+    await flushPromises()
+
+    expect(router.currentRoute.value.path).toBe('/marketplace')
+    expect(wrapper.get('.marketplace-page').attributes('aria-label')).toBe('Plugin Marketplace')
+    expect(wrapper.get('[data-testid="open-marketplace"]').classes()).toContain('active')
+
+    await wrapper.get('[data-testid="open-workbench"]').trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.path).toBe('/')
+    expect(wrapper.find('.marketplace-page').exists()).toBe(false)
+
+    await wrapper.get('[data-testid="open-marketplace"]').trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.path).toBe('/marketplace')
+
+    wrapper.unmount()
+  })
+
   it('selects the project requested by the launch URL', async () => {
     let replayOnboarding: (() => void) | undefined
     const stopReplayOnboarding = vi.fn()
-    window.history.replaceState({}, '', '/?project=target')
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const path = typeof input === 'string' ? input : input.toString()
       const body = path === '/api/settings'
@@ -241,7 +285,7 @@ describe('app startup', () => {
     const pinia = createPinia()
     setActivePinia(pinia)
 
-    const wrapper = mount(App, { global: { plugins: [pinia] }, attachTo: document.body })
+    const { router, wrapper } = await mountApp(pinia, '/?project=target')
     await flushPromises()
 
     const store = useWorkbenchStore()
@@ -284,11 +328,14 @@ describe('app startup', () => {
 
     await wrapper.get('[data-testid="open-marketplace"]').trigger('click')
     await flushPromises()
+    expect(router.currentRoute.value.path).toBe('/marketplace')
     expect(wrapper.get('.marketplace-page').attributes('aria-label')).toBe('Plugin Marketplace')
     expect(wrapper.find('.dialog-overlay').exists()).toBe(false)
     expect(wrapper.get('[data-testid="open-marketplace"]').classes()).toContain('active')
 
     await wrapper.get('[data-testid="open-workbench"]').trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.path).toBe('/')
     expect(wrapper.find('.marketplace-page').exists()).toBe(false)
     expect(wrapper.get('[data-testid="open-workbench"]').classes()).toContain('active')
 

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeMount, onBeforeUnmount, ref } from 'vue'
 import { SplitterGroup, SplitterPanel, SplitterResizeHandle } from 'reka-ui'
+import { useRoute, useRouter } from 'vue-router'
 import { subscribeToProjectChanges } from './api'
 import CapabilityList from './CapabilityList.vue'
 import CommandPalette from './CommandPalette.vue'
@@ -21,9 +22,11 @@ import { useWorkbenchStore } from './store'
 
 const store = useWorkbenchStore()
 const { t } = useI18n()
+const route = useRoute()
+const router = useRouter()
 const paletteOpen = ref(false)
 const settingsOpen = ref(false)
-const marketplaceOpen = ref(false)
+const marketplaceOpen = computed(() => route.name === 'marketplace')
 const marketplaceImportCatalogUrl = ref('')
 const onboardingOpen = ref(false)
 const desktopNavigation = ref<Extract<DesktopNavigation, { kind: 'project' }>>()
@@ -46,13 +49,23 @@ let stopOnboardingEvents: (() => void) | undefined
 let stopMarketplaceImportEvents: (() => void) | undefined
 let stopDesktopNavigationEvents: (() => void) | undefined
 
-function openMarketplaceSourceImport(catalogUrl: string): void {
+async function openMarketplace(): Promise<void> {
+  if (!marketplaceOpen.value)
+    await router.push({ name: 'marketplace' })
+}
+
+async function openWorkbench(): Promise<void> {
+  if (marketplaceOpen.value)
+    await router.push({ name: 'workbench' })
+}
+
+async function openMarketplaceSourceImport(catalogUrl: string): Promise<void> {
   marketplaceImportCatalogUrl.value = catalogUrl
-  marketplaceOpen.value = true
+  await openMarketplace()
 }
 
 async function openDesktopNavigation(navigation: DesktopNavigation): Promise<void> {
-  marketplaceOpen.value = false
+  await openWorkbench()
   onboardingOpen.value = false
   if (navigation.kind === 'home') {
     desktopNavigation.value = undefined
@@ -74,7 +87,7 @@ async function openShortcutCapability(shortcutId: string): Promise<void> {
     await store.selectProject(target.projectId)
   store.selectedCapabilityId = target.capabilityId
   paletteOpen.value = false
-  marketplaceOpen.value = false
+  await openWorkbench()
 }
 
 function onKeydown(event: KeyboardEvent) {
@@ -113,7 +126,7 @@ onBeforeMount(async () => {
   window.addEventListener('keydown', onKeydown)
   window.addEventListener('focus', refreshWhenVisible)
   document.addEventListener('visibilitychange', refreshWhenVisible)
-  const initialProjectId = new URLSearchParams(window.location.search).get('project') ?? undefined
+  const initialProjectId = typeof route.query.project === 'string' ? route.query.project : undefined
   await store.loadSettings()
   await store.loadOwnerScopes()
   await Promise.all([
@@ -139,14 +152,14 @@ onBeforeMount(async () => {
   })
   stopCodexActivityEvents = window.craftHubDesktop?.onCodexActivityStatus?.(status => codexActivityStatus.value = status)
   stopOnboardingEvents = window.craftHubDesktop?.onReplayOnboarding?.(() => {
-    marketplaceOpen.value = false
+    void openWorkbench()
     onboardingOpen.value = true
   })
-  stopMarketplaceImportEvents = window.craftHubDesktop?.onMarketplaceSourceImport?.(openMarketplaceSourceImport)
+  stopMarketplaceImportEvents = window.craftHubDesktop?.onMarketplaceSourceImport?.(catalogUrl => void openMarketplaceSourceImport(catalogUrl))
   stopDesktopNavigationEvents = window.craftHubDesktop?.onDesktopNavigation?.(navigation => void openDesktopNavigation(navigation))
   const pendingMarketplaceImport = await window.craftHubDesktop?.consumeMarketplaceSourceImport?.()
   if (pendingMarketplaceImport)
-    openMarketplaceSourceImport(pendingMarketplaceImport)
+    await openMarketplaceSourceImport(pendingMarketplaceImport)
   const pendingDesktopNavigation = await window.craftHubDesktop?.consumeDesktopNavigation?.()
   if (pendingDesktopNavigation)
     await openDesktopNavigation(pendingDesktopNavigation)
@@ -187,9 +200,9 @@ onBeforeUnmount(() => {
       <SplitterPanel id="projects-panel" size-unit="px" :default-size="280" :min-size="252" :max-size="390">
         <ProjectRail
           :active-view="marketplaceOpen ? 'marketplace' : 'workbench'"
-          @open-marketplace="marketplaceOpen = true"
+          @open-marketplace="openMarketplace"
           @open-settings="settingsOpen = true"
-          @open-workbench="marketplaceOpen = false"
+          @open-workbench="openWorkbench"
         />
       </SplitterPanel>
       <SplitterResizeHandle v-if="store.projects.length" id="projects-resize-handle" class="workbench-resize-handle" :aria-label="t('resizeProjects')" :aria-hidden="marketplaceOpen" :inert="marketplaceOpen" :title="t('resizeProjects')">
