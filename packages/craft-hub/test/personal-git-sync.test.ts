@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process'
 import { mkdir, mkdtemp, readFile, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import process from 'node:process'
 import { promisify } from 'node:util'
 import { describe, expect, it } from 'vitest'
 import { CraftHubRuntime } from '../src/runtime'
@@ -63,7 +64,7 @@ describe('personal Git sync', () => {
 
     const outside = join(fixture.root, 'outside')
     await mkdir(outside)
-    await symlink(outside, join(fixture.repositoryPath, 'linked'))
+    await symlink(outside, join(fixture.repositoryPath, 'linked'), process.platform === 'win32' ? 'junction' : 'dir')
     await expect(fixture.runtime.personalGitSync.configure({ repositoryPath: fixture.repositoryPath, directory: 'linked/craft-hub' })).rejects.toThrow('outside the selected repository')
   })
 })

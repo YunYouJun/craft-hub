@@ -32,7 +32,7 @@ describe('team lifecycle', () => {
       deletedWorkspaceCount: 1,
       deletedGroupCount: 1,
     })
-    expect(result.retainedSnapshotPath).toMatch(new RegExp(`shared/.craft-hub/teams/${team.id}/${team.id}\\.snapshot\\.json$`))
+    expect(result.retainedSnapshotPath?.replaceAll('\\', '/')).toMatch(new RegExp(`shared/.craft-hub/teams/${team.id}/${team.id}\\.snapshot\\.json$`))
     await expect(readFile(result.retainedSnapshotPath!, 'utf8')).resolves.toContain(`"id": "${team.id}"`)
     await expect(runtime.ownerScopes.get(team.id)).rejects.toThrow('Unknown owner scope')
     await expect(runtime.workspaces.list(team.id)).resolves.toEqual([])

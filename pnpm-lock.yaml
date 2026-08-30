@@ -88,6 +88,9 @@ catalogs:
     chokidar:
       specifier: ^5.0.0
       version: 5.0.0
+    cross-spawn:
+      specifier: ^7.0.6
+      version: 7.0.6
     electron:
       specifier: ^44.0.0
       version: 44.0.0
@@ -202,7 +205,7 @@ overrides:
   nanoid: ^3.3.18
 
 patchedDependencies:
-  node-pty@1.1.0: 01cd818d7698a2bb3e93d44742be26be924b317b9a699a61a64a01672387993d
+  node-pty@1.1.0: a721540bbb1a14a83cb07e580c5da291d9dc69413fcb8baacdd58a84780b3376
 
 importers:
 
@@ -459,12 +462,15 @@ importers:
       chokidar:
         specifier: 'catalog:'
         version: 5.0.0
+      cross-spawn:
+        specifier: 'catalog:'
+        version: 7.0.6
       jsonc-parser:
         specifier: 'catalog:'
         version: 3.3.1
       node-pty:
         specifier: 'catalog:'
-        version: 1.1.0(patch_hash=01cd818d7698a2bb3e93d44742be26be924b317b9a699a61a64a01672387993d)
+        version: 1.1.0(patch_hash=a721540bbb1a14a83cb07e580c5da291d9dc69413fcb8baacdd58a84780b3376)
       semver:
         specifier: 'catalog:'
         version: 7.8.5
@@ -8921,7 +8927,7 @@ snapshots:
       whatwg-url: 5.0.0
     optional: true
 
-  node-pty@1.1.0(patch_hash=01cd818d7698a2bb3e93d44742be26be924b317b9a699a61a64a01672387993d):
+  node-pty@1.1.0(patch_hash=a721540bbb1a14a83cb07e580c5da291d9dc69413fcb8baacdd58a84780b3376):
     dependencies:
       node-addon-api: 7.1.1
 

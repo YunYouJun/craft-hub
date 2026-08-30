@@ -59,6 +59,7 @@ catalog:
   bumpp: ^12.2.1
   cac: ^7.0.0
   chokidar: ^5.0.0
+  cross-spawn: ^7.0.6
   electron: ^44.0.0
   eslint: ^10.9.1
   floating-vue: ^5.2.2

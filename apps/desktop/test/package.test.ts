@@ -111,7 +111,7 @@ describe('desktop package scripts', () => {
   })
 
   it('runs one desktop instance and separates development from packaged ports', async () => {
-    const desktopMain = await readFile(new URL('../src/main.ts', import.meta.url), 'utf8')
+    const desktopMain = (await readFile(new URL('../src/main.ts', import.meta.url), 'utf8')).replaceAll('\r\n', '\n')
 
     expect(desktopMain).toContain('app.requestSingleInstanceLock()')
     expect(desktopMain).toContain('if (!hasSingleInstanceLock) {\n  process.exit(0)\n}')

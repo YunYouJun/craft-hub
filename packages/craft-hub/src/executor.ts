@@ -2,9 +2,19 @@ import type { CraftHubStore } from './store'
 import type { CommandCapability, ProjectRecord, RunOutputEvent, RunRecord } from './types'
 import { Buffer } from 'node:buffer'
 import { randomUUID } from 'node:crypto'
+import { createRequire } from 'node:module'
 import process from 'node:process'
 import { spawn } from 'node-pty'
 import { assertCommandWorkingDirectory } from './path-security'
+
+interface ParsedCommand {
+  args: string[]
+  command: string
+}
+
+type ParseCommand = (command: string, args: string[], options: { cwd: string, env: NodeJS.ProcessEnv, shell: false }) => ParsedCommand
+
+const parseCommand = (createRequire(import.meta.url)('cross-spawn') as { _parse: ParseCommand })._parse
 
 const persistedOutputLimit = 10 * 1024 * 1024
 const persistedOutputHead = persistedOutputLimit / 2
@@ -45,7 +55,14 @@ export async function executeCommand(
   }
   void store.saveRun(run)
 
-  const terminal = spawn(capability.invocation.command, capability.invocation.args, {
+  const parsed = process.platform === 'win32'
+    ? parseCommand(capability.invocation.command, capability.invocation.args, {
+        cwd: capability.invocation.cwd,
+        env: process.env,
+        shell: false,
+      })
+    : capability.invocation
+  const terminal = spawn(parsed.command, process.platform === 'win32' ? parsed.args.join(' ') : parsed.args, {
     cwd: capability.invocation.cwd,
     cols: 120,
     env: process.env,

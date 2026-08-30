@@ -46,6 +46,7 @@
   "dependencies": {
     "cac": "catalog:",
     "chokidar": "catalog:",
+    "cross-spawn": "catalog:",
     "jsonc-parser": "catalog:",
     "node-pty": "catalog:",
     "semver": "catalog:",

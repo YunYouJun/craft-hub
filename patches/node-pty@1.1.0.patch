@@ -2,7 +2,9 @@ diff --git a/scripts/prebuild.js b/scripts/prebuild.js
 index 17f1d980e62e017d77058627a7a15c4c29f9470c..16855ccbf3c84e5f358d206d1631e9a0c40f92c5 100644
 --- a/scripts/prebuild.js
 +++ b/scripts/prebuild.js
-@@ -31,2 +31,7 @@ if (!fs.existsSync(PREBUILD_DIR)) {
+@@ -29,6 +29,11 @@ console.log('\x1b[32m> Checking prebuilds...\x1b[0m');
+ if (!fs.existsSync(PREBUILD_DIR)) {
+   console.log(`\x1b[33m> Rebuilding because directory ${PREBUILD_DIR} does not exist\x1b[0m`);
    process.exit(1);
  }
 +
@@ -10,3 +12,101 @@ index 17f1d980e62e017d77058627a7a15c4c29f9470c..16855ccbf3c84e5f358d206d1631e9a0
 +if (process.platform !== 'win32' && fs.existsSync(spawnHelper)) {
 +  fs.chmodSync(spawnHelper, 0o755);
 +}
+-
++
+ process.exit(0);
+diff --git a/lib/windowsConoutConnection.js b/lib/windowsConoutConnection.js
+--- a/lib/windowsConoutConnection.js
++++ b/lib/windowsConoutConnection.js
+@@ -77,6 +77,7 @@ var ConoutConnection = /** @class */ (function () {
+         };
+         var scriptPath = __dirname.replace('node_modules.asar', 'node_modules.asar.unpacked');
+         this._worker = new worker_threads_1.Worker(path_1.join(scriptPath, 'worker/conoutSocketWorker.js'), { workerData: workerData });
++        this._worker.unref();
+         this._worker.on('message', function (message) {
+             switch (message) {
+                 case 1 /* READY */:
+@@ -108,6 +109,7 @@ var ConoutConnection = /** @class */ (function () {
+             clearTimeout(this._drainTimeout);
+         }
+         this._drainTimeout = setTimeout(function () { return _this._destroySocket(); }, FLUSH_DATA_INTERVAL);
++        this._drainTimeout.unref();
+     };
+     ConoutConnection.prototype._destroySocket = function () {
+         return __awaiter(this, void 0, void 0, function () {
+diff --git a/lib/windowsPtyAgent.js b/lib/windowsPtyAgent.js
+--- a/lib/windowsPtyAgent.js
++++ b/lib/windowsPtyAgent.js
+@@ -67,6 +67,7 @@ var WindowsPtyAgent = /** @class */ (function () {
+         // Create terminal pipe IPC channel and forward to a local unix socket.
+         this._outSocket = new net_1.Socket();
+         this._outSocket.setEncoding('utf8');
++        this._outSocket.unref();
+         // The conout socket must be ready out on another thread to avoid deadlocks
+         this._conoutSocketWorker = new windowsConoutConnection_1.ConoutConnection(term.conout, this._useConptyDll);
+         this._conoutSocketWorker.onReady(function () {
+@@ -84,6 +85,7 @@ var WindowsPtyAgent = /** @class */ (function () {
+             writable: true
+         });
+         this._inSocket.setEncoding('utf8');
++        this._inSocket.unref();
+         if (this._useConpty) {
+             var connect = this._ptyNative.connect(this._pty, commandLine, cwd, env, this._useConptyDll, function (c) { return _this._$onProcessExit(c); });
+             this._innerPid = connect.pid;
+@@ -215,6 +217,7 @@ var WindowsPtyAgent = /** @class */ (function () {
+             clearTimeout(this._closeTimeout);
+         }
+         this._closeTimeout = setTimeout(function () { return _this._cleanUpProcess(); }, FLUSH_DATA_INTERVAL);
++        this._closeTimeout.unref();
+     };
+     WindowsPtyAgent.prototype._cleanUpProcess = function () {
+         if (this._useConptyDll) {
+diff --git a/src/windowsConoutConnection.ts b/src/windowsConoutConnection.ts
+--- a/src/windowsConoutConnection.ts
++++ b/src/windowsConoutConnection.ts
+@@ -50,6 +50,7 @@ export class ConoutConnection implements IDisposable {
+     };
+     const scriptPath = __dirname.replace('node_modules.asar', 'node_modules.asar.unpacked');
+     this._worker = new Worker(join(scriptPath, 'worker/conoutSocketWorker.js'), { workerData });
++    this._worker.unref();
+     this._worker.on('message', (message: ConoutWorkerMessage) => {
+       switch (message) {
+         case ConoutWorkerMessage.READY:
+@@ -82,6 +83,7 @@ export class ConoutConnection implements IDisposable {
+       clearTimeout(this._drainTimeout);
+     }
+     this._drainTimeout = setTimeout(() => this._destroySocket(), FLUSH_DATA_INTERVAL);
++    this._drainTimeout.unref();
+   }
+-
++
+   private async _destroySocket(): Promise<void> {
+diff --git a/src/windowsPtyAgent.ts b/src/windowsPtyAgent.ts
+--- a/src/windowsPtyAgent.ts
++++ b/src/windowsPtyAgent.ts
+@@ -98,6 +98,7 @@ export class WindowsPtyAgent {
+     // Create terminal pipe IPC channel and forward to a local unix socket.
+     this._outSocket = new Socket();
+     this._outSocket.setEncoding('utf8');
++    this._outSocket.unref();
+     // The conout socket must be ready out on another thread to avoid deadlocks
+     this._conoutSocketWorker = new ConoutConnection(term.conout, this._useConptyDll);
+     this._conoutSocketWorker.onReady(() => {
+@@ -112,6 +113,7 @@ export class WindowsPtyAgent {
+       writable: true
+     });
+     this._inSocket.setEncoding('utf8');
++    this._inSocket.unref();
+-
++
+     if (this._useConpty) {
+       const connect = (this._ptyNative as IConptyNative).connect(this._pty, commandLine, cwd, env, this._useConptyDll, c => this._$onProcessExit(c));
+@@ -236,6 +238,7 @@ export class WindowsPtyAgent {
+       clearTimeout(this._closeTimeout);
+     }
+     this._closeTimeout = setTimeout(() => this._cleanUpProcess(), FLUSH_DATA_INTERVAL);
++    this._closeTimeout.unref();
+   }
+-
++
+   private _cleanUpProcess(): void {
