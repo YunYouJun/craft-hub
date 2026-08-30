@@ -82,6 +82,10 @@ export default defineConfig({
       themeConfig: {
         nav: [
           {
+            text: '插件市场',
+            link: '/zh/marketplace',
+          },
+          {
             text: '指南',
             items: [
               {
@@ -193,6 +197,10 @@ export default defineConfig({
     },
 
     nav: [
+      {
+        text: 'Marketplace',
+        link: '/marketplace',
+      },
       {
         text: 'Guide',
         items: [
