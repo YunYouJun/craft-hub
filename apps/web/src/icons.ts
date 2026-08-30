@@ -1,7 +1,7 @@
 import type { VNode } from 'vue'
 import { h } from 'vue'
 
-export type IconName = 'arrowDown' | 'arrowRight' | 'calendar' | 'chart' | 'check' | 'close' | 'cloud' | 'code' | 'codex' | 'collection' | 'cursor' | 'database' | 'design' | 'docs' | 'drag' | 'edit' | 'error' | 'experiment' | 'folder' | 'folderOpen' | 'gitRepository' | 'hub' | 'loading' | 'mobile' | 'more' | 'package' | 'palette' | 'personal' | 'plugins' | 'plus' | 'rocket' | 'search' | 'security' | 'settings' | 'source' | 'star' | 'starFilled' | 'stop' | 'team' | 'terminal' | 'terminalApp' | 'skill' | 'play' | 'trusted' | 'untrusted' | 'refresh' | 'vscode' | 'web' | 'workspace'
+export type IconName = 'arrowDown' | 'arrowRight' | 'calendar' | 'chart' | 'check' | 'close' | 'cloud' | 'code' | 'codex' | 'collection' | 'cursor' | 'database' | 'design' | 'docs' | 'drag' | 'edit' | 'error' | 'experiment' | 'folder' | 'folderOpen' | 'gitMerge' | 'gitRepository' | 'hub' | 'loading' | 'mobile' | 'more' | 'package' | 'palette' | 'personal' | 'plugins' | 'plus' | 'rocket' | 'search' | 'security' | 'settings' | 'source' | 'star' | 'starFilled' | 'stop' | 'team' | 'terminal' | 'terminalApp' | 'skill' | 'play' | 'trusted' | 'untrusted' | 'refresh' | 'vscode' | 'web' | 'workspace'
 
 export const visualIconNames = ['workspace', 'folder', 'hub', 'code', 'docs', 'design', 'database', 'package', 'rocket', 'team', 'experiment', 'security', 'cloud', 'mobile', 'web', 'terminal', 'skill', 'settings', 'calendar', 'chart'] as const satisfies readonly IconName[]
 
@@ -24,6 +24,7 @@ export const iconClasses: Record<Exclude<IconName, 'codex' | 'cursor' | 'plugins
   experiment: 'i-ri-flask-line',
   folder: 'i-ri-folder-3-line',
   folderOpen: 'i-ri-folder-open-line',
+  gitMerge: 'i-ri-git-merge-line',
   gitRepository: 'i-ri-git-repository-line',
   hub: 'i-ri-node-tree',
   loading: 'i-svg-spinners-180-ring-with-bg',

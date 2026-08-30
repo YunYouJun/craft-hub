@@ -34,6 +34,7 @@ export default defineConfig({
     'i-ri-folder-3-line',
     'i-ri-folder-open-line',
     'i-ri-folders-line',
+    'i-ri-git-merge-line',
     'i-ri-git-repository-line',
     'i-ri-global-line',
     'i-ri-refresh-line',

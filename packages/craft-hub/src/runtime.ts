@@ -1,5 +1,6 @@
 import type { RunHandle } from './executor'
 import type { CapabilityProvider, CraftHubOptions, DistributionConfig } from './extensions'
+import type { ApplyGitIntegrationRequest, GitIntegrationPlan, GitIntegrationRequest, GitIntegrationResult } from './git-integration'
 import type { CraftHubPlugin, PluginDiagnostic } from './plugins'
 import type { Capability, CapabilityDiscoveryDiagnostic, CapabilityDiscoveryResult, CapabilityPins, CapabilityReference, CommandCapability, CommandInputValues, CommandInvocation, CommandPackage, ProjectConfigInitializationMode, ProjectConfigInitializationResult, ProjectRecord, ProjectRunSummary, ReleasePlan, RunCleanupOptions, RunCleanupResult, RunOutputEvent, RunRecord } from './types'
 import { resolve } from 'node:path'
@@ -11,6 +12,7 @@ import { resolveCommandInvocation, resolvePersistedCommandInvocation } from './c
 import { applyProjectConfigInitialization, previewProjectConfigInitialization } from './config'
 import { executeCommand } from './executor'
 import { builtinCapabilityProvider, communityDistribution } from './extensions'
+import { GitIntegration } from './git-integration'
 import { PluginManager } from './marketplace'
 import { OwnerScopeService } from './owner-scopes'
 import { assertCommandWorkingDirectory } from './path-security'
@@ -39,6 +41,7 @@ export class CraftHubRuntime {
   readonly agentActions: AgentActionService
   readonly pluginManager: PluginManager
   readonly releasePlanner = new ReleasePlanner()
+  readonly gitIntegration = new GitIntegration()
   readonly distribution: DistributionConfig
   private readonly capabilityProviders: Array<{ pluginId?: string, provider: CapabilityProvider }>
   private readonly activeRuns = new Map<string, RunHandle>()
@@ -106,6 +109,16 @@ export class CraftHubRuntime {
       mode,
       outcome: applied.created ? 'created' : 'unchanged',
     }
+  }
+
+  /** Compute a fresh, side-effect-free Plan for integrating the current local Git branch. */
+  async planGitIntegration(projectId: string, request: GitIntegrationRequest = {}): Promise<GitIntegrationPlan> {
+    return this.gitIntegration.plan(await this.projects.get(projectId), request)
+  }
+
+  /** Recheck and apply a reviewed local Git integration Plan. */
+  async applyGitIntegration(projectId: string, request: ApplyGitIntegrationRequest): Promise<GitIntegrationResult> {
+    return this.gitIntegration.apply(await this.projects.get(projectId), request)
   }
 
   /** Discover the current capabilities for one registered project. */

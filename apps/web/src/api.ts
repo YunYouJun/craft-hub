@@ -1,4 +1,4 @@
-import type { AgentActionId, AgentActionSummary, AgentTaskRecord, Capability, CapabilityDiscoveryResult, CapabilityPins, CatalogPluginV1, CommandInputValues, CommandInvocation, InstalledPlugin, MarketplaceSource, MarketplaceSourcePreview, OwnerScope, OwnerScopeUiState, PersonalGitSyncResolution, PersonalGitSyncStatus, ProjectCatalogSnapshot, ProjectChangeEvent, ProjectConfigInitializationResult, ProjectDescriptionApplication, ProjectDescriptionAudit, ProjectDescriptionChange, ProjectRecord, ProjectRunSummary, ProjectVisualInput, ReleasePlan, RunCleanupOptions, RunCleanupResult, RunRecord, RunStreamEvent, RuntimeHealth, SettingsExportEnvelope, SettingsExportMode, SettingsImportPreview, SettingsImportStrategy, SettingsSnapshot, TeamDeletionResult, TeamGitSyncStatus, WorkbenchLocale, WorkspaceCatalog, WorkspaceGroup, WorkspaceImportPreview, WorkspaceImportResult, WorkspaceManifest, WorkspaceRecord, WorkspaceUiState } from 'craft-hub'
+import type { AgentActionId, AgentActionSummary, AgentTaskRecord, ApplyGitIntegrationRequest, Capability, CapabilityDiscoveryResult, CapabilityPins, CatalogPluginV1, CommandInputValues, CommandInvocation, GitIntegrationPlan, GitIntegrationRequest, GitIntegrationResult, InstalledPlugin, MarketplaceSource, MarketplaceSourcePreview, OwnerScope, OwnerScopeUiState, PersonalGitSyncResolution, PersonalGitSyncStatus, ProjectCatalogSnapshot, ProjectChangeEvent, ProjectConfigInitializationResult, ProjectDescriptionApplication, ProjectDescriptionAudit, ProjectDescriptionChange, ProjectRecord, ProjectRunSummary, ProjectVisualInput, ReleasePlan, RunCleanupOptions, RunCleanupResult, RunRecord, RunStreamEvent, RuntimeHealth, SettingsExportEnvelope, SettingsExportMode, SettingsImportPreview, SettingsImportStrategy, SettingsSnapshot, TeamDeletionResult, TeamGitSyncStatus, WorkbenchLocale, WorkspaceCatalog, WorkspaceGroup, WorkspaceImportPreview, WorkspaceImportResult, WorkspaceManifest, WorkspaceRecord, WorkspaceUiState } from 'craft-hub'
 
 export class ApiRequestError extends Error {
   constructor(message: string, readonly status: number) {
@@ -165,6 +165,14 @@ export const api = {
   removeWorkspaceProject: (workspaceId: string, projectIdOrKey: string, ownerScopeId = 'personal') => request<WorkspaceRecord>(scopedPath(`/api/workspaces/${workspaceId}/members/${encodeURIComponent(projectIdOrKey)}`, ownerScopeId), { method: 'DELETE' }),
   capabilities: (projectId: string) => request<Capability[]>(`/api/projects/${projectId}/capabilities`),
   capabilityDiscovery,
+  gitIntegrationPlan: (projectId: string, input: GitIntegrationRequest = {}) => request<GitIntegrationPlan>(`/api/projects/${projectId}/git-integration/plan`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  }),
+  applyGitIntegration: (projectId: string, input: ApplyGitIntegrationRequest) => request<GitIntegrationResult>(`/api/projects/${projectId}/git-integration/apply`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  }),
   agentActions: (projectId: string, locale: WorkbenchLocale) => request<AgentActionSummary[]>(`/api/projects/${projectId}/agent-actions?locale=${encodeURIComponent(locale)}`),
   projectDescriptionAudit: (projectId: string, locale: WorkbenchLocale) => request<ProjectDescriptionAudit>(`/api/projects/${projectId}/agent-actions/improve-project-config/audit?locale=${encodeURIComponent(locale)}`),
   startAgentAction: (projectId: string, actionId: AgentActionId, locale: WorkbenchLocale) => request<AgentTaskRecord>(`/api/projects/${projectId}/agent-actions/${actionId}?locale=${encodeURIComponent(locale)}`, { method: 'POST' }),

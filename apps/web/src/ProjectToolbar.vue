@@ -4,6 +4,7 @@ import { ToolbarButton, ToolbarRoot, ToolbarSeparator } from 'reka-ui'
 import { Button as UiButton } from './components/ui/button'
 import { DialogShell } from './components/ui/dialog'
 import EditorLauncher from './EditorLauncher.vue'
+import GitIntegrationDialog from './GitIntegrationDialog.vue'
 import { Icon } from './icons'
 import { useI18n } from './i18n'
 import ProjectIcon from './ProjectIcon.vue'
@@ -18,6 +19,7 @@ const selectedApplication = ref(window.localStorage.getItem(terminalStorageKey) 
 const openError = ref('')
 const codexMenuOpen = ref(false)
 const trustDialogOpen = ref(false)
+const gitIntegrationOpen = ref(false)
 const desktopActions = computed(() => window.craftHubDesktop)
 const projectConfigDiagnostic = computed(() => store.selectedProjectDiagnostics[0])
 const openDirectoryLabel = computed(() => t(desktopActions.value?.platform === 'darwin' ? 'openProjectInFinder' : 'openProjectInFileManager'))
@@ -150,6 +152,9 @@ onMounted(async () => {
       <ToolbarButton v-if="desktopActions" class="toolbar-action-button icon-action tooltip-action git-remote-action" data-testid="open-project-git-remote" :aria-label="t('openProjectGitRemote')" :data-tooltip="t('openProjectGitRemote')" :title="t('openProjectGitRemote')" @click="openProjectGitRemote">
         <Icon name="gitRepository" />
       </ToolbarButton>
+      <ToolbarButton class="toolbar-action-button icon-action tooltip-action" data-testid="project-git-integration" :aria-label="t('gitIntegration')" :data-tooltip="t('gitIntegration')" :title="t('gitIntegration')" @click="gitIntegrationOpen = true">
+        <Icon name="gitMerge" />
+      </ToolbarButton>
       <EditorLauncher v-if="desktopActions?.openProjectInEditor" scope="project" @open="openProjectInEditor" />
       <ToolbarSeparator v-if="desktopActions" class="toolbar-separator" />
       <div class="codex-split-action">
@@ -196,4 +201,11 @@ onMounted(async () => {
       <UiButton data-testid="trust-project-confirm" variant="warning" :disabled="store.busy" @click="trustProject"><Icon name="trusted" /> {{ store.busy ? t('allowingExecution') : t('trustProject') }}</UiButton>
     </footer>
   </DialogShell>
+  <GitIntegrationDialog
+    v-if="store.selectedProject"
+    v-model:open="gitIntegrationOpen"
+    :project-id="store.selectedProject.id"
+    :project-name="store.selectedProject.name"
+    :trusted="store.selectedProject.trust === 'trusted'"
+  />
 </template>

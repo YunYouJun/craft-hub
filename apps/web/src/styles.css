@@ -340,6 +340,39 @@ kbd { border: 1px solid var(--border-strong); border-radius: 5px; background: va
 .trust-scope-note .app-icon { width: 18px; height: 18px; flex: 0 0 18px; }
 .trust-scope-note strong { display: inline; }
 .trust-run-dialog footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; }
+.git-integration-dialog { width: min(620px, calc(100vw - 40px)); max-height: min(760px, calc(100vh - 40px)); overflow-y: auto; }
+.git-integration-loading { display: flex; align-items: center; gap: 9px; margin: 22px 0; color: var(--muted); font-size: 12px; }
+.git-integration-loading .app-icon { width: 18px; height: 18px; }
+.git-integration-summary { display: grid; overflow: hidden; margin: 18px 0 14px; border: 1px solid var(--border); border-radius: 9px; }
+.git-integration-summary > div { display: grid; min-height: 38px; grid-template-columns: 140px minmax(0, 1fr); align-items: center; gap: 12px; padding: 8px 11px; }
+.git-integration-summary > div + div { border-top: 1px solid var(--border); }
+.git-integration-summary dt { color: var(--muted); font-size: 11px; }
+.git-integration-summary dd { min-width: 0; margin: 0; font-size: 11px; }
+.git-integration-summary code { font-weight: 650; }
+.git-integration-summary select { width: 100%; min-width: 0; height: 30px; outline: none; border: 1px solid var(--border-strong); border-radius: 6px; background: var(--surface); padding: 0 8px; color: var(--text); font: inherit; }
+.git-integration-summary select:focus { border-color: var(--accent); box-shadow: 0 0 0 2px rgb(20 99 223 / 10%); }
+.git-integration-issue { display: flex; align-items: flex-start; gap: 8px; margin: 8px 0; border-radius: 7px; padding: 8px 10px; font-size: 11px; line-height: 1.45; }
+.git-integration-issue .app-icon { width: 15px; height: 15px; flex: 0 0 15px; margin-top: 1px; }
+.git-integration-issue.blocked { background: var(--danger-soft); color: var(--danger); }
+.git-integration-issue.warning { background: var(--warning-soft); color: var(--warning); }
+.git-integration-steps { margin: 16px 0; }
+.git-integration-steps h3 { margin: 0 0 8px; font-size: 12px; }
+.git-integration-steps ol { display: grid; gap: 5px; margin: 0; padding-left: 26px; }
+.git-integration-steps li { padding-left: 2px; color: var(--muted); font-size: 11px; }
+.git-integration-steps code { color: var(--text-secondary); }
+.git-integration-cleanup-option { display: flex; align-items: flex-start; gap: 9px; margin: 14px 0; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-subtle); padding: 10px 11px; cursor: pointer; }
+.git-integration-cleanup-option input { margin: 2px 0 0; accent-color: var(--accent); }
+.git-integration-cleanup-option span { display: grid; gap: 3px; }
+.git-integration-cleanup-option strong { font-size: 11px; }
+.git-integration-cleanup-option small { color: var(--muted); font-size: 10px; line-height: 1.4; }
+.git-integration-local-note { display: flex; align-items: center; gap: 7px; margin: 10px 0 !important; color: var(--muted) !important; font-size: 10px !important; }
+.git-integration-local-note .app-icon { width: 15px; height: 15px; }
+.git-integration-success { display: flex; align-items: center; gap: 12px; margin: 22px 0; border: 1px solid color-mix(in srgb, var(--success) 35%, var(--border)); border-radius: 9px; background: var(--success-soft); padding: 14px; color: var(--success); }
+.git-integration-success > .app-icon { width: 23px; height: 23px; }
+.git-integration-success span { display: grid; gap: 3px; }
+.git-integration-success strong { font-size: 13px; }
+.git-integration-success small { font-size: 11px; }
+.git-integration-dialog footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; }
 .project-config-init-dialog h2 { margin: 0; font-size: 20px; }
 .project-config-init-dialog > p { color: var(--muted); font-size: 13px; line-height: 1.5; }
 .config-preview-path { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 18px; }

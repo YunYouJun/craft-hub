@@ -10,6 +10,7 @@ import { extname, join, normalize } from 'node:path'
 import { ZodError } from 'zod'
 import { CommandInputValidationError } from './command-inputs'
 import { projectConfigSchemaRevision } from './config'
+import { GitIntegrationConflictError, GitIntegrationValidationError } from './git-integration'
 import { CraftHubRuntime } from './runtime'
 import { SettingsConflictError, SettingsValidationError } from './settings'
 import { TeamLifecycleValidationError } from './teams'
@@ -596,6 +597,33 @@ export async function startCraftHubServer(options: CraftHubServerOptions = {}): 
           return sendJson(response, 200, await runtime.capabilities(projectId))
         if (request.method === 'GET' && parts[3] === 'capability-discovery')
           return sendJson(response, 200, await runtime.capabilityDiscovery(projectId))
+        if (request.method === 'POST' && parts[3] === 'git-integration' && parts[4] === 'plan') {
+          const body = await jsonBody(request)
+          if (body.targetBranch !== undefined && typeof body.targetBranch !== 'string')
+            return sendJson(response, 400, { error: 'targetBranch must be a string when provided' })
+          if (body.deleteSourceBranch !== undefined && typeof body.deleteSourceBranch !== 'boolean')
+            return sendJson(response, 400, { error: 'deleteSourceBranch must be a boolean when provided' })
+          return sendJson(response, 200, await runtime.planGitIntegration(projectId, {
+            targetBranch: body.targetBranch as string | undefined,
+            deleteSourceBranch: body.deleteSourceBranch as boolean | undefined,
+          }))
+        }
+        if (request.method === 'POST' && parts[3] === 'git-integration' && parts[4] === 'apply') {
+          const body = await jsonBody(request)
+          if (typeof body.expectedRevision !== 'string')
+            return sendJson(response, 400, { error: 'expectedRevision is required' })
+          if (body.targetBranch !== undefined && typeof body.targetBranch !== 'string')
+            return sendJson(response, 400, { error: 'targetBranch must be a string when provided' })
+          if (body.deleteSourceBranch !== undefined && typeof body.deleteSourceBranch !== 'boolean')
+            return sendJson(response, 400, { error: 'deleteSourceBranch must be a boolean when provided' })
+          if ((await runtime.projects.get(projectId)).trust !== 'trusted')
+            return sendJson(response, 403, { error: 'Project must be trusted before integrating Git branches' })
+          return sendJson(response, 200, await runtime.applyGitIntegration(projectId, {
+            expectedRevision: body.expectedRevision,
+            targetBranch: body.targetBranch as string | undefined,
+            deleteSourceBranch: body.deleteSourceBranch as boolean | undefined,
+          }))
+        }
         if (request.method === 'POST' && parts[3] === 'release-plan' && parts[4]) {
           const body = await jsonBody(request)
           return sendJson(response, 200, await runtime.releasePlan(projectId, decodeURIComponent(parts[4]), commandInputValues(body.inputs)))
@@ -694,7 +722,9 @@ export async function startCraftHubServer(options: CraftHubServerOptions = {}): 
         return sendJson(response, 409, { error: error.message, actualRevision: error.actualRevision })
       if (error instanceof WorkspaceConflictError)
         return sendJson(response, 409, { error: error.message, actualRevision: error.actualRevision })
-      if (error instanceof CommandInputValidationError || error instanceof SettingsValidationError || error instanceof TeamLifecycleValidationError || error instanceof ZodError || error instanceof SyntaxError)
+      if (error instanceof GitIntegrationConflictError)
+        return sendJson(response, 409, { error: error.message, actualRevision: error.actualRevision })
+      if (error instanceof CommandInputValidationError || error instanceof GitIntegrationValidationError || error instanceof SettingsValidationError || error instanceof TeamLifecycleValidationError || error instanceof ZodError || error instanceof SyntaxError)
         return sendJson(response, 400, { error: error.message })
       sendJson(response, 500, { error: error instanceof Error ? error.message : String(error) })
     }

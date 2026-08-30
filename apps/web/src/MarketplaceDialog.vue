@@ -230,7 +230,7 @@ function sourceKind(source: MarketplaceSource): string {
             </div>
             <UiButton variant="primary" type="submit" :disabled="busy !== '' || !sourceName.trim() || !catalogUrl.trim()">{{ t('previewMarketplaceSource') }}</UiButton>
             <article v-if="sourcePreview" class="source-preview">
-              <div><strong>{{ sourcePreview.catalog.name }}</strong><small>{{ sourcePreview.finalCatalogUrl }}</small><p>{{ t('sourcePreviewPlugins', { count: sourcePreview.catalog.plugins.length }) }}</p></div>
+              <div><strong>{{ sourcePreview.catalog.name }}</strong><small>{{ sourcePreview.finalCatalogUrl }}</small><p>{{ t('sourcePreviewPlugins', { count: String(sourcePreview.catalog.plugins.length) }) }}</p></div>
               <UiButton variant="primary" type="button" :disabled="busy !== ''" @click="addSource">{{ t('confirmMarketplaceSourceImport') }}</UiButton>
             </article>
           </form>
