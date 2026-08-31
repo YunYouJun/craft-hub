@@ -54,7 +54,7 @@ function getArchitectures(): MacArchitecture[] {
   return architectures as MacArchitecture[]
 }
 
-function getSigningOptions() {
+function getSigningOptions(signingIdentity?: string) {
   if (process.env.MACOS_SIGNING_ENABLED !== 'true') {
     return {
       osxSign: {
@@ -88,7 +88,9 @@ function getSigningOptions() {
       appleApiKeyId: process.env.APPLE_API_KEY_ID!,
     },
     osxSign: {
+      continueOnError: false,
       hardenedRuntime: true,
+      identity: signingIdentity,
       keychain: process.env.MACOS_KEYCHAIN_PATH!,
     },
   }
@@ -119,7 +121,7 @@ async function stapleNotarizedArtifact(path: string): Promise<void> {
   }
 }
 
-async function signDiskImage(path: string): Promise<void> {
+async function resolveSigningIdentity(): Promise<string> {
   const keychain = process.env.MACOS_KEYCHAIN_PATH!
   const { stdout } = await execFileAsync('security', [
     'find-identity',
@@ -131,6 +133,11 @@ async function signDiskImage(path: string): Promise<void> {
   const identity = /^\s*\d+\)\s+([0-9A-F]{40})\s+"Developer ID Application:/m.exec(stdout)?.[1]
   if (!identity)
     throw new Error(`No Developer ID Application identity found in ${keychain}`)
+  return identity
+}
+
+async function signDiskImage(path: string, identity: string): Promise<void> {
+  const keychain = process.env.MACOS_KEYCHAIN_PATH!
   await execFileAsync('codesign', [
     '--force',
     '--sign',
@@ -182,7 +189,7 @@ async function notarizeArtifact(path: string): Promise<void> {
   throw new Error(`Apple notarization was not accepted: ${result.status ?? result.message ?? 'unknown status'}`)
 }
 
-async function createDistributionArtifacts(appPath: string, architecture: MacArchitecture): Promise<void> {
+async function createDistributionArtifacts(appPath: string, architecture: MacArchitecture, signingIdentity?: string): Promise<void> {
   const volumeDirectory = await mkdtemp(join(tmpdir(), `${artifactName.toLowerCase()}-dmg-${architecture}-`))
   const dmgPath = join(outputDirectory, `${artifactName}-macOS-${architecture}.dmg`)
   const zipPath = join(outputDirectory, `${artifactName}-macOS-${architecture}.zip`)
@@ -213,7 +220,7 @@ async function createDistributionArtifacts(appPath: string, architecture: MacArc
     ])
 
     if (process.env.MACOS_SIGNING_ENABLED === 'true') {
-      await signDiskImage(dmgPath)
+      await signDiskImage(dmgPath, signingIdentity!)
       await notarizeArtifact(dmgPath)
       await stapleNotarizedArtifact(dmgPath)
     }
@@ -301,6 +308,9 @@ async function main(): Promise<void> {
     }, null, 2)}\n`)
 
     const architectures = getArchitectures()
+    const signingIdentity = process.env.MACOS_SIGNING_ENABLED === 'true'
+      ? await resolveSigningIdentity()
+      : undefined
     const appPaths = await packager({
       appBundleId,
       appCategoryType: 'public.app-category.developer-tools',
@@ -316,7 +326,7 @@ async function main(): Promise<void> {
       platform: 'darwin',
       protocols: [{ name: `${productName} Desktop Links`, schemes: [desktopProtocol] }],
       prune: false,
-      ...getSigningOptions(),
+      ...getSigningOptions(signingIdentity),
     })
 
     if (appPaths.length !== architectures.length) {
@@ -325,14 +335,24 @@ async function main(): Promise<void> {
       )
     }
 
-    for (const appPath of appPaths)
+    for (const appPath of appPaths) {
+      if (signingIdentity) {
+        await execFileAsync('codesign', [
+          '--verify',
+          '--deep',
+          '--strict',
+          '--verbose=4',
+          join(appPath, `${productName}.app`),
+        ])
+      }
       console.log(`Packaged macOS app: ${appPath}`)
+    }
 
     for (const architecture of architectures) {
       const appPath = appPaths.find(path => path.endsWith(`darwin-${architecture}`))
       if (!appPath)
         throw new Error(`Packager did not return an app for ${architecture}`)
-      await createDistributionArtifacts(join(appPath, `${productName}.app`), architecture)
+      await createDistributionArtifacts(join(appPath, `${productName}.app`), architecture, signingIdentity)
     }
   }
   finally {
