@@ -18,7 +18,24 @@ async function writeJsonAtomic(path: string, value: unknown): Promise<void> {
   await mkdir(dirname(path), { recursive: true })
   const temporaryPath = `${path}.${randomUUID()}.tmp`
   await writeFile(temporaryPath, `${JSON.stringify(value, null, 2)}\n`, 'utf8')
-  await rename(temporaryPath, path)
+  try {
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        await rename(temporaryPath, path)
+        return
+      }
+      catch (error) {
+        const code = (error as NodeJS.ErrnoException).code
+        const transientWindowsLock = code === 'EPERM' || code === 'EACCES' || code === 'EBUSY'
+        if (!transientWindowsLock || attempt >= 5)
+          throw error
+        await new Promise(resolve => setTimeout(resolve, 10 * 2 ** attempt))
+      }
+    }
+  }
+  finally {
+    await rm(temporaryPath, { force: true })
+  }
 }
 
 /** Minimal persistence seam so JSON can later be replaced by SQLite. */
