@@ -98,6 +98,10 @@ export default defineConfig({
             link: '/api/',
           },
           {
+            text: '下载',
+            link: '/zh/download',
+          },
+          {
             text: `v${version}`,
             items: ZH_VERSIONS,
           },
@@ -169,6 +173,8 @@ export default defineConfig({
   themeConfig: {
     ...vpConfig.themeConfig,
 
+    logo: '/favicon.svg',
+
     search: {
       provider: 'local',
       options: {
@@ -212,6 +218,10 @@ export default defineConfig({
       {
         text: 'API',
         link: '/api/',
+      },
+      {
+        text: 'Download',
+        link: '/download',
       },
       {
         text: `v${version}`,

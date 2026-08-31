@@ -46,6 +46,8 @@ pnpm build
 
 Release tags (`v*`) build separate Apple Silicon (`arm64`) and Intel (`x64`) apps, sign and notarize them, then attach both ZIP files to the GitHub Release.
 
+[Download Craft Hub for macOS](https://craft-hub.yunyoujun.cn/download) from the documentation site. Apple silicon is the recommended alpha build; Intel support is experimental.
+
 Configure the required Developer ID certificate and App Store Connect API key once with:
 
 ```bash
@@ -164,7 +166,7 @@ Hosts that accept package names from configuration can call `loadCraftHubPlugins
 
 ### Marketplace plugins
 
-Marketplace plugins are declarative packages listed by a Plugin Catalog. Craft Hub installs immutable versions with lifecycle scripts disabled, validates their SHA-512 integrity and permission disclosure, and never imports package code. See the [plugin marketplace contract](./docs/guide/plugin-marketplace.md).
+Marketplace plugins are declarative packages listed by a Plugin Catalog. Craft Hub installs immutable versions with lifecycle scripts disabled, validates their SHA-512 integrity and permission disclosure, and never imports package code. Meta-plugins can use same-source `requiresPlugins` to preview and install a reviewed solution pack in one request. See the [plugin marketplace contract](./docs/guide/plugin-marketplace.md).
 
 ## Roadmap
 
