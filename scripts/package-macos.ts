@@ -144,6 +144,44 @@ async function signDiskImage(path: string): Promise<void> {
   ])
 }
 
+function notaryCredentials(): string[] {
+  return [
+    '--key',
+    process.env.APPLE_API_KEY_PATH!,
+    '--key-id',
+    process.env.APPLE_API_KEY_ID!,
+    '--issuer',
+    process.env.APPLE_API_ISSUER_ID!,
+  ]
+}
+
+async function notarizeArtifact(path: string): Promise<void> {
+  const { stdout } = await execFileAsync('xcrun', [
+    'notarytool',
+    'submit',
+    path,
+    ...notaryCredentials(),
+    '--wait',
+    '--output-format',
+    'json',
+  ])
+  const result = JSON.parse(stdout) as { id?: string, message?: string, status?: string }
+  console.log(`Apple notarization ${result.id ?? 'unknown'}: ${result.status ?? 'unknown'}`)
+  if (result.status === 'Accepted')
+    return
+
+  if (result.id) {
+    const { stdout: log } = await execFileAsync('xcrun', [
+      'notarytool',
+      'log',
+      result.id,
+      ...notaryCredentials(),
+    ])
+    console.error(log)
+  }
+  throw new Error(`Apple notarization was not accepted: ${result.status ?? result.message ?? 'unknown status'}`)
+}
+
 async function createDistributionArtifacts(appPath: string, architecture: MacArchitecture): Promise<void> {
   const volumeDirectory = await mkdtemp(join(tmpdir(), `${artifactName.toLowerCase()}-dmg-${architecture}-`))
   const dmgPath = join(outputDirectory, `${artifactName}-macOS-${architecture}.dmg`)
@@ -176,18 +214,7 @@ async function createDistributionArtifacts(appPath: string, architecture: MacArc
 
     if (process.env.MACOS_SIGNING_ENABLED === 'true') {
       await signDiskImage(dmgPath)
-      await execFileAsync('xcrun', [
-        'notarytool',
-        'submit',
-        dmgPath,
-        '--key',
-        process.env.APPLE_API_KEY_PATH!,
-        '--key-id',
-        process.env.APPLE_API_KEY_ID!,
-        '--issuer',
-        process.env.APPLE_API_ISSUER_ID!,
-        '--wait',
-      ])
+      await notarizeArtifact(dmgPath)
       await stapleNotarizedArtifact(dmgPath)
     }
 
