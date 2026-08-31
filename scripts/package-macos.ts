@@ -10,6 +10,8 @@ import { createDesktopBuildInfo } from '../apps/desktop/src/build-info.ts'
 import { communityDesktopArtifactName, communityDesktopProtocol, loadDesktopDistributionManifest, resolveDesktopDistributionAsset } from '../apps/desktop/src/distribution.ts'
 
 const execFileAsync = promisify(execFile)
+const staplerRetryDelayMs = 15_000
+const staplerMaxAttempts = 6
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const configuredDistributionPath = process.env.CRAFT_HUB_DESKTOP_DISTRIBUTION_CONFIG
   ? resolve(process.env.CRAFT_HUB_DESKTOP_DISTRIBUTION_CONFIG)
@@ -99,6 +101,24 @@ function macosApplicationVersion(version: string): string {
   return `${match[1]}.${match[2]}.${match[3]}`
 }
 
+async function stapleNotarizedArtifact(path: string): Promise<void> {
+  for (let attempt = 1; attempt <= staplerMaxAttempts; attempt += 1) {
+    try {
+      await execFileAsync('xcrun', ['stapler', 'staple', path])
+      return
+    }
+    catch (error) {
+      const output = `${(error as { stdout?: string }).stdout ?? ''}\n${(error as { stderr?: string }).stderr ?? ''}`
+      const ticketIsPropagating = output.includes('Record not found')
+        || output.includes('Could not find base64 encoded ticket')
+      if (!ticketIsPropagating || attempt === staplerMaxAttempts)
+        throw error
+      console.warn(`Apple notarization ticket is not available yet; retrying stapler (${attempt}/${staplerMaxAttempts})`)
+      await new Promise(resolve => setTimeout(resolve, staplerRetryDelayMs))
+    }
+  }
+}
+
 async function createDistributionArtifacts(appPath: string, architecture: MacArchitecture): Promise<void> {
   const volumeDirectory = await mkdtemp(join(tmpdir(), `${artifactName.toLowerCase()}-dmg-${architecture}-`))
   const dmgPath = join(outputDirectory, `${artifactName}-macOS-${architecture}.dmg`)
@@ -142,7 +162,7 @@ async function createDistributionArtifacts(appPath: string, architecture: MacArc
         process.env.APPLE_API_ISSUER_ID!,
         '--wait',
       ])
-      await execFileAsync('xcrun', ['stapler', 'staple', dmgPath])
+      await stapleNotarizedArtifact(dmgPath)
     }
 
     console.log(`Created macOS DMG: ${dmgPath}`)
