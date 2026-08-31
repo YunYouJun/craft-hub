@@ -119,6 +119,31 @@ async function stapleNotarizedArtifact(path: string): Promise<void> {
   }
 }
 
+async function signDiskImage(path: string): Promise<void> {
+  const keychain = process.env.MACOS_KEYCHAIN_PATH!
+  const { stdout } = await execFileAsync('security', [
+    'find-identity',
+    '-v',
+    '-p',
+    'codesigning',
+    keychain,
+  ])
+  const identity = /^\s*\d+\)\s+([0-9A-F]{40})\s+"Developer ID Application:/m.exec(stdout)?.[1]
+  if (!identity)
+    throw new Error(`No Developer ID Application identity found in ${keychain}`)
+  await execFileAsync('codesign', [
+    '--force',
+    '--sign',
+    identity,
+    '--keychain',
+    keychain,
+    '--timestamp',
+    '--identifier',
+    `${appBundleId}.disk-image`,
+    path,
+  ])
+}
+
 async function createDistributionArtifacts(appPath: string, architecture: MacArchitecture): Promise<void> {
   const volumeDirectory = await mkdtemp(join(tmpdir(), `${artifactName.toLowerCase()}-dmg-${architecture}-`))
   const dmgPath = join(outputDirectory, `${artifactName}-macOS-${architecture}.dmg`)
@@ -150,6 +175,7 @@ async function createDistributionArtifacts(appPath: string, architecture: MacArc
     ])
 
     if (process.env.MACOS_SIGNING_ENABLED === 'true') {
+      await signDiskImage(dmgPath)
       await execFileAsync('xcrun', [
         'notarytool',
         'submit',
