@@ -195,7 +195,17 @@ async function createDistributionArtifacts(appPath: string, architecture: MacArc
   const zipPath = join(outputDirectory, `${artifactName}-macOS-${architecture}.zip`)
 
   try {
-    await cp(appPath, join(volumeDirectory, `${productName}.app`), { recursive: true })
+    const volumeAppPath = join(volumeDirectory, `${productName}.app`)
+    await execFileAsync('ditto', [appPath, volumeAppPath])
+    if (signingIdentity) {
+      await execFileAsync('codesign', [
+        '--verify',
+        '--deep',
+        '--strict',
+        '--verbose=4',
+        volumeAppPath,
+      ])
+    }
     await symlink('/Applications', join(volumeDirectory, 'Applications'))
     await rm(dmgPath, { force: true })
     await rm(zipPath, { force: true })
