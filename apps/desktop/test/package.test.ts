@@ -85,6 +85,7 @@ describe('desktop package scripts', () => {
     expect(releaseWorkflow).toContain('Run mounted DMG startup smoke test')
     expect(releaseWorkflow).toContain('codesign --verify --verbose=2 "$dmg_path"')
     expect(releaseWorkflow).toContain('needs: [validate, package-macos]')
+    expect(releaseWorkflow).toMatch(/publish-npm:[\s\S]*?needs: validate/)
     expect(releaseWorkflow.indexOf('Upload verified macOS artifacts')).toBeGreaterThan(releaseWorkflow.indexOf('Run mounted DMG startup smoke test'))
   })
 
