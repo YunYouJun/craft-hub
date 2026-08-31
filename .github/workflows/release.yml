@@ -38,8 +38,8 @@ jobs:
           fi
       - run: pnpm lint
       - run: pnpm typecheck
-      - run: pnpm test --run
       - run: pnpm build
+      - run: pnpm test --run
       - run: pnpm docs:build
 
   package-macos:
