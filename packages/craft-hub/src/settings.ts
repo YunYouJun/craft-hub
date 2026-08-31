@@ -228,6 +228,7 @@ export class CraftHubSettingsService {
   private extensions: Record<string, unknown> = {}
   private diagnostic: string | undefined
   private initialized = false
+  private initialization: Promise<void> | undefined
   private watcher: FSWatcher | undefined
   private readonly listeners = new Set<(snapshot: SettingsSnapshot) => void>()
   private writeTail: Promise<void> = Promise.resolve()
@@ -375,6 +376,14 @@ export class CraftHubSettingsService {
   private async initialize(): Promise<void> {
     if (this.initialized)
       return
+    this.initialization ??= this.initializeOnce().catch((error) => {
+      this.initialization = undefined
+      throw error
+    })
+    await this.initialization
+  }
+
+  private async initializeOnce(): Promise<void> {
     await mkdir(this.dataDir, { recursive: true })
     await writeJsonAtomic(this.schemaPath, settingsJsonSchema())
     try {

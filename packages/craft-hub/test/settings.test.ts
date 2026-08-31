@@ -10,6 +10,24 @@ async function settingsFixture(): Promise<{ root: string, service: CraftHubSetti
 }
 
 describe('global settings', () => {
+  it('initializes once when multiple readers arrive concurrently', async () => {
+    const { root, service } = await settingsFixture()
+
+    const [snapshot, extensions, ensuredPath] = await Promise.all([
+      service.get(),
+      service.extensionValues(),
+      service.ensureFile(),
+    ])
+
+    expect(snapshot.explicitKeys).toEqual([])
+    expect(extensions).toEqual({})
+    expect(ensuredPath).toBe(join(root, 'settings.json'))
+    expect(await readdir(root)).toEqual(expect.arrayContaining([
+      'settings.json',
+      'settings.schema.json',
+    ]))
+  })
+
   it('uses defaults until an explicit setting is written atomically', async () => {
     const { root, service } = await settingsFixture()
     const initial = await service.get()
