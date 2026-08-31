@@ -8,6 +8,7 @@ import { promisify } from 'node:util'
 import { packager } from '@electron/packager'
 import { createDesktopBuildInfo } from '../apps/desktop/src/build-info.ts'
 import { communityDesktopArtifactName, communityDesktopProtocol, loadDesktopDistributionManifest, resolveDesktopDistributionAsset } from '../apps/desktop/src/distribution.ts'
+import { macosApplicationVersion } from '../apps/desktop/src/macos-version.ts'
 
 const execFileAsync = promisify(execFile)
 const staplerRetryDelayMs = 15_000
@@ -94,13 +95,6 @@ function getSigningOptions(signingIdentity?: string) {
       keychain: process.env.MACOS_KEYCHAIN_PATH!,
     },
   }
-}
-
-function macosApplicationVersion(version: string): string {
-  const match = /^(\d+)\.(\d+)\.(\d+)/.exec(version)
-  if (!match)
-    throw new Error(`Workspace version is not a semantic version: ${version}`)
-  return `${match[1]}.${match[2]}.${match[3]}`
 }
 
 async function stapleNotarizedArtifact(path: string): Promise<void> {
