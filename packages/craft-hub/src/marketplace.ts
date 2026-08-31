@@ -363,6 +363,7 @@ export function resolveNpmInvocation(env: NodeJS.ProcessEnv = process.env): NpmI
   const executableName = process.platform === 'win32' ? 'npm.cmd' : 'npm'
   const npmCandidates = [
     ...(env.PATH ?? '').split(delimiter).filter(Boolean).map(directory => join(directory, executableName)),
+    join(dirname(process.execPath), 'node_modules', 'npm', 'bin', 'npm-cli.js'),
     join(dirname(process.execPath), executableName),
     home ? join(home, '.local', 'share', 'fnm', 'aliases', 'default', 'bin', executableName) : undefined,
     home ? join(home, '.volta', 'bin', executableName) : undefined,

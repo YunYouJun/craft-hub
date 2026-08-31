@@ -9,6 +9,7 @@ import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { waitForRuntimeReady } from './dev-runtime-readiness.ts'
 import { DevRuntimeSupervisor } from './dev-runtime-supervisor.ts'
+import { acquireDevelopmentSessionLock } from './dev-session-lock.ts'
 import { startInitialDevelopmentServices } from './dev-startup.ts'
 import { startWebDevServer } from './dev-vite.ts'
 
@@ -18,11 +19,21 @@ const mode = process.argv[2]
 if (mode !== 'desktop' && mode !== 'web')
   throw new Error('Usage: tsx scripts/dev-environment.ts <desktop|web>')
 
+const developmentSession = await acquireDevelopmentSessionLock().catch((error) => {
+  process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`)
+  process.exit(1)
+})
 const devStateDirectory = await mkdtemp(join(tmpdir(), 'craft-hub-dev-'))
 const buildSignalPath = join(devStateDirectory, 'runtime-build')
 const runtimeHealthUrl = 'http://127.0.0.1:4318/api/health'
 const children: ChildProcess[] = []
-const childExits: Array<Promise<{ code: number | null, signal: NodeJS.Signals | null }>> = []
+interface DevelopmentProcessExit {
+  code: number | null
+  name: string
+  signal: NodeJS.Signals | null
+}
+
+const childExits: Array<Promise<DevelopmentProcessExit>> = []
 let webServer: WebDevServer | undefined
 let runtimeSupervisor: DevRuntimeSupervisor | undefined
 let stopping: Promise<void> | undefined
@@ -31,7 +42,7 @@ const runtimeFailure = new Promise<never>((_resolve, reject) => {
   rejectRuntimeFailure = reject
 })
 
-function spawnWorkspace(args: string[], environment = process.env): ChildProcess {
+function spawnWorkspace(name: string, args: string[], environment = process.env): ChildProcess {
   const child = spawn('pnpm', args, {
     cwd: repositoryRoot,
     env: environment,
@@ -41,7 +52,7 @@ function spawnWorkspace(args: string[], environment = process.env): ChildProcess
   children.push(child)
   childExits.push(new Promise((resolve, reject) => {
     child.once('error', reject)
-    child.once('exit', (code, signal) => resolve({ code, signal }))
+    child.once('exit', (code, signal) => resolve({ code, name, signal }))
   }))
   return child
 }
@@ -97,7 +108,7 @@ function stop(signal: NodeJS.Signals = 'SIGTERM'): Promise<void> {
 }
 
 try {
-  spawnWorkspace(['--filter', 'craft-hub', 'dev'], {
+  spawnWorkspace('Runtime build watcher', ['--filter', 'craft-hub', 'dev'], {
     ...process.env,
     CRAFT_HUB_DEV_BUILD_SIGNAL: buildSignalPath,
   })
@@ -119,12 +130,12 @@ try {
         if (mode === 'desktop') {
           if (!initialWebServer)
             throw new Error('Desktop development requires a Vite server')
-          return spawnWorkspace(['--filter', '@craft-hub/desktop', 'dev'], {
+          return spawnWorkspace('Desktop application', ['--filter', '@craft-hub/desktop', 'dev'], {
             ...process.env,
             CRAFT_HUB_DEV_URL: initialWebServer.url,
           })
         }
-        return spawnWorkspace(['--filter', 'craft-hub', 'exec', 'tsx', 'src/cli.ts', 'ui'])
+        return spawnWorkspace('Web Runtime', ['--filter', 'craft-hub', 'exec', 'tsx', 'src/cli.ts', 'ui'])
       }, failRuntime)
       await restartRuntime(pendingBuildRevision)
     },
@@ -132,11 +143,20 @@ try {
   })
   process.stdout.write(`Craft Hub web: ${webServer.url}\n`)
 
-  const result = await Promise.race([webServer.closed, runtimeFailure, ...childExits])
+  const result = await Promise.race([
+    webServer.closed.then(exit => ({ ...exit, name: 'Vite dev server' })),
+    runtimeFailure,
+    ...childExits,
+  ])
 
-  if (!stopping && result.code !== 0 && !result.signal)
-    throw new Error(`Development process exited with code ${String(result.code)}`)
+  if (!stopping)
+    throw new Error(`${result.name} exited unexpectedly with code ${String(result.code)} and signal ${String(result.signal)}`)
 }
 finally {
-  await stop()
+  try {
+    await stop()
+  }
+  finally {
+    await developmentSession.release()
+  }
 }

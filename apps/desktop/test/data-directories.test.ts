@@ -1,5 +1,5 @@
 import type { DistributionConfig } from 'craft-hub'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { resolveDesktopDataDirectories } from '../src/data-directories.ts'
 
@@ -11,12 +11,13 @@ const community: DistributionConfig = {
 
 describe('desktop data directories', () => {
   it('shares runtime state between development and packaged instances of one distribution', () => {
+    const appDataDir = resolve('/application-data')
     const env = { CRAFT_HUB_DATA_DIR: '/shared/craft-hub' }
-    const development = resolveDesktopDataDirectories({ appDataDir: '/application-data', development: true, distribution: community, env })
-    const packaged = resolveDesktopDataDirectories({ appDataDir: '/application-data', development: false, distribution: community, env })
+    const development = resolveDesktopDataDirectories({ appDataDir, development: true, distribution: community, env })
+    const packaged = resolveDesktopDataDirectories({ appDataDir, development: false, distribution: community, env })
 
     expect(development.runtimeDataDir).toBe(packaged.runtimeDataDir)
-    expect(development.developmentUserDataDir).toBe(join('/application-data', 'Craft Hub Dev'))
+    expect(development.developmentUserDataDir).toBe(join(appDataDir, 'Craft Hub Dev'))
     expect(packaged.developmentUserDataDir).toBeUndefined()
   })
 

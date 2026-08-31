@@ -602,8 +602,10 @@ describe('trusted execution', () => {
 
     const originalHome = process.env.HOME
     const originalPath = process.env.PATH
+    const originalPnpmHome = process.env.PNPM_HOME
     process.env.HOME = home
     process.env.PATH = '/usr/bin:/bin:/usr/sbin:/sbin'
+    delete process.env.PNPM_HOME
 
     try {
       const runtime = new CraftHubRuntime(join(root, '.data'))
@@ -625,6 +627,10 @@ describe('trusted execution', () => {
         delete process.env.PATH
       else
         process.env.PATH = originalPath
+      if (originalPnpmHome === undefined)
+        delete process.env.PNPM_HOME
+      else
+        process.env.PNPM_HOME = originalPnpmHome
     }
   })
 
