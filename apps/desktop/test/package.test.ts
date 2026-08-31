@@ -71,6 +71,8 @@ describe('desktop package scripts', () => {
 
     expect(packageMacSource).toContain('await symlink(\'/Applications\'')
     expect(packageMacSource).toContain('await execFileAsync(\'hdiutil\'')
+    expect(packageMacSource).toContain('await execFileAsync(\'ditto\', [appPath, volumeAppPath])')
+    expect(packageMacSource.indexOf('await execFileAsync(\'ditto\', [appPath, volumeAppPath])')).toBeLessThan(packageMacSource.indexOf('await execFileAsync(\'hdiutil\''))
     expect(packageMacSource).toContain('\'notarytool\',')
     expect(packageMacSource).toContain('await notarizeArtifact(dmgPath)')
     expect(packageMacSource).toContain('result.status === \'Accepted\'')
