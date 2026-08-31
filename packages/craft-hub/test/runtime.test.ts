@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, realpath, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, readFile, realpath, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -46,6 +46,37 @@ async function downstreamFixture(): Promise<string> {
 }
 
 describe('capability discovery', () => {
+  it('applies localized overview metadata without hiding packages from discovery', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'craft-hub-overview-metadata-'))
+    const widget = join(root, 'apps', 'widget')
+    await mkdir(widget, { recursive: true })
+    await writeFile(join(root, 'package.json'), JSON.stringify({ name: 'root', packageManager: 'pnpm@10.0.0' }))
+    await writeFile(join(root, 'pnpm-workspace.yaml'), 'packages:\n  - apps/*\n')
+    await writeFile(join(widget, 'package.json'), JSON.stringify({ name: '@example/widget', scripts: { dev: 'vite' } }))
+    await writeProjectConfig(root, {
+      version: 1,
+      project: { description: { 'default': 'Project overview.', 'zh-CN': '项目概览。' }, readme: 'docs/intro.md', quickActions: ['package.json:dev'] },
+      packages: {
+        'apps/widget': {
+          description: { 'default': 'Widget.', 'zh-CN': '组件。' },
+          order: 10,
+          featured: true,
+          hidden: true,
+          readme: 'apps/widget/GUIDE.md',
+          quickActions: ['apps/widget/package.json:dev'],
+        },
+      },
+    })
+
+    await expect(discoverCapabilitiesWithDiagnostics(root, 'zh-CN')).resolves.toMatchObject({
+      packages: [
+        { relativePath: '.', root: true, description: '项目概览。', readme: 'docs/intro.md', quickActions: ['package.json:dev'] },
+        { relativePath: 'apps/widget', root: false, description: '组件。', order: 10, featured: true, hidden: true, readme: 'apps/widget/GUIDE.md', quickActions: ['apps/widget/package.json:dev'] },
+      ],
+      capabilities: [expect.objectContaining({ package: expect.objectContaining({ relativePath: 'apps/widget', hidden: true }) })],
+    })
+  })
+
   it('localizes package descriptions from version 1 project metadata and preserves comments when applying changes', async () => {
     const root = await mkdtemp(join(tmpdir(), 'craft-hub-package-description-'))
     await writeFile(join(root, 'package.json'), JSON.stringify({ name: 'root', scripts: { dev: 'vite' } }))
@@ -121,6 +152,7 @@ describe('capability discovery', () => {
     expect(commands.find(command => command.name === 'deploy')).toMatchObject({
       category: 'deploy',
       description: 'Deploy the Widget package.',
+      script: 'widget deploy',
       source: 'apps/widget/package.json',
       package: { name: '@scope/widget', description: 'Widget package', relativePath: 'apps/widget', root: false },
       invocation: { command: 'pnpm', args: ['run', 'deploy'], cwd: await realpath(widget) },
@@ -553,6 +585,47 @@ describe('trusted execution', () => {
     expect(run.status).toBe('completed')
     expect(run.exitCode).toBe(0)
     expect(run.stdout).toContain('hello')
+  })
+
+  it.runIf(process.platform !== 'win32')('runs package-manager commands outside the restricted PATH inherited by a desktop app', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'craft-hub-desktop-path-'))
+    const home = join(root, 'home')
+    const toolchain = join(home, '.local', 'share', 'fnm', 'aliases', 'default', 'bin')
+    await mkdir(toolchain, { recursive: true })
+    await symlink(process.execPath, join(toolchain, 'node'))
+    await writeFile(join(toolchain, 'pnpm'), '#!/usr/bin/env node\nconsole.log("package manager started")\n')
+    await chmod(join(toolchain, 'pnpm'), 0o755)
+    await writeFile(join(root, 'package.json'), JSON.stringify({
+      packageManager: 'pnpm@10.0.0',
+      scripts: { hello: 'node -e "console.log(\'hello\')"' },
+    }))
+
+    const originalHome = process.env.HOME
+    const originalPath = process.env.PATH
+    process.env.HOME = home
+    process.env.PATH = '/usr/bin:/bin:/usr/sbin:/sbin'
+
+    try {
+      const runtime = new CraftHubRuntime(join(root, '.data'))
+      const project = await runtime.addProject(root)
+      await runtime.projects.setTrust(project.id, 'trusted')
+      const command = (await runtime.capabilities(project.id)).find(item => item.kind === 'command')!
+
+      const run = await (await runtime.run(project.id, command.id)).completion
+
+      expect(run).toMatchObject({ status: 'completed', exitCode: 0 })
+      expect(run.stdout).toContain('package manager started')
+    }
+    finally {
+      if (originalHome === undefined)
+        delete process.env.HOME
+      else
+        process.env.HOME = originalHome
+      if (originalPath === undefined)
+        delete process.env.PATH
+      else
+        process.env.PATH = originalPath
+    }
   })
 
   it('forwards input and resize events through an active PTY run', async () => {

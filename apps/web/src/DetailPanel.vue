@@ -14,6 +14,8 @@ import TrustRunDialog from './TrustRunDialog.vue'
 
 const TerminalOutput = defineAsyncComponent(() => import('./TerminalOutput.vue'))
 const SkillContentPreview = defineAsyncComponent(() => import('./SkillContentPreview.vue'))
+const ShellCommandPreview = defineAsyncComponent(() => import('./ShellCommandPreview.vue'))
+const ProjectOverviewPanel = defineAsyncComponent(() => import('./ProjectOverviewPanel.vue'))
 
 const store = useWorkbenchStore()
 const { locale, t } = useI18n()
@@ -206,6 +208,15 @@ const displayedInvocation = computed(() => {
     return undefined
   return resolvedInvocation.value ?? capability.invocation
 })
+const displayedCommand = computed(() => displayedInvocation.value
+  ? [displayedInvocation.value.command, ...displayedInvocation.value.args].join(' ')
+  : '')
+const commandDescription = computed(() => {
+  const capability = store.activeCapability
+  if (capability?.kind !== 'command' || capability.description === capability.script)
+    return ''
+  return capability.description ?? ''
+})
 
 const isRelease = computed(() => store.activeCapability?.kind === 'command' && store.activeCapability.operation?.kind === 'release')
 
@@ -319,7 +330,8 @@ function openSkillThread(): Promise<void> {
 
 <template>
   <main class="detail-panel">
-    <div v-if="!store.activeCapability" class="detail-empty">{{ t('selectCapability') }}</div>
+    <ProjectOverviewPanel v-if="!store.activeCapability && store.selectedProject" />
+    <div v-else-if="!store.activeCapability" class="detail-empty">{{ t('selectCapability') }}</div>
     <template v-else>
       <button v-if="store.workspaceCapability" class="workspace-capability-back" type="button" @click="store.clearWorkspaceCapability">
         <Icon name="arrowRight" /> {{ t('backToWorkspace') }}
@@ -339,9 +351,13 @@ function openSkillThread(): Promise<void> {
       <p v-if="openError" class="error-message">{{ openError }}</p>
 
       <template v-if="store.activeCapability.kind === 'command'">
-        <p v-if="store.activeCapability.description" class="command-description">
-          {{ store.activeCapability.description }}
+        <p v-if="commandDescription" class="command-description">
+          {{ commandDescription }}
         </p>
+        <section v-if="store.activeCapability.script" class="command-script-preview" :aria-label="t('scriptDefinition')">
+          <header><Icon name="terminal" /> {{ t('scriptDefinition') }}</header>
+          <ShellCommandPreview :command="store.activeCapability.script" />
+        </section>
         <dl class="preview-grid">
           <template v-if="sourceLocation">
             <dt>{{ t('sourceFile') }}</dt>
@@ -352,7 +368,7 @@ function openSkillThread(): Promise<void> {
               <template v-else>{{ sourceLocation }}</template>
             </dd>
           </template>
-          <dt>{{ t('command') }}</dt><dd><code>{{ displayedInvocation ? [displayedInvocation.command, ...displayedInvocation.args].join(' ') : '' }}</code></dd>
+          <dt>{{ t('command') }}</dt><dd><ShellCommandPreview v-if="displayedCommand" :command="displayedCommand" compact /></dd>
           <dt>{{ t('workingDirectory') }}</dt>
           <dd>
             <button v-if="desktopActions" class="preview-path-link" type="button" data-testid="open-working-directory" :aria-label="openWorkingDirectoryLabel" :title="openWorkingDirectoryLabel" @click="openWorkingDirectory">

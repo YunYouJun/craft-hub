@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { resolveCommandContributions } from '../src/command-contributions'
+import { resolveCommandInvocation } from '../src/command-inputs'
 
 const widgetPackage: CommandPackage = { name: '@example/widget', relativePath: 'apps/widget', root: false }
 
@@ -30,6 +31,8 @@ function plugin(inputs: Record<string, ProjectCommandInputConfig> = { environmen
       unlessCommands: [],
       package: { allFiles: ['package.json'], anyFiles: ['widget.config.ts', 'widget.config.js'] },
       inputs,
+      optionSources: {},
+      applyToCommands: true,
     }],
     templates: [{
       id: 'deploy-command',
@@ -43,6 +46,7 @@ function plugin(inputs: Record<string, ProjectCommandInputConfig> = { environmen
       requiredEnv: [],
       inputs,
     }],
+    packageQuickActions: [],
   }
 }
 
@@ -50,7 +54,9 @@ async function fixture(): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), 'craft-hub-contributions-'))
   await mkdir(join(root, 'apps/widget'), { recursive: true })
   await writeFile(join(root, 'apps/widget/package.json'), '{}')
-  await writeFile(join(root, 'apps/widget/widget.config.ts'), 'export default {}')
+  await writeFile(join(root, 'apps/widget/widget.config.ts'), 'export default { appId: \'widget/123\' }')
+  await mkdir(join(root, 'apps/widget/src'), { recursive: true })
+  await writeFile(join(root, 'apps/widget/src/app.json'), JSON.stringify({ pages: [{ page: 'pages/home/index' }, { page: 'pages/detail/index' }] }))
   return root
 }
 
@@ -93,6 +99,41 @@ describe('declarative command contributions', () => {
     })
   })
 
+  it('keeps repository scripts untouched when a preset is template-only', async () => {
+    const root = await fixture()
+    const existing = command(root, 'deploy')
+    const contribution = plugin()
+    contribution.presets[0]!.applyToCommands = false
+    contribution.templates[0]!.unlessCommands = []
+    contribution.templates[0]!.name = 'Widget deploy'
+    contribution.templates[0]!.command = 'pnpm'
+    contribution.templates[0]!.args = ['exec', 'widget-cli', 'deploy']
+    contribution.templates[0]!.toolGroup = 'widget'
+    contribution.packageToolGroups = [{
+      id: 'widget',
+      title: { 'default': 'Widget tools', 'zh-CN': '组件工具' },
+      package: { allFiles: ['package.json'], anyFiles: ['widget.config.ts'] },
+    }]
+
+    const result = await resolveCommandContributions({ projectPath: root, locale: 'zh-CN', capabilities: [existing], packages: [widgetPackage], plugins: [contribution] })
+
+    expect(result.capabilities).toHaveLength(2)
+    expect(result.capabilities[0]).toMatchObject({
+      id: existing.id,
+      invocation: existing.invocation,
+    })
+    expect(result.capabilities[0]).not.toHaveProperty('inputs')
+    expect(result.capabilities[1]).toMatchObject({
+      name: 'Widget deploy',
+      toolGroupId: '@acme/craft-hub-plugin-deploy:widget',
+      invocation: { command: 'pnpm', args: ['exec', 'widget-cli', 'deploy'] },
+      inputs: [expect.objectContaining({ id: 'environment' })],
+    })
+    expect(result.packages[0]).toMatchObject({
+      toolGroups: [{ id: '@acme/craft-hub-plugin-deploy:widget', title: '组件工具' }],
+    })
+  })
+
   it('instantiates a direct command only when the package script is absent', async () => {
     const root = await fixture()
     const result = await resolveCommandContributions({ projectPath: root, locale: 'en', capabilities: [], packages: [{ relativePath: '.', root: true }, widgetPackage], plugins: [plugin()] })
@@ -105,6 +146,110 @@ describe('declarative command contributions', () => {
         invocation: { command: 'widget-cli', args: ['deploy'], cwd: join(root, 'apps/widget'), requiredEnv: [] },
       }),
     ])
+  })
+
+  it('contributes capability selectors to matching package overviews', async () => {
+    const root = await fixture()
+    const existing = command(root, 'deploy')
+    const contribution = {
+      ...plugin(),
+      presets: [],
+      templates: [],
+      packageQuickActions: [{
+        id: 'widget-actions',
+        package: { allFiles: ['package.json'], anyFiles: ['widget.config.ts'] },
+        capabilities: ['widget-assistant', 'deploy'],
+      }],
+    }
+
+    const result = await resolveCommandContributions({
+      projectPath: root,
+      locale: 'en',
+      capabilities: [existing],
+      packages: [{ relativePath: '.', root: true }, widgetPackage],
+      plugins: [contribution],
+    })
+
+    expect(result.packages).toEqual([
+      { relativePath: '.', root: true },
+      { ...widgetPackage, quickActions: ['widget-assistant', 'deploy'] },
+    ])
+    expect(result.capabilities[0]).toMatchObject({
+      package: { relativePath: 'apps/widget', quickActions: ['widget-assistant', 'deploy'] },
+    })
+  })
+
+  it('resolves an HTTPS package link from a bounded quoted config literal', async () => {
+    const root = await fixture()
+    const contribution: PluginCommandContributions = {
+      ...plugin(),
+      presets: [],
+      templates: [],
+      packageLinks: [{
+        id: 'widget-console',
+        title: { 'default': 'Widget console', 'zh-CN': '组件控制台' },
+        description: 'Open the widget operations console.',
+        package: { allFiles: ['package.json'], anyFiles: ['widget.config.ts'] },
+        urlTemplate: 'https://widgets.example.com/console/{value}',
+        value: { files: ['widget.config.ts'], key: 'appId' },
+        toolGroup: 'widget',
+      }],
+      packageToolGroups: [{
+        id: 'widget',
+        title: 'Widget tools',
+        package: { allFiles: ['package.json'], anyFiles: ['widget.config.ts'] },
+      }],
+    }
+
+    const result = await resolveCommandContributions({
+      projectPath: root,
+      locale: 'zh-CN',
+      capabilities: [],
+      packages: [{ relativePath: '.', root: true }, widgetPackage],
+      plugins: [contribution],
+    })
+
+    expect(result.packages[1]).toMatchObject({
+      links: [{
+        id: '@acme/craft-hub-plugin-deploy:widget-console',
+        title: '组件控制台',
+        description: 'Open the widget operations console.',
+        url: 'https://widgets.example.com/console/widget%2F123',
+        source: 'plugin:@acme/craft-hub-plugin-deploy@1.0.0',
+        toolGroupId: '@acme/craft-hub-plugin-deploy:widget',
+      }],
+      toolGroups: [expect.objectContaining({ id: '@acme/craft-hub-plugin-deploy:widget', title: 'Widget tools' })],
+    })
+  })
+
+  it('extends select inputs from bounded package JSON and user settings', async () => {
+    const root = await fixture()
+    const contribution = plugin({
+      account: { type: 'select', flag: '--account', default: 'default', options: [{ value: 'default', omitArgument: true }] },
+      entry: { type: 'select', flag: '--entry', default: 'default', options: [{ value: 'default', omitArgument: true }] },
+    })
+    contribution.presets[0]!.optionSources = {
+      account: { type: 'user-setting', key: 'extensions.example-widget.accounts' },
+      entry: { type: 'package-json-array', files: ['src/app.json'], path: ['pages'], valueKey: 'page' },
+    }
+
+    const result = await resolveCommandContributions({
+      projectPath: root,
+      locale: 'en',
+      capabilities: [command(root, 'deploy')],
+      packages: [widgetPackage],
+      plugins: [contribution],
+      userSettings: {
+        'extensions.example-widget.accounts': [{ value: '10001', label: 'QA account' }, '10002'],
+      },
+    })
+
+    expect((result.capabilities[0] as CommandCapability).inputs).toEqual([
+      expect.objectContaining({ id: 'account', options: [{ value: 'default', omitArgument: true }, { value: '10001', label: 'QA account' }, { value: '10002' }] }),
+      expect.objectContaining({ id: 'entry', options: [{ value: 'default', omitArgument: true }, { value: 'pages/home/index' }, { value: 'pages/detail/index' }] }),
+    ])
+    expect(resolveCommandInvocation(result.capabilities[0] as CommandCapability).args).toEqual(['run', 'deploy'])
+    expect(resolveCommandInvocation(result.capabilities[0] as CommandCapability, { account: '10001', entry: 'pages/detail/index' }).args).toEqual(['run', 'deploy', '--', '--account=10001', '--entry=pages/detail/index'])
   })
 
   it('reports cross-plugin input conflicts without silently choosing a value', async () => {

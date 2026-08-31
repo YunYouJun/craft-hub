@@ -20,7 +20,9 @@ All workspace package versions must match the release tag. This keeps the numeri
 - `APPLE_API_KEY_ID`
 - `APPLE_API_KEY_BASE64`
 
-GitHub Pages must use GitHub Actions as its deployment source. The release workflow publishes architecture-specific Alpha manifests under `updates/alpha/darwin/{arm64,x64}/RELEASES.json`.
+The release workflow publishes the site to Cloudflare Pages and writes architecture-specific Alpha manifests under `updates/alpha/darwin/{arm64,x64}/RELEASES.json`. Community builds read these manifests from `https://craft-hub.pages.dev/updates/alpha`.
+
+Local ad-hoc packages do not enable automatic updates. `package:mac` writes packaged build metadata with updates enabled only when `MACOS_SIGNING_ENABLED=true`; this prevents unpublished local builds from repeatedly requesting a missing release feed.
 
 ## Release gate
 

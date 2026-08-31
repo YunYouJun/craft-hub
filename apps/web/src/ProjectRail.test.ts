@@ -100,7 +100,7 @@ describe('project rail', () => {
     expect(wrapper.element.querySelector('[data-testid="owner-scope-trigger"] .i-ri-team-line')).not.toBeNull()
     expect(wrapper.get('[data-testid="owner-scope-trigger"]').text()).toBe('Acme')
     expect(styles).toContain('.owner-scope-trigger { width: 100%; height: 30px;')
-    expect(styles).toContain('font-size: 12px; font-weight: 600;')
+    expect(styles).toContain('font-size: var(--font-size-body); font-weight: 600;')
 
     wrapper.getComponent(Select).vm.$emit('update:modelValue', 'acme')
     await flushPromises()

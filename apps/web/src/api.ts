@@ -1,4 +1,4 @@
-import type { AgentActionId, AgentActionSummary, AgentTaskRecord, ApplyGitIntegrationRequest, Capability, CapabilityDiscoveryResult, CapabilityPins, CatalogPluginV1, CommandInputValues, CommandInvocation, GitIntegrationPlan, GitIntegrationRequest, GitIntegrationResult, InstalledPlugin, MarketplaceSource, MarketplaceSourcePreview, OwnerScope, OwnerScopeUiState, PersonalGitSyncResolution, PersonalGitSyncStatus, ProjectCatalogSnapshot, ProjectChangeEvent, ProjectConfigInitializationResult, ProjectDescriptionApplication, ProjectDescriptionAudit, ProjectDescriptionChange, ProjectRecord, ProjectRunSummary, ProjectVisualInput, ReleasePlan, RunCleanupOptions, RunCleanupResult, RunRecord, RunStreamEvent, RuntimeHealth, SettingsExportEnvelope, SettingsExportMode, SettingsImportPreview, SettingsImportStrategy, SettingsSnapshot, TeamDeletionResult, TeamGitSyncStatus, WorkbenchLocale, WorkspaceCatalog, WorkspaceGroup, WorkspaceImportPreview, WorkspaceImportResult, WorkspaceManifest, WorkspaceRecord, WorkspaceUiState } from 'craft-hub'
+import type { AgentActionId, AgentActionSummary, AgentTaskRecord, ApplyGitIntegrationRequest, Capability, CapabilityDiscoveryResult, CapabilityPins, CatalogPluginV1, CommandInputValues, CommandInvocation, GitIntegrationPlan, GitIntegrationRequest, GitIntegrationResult, InstalledPlugin, MarketplaceSource, MarketplaceSourcePreview, OwnerScope, OwnerScopeUiState, PersonalGitSyncResolution, PersonalGitSyncStatus, PluginInstallPlan, PluginUpdatePlanItem, PluginUpdateResult, ProjectCatalogSnapshot, ProjectChangeEvent, ProjectConfigInitializationResult, ProjectDescriptionApplication, ProjectDescriptionAudit, ProjectDescriptionChange, ProjectOverview, ProjectRecord, ProjectRunSummary, ProjectVisualInput, ReleasePlan, RunCleanupOptions, RunCleanupResult, RunRecord, RunStreamEvent, RuntimeHealth, SettingsExportEnvelope, SettingsExportMode, SettingsImportPreview, SettingsImportStrategy, SettingsSnapshot, TeamDeletionResult, TeamGitSyncStatus, WorkbenchLocale, WorkspaceCatalog, WorkspaceGroup, WorkspaceImportPreview, WorkspaceImportResult, WorkspaceManifest, WorkspaceRecord, WorkspaceUiState } from 'craft-hub'
 
 export class ApiRequestError extends Error {
   constructor(message: string, readonly status: number) {
@@ -45,7 +45,14 @@ async function runtimeHealth(): Promise<RuntimeHealth | undefined> {
     return undefined
   const health = result as Partial<RuntimeHealth>
   return health.status === 'ok' && typeof health.projectConfigSchemaRevision === 'string'
-    ? health as RuntimeHealth
+    ? {
+        ...health,
+        distribution: health.distribution
+          && typeof health.distribution.id === 'string'
+          && typeof health.distribution.name === 'string'
+          ? health.distribution
+          : { id: 'community', name: 'Craft Hub' },
+      } as RuntimeHealth
     : undefined
 }
 
@@ -113,6 +120,9 @@ export const api = {
   removeMarketplaceSource: (sourceId: string) => request<{ deleted: true }>(`/api/marketplace/sources/${encodeURIComponent(sourceId)}`, { method: 'DELETE' }),
   refreshMarketplaceSource: (sourceId: string) => request<MarketplaceSource>(`/api/marketplace/sources/${encodeURIComponent(sourceId)}/refresh`, { method: 'POST' }),
   installedPlugins: () => request<InstalledPlugin[]>('/api/plugins'),
+  pluginUpdates: () => request<PluginUpdatePlanItem[]>('/api/plugins/updates'),
+  updatePlugins: () => request<PluginUpdateResult>('/api/plugins/updates', { method: 'POST' }),
+  previewPluginInstall: (sourceId: string, packageName: string, version?: string) => request<PluginInstallPlan>('/api/plugins/install/preview', { method: 'POST', body: JSON.stringify({ sourceId, package: packageName, version }) }),
   installPlugin: (sourceId: string, packageName: string, version?: string) => request<InstalledPlugin>('/api/plugins/install', { method: 'POST', body: JSON.stringify({ sourceId, package: packageName, version }) }),
   setPluginEnabled: (packageName: string, enabled: boolean) => request<InstalledPlugin>(`/api/plugins/${encodeURIComponent(packageName)}/enabled`, { method: 'PUT', body: JSON.stringify({ enabled }) }),
   rollbackPlugin: (packageName: string) => request<InstalledPlugin>(`/api/plugins/${encodeURIComponent(packageName)}/rollback`, { method: 'POST' }),
@@ -165,6 +175,7 @@ export const api = {
   removeWorkspaceProject: (workspaceId: string, projectIdOrKey: string, ownerScopeId = 'personal') => request<WorkspaceRecord>(scopedPath(`/api/workspaces/${workspaceId}/members/${encodeURIComponent(projectIdOrKey)}`, ownerScopeId), { method: 'DELETE' }),
   capabilities: (projectId: string) => request<Capability[]>(`/api/projects/${projectId}/capabilities`),
   capabilityDiscovery,
+  projectOverview: (projectId: string, packagePath: string, locale: WorkbenchLocale) => request<ProjectOverview>(`/api/projects/${projectId}/overview?package=${encodeURIComponent(packagePath)}&locale=${encodeURIComponent(locale)}`),
   gitIntegrationPlan: (projectId: string, input: GitIntegrationRequest = {}) => request<GitIntegrationPlan>(`/api/projects/${projectId}/git-integration/plan`, {
     method: 'POST',
     body: JSON.stringify(input),

@@ -2,7 +2,9 @@ import type { CraftHubStore } from './store'
 import type { CommandCapability, ProjectRecord, RunOutputEvent, RunRecord } from './types'
 import { Buffer } from 'node:buffer'
 import { randomUUID } from 'node:crypto'
+import { existsSync } from 'node:fs'
 import { createRequire } from 'node:module'
+import { delimiter, join } from 'node:path'
 import process from 'node:process'
 import { spawn } from 'node-pty'
 import { assertCommandWorkingDirectory } from './path-security'
@@ -55,17 +57,18 @@ export async function executeCommand(
   }
   void store.saveRun(run)
 
+  const env = commandEnvironment()
   const parsed = process.platform === 'win32'
     ? parseCommand(capability.invocation.command, capability.invocation.args, {
         cwd: capability.invocation.cwd,
-        env: process.env,
+        env,
         shell: false,
       })
     : capability.invocation
   const terminal = spawn(parsed.command, process.platform === 'win32' ? parsed.args.join(' ') : parsed.args, {
     cwd: capability.invocation.cwd,
     cols: 120,
-    env: process.env,
+    env,
     name: 'xterm-256color',
     rows: 30,
   })
@@ -106,6 +109,29 @@ export async function executeCommand(
     },
     resize: (columns, rows) => terminal.resize(columns, rows),
     write: data => terminal.write(data),
+  }
+}
+
+function commandEnvironment(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  const home = env.HOME ?? env.USERPROFILE
+  const configuredPath = (env.PATH ?? '').split(delimiter).filter(Boolean)
+  const userToolPaths = [
+    env.PNPM_HOME,
+    home && process.platform === 'darwin' ? join(home, 'Library', 'pnpm') : undefined,
+    home ? join(home, '.local', 'bin') : undefined,
+    home ? join(home, '.local', 'share', 'pnpm') : undefined,
+    home ? join(home, '.local', 'share', 'fnm', 'aliases', 'default', 'bin') : undefined,
+    home ? join(home, '.volta', 'bin') : undefined,
+    home ? join(home, '.nvm', 'current', 'bin') : undefined,
+    home ? join(home, '.asdf', 'shims') : undefined,
+    process.platform === 'darwin' ? '/opt/homebrew/bin' : undefined,
+    process.platform === 'darwin' ? '/opt/homebrew/sbin' : undefined,
+    process.platform === 'win32' ? undefined : '/usr/local/bin',
+  ].filter((path): path is string => typeof path === 'string' && existsSync(path))
+
+  return {
+    ...env,
+    PATH: [...new Set([...configuredPath, ...userToolPaths])].join(delimiter),
   }
 }
 

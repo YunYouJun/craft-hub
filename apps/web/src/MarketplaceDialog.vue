@@ -3,6 +3,7 @@ import type { CatalogPluginV1, InstalledPlugin, MarketplaceSource, MarketplaceSo
 import { computed, ref, watch } from 'vue'
 import { api } from './api'
 import { Button as UiButton } from './components/ui/button'
+import { DialogShell } from './components/ui/dialog'
 import { Icon } from './icons'
 import { useI18n } from './i18n'
 
@@ -21,6 +22,9 @@ const sourceName = ref('')
 const catalogUrl = ref('')
 const registry = ref('')
 const sourcePreview = ref<MarketplaceSourcePreview>()
+const sourceError = ref('')
+const sourceSuccess = ref('')
+const failedIcons = ref(new Set<string>())
 
 const filteredCatalog = computed(() => {
   const normalized = query.value.trim().toLowerCase()
@@ -30,6 +34,11 @@ const filteredCatalog = computed(() => {
     || plugin.description?.toLowerCase().includes(normalized))
 })
 const installedPackages = computed(() => new Set(installed.value.map(plugin => plugin.package)))
+const installedByPackage = computed(() => new Map(installed.value.map(plugin => [plugin.package, plugin])))
+
+function catalogPluginInstalled(plugin: CatalogItem): boolean {
+  return installedByPackage.value.get(plugin.package)?.version === plugin.version
+}
 
 watch(() => props.open, (open) => {
   if (open)
@@ -62,10 +71,20 @@ async function load(): Promise<void> {
 }
 
 async function install(plugin: CatalogItem): Promise<void> {
-  const permissions = plugin.permissions.join(', ') || t('none')
-  if (!window.confirm(t('confirmPluginInstall', { package: plugin.package, version: plugin.version, source: plugin.sourceName, permissions })))
-    return
   await operate(`install:${plugin.package}`, async () => {
+    const plan = await api.previewPluginInstall(plugin.sourceId, plugin.package, plugin.version)
+    const changes = plan.items.filter(item => item.action !== 'none')
+    const plugins = changes.map(item => `${item.displayName}@${item.version}`).join(', ') || plugin.displayName
+    const permissions = plan.permissions.join(', ') || t('none')
+    if (!window.confirm(t('confirmPluginBundleInstall', {
+      package: plugin.package,
+      version: plugin.version,
+      source: plugin.sourceName,
+      count: String(changes.length),
+      plugins,
+      permissions,
+    })))
+      return
     await api.installPlugin(plugin.sourceId, plugin.package, plugin.version)
   })
 }
@@ -91,36 +110,67 @@ async function removePlugin(plugin: InstalledPlugin): Promise<void> {
 }
 
 async function previewSource(): Promise<void> {
-  if (!sourceName.value.trim() || !catalogUrl.value.trim())
+  if (!sourceName.value.trim() || !catalogUrl.value.trim() || busy.value)
     return
-  await operate('preview-source', async () => {
+  busy.value = 'preview-source'
+  sourceError.value = ''
+  sourceSuccess.value = ''
+  try {
     sourcePreview.value = await api.previewMarketplaceSource({
       name: sourceName.value.trim(),
       catalogUrl: catalogUrl.value.trim(),
       registry: registry.value.trim() || undefined,
     })
-  }, true)
+  }
+  catch (caught) {
+    const message = caught instanceof Error ? caught.message : String(caught)
+    sourceError.value = /fetch failed/i.test(message)
+      ? t('sourceNetworkFailed', { message })
+      : t('sourceOperationFailed', { message })
+  }
+  finally {
+    busy.value = ''
+  }
 }
 
 async function addSource(): Promise<void> {
-  if (!sourcePreview.value)
+  if (!sourcePreview.value || busy.value)
     return
-  await operate('add-source', async () => {
+  busy.value = 'add-source'
+  sourceError.value = ''
+  sourceSuccess.value = ''
+  try {
     await api.addMarketplaceSource({
       name: sourcePreview.value!.name,
       catalogUrl: sourcePreview.value!.catalogUrl,
       registry: sourcePreview.value!.registry,
     })
+    const importedName = sourcePreview.value.name
     sourceName.value = ''
     catalogUrl.value = ''
     registry.value = ''
     sourcePreview.value = undefined
-  }, true)
+    await load()
+    sourceSuccess.value = t('sourceImportSuccess', { name: importedName })
+  }
+  catch (caught) {
+    sourceError.value = t('sourceOperationFailed', { message: caught instanceof Error ? caught.message : String(caught) })
+  }
+  finally {
+    busy.value = ''
+  }
 }
 
 watch([sourceName, catalogUrl, registry], () => {
   sourcePreview.value = undefined
+  sourceError.value = ''
+  sourceSuccess.value = ''
 })
+
+function updateSourcePreviewOpen(open: boolean): void {
+  if (!open && busy.value !== 'add-source')
+    sourcePreview.value = undefined
+}
 
 async function refreshSource(source: MarketplaceSource): Promise<void> {
   await operate(`refresh:${source.id}`, async () => {
@@ -154,6 +204,31 @@ async function operate(key: string, operation: () => Promise<void>, sourceOperat
 function sourceKind(source: MarketplaceSource): string {
   return t(source.kind === 'builtin' ? 'sourceBuiltin' : source.kind === 'managed' ? 'sourceManaged' : 'sourceUser')
 }
+
+function sourceKindDescription(source: MarketplaceSource): string {
+  return t(source.kind === 'builtin' ? 'sourceBuiltinDescription' : source.kind === 'managed' ? 'sourceManagedDescription' : 'sourceUserDescription')
+}
+
+function catalogIconKey(plugin: CatalogItem): string {
+  return `${plugin.sourceId}:${plugin.package}:${plugin.version}`
+}
+
+function installedIconKey(plugin: InstalledPlugin): string {
+  return `${plugin.sourceId}:${plugin.package}:${plugin.version}`
+}
+
+function visibleIcon(key: string, icon: string | undefined): string | undefined {
+  return icon && !failedIcons.value.has(key) ? icon : undefined
+}
+
+function installedIcon(plugin: InstalledPlugin): string | undefined {
+  return catalog.value.find(item => item.sourceId === plugin.sourceId && item.package === plugin.package && item.version === plugin.version)?.icon
+    ?? (plugin.manifest.icon?.startsWith('https://') ? plugin.manifest.icon : undefined)
+}
+
+function markIconFailed(key: string): void {
+  failedIcons.value = new Set([...failedIcons.value, key])
+}
 </script>
 
 <template>
@@ -177,15 +252,18 @@ function sourceKind(source: MarketplaceSource): string {
           <label class="marketplace-search"><Icon name="search" /><input v-model="query" :placeholder="t('searchPlugins')"></label>
           <div v-if="filteredCatalog.length" class="plugin-list">
             <article v-for="plugin in filteredCatalog" :key="`${plugin.sourceId}:${plugin.package}:${plugin.version}`" class="plugin-row">
-              <div class="plugin-mark"><Icon name="plugins" /></div>
+              <div class="plugin-mark">
+                <img v-if="visibleIcon(catalogIconKey(plugin), plugin.icon)" data-testid="plugin-icon" :src="visibleIcon(catalogIconKey(plugin), plugin.icon)" alt="" referrerpolicy="no-referrer" @error="markIconFailed(catalogIconKey(plugin))">
+                <Icon v-else name="plugins" />
+              </div>
               <div class="plugin-copy">
                 <div class="plugin-title"><strong>{{ plugin.displayName }}</strong><code>{{ plugin.package }}</code></div>
                 <p>{{ plugin.description }}</p>
                 <dl><div><dt>{{ t('pluginPublisher') }}</dt><dd>{{ plugin.publisher }}</dd></div><div><dt>{{ t('pluginVersion') }}</dt><dd>{{ plugin.version }}</dd></div><div><dt>{{ t('pluginSource') }}</dt><dd>{{ plugin.sourceName }}</dd></div></dl>
                 <p class="permission-copy">{{ t('pluginPermissions') }} · {{ plugin.permissions.join(', ') || t('none') }}</p>
               </div>
-              <UiButton size="compact" variant="primary" :disabled="busy !== '' || installedPackages.has(plugin.package)" @click="install(plugin)">
-                {{ busy === `install:${plugin.package}` ? t('installingPlugin') : installedPackages.has(plugin.package) ? t('installedPlugins') : t('installPlugin') }}
+              <UiButton size="compact" variant="primary" :disabled="busy !== '' || (catalogPluginInstalled(plugin) && !plugin.requiresPlugins.length)" @click="install(plugin)">
+                {{ busy === `install:${plugin.package}` ? t('installingPlugin') : catalogPluginInstalled(plugin) ? t('repairPluginBundle') : installedPackages.has(plugin.package) ? t('updatePlugin') : t('installPlugin') }}
               </UiButton>
             </article>
           </div>
@@ -195,7 +273,10 @@ function sourceKind(source: MarketplaceSource): string {
         <section v-else-if="activeTab === 'installed'" class="marketplace-view">
           <div v-if="installed.length" class="plugin-list">
             <article v-for="plugin in installed" :key="plugin.package" class="plugin-row installed-plugin-row">
-              <div class="plugin-mark" :class="{ disabled: !plugin.enabled }"><Icon name="plugins" /></div>
+              <div class="plugin-mark" :class="{ disabled: !plugin.enabled }">
+                <img v-if="visibleIcon(installedIconKey(plugin), installedIcon(plugin))" data-testid="installed-plugin-icon" :src="visibleIcon(installedIconKey(plugin), installedIcon(plugin))" alt="" referrerpolicy="no-referrer" @error="markIconFailed(installedIconKey(plugin))">
+                <Icon v-else name="plugins" />
+              </div>
               <div class="plugin-copy">
                 <div class="plugin-title"><strong>{{ plugin.manifest.displayName }}</strong><code>{{ plugin.package }}</code></div>
                 <p>{{ plugin.manifest.description }}</p>
@@ -214,7 +295,29 @@ function sourceKind(source: MarketplaceSource): string {
         <section v-else class="marketplace-view sources-view">
           <div class="source-list">
             <article v-for="source in sources" :key="source.id" class="source-row">
-              <div><strong>{{ source.name }}</strong><small>{{ sourceKind(source) }} · {{ source.catalogUrl || source.id }}</small><p v-if="source.error">{{ source.error }}</p></div>
+              <div class="source-copy">
+                <div class="source-heading">
+                  <strong>{{ source.name }}</strong>
+                  <span class="source-kind" :title="sourceKindDescription(source)">{{ sourceKind(source) }}</span>
+                  <span v-if="source.verification" class="source-verification" :title="t('sourcePublisherVerifiedDescription', { organization: source.verification.organization })">{{ t('sourcePublisherVerified') }}</span>
+                  <span v-if="source.catalog && !source.error" class="source-validation">{{ t('sourceCatalogValidated') }}</span>
+                  <code>{{ source.id }}</code>
+                </div>
+                <dl class="source-details">
+                  <div>
+                    <dt>{{ t('sourceCatalogLocation') }}</dt>
+                    <dd>
+                      <a v-if="source.catalogUrl" data-testid="source-catalog-url" :href="source.catalogUrl" target="_blank" rel="noreferrer">{{ source.catalogUrl }}</a>
+                      <span v-else>{{ t('sourceBundledCatalog') }}</span>
+                    </dd>
+                  </div>
+                  <div v-if="source.registry">
+                    <dt>{{ t('sourceRegistryLocation') }}</dt>
+                    <dd>{{ source.registry }}</dd>
+                  </div>
+                </dl>
+                <p v-if="source.error">{{ source.error }}</p>
+              </div>
               <div class="plugin-actions">
                 <UiButton v-if="source.catalogUrl" size="compact" :disabled="busy !== ''" @click="refreshSource(source)">{{ t('refreshSource') }}</UiButton>
                 <UiButton v-if="source.kind === 'user'" size="compact" variant="danger-secondary" :disabled="busy !== ''" @click="removeSource(source)">{{ t('removeSource') }}</UiButton>
@@ -224,16 +327,57 @@ function sourceKind(source: MarketplaceSource): string {
           <form class="source-form" @submit.prevent="previewSource">
             <h3>{{ t('addMarketplaceSource') }}</h3>
             <div class="source-fields">
-              <label><span>{{ t('sourceName') }}</span><input v-model="sourceName" required></label>
-              <label><span>{{ t('catalogUrl') }}</span><input v-model="catalogUrl" type="url" placeholder="https://…/catalog.json" required></label>
+              <label>
+                <span class="source-field-label">{{ t('sourceName') }} <small v-if="importCatalogUrl">{{ t('autoFilled') }}</small></span>
+                <input v-model="sourceName" required>
+              </label>
+              <label>
+                <span class="source-field-label">{{ t('catalogUrl') }} <small v-if="importCatalogUrl">{{ t('autoFilled') }}</small></span>
+                <input v-model="catalogUrl" type="url" placeholder="https://…/catalog.json" required>
+              </label>
               <label><span>{{ t('registryUrl') }}</span><input v-model="registry" type="url" placeholder="https://registry.npmjs.org"></label>
             </div>
-            <UiButton variant="primary" type="submit" :disabled="busy !== '' || !sourceName.trim() || !catalogUrl.trim()">{{ t('previewMarketplaceSource') }}</UiButton>
-            <article v-if="sourcePreview" class="source-preview">
-              <div><strong>{{ sourcePreview.catalog.name }}</strong><small>{{ sourcePreview.finalCatalogUrl }}</small><p>{{ t('sourcePreviewPlugins', { count: String(sourcePreview.catalog.plugins.length) }) }}</p></div>
-              <UiButton variant="primary" type="button" :disabled="busy !== ''" @click="addSource">{{ t('confirmMarketplaceSourceImport') }}</UiButton>
-            </article>
+            <UiButton variant="primary" type="submit" :disabled="busy !== '' || !sourceName.trim() || !catalogUrl.trim()">
+              {{ busy === 'preview-source' ? t('checkingMarketplaceSource') : t('previewMarketplaceSource') }}
+            </UiButton>
+            <div v-if="sourceError" class="source-form-error" data-testid="source-preview-error" role="alert">
+              <p>{{ sourceError }}</p>
+              <UiButton data-testid="retry-source-preview" size="compact" type="button" @click="previewSource">{{ t('retry') }}</UiButton>
+            </div>
+            <p v-if="sourceSuccess" class="source-form-success" role="status">{{ sourceSuccess }}</p>
           </form>
         </section>
+
+        <DialogShell
+          :open="Boolean(sourcePreview)"
+          content-class="dialog-content source-confirm-dialog"
+          data-testid="source-confirm-dialog"
+          @update:open="updateSourcePreviewOpen"
+        >
+          <template #title>{{ t('sourcePreviewTitle') }}</template>
+          <template #description>{{ t('sourcePreviewDescription') }}</template>
+          <p v-if="sourcePreview?.verification" class="source-preview-verification" role="status">
+            {{ t('sourcePublisherVerifiedDescription', { organization: sourcePreview.verification.organization }) }}
+          </p>
+          <dl v-if="sourcePreview" class="source-preview-details">
+            <div><dt>{{ t('sourceName') }}</dt><dd>{{ sourcePreview.catalog.name }}</dd></div>
+            <div><dt>{{ t('sourceCatalogLocation') }}</dt><dd>{{ sourcePreview.finalCatalogUrl }}</dd></div>
+            <div><dt>{{ t('sourceRegistryLocation') }}</dt><dd>{{ sourcePreview.registry || t('sourceDefaultRegistry') }}</dd></div>
+          </dl>
+          <section v-if="sourcePreview" class="source-preview-plugins">
+            <strong>{{ t('sourcePreviewPlugins', { count: String(sourcePreview.catalog.plugins.length) }) }}</strong>
+            <ul>
+              <li v-for="plugin in sourcePreview.catalog.plugins" :key="`${plugin.package}:${plugin.version}`">
+                <span>{{ plugin.displayName }}</span><code>{{ plugin.package }}@{{ plugin.version }}</code>
+              </li>
+            </ul>
+          </section>
+          <footer>
+            <UiButton :disabled="busy === 'add-source'" @click="updateSourcePreviewOpen(false)">{{ t('cancel') }}</UiButton>
+            <UiButton data-testid="confirm-source-import" variant="primary" :disabled="busy !== ''" @click="addSource">
+              {{ busy === 'add-source' ? t('adding') : t('confirmMarketplaceSourceImport') }}
+            </UiButton>
+          </footer>
+        </DialogShell>
   </section>
 </template>

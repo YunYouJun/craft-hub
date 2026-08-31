@@ -1,5 +1,6 @@
 import type { AgentTaskProvider } from './agent-tasks'
 import type { MarketplaceSource, PluginPackageInstaller } from './marketplace'
+import type { MarketplaceTrustPolicy } from './marketplace-trust'
 import type { CraftHubPlugin } from './plugins'
 import type { WorkbenchLocale } from './settings'
 import type { Capability, CapabilityDiscoveryResult, ProjectRecord } from './types'
@@ -12,6 +13,8 @@ export interface DistributionConfig {
   dataDirectoryName?: string
   /** Marketplace sources managed by this distribution. */
   marketplaceSources?: MarketplaceSource[]
+  /** Publisher trust anchors provisioned by the host rather than an import link. */
+  marketplaceTrustPolicies?: MarketplaceTrustPolicy[]
 }
 
 export interface CapabilityProviderContext {
@@ -48,6 +51,7 @@ export const communityDistribution: DistributionConfig = {
     id: 'craft-hub',
     name: 'Craft Hub',
     kind: 'builtin',
+    catalogUrl: 'https://craft-hub.yunyoujun.cn/.well-known/craft-hub/plugins/v1/catalog.json',
     enabled: true,
     catalog: { schemaVersion: 1, id: 'craft-hub', name: 'Craft Hub', plugins: [] },
   }],

@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import type { CommandCapability, CommandCategory, CommandPackage } from 'craft-hub'
+import type { CommandCategory, CommandPackage } from 'craft-hub'
 import { computed, ref, watch } from 'vue'
 import CapabilityRow from './CapabilityRow.vue'
 import { Button as UiButton } from './components/ui/button'
 import { Icon } from './icons'
 import { useI18n } from './i18n'
 import ProjectConfigInitDialog from './ProjectConfigInitDialog.vue'
+import { packageOverviewRows, packageSection } from './package-overview'
 import { commandPaletteShortcutId, defaultCommandPaletteShortcut, formatShortcut } from './shortcuts'
 import { useWorkbenchStore } from './store'
 
@@ -15,7 +16,10 @@ const paletteShortcut = computed(() => formatShortcut(store.settings?.settings['
 const query = ref('')
 const filter = ref<'all' | 'command' | 'skill' | 'package'>('all')
 const categoryFilter = ref<'all' | CommandCategory>('all')
-const selectedPackagePath = ref('')
+const selectedPackagePath = computed({
+  get: () => store.selectedPackagePath,
+  set: value => store.selectedPackagePath = value,
+})
 const categories: Array<'all' | CommandCategory> = ['all', 'develop', 'build', 'test', 'quality', 'preview', 'deploy', 'other']
 const draggingId = ref('')
 const recoveryBusy = ref(false)
@@ -30,26 +34,7 @@ const skillCount = computed(() => store.capabilities.filter(capability => capabi
 const showSkillSources = computed(() => new Set(store.capabilities
   .filter(capability => capability.kind === 'skill')
   .map(capability => capability.source)).size > 1)
-interface PackageOverviewRow extends CommandPackage {
-  capabilities: CommandCapability[]
-}
-const packageRows = computed<PackageOverviewRow[]>(() => {
-  const rows = new Map<string, PackageOverviewRow>(store.commandPackages.map(commandPackage => [
-    commandPackage.relativePath,
-    { ...commandPackage, capabilities: [] },
-  ]))
-  for (const capability of store.capabilities) {
-    if (capability.kind !== 'command')
-      continue
-    const commandPackage = capability.package ?? { relativePath: '.', root: true }
-    const row = rows.get(commandPackage.relativePath) ?? { ...commandPackage, capabilities: [] }
-    row.name ??= commandPackage.name
-    row.description ??= commandPackage.description
-    row.capabilities.push(capability)
-    rows.set(commandPackage.relativePath, row)
-  }
-  return [...rows.values()].sort(comparePackages)
-})
+const packageRows = computed(() => packageOverviewRows(store.commandPackages, store.capabilities))
 const visiblePackageRows = computed(() => {
   const normalizedQuery = query.value.trim().toLowerCase()
   if (!normalizedQuery)
@@ -96,7 +81,6 @@ watch(() => [store.selectedProjectId, improveAction.value?.commandFingerprint] a
 }, { immediate: true })
 
 watch(() => store.selectedProjectId, (projectId) => {
-  selectedPackagePath.value = ''
   if (!projectId) {
     collapsedGroups.value = []
     return
@@ -125,43 +109,25 @@ function matchesFilter(item: typeof store.capabilities[number]): boolean {
     && `${item.name} ${item.description ?? ''} ${item.source} ${packageText}`.toLowerCase().includes(query.value.toLowerCase())
 }
 
-function comparePackages(left: CommandPackage, right: CommandPackage): number {
-  if (left.root !== right.root)
-    return left.root ? -1 : 1
-  return left.relativePath.localeCompare(right.relativePath, undefined, { numeric: true })
-}
-
-function packageSection(relativePath: string): 'root' | 'apps' | 'packages' | 'docs' | 'other' {
-  if (relativePath === '.')
-    return 'root'
-  if (relativePath.startsWith('apps/'))
-    return 'apps'
-  if (relativePath.startsWith('packages/'))
-    return 'packages'
-  if (relativePath === 'docs' || relativePath.startsWith('docs/'))
-    return 'docs'
-  return 'other'
-}
-
 function packageSubtitle(row: CommandPackage): string {
   return [row.name, row.description].filter(Boolean).join(' · ')
 }
 
 function selectFilter(value: typeof filter.value): void {
   filter.value = value
-  if (value !== 'command')
-    selectedPackagePath.value = ''
+  if (value !== 'command' && selectedPackagePath.value)
+    void store.clearPackageSelection()
 }
 
 function selectPackage(relativePath: string): void {
-  selectedPackagePath.value = relativePath
+  void store.selectPackage(relativePath)
   filter.value = 'command'
   categoryFilter.value = 'all'
   query.value = ''
 }
 
 function clearPackageScope(): void {
-  selectedPackagePath.value = ''
+  void store.clearPackageSelection()
   categoryFilter.value = 'all'
 }
 
@@ -318,7 +284,7 @@ async function openConfigurationGuide(): Promise<void> {
           :selected="capability.id === store.selectedCapabilityId"
           package-context
           :show-skill-source="showSkillSources"
-          @select="store.selectedCapabilityId = capability.id"
+          @select="store.selectCapability(capability.id, capability.kind === 'command' ? capability.package?.relativePath : undefined)"
           @toggle-pin="store.toggleCapabilityPin(capability.id)"
           @dragstart="startDrag(capability.id, $event)"
           @drop="movePinned(capability.id)"
@@ -339,7 +305,7 @@ async function openConfigurationGuide(): Promise<void> {
             :pinned="false"
             :selected="capability.id === store.selectedCapabilityId"
             :show-skill-source="showSkillSources"
-            @select="store.selectedCapabilityId = capability.id"
+            @select="store.selectCapability(capability.id, capability.kind === 'command' ? capability.package?.relativePath : undefined)"
             @toggle-pin="store.toggleCapabilityPin(capability.id)"
           />
         </template>
@@ -353,7 +319,7 @@ async function openConfigurationGuide(): Promise<void> {
           :pinned="false"
           :selected="capability.id === store.selectedCapabilityId"
           :show-skill-source="showSkillSources"
-          @select="store.selectedCapabilityId = capability.id"
+          @select="store.selectCapability(capability.id)"
           @toggle-pin="store.toggleCapabilityPin(capability.id)"
         />
       </section>

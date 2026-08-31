@@ -32,6 +32,41 @@
             "red",
             "yellow"
           ]
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "object",
+              "properties": {
+                "default": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "required": [
+                "default"
+              ],
+              "additionalProperties": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          ]
+        },
+        "readme": {
+          "type": "string",
+          "minLength": 1
+        },
+        "quickActions": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
         }
       },
       "additionalProperties": false
@@ -1156,6 +1191,26 @@
                 }
               }
             ]
+          },
+          "order": {
+            "type": "number"
+          },
+          "featured": {
+            "type": "boolean"
+          },
+          "hidden": {
+            "type": "boolean"
+          },
+          "readme": {
+            "type": "string",
+            "minLength": 1
+          },
+          "quickActions": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
           }
         },
         "additionalProperties": false

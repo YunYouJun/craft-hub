@@ -117,7 +117,7 @@ describe('global settings', () => {
     })
     await expect(service.previewImport(minimal, 'replace')).resolves.toMatchObject({
       ignored: ['extensions.example.enabled'],
-      warnings: [expect.stringContaining('not active')],
+      warnings: [expect.stringContaining('read-user-settings')],
     })
   })
 
@@ -176,6 +176,7 @@ describe('global settings', () => {
     await writeFile(join(root, 'settings.json'), JSON.stringify({ 'extensions.example.option': 42 }))
     const service = new CraftHubSettingsService(root)
     expect(await service.get()).toMatchObject({ explicitKeys: ['extensions.example.option'] })
+    await expect(service.extensionValues()).resolves.toEqual({ 'extensions.example.option': 42 })
 
     await writeFile(join(root, 'settings.json'), JSON.stringify({ 'workbench.typo': true }))
     await expect(new CraftHubSettingsService(root).get()).resolves.toMatchObject({

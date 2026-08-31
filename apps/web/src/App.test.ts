@@ -57,6 +57,7 @@ async function mountApp(pinia: ReturnType<typeof createPinia>, path = '/') {
 describe('app startup', () => {
   afterEach(() => {
     FakeEventSource.instances = []
+    vi.restoreAllMocks()
     vi.unstubAllGlobals()
     window.history.replaceState({}, '', '/')
     document.body.innerHTML = ''
@@ -178,6 +179,49 @@ describe('app startup', () => {
 
     expect(wrapper.get('[data-testid="project-refresh-error"]').text()).toContain('runtime unavailable')
     expect(store.projects).toEqual([projects[0]])
+    wrapper.unmount()
+  })
+
+  it('keeps splitter drag direction correct when the middle panel mounts after project loading', async () => {
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      if (this.hasAttribute('data-panel-group'))
+        return DOMRect.fromRect({ width: 1000, height: 800 })
+      if (this.id === 'capabilities-resize-handle')
+        return DOMRect.fromRect({ x: 600, y: 0, width: 9, height: 800 })
+      if (this.hasAttribute('data-resize-handle'))
+        return DOMRect.fromRect({ x: 280, y: 0, width: 9, height: 800 })
+      return DOMRect.fromRect()
+    })
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const path = typeof input === 'string' ? input : input.toString()
+      const body = path === '/api/settings'
+        ? { explicitKeys: [], path: '/settings.json', revision: 'initial', settings: { 'workbench.locale': 'en', 'workbench.shortcuts': {}, 'workbench.theme': 'system' } }
+        : path === '/api/projects'
+          ? [projects[0]]
+          : path === '/api/workspaces/state'
+            ? { expandedWorkspaceIds: [] }
+            : path.endsWith('/pins')
+              ? { projectId: projects[0]!.id, capabilityIds: [] }
+              : []
+      return new Response(JSON.stringify(body), { status: 200 })
+    }))
+    vi.stubGlobal('EventSource', FakeEventSource)
+    const pinia = createPinia()
+    setActivePinia(pinia)
+
+    const { wrapper } = await mountApp(pinia)
+    await flushPromises()
+    await nextTick()
+
+    const capabilitiesPanel = wrapper.get('#capabilities-panel')
+    const sizeBefore = Number(capabilitiesPanel.attributes('data-panel-size'))
+    const handle = wrapper.get('#capabilities-resize-handle').element
+    handle.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0, clientX: 600, clientY: 20 }))
+    document.body.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: 550, clientY: 20 }))
+    window.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, clientX: 550, clientY: 20 }))
+    await nextTick()
+
+    expect(Number(capabilitiesPanel.attributes('data-panel-size'))).toBeLessThan(sizeBefore)
     wrapper.unmount()
   })
 

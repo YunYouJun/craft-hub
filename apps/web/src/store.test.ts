@@ -104,6 +104,17 @@ describe('workbench refresh', () => {
     expect(projectRequests).toBe(1)
   })
 
+  it('persists the most recently selected project for the quick switcher', async () => {
+    const store = useWorkbenchStore()
+    await store.loadProjects()
+
+    expect(store.recentProjectIds).toEqual(['project'])
+    expect(window.localStorage.getItem('craft-hub-recent-projects')).toBe('["project"]')
+
+    setActivePinia(createPinia())
+    expect(useWorkbenchStore().recentProjectIds).toEqual(['project'])
+  })
+
   it('keeps the last successful project catalog when a refresh fails', async () => {
     const store = useWorkbenchStore()
     await store.loadProjects()
@@ -294,6 +305,13 @@ describe('workbench refresh', () => {
         return new Response(JSON.stringify({ projectId: project.id, capabilityIds: [] }), { status: 200 })
       if (path.includes('/agent-actions'))
         return new Response(JSON.stringify([]), { status: 200 })
+      if (path.includes('/overview?')) {
+        return new Response(JSON.stringify({
+          projectId: project.id,
+          package: { name: project.name, relativePath: '.', root: true },
+          readme: { status: 'missing' },
+        }), { status: 200 })
+      }
       capabilityRequests += 1
       return new Response(JSON.stringify([skill('release', locale === 'zh-CN' ? '准备安全发布。' : 'Prepare a safe release.')]), { status: 200 })
     }))

@@ -28,6 +28,7 @@ export default defineConfig({
     'i-ri-draggable',
     'i-ri-edit-line',
     'i-ri-error-warning-fill',
+    'i-ri-file-copy-line',
     'i-ri-file-search-line',
     'i-ri-file-text-line',
     'i-ri-flask-line',

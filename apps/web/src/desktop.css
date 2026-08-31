@@ -10,8 +10,8 @@
   border-bottom: 1px solid var(--border);
   background: var(--surface-subtle);
   color: var(--text-secondary);
-  content: 'Craft Hub';
-  font-size: 12px;
+  content: var(--desktop-product-name, 'Craft Hub');
+  font-size: var(--font-size-body);
   font-weight: 600;
   user-select: none;
   -webkit-app-region: drag;

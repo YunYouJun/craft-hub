@@ -78,7 +78,7 @@ async function serveStatic(response: ServerResponse, staticDir: string, pathname
     path = join(staticDir, 'index.html')
   }
   response.writeHead(200, {
-    'content-security-policy': `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data:`,
+    'content-security-policy': `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data: https:`,
     'content-type': contentTypes[extname(path)] ?? 'application/octet-stream',
   })
   createReadStream(path).pipe(response)
@@ -130,6 +130,10 @@ export async function startCraftHubServer(options: CraftHubServerOptions = {}): 
 
       if (request.method === 'GET' && url.pathname === '/api/health') {
         return sendJson(response, 200, {
+          distribution: {
+            id: runtime.distribution.id,
+            name: runtime.distribution.name,
+          },
           projectConfigSchemaRevision,
           status: 'ok',
         })
@@ -393,6 +397,23 @@ export async function startCraftHubServer(options: CraftHubServerOptions = {}): 
       if (request.method === 'GET' && url.pathname === '/api/plugins')
         return sendJson(response, 200, await runtime.pluginManager.listInstalled())
 
+      if (request.method === 'GET' && url.pathname === '/api/plugins/updates')
+        return sendJson(response, 200, await runtime.pluginManager.planUpdates())
+
+      if (request.method === 'POST' && url.pathname === '/api/plugins/updates')
+        return sendJson(response, 200, await runtime.pluginManager.updateAll({ refreshSources: true }))
+
+      if (request.method === 'POST' && url.pathname === '/api/plugins/install/preview') {
+        const body = await jsonBody(request)
+        if (typeof body.sourceId !== 'string' || typeof body.package !== 'string')
+          return sendJson(response, 400, { error: 'sourceId and package are required' })
+        return sendJson(response, 200, await runtime.pluginManager.planInstall({
+          sourceId: body.sourceId,
+          package: body.package,
+          version: typeof body.version === 'string' ? body.version : undefined,
+        }))
+      }
+
       if (request.method === 'POST' && url.pathname === '/api/plugins/install') {
         const body = await jsonBody(request)
         if (typeof body.sourceId !== 'string' || typeof body.package !== 'string')
@@ -487,7 +508,7 @@ export async function startCraftHubServer(options: CraftHubServerOptions = {}): 
         }
       }
 
-      if (parts[0] === 'api' && parts[1] === 'plugins' && parts[2] && parts[2] !== 'install') {
+      if (parts[0] === 'api' && parts[1] === 'plugins' && parts[2] && parts[2] !== 'install' && parts[2] !== 'updates') {
         const packageName = decodeURIComponent(parts[2])
         if (request.method === 'PUT' && parts[3] === 'enabled') {
           const body = await jsonBody(request)
@@ -597,6 +618,29 @@ export async function startCraftHubServer(options: CraftHubServerOptions = {}): 
           return sendJson(response, 200, await runtime.capabilities(projectId))
         if (request.method === 'GET' && parts[3] === 'capability-discovery')
           return sendJson(response, 200, await runtime.capabilityDiscovery(projectId))
+        if (request.method === 'GET' && parts[3] === 'overview') {
+          const packagePath = url.searchParams.get('package') ?? '.'
+          const locale = url.searchParams.get('locale')
+          if (locale !== null && locale !== 'en' && locale !== 'zh-CN')
+            return sendJson(response, 400, { error: 'locale must be en or zh-CN' })
+          return sendJson(response, 200, await runtime.projectOverview(projectId, packagePath, locale ?? undefined))
+        }
+        if (request.method === 'GET' && parts[3] === 'overview-asset') {
+          const path = url.searchParams.get('path')
+          if (!path)
+            return sendJson(response, 400, { error: 'path is required' })
+          const asset = await runtime.projectOverviewAsset(projectId, path)
+          if (!asset)
+            return sendJson(response, 404, { error: 'Asset not found' })
+          response.writeHead(200, {
+            'cache-control': 'private, max-age=60',
+            'content-length': asset.content.byteLength,
+            'content-type': asset.contentType,
+            'x-content-type-options': 'nosniff',
+          })
+          response.end(asset.content)
+          return
+        }
         if (request.method === 'POST' && parts[3] === 'git-integration' && parts[4] === 'plan') {
           const body = await jsonBody(request)
           if (body.targetBranch !== undefined && typeof body.targetBranch !== 'string')
@@ -774,6 +818,9 @@ export async function startCraftHubServer(options: CraftHubServerOptions = {}): 
       server.once('error', reject)
       server.listen(options.port ?? 4318, options.host ?? '127.0.0.1', resolve)
     })
+    void runtime.pluginManager.updateAll({ refreshSources: true })
+      .then(result => broadcastEvent('plugin-update', result))
+      .catch(error => broadcastEvent('plugin-update', { error: error instanceof Error ? error.message : String(error) }))
   }
   catch (error) {
     try {

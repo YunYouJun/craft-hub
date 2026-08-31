@@ -197,7 +197,7 @@ onBeforeUnmount(() => {
       auto-save-id="craft-hub-workbench-layout-v2"
       :keyboard-resize-by="16"
     >
-      <SplitterPanel id="projects-panel" size-unit="px" :default-size="280" :min-size="252" :max-size="390">
+      <SplitterPanel id="projects-panel" :order="1" size-unit="px" :default-size="280" :min-size="252" :max-size="390">
         <ProjectRail
           :active-view="marketplaceOpen ? 'marketplace' : 'workbench'"
           @open-marketplace="openMarketplace"
@@ -208,14 +208,14 @@ onBeforeUnmount(() => {
       <SplitterResizeHandle v-if="store.projects.length" id="projects-resize-handle" class="workbench-resize-handle" :aria-label="t('resizeProjects')" :aria-hidden="marketplaceOpen" :inert="marketplaceOpen" :title="t('resizeProjects')">
         <span class="splitter-grip" aria-hidden="true" />
       </SplitterResizeHandle>
-      <SplitterPanel v-if="store.projects.length" id="capabilities-panel" size-unit="px" :default-size="320" :min-size="230" :max-size="540" :aria-hidden="marketplaceOpen" :inert="marketplaceOpen">
+      <SplitterPanel v-if="store.projects.length" id="capabilities-panel" :order="2" size-unit="px" :default-size="320" :min-size="230" :max-size="540" :aria-hidden="marketplaceOpen" :inert="marketplaceOpen">
         <WorkspaceProjectList v-if="store.selectedWorkspace" />
         <CapabilityList v-else />
       </SplitterPanel>
       <SplitterResizeHandle v-if="store.projects.length" id="capabilities-resize-handle" class="workbench-resize-handle" :aria-label="t('resizeCapabilities')" :aria-hidden="marketplaceOpen" :inert="marketplaceOpen" :title="t('resizeCapabilities')">
         <span class="splitter-grip" aria-hidden="true" />
       </SplitterResizeHandle>
-      <SplitterPanel id="detail-panel" size-unit="px" :min-size="350" :aria-hidden="marketplaceOpen" :inert="marketplaceOpen">
+      <SplitterPanel id="detail-panel" :order="3" size-unit="px" :min-size="350" :aria-hidden="marketplaceOpen" :inert="marketplaceOpen">
         <section class="detail-workspace">
           <ProjectToolbar v-if="store.projects.length && !store.selectedWorkspace" />
           <section v-if="store.projectsLoadState === 'error' && !store.projects.length" class="project-load-state error" data-testid="project-load-error" role="alert">

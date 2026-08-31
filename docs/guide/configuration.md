@@ -9,7 +9,10 @@ Configuration is optional. Add `.craft-hub/project.jsonc` only when a repository
   "project": {
     "name": "Craft Hub",
     "icon": "./icon.svg",
-    "color": "purple"
+    "color": "purple",
+    "description": "A local developer workbench.",
+    "readme": "./README.md",
+    "quickActions": ["package.json:dev", "package.json:test"]
   },
   "defaults": {
     "agent": "codex"
@@ -28,7 +31,11 @@ Configuration is optional. Add `.craft-hub/project.jsonc` only when a repository
       "description": {
         "default": "Craft Hub web workbench.",
         "zh-CN": "Craft Hub Web 工作台。"
-      }
+      },
+      "order": 10,
+      "featured": true,
+      "readme": "./apps/web/README.md",
+      "quickActions": ["apps/web/package.json:dev"]
     }
   }
 }
@@ -75,6 +82,8 @@ Initialization only creates a missing `.craft-hub/project.jsonc`. The generated 
 Hidden entries may be a capability name, capability id, or a source-qualified name such as `package.json:release`.
 
 Package metadata uses the project-relative package directory as its stable key; the root package is `.`. A configured package description overrides a missing or less useful `package.json` description in Craft Hub without modifying the package manifest.
+
+Project and package overviews remain useful without configuration. Craft Hub discovers conventional README files, infers a conservative set of develop/build/test/quality actions, and orders packages by stable path groups. `readme` overrides the conventional file, while `quickActions` may reference only discovered capabilities by id, name, or a source-qualified selector. It cannot define executable command text. Package `order` provides a stable numeric override, `featured` adds visual emphasis, and `hidden` removes a package only from the overview grid; its commands remain discoverable and searchable.
 
 The “Improve project descriptions” workflow audits gaps locally, then runs Codex read-only to produce structured command and package suggestions. Craft Hub changes no repository files until the user reviews the suggestions; applying them updates only the active project configuration and rejects stale proposals.
 
@@ -277,4 +286,4 @@ craft-hub settings:import settings.json --dry-run --json
 craft-hub settings:import settings.json --replace
 ```
 
-Unknown core keys are rejected to catch typos. Keys under `extensions.<extension-id>.*` are preserved for forward compatibility but remain inactive until extension setting registration is supported.
+Unknown core keys are rejected to catch typos. Keys under `extensions.<extension-id>.*` are preserved for forward compatibility and remain opaque to core. An installed declarative plugin may consume only an exact key declared by one of its option sources, and only after the user grants that plugin `read-user-settings`.

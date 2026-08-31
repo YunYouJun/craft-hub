@@ -7,8 +7,8 @@ import EditorLauncher from './EditorLauncher.vue'
 import GitIntegrationDialog from './GitIntegrationDialog.vue'
 import { Icon } from './icons'
 import { useI18n } from './i18n'
-import ProjectIcon from './ProjectIcon.vue'
 import { projectAccentStyle } from './project-visuals'
+import ProjectSwitcher from './ProjectSwitcher.vue'
 import { useWorkbenchStore } from './store'
 
 const terminalStorageKey = 'craft-hub-terminal-application'
@@ -130,11 +130,7 @@ onMounted(async () => {
 <template>
   <header v-if="store.selectedProject" class="project-toolbar" :style="projectAccentStyle(store.selectedProject.color)">
     <div class="project-toolbar-context">
-      <ProjectIcon :project="store.selectedProject" />
-      <span class="project-toolbar-copy">
-        <strong>{{ store.selectedProject.name }}</strong>
-        <small>{{ store.selectedProject.path }}</small>
-      </span>
+      <ProjectSwitcher />
       <button v-if="store.selectedProject.trust === 'untrusted'" type="button" class="trust-state is-action tooltip-action untrusted" :aria-label="t('trustProject')" :data-tooltip="t('trustProject')" :title="t('trustProject')" @click="reviewProjectTrust">
         <Icon name="untrusted" />
       </button>

@@ -1,4 +1,5 @@
 import type { CapabilityProvider } from './extensions'
+import type { IntegrationProvider } from './integrations'
 import { createRequire } from 'node:module'
 import { isAbsolute, resolve } from 'node:path'
 import process from 'node:process'
@@ -10,6 +11,7 @@ export interface CraftHubPlugin {
   name?: string
   version?: string
   capabilityProviders?: CapabilityProvider[]
+  integrationProviders?: IntegrationProvider[]
 }
 
 export interface PluginDiagnostic {
@@ -85,4 +87,6 @@ function assertPlugin(value: unknown, specifier: string): asserts value is Craft
     throw new TypeError(`Plugin ${specifier} must have a non-empty string id`)
   if (plugin.capabilityProviders !== undefined && !Array.isArray(plugin.capabilityProviders))
     throw new TypeError(`Plugin ${specifier} capabilityProviders must be an array`)
+  if (plugin.integrationProviders !== undefined && !Array.isArray(plugin.integrationProviders))
+    throw new TypeError(`Plugin ${specifier} integrationProviders must be an array`)
 }

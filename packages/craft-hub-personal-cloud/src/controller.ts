@@ -37,7 +37,7 @@ export interface PersonalCloudStatus {
 export interface PersonalCloudControllerOptions {
   endpoint?: string
   webOrigin?: string
-  callbackScheme?: 'craft-hub' | 'craft-hub-dev'
+  callbackScheme?: string
   dataDir: string
   platform: NodeJS.Platform
   runtime: CraftHubRuntime
@@ -85,7 +85,7 @@ export class PersonalCloudController {
     const url = new URL('/connect', this.options.webOrigin)
     url.searchParams.set('public_key', this.identity.publicKey)
     url.searchParams.set('challenge', this.pendingChallenge)
-    url.searchParams.set('callback', `${this.options.callbackScheme ?? 'craft-hub'}://cloud/connect`)
+    url.searchParams.set('callback', `${callbackScheme(this.options.callbackScheme ?? 'craft-hub')}://cloud/connect`)
     await this.options.openExternal(url.toString())
   }
 
@@ -93,7 +93,7 @@ export class PersonalCloudController {
     this.requireConfigured()
     if (!this.identity || !this.pendingChallenge)
       throw new Error('No personal cloud connection is pending')
-    const { challenge, code } = parseCloudConnectCallback(callbackUrl, this.pendingChallenge)
+    const { challenge, code } = parseCloudConnectCallback(callbackUrl, this.pendingChallenge, [this.options.callbackScheme ?? 'craft-hub'])
     const timestamp = Date.now()
     const nonce = randomBytes(32).toString('base64url')
     const unsigned = JSON.stringify({ code, challenge, timestamp, nonce })
@@ -226,15 +226,21 @@ export class PersonalCloudController {
 }
 
 /** Validate a one-time desktop connection callback. */
-export function parseCloudConnectCallback(callbackUrl: string, pendingChallenge: string): { challenge: string, code: string } {
+export function parseCloudConnectCallback(callbackUrl: string, pendingChallenge: string, acceptedSchemes = ['craft-hub', 'craft-hub-dev']): { challenge: string, code: string } {
   const url = new URL(callbackUrl)
-  if ((url.protocol !== 'craft-hub:' && url.protocol !== 'craft-hub-dev:') || url.hostname !== 'cloud' || url.pathname !== '/connect')
+  if (!acceptedSchemes.map(callbackScheme).includes(url.protocol.slice(0, -1)) || url.hostname !== 'cloud' || url.pathname !== '/connect')
     throw new Error('Unexpected personal cloud callback')
   const code = url.searchParams.get('code')
   const challenge = url.searchParams.get('challenge')
   if (!code || challenge !== pendingChallenge)
     throw new Error('Personal cloud callback challenge does not match')
   return { challenge, code }
+}
+
+function callbackScheme(value: string): string {
+  if (!/^[a-z][a-z0-9+.-]*$/.test(value))
+    throw new Error('Personal cloud callback scheme is invalid')
+  return value
 }
 
 function retryDelay(base: number, attempt: number, maximum: number): number {

@@ -1,0 +1,3 @@
+# Separate marketplace ownership from publisher verification
+
+Marketplace Source ownership remains determined by how the source entered Craft Hub: a Distribution controls Managed Sources, while an individual controls user-added sources. Publisher Verification is a separate cryptographic assertion over fetched Plugin Catalog bytes, rooted in a host-provisioned, URL-pinned Trust Policy; neither a Desktop Link nor a valid signature can grant Managed Source ownership or execution trust. This lets one generic application verify downstream enterprise publishers without embedding organization-specific identity or accepting self-asserted trust from an import link.

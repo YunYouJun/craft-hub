@@ -21,16 +21,16 @@ interface DesktopUpdatePreferences {
 }
 
 interface DesktopUpdaterOptions {
+  applicationName: string
   dataDir: string
   getWindow: () => BrowserWindow | undefined
   onInstallRequested: () => void
   onStatus: (status: DesktopUpdateStatus) => void
+  updateBaseUrl?: string
   writeLog: (level: 'info' | 'error', message: string) => void
 }
 
 const defaultPreferences: DesktopUpdatePreferences = { automaticCheck: true }
-const alphaUpdateBaseUrl = `https://yunyoujun.github.io/craft-hub/updates/alpha/${process.platform}/${process.arch}`
-
 /** Owns the desktop updater boundary, persisted preference, status events, and restart confirmation. */
 export class DesktopUpdater {
   private automaticCheck = true
@@ -137,7 +137,7 @@ export class DesktopUpdater {
   }
 
   private supported(): boolean {
-    return app.isPackaged && process.platform === 'darwin'
+    return app.isPackaged && process.platform === 'darwin' && this.options.updateBaseUrl !== undefined
   }
 
   private startUpdateSession(): IUpdateElectronApp {
@@ -145,11 +145,14 @@ export class DesktopUpdater {
       return this.session
     this.phase = 'checking'
     this.message = undefined
+    const updateBaseUrl = this.options.updateBaseUrl
+    if (!updateBaseUrl)
+      throw new Error('Desktop updates are not configured for this distribution')
     this.session = updateElectronApp({
       updateInterval: '1 hour',
       updateSource: {
         type: UpdateSourceType.StaticStorage,
-        baseUrl: alphaUpdateBaseUrl,
+        baseUrl: updateBaseUrl,
       },
       logger: {
         error: (...values: unknown[]) => this.options.writeLog('error', values.map(String).join(' ')),
@@ -194,9 +197,9 @@ export class DesktopUpdater {
       this.notifiedRelease = releaseName
       const prompt = {
         type: 'info' as const,
-        title: 'Craft Hub Update',
-        message: `Craft Hub ${releaseName} is ready to install.`,
-        detail: 'Restart Craft Hub now to apply the downloaded update.',
+        title: `${this.options.applicationName} Update`,
+        message: `${this.options.applicationName} ${releaseName} is ready to install.`,
+        detail: `Restart ${this.options.applicationName} now to apply the downloaded update.`,
         buttons: ['Restart', 'Later'],
         defaultId: 0,
         cancelId: 1,
