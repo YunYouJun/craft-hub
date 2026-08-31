@@ -1,7 +1,7 @@
 {
   "name": "craft-hub-workspace",
   "type": "module",
-  "version": "0.0.1-alpha.2",
+  "version": "0.0.1-alpha.3",
   "private": true,
   "packageManager": "pnpm@11.21.0",
   "engines": {
@@ -9,8 +9,8 @@
   },
   "scripts": {
     "build": "nr -r build",
-    "dev": "pnpm --filter craft-hub build && tsx scripts/dev-environment.ts desktop",
-    "dev:web": "pnpm --filter craft-hub build && tsx scripts/dev-environment.ts web",
+    "dev": "tsx scripts/dev-environment.ts desktop",
+    "dev:web": "tsx scripts/dev-environment.ts web",
     "check:public-boundary": "node scripts/check-public-boundary.mjs",
     "lint": "pnpm check:public-boundary && eslint --cache .",
     "package:mac": "tsx scripts/package-macos.ts",
