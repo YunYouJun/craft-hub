@@ -27,7 +27,6 @@ const terminal = new Terminal({
   convertEol: true,
   cursorBlink: true,
   fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-  fontSize: 12,
   scrollback: 10_000,
   theme: terminalTheme(),
 })
@@ -38,6 +37,14 @@ let inputBuffer = ''
 let inputTimer: ReturnType<typeof setTimeout> | undefined
 let exitWritten = false
 let opened = false
+
+function syncTerminalTypography(): void {
+  const fontSize = Number.parseFloat(
+    getComputedStyle(document.documentElement).getPropertyValue('--font-size-body'),
+  )
+  if (Number.isFinite(fontSize))
+    terminal.options.fontSize = fontSize
+}
 
 async function openUrl(event: MouseEvent, url: string): Promise<void> {
   const platform = window.craftHubDesktop?.platform ?? window.navigator.platform
@@ -94,6 +101,7 @@ function syncStatus(status: RunRecord['status']): void {
 onMounted(() => {
   if (!container.value)
     return
+  syncTerminalTypography()
   terminal.loadAddon(fitAddon)
   terminal.loadAddon(new WebLinksAddon((event, url) => void openUrl(event, url)))
   terminal.options.linkHandler = {

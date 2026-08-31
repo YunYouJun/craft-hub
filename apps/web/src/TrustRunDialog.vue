@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import type { CommandInputValues, CommandInvocation } from 'craft-hub'
+import { defineAsyncComponent } from 'vue'
 import { Button as UiButton } from './components/ui/button'
 import { DialogShell } from './components/ui/dialog'
 import { Icon } from './icons'
 import { useI18n } from './i18n'
 import { useWorkbenchStore } from './store'
 
+const ShellCommandPreview = defineAsyncComponent(() => import('./ShellCommandPreview.vue'))
 const props = defineProps<{ open: boolean, invocation?: CommandInvocation, inputs: CommandInputValues, source?: string }>()
 const emit = defineEmits<{ 'update:open': [value: boolean] }>()
 const store = useWorkbenchStore()
@@ -28,7 +30,7 @@ async function trustAndRun(): Promise<void> {
     <template #description>{{ t('trustRunDescription', { project: store.activeProject?.name ?? '' }) }}</template>
         <dl class="trust-run-summary">
           <div v-if="source"><dt>{{ t('sourceFile') }}</dt><dd>{{ source }}</dd></div>
-          <div><dt>{{ t('command') }}</dt><dd><code>{{ invocation ? [invocation.command, ...invocation.args].join(' ') : '' }}</code></dd></div>
+          <div><dt>{{ t('command') }}</dt><dd><ShellCommandPreview v-if="invocation" :command="[invocation.command, ...invocation.args].join(' ')" compact /></dd></div>
           <div><dt>{{ t('workingDirectory') }}</dt><dd>{{ invocation?.cwd }}</dd></div>
           <div><dt>{{ t('requiredEnvironment') }}</dt><dd>{{ invocation?.requiredEnv.join(', ') || t('none') }}</dd></div>
         </dl>

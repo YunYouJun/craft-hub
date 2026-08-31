@@ -53,18 +53,18 @@ describe('project watcher', () => {
       const projectEvent = nextEvent(events, 2)
       await writeFile(join(root, '.craft-hub', 'project.jsonc'), '{ "version": 1, "project": { "name": "Renamed" } }\n')
       await writeFile(join(root, '.craft-hub', 'project.jsonc'), '{ "version": 1, "project": { "name": "Renamed Again" } }\n')
-      await expect(projectEvent).resolves.toEqual({ projectId: 'project', scopes: ['capabilities', 'project'] })
+      await expect(projectEvent).resolves.toEqual({ projectId: 'project', scopes: ['capabilities', 'overview', 'project'] })
 
       await mkdir(join(root, 'workspaces'), { recursive: true })
       await writeFile(join(root, 'workspaces', 'pair.code-workspace'), '{ "folders": [] }')
 
-      await writeFile(join(root, 'README.md'), 'not a capability source')
-      await new Promise(resolve => setTimeout(resolve, 80))
-      expect(events).toHaveLength(3)
+      const overviewEvent = nextEvent(events, 3)
+      await writeFile(join(root, 'README.md'), '# Project overview')
+      await expect(overviewEvent).resolves.toEqual({ projectId: 'project', scopes: ['overview'] })
 
       await writeFile(join(root, 'dist', 'generated', 'package.json'), JSON.stringify({ scripts: { generated: 'true' } }))
       await new Promise(resolve => setTimeout(resolve, 80))
-      expect(events).toHaveLength(3)
+      expect(events).toHaveLength(4)
     }
     finally {
       await watcher.close()

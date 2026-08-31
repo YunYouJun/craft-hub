@@ -244,6 +244,12 @@ export class CraftHubSettingsService {
     return this.snapshot()
   }
 
+  /** Return opaque extension settings for permission-checked declarative plugin resolution. */
+  async extensionValues(): Promise<Record<string, unknown>> {
+    await this.initialize()
+    return structuredClone(this.extensions)
+  }
+
   /** Return the editor schema written next to settings.json. */
   schema(): Record<string, unknown> {
     return settingsJsonSchema()
@@ -321,7 +327,7 @@ export class CraftHubSettingsService {
       strategy,
       changes,
       ignored,
-      warnings: ignored.length ? ['Extension settings are preserved but are not active in this version.'] : [],
+      warnings: ignored.length ? ['Extension settings are preserved; only installed plugins with explicit read-user-settings permission can consume their declared keys.'] : [],
     }
   }
 

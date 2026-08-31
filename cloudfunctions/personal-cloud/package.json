@@ -1,6 +1,6 @@
 {
   "name": "craft-hub-personal-cloud-function",
-  "version": "0.0.1",
+  "version": "0.0.1-alpha.3",
   "private": true,
   "scripts": {
     "start": "node index.cjs"

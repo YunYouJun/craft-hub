@@ -3,27 +3,47 @@ import type { BrowserWindow as BrowserWindowType, MenuItemConstructorOptions, Op
 import type { DesktopUpdateStatus } from './updater.ts'
 import type { WorkspaceLaunchTarget } from './workspace-launch-target.ts'
 import { execFile } from 'node:child_process'
-import { appendFileSync } from 'node:fs'
+import { appendFileSync, existsSync } from 'node:fs'
 import { realpath } from 'node:fs/promises'
 import { isAbsolute, relative, resolve } from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 import { PersonalCloudController } from '@craft-hub/personal-cloud'
-import { CraftHubRuntime, startCraftHubServer } from 'craft-hub'
+import { communityDistribution, CraftHubRuntime, startCraftHubServer } from 'craft-hub'
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, nativeTheme, safeStorage, shell } from 'electron'
-import { aboutDocument, aboutPanelOptions, projectUrl } from './about.ts'
+import { aboutDocument, aboutPanelOptions } from './about.ts'
+import { loadDesktopBuildInfo } from './build-info.ts'
 import { CodexActivityMonitor } from './codex-activity.ts'
 import { CodexAgentTaskProvider } from './codex-agent-task-provider.ts'
 import { openCodexThreadAfterTaskRelease, waitForAgentTaskThread } from './codex-agent-task-thread.ts'
-import { DesktopLinkCoordinator, DesktopLinkError, developmentDesktopScheme, findDesktopLinkArgument, productionDesktopScheme } from './deep-links.ts'
+import { resolveDesktopDataDirectories } from './data-directories.ts'
+import { DesktopLinkCoordinator, DesktopLinkError, findDesktopLinkArgument } from './deep-links.ts'
 import { DeviceVault } from './device-vault.ts'
+import { communityDesktopAboutBranding, communityDesktopDevelopmentProtocol, communityDesktopProtocol, communityDesktopUpdateBaseUrl, loadDesktopDistributionManifest, resolveDesktopDistributionAsset } from './distribution.ts'
 import { selectedDirectoryPath, selectedDirectoryPaths } from './folder-picker.ts'
 import { codexThreadUrl, editorTargetPaths, externalHttpUrl, focusCodexApplication, gitRemoteHttpUrl, macTerminalApplications, openCodexProject, openCursorEditor, openCustomEditor, openMacTerminalProject, projectContainsPath, vscodeUrl } from './open-targets.ts'
 import { DesktopUpdater } from './updater.ts'
 import { resolveWorkspaceLaunchTarget } from './workspace-launch-target.ts'
 
 const execFileAsync = promisify(execFile)
+
+const packagedDesktopBuildInfoPath = fileURLToPath(new URL('../desktop-build.json', import.meta.url))
+const desktopBuildInfo = loadDesktopBuildInfo(packagedDesktopBuildInfoPath)
+const packagedDistributionManifestPath = fileURLToPath(new URL('../distribution.json', import.meta.url))
+const configuredDistributionManifestPath = process.env.CRAFT_HUB_DESKTOP_DISTRIBUTION_CONFIG
+const desktopDistributionManifestPath = configuredDistributionManifestPath
+  ? resolve(configuredDistributionManifestPath)
+  : packagedDistributionManifestPath
+const desktopDistribution = loadDesktopDistributionManifest(desktopDistributionManifestPath)
+const runtimeDistribution = desktopDistribution?.distribution ?? communityDistribution
+const productName = runtimeDistribution.name
+const aboutBranding = desktopDistribution?.desktop.about ?? communityDesktopAboutBranding
+const configuredDesktopUpdateBaseUrl = desktopDistribution?.desktop.updateBaseUrl
+  ?? (!desktopDistribution ? communityDesktopUpdateBaseUrl : undefined)
+const desktopUpdateBaseUrl = desktopBuildInfo.updatesEnabled && configuredDesktopUpdateBaseUrl
+  ? `${configuredDesktopUpdateBaseUrl}/${process.platform}/${process.arch}`
+  : undefined
 
 let mainWindow: BrowserWindowType | undefined
 let aboutWindow: BrowserWindowType | undefined
@@ -34,15 +54,23 @@ let personalCloud: PersonalCloudController | undefined
 let desktopUpdater: DesktopUpdater | undefined
 let codexActivityMonitor: CodexActivityMonitor | undefined
 let installUpdateAfterShutdown = false
-const applicationIcon = resolve(
-  fileURLToPath(new URL('.', import.meta.url)),
-  '../assets/icon.png',
-)
+const applicationIcon = desktopDistribution?.desktop.icons
+  ? resolveDesktopDistributionAsset(desktopDistributionManifestPath, desktopDistribution.desktop.icons.application)
+  : resolve(fileURLToPath(new URL('.', import.meta.url)), '../assets/icon.png')
+if (!existsSync(applicationIcon))
+  throw new Error(`Desktop application icon does not exist: ${applicationIcon}`)
 const developmentUrl = process.env.CRAFT_HUB_DEV_URL
-if (developmentUrl)
-  app.setPath('userData', resolve(app.getPath('appData'), 'Craft Hub Dev'))
-const windowTitle = developmentUrl ? 'Craft Hub — Dev' : 'Craft Hub'
-const desktopProtocol = developmentUrl ? developmentDesktopScheme : productionDesktopScheme
+const desktopDataDirectories = resolveDesktopDataDirectories({
+  appDataDir: app.getPath('appData'),
+  development: Boolean(developmentUrl),
+  distribution: runtimeDistribution,
+})
+if (desktopDataDirectories.developmentUserDataDir)
+  app.setPath('userData', desktopDataDirectories.developmentUserDataDir)
+const windowTitle = developmentUrl ? `${productName} — Dev` : productName
+const desktopProtocol = developmentUrl
+  ? desktopDistribution?.desktop.developmentProtocol ?? communityDesktopDevelopmentProtocol
+  : desktopDistribution?.desktop.protocol ?? communityDesktopProtocol
 const desktopLinks = new DesktopLinkCoordinator()
 
 type DesktopTheme = 'system' | 'light' | 'dark'
@@ -70,7 +98,7 @@ async function showAboutWindow(): Promise<void> {
     minimizable: false,
     maximizable: false,
     fullscreenable: false,
-    title: 'About Craft Hub',
+    title: `About ${productName}`,
     backgroundColor: nativeTheme.shouldUseDarkColors ? '#1f232b' : '#ffffff',
     ...(mainWindow ? { parent: mainWindow } : {}),
     webPreferences: {
@@ -81,20 +109,20 @@ async function showAboutWindow(): Promise<void> {
   })
   aboutWindow.setMenuBarVisibility(false)
   aboutWindow.webContents.setWindowOpenHandler(({ url }) => {
-    if (url === projectUrl)
+    if (url === aboutBranding.website)
       void shell.openExternal(url)
     return { action: 'deny' }
   })
   aboutWindow.webContents.on('will-navigate', (event, url) => {
     event.preventDefault()
-    if (url === projectUrl)
+    if (url === aboutBranding.website)
       void shell.openExternal(url)
   })
   aboutWindow.once('closed', () => {
     aboutWindow = undefined
   })
   const iconDataUrl = nativeImage.createFromPath(applicationIcon).toDataURL()
-  await aboutWindow.loadURL(`data:text/html;charset=UTF-8,${encodeURIComponent(aboutDocument(app.getVersion(), iconDataUrl))}`)
+  await aboutWindow.loadURL(`data:text/html;charset=UTF-8,${encodeURIComponent(aboutDocument(app.getVersion(), iconDataUrl, productName, aboutBranding))}`)
 }
 
 async function replayOnboarding(): Promise<void> {
@@ -138,7 +166,7 @@ function installApplicationMenu(): void {
   Menu.setApplicationMenu(Menu.buildFromTemplate(template))
 }
 
-app.setName('Craft Hub')
+app.setName(productName)
 app.setAppLogsPath()
 const applicationLogPath = resolve(app.getPath('logs'), 'craft-hub.log')
 
@@ -152,7 +180,7 @@ function writeApplicationLog(level: 'info' | 'error', message: string): void {
   }
 }
 
-app.setAboutPanelOptions(aboutPanelOptions(app.getVersion(), applicationIcon))
+app.setAboutPanelOptions(aboutPanelOptions(app.getVersion(), applicationIcon, productName, aboutBranding))
 const hasSingleInstanceLock = app.requestSingleInstanceLock()
 
 nativeTheme.on('updated', () => {
@@ -165,7 +193,7 @@ app.on('open-url', (event, url) => {
   void handleProtocolUrl(url)
 })
 app.on('second-instance', (_event, argv) => {
-  const link = findDesktopLinkArgument(argv)
+  const link = findDesktopLinkArgument(argv, [desktopProtocol])
   if (link)
     void handleProtocolUrl(link)
   else if (app.isReady())
@@ -527,7 +555,7 @@ async function createWindow(): Promise<void> {
   if (!craftHubServer) {
     let runtime!: CraftHubRuntime
     const agentTaskProvider = new CodexAgentTaskProvider(async () => (await runtime.settings.get()).settings['workbench.codex'])
-    runtime = new CraftHubRuntime({ agentTaskProvider })
+    runtime = new CraftHubRuntime({ agentTaskProvider, dataDir: desktopDataDirectories.runtimeDataDir, distribution: runtimeDistribution })
     craftHubServer = await startCraftHubServer({ port: developmentUrl ? 4318 : 0, runtime, staticDir })
     writeApplicationLog('info', `Local server started at ${craftHubServer.url}`)
     await initializePersonalCloud()
@@ -598,7 +626,7 @@ async function startDesktopApp(): Promise<void> {
   })
   await codexActivityMonitor.start()
 
-  const startupLink = findDesktopLinkArgument(process.argv)
+  const startupLink = findDesktopLinkArgument(process.argv, [desktopProtocol])
   if (startupLink) {
     try {
       desktopLinks.accept(startupLink, [desktopProtocol])
@@ -614,6 +642,7 @@ async function startDesktopApp(): Promise<void> {
     return
   }
   desktopUpdater = new DesktopUpdater({
+    applicationName: productName,
     dataDir: app.getPath('userData'),
     getWindow: () => mainWindow,
     onInstallRequested: () => {
@@ -621,6 +650,7 @@ async function startDesktopApp(): Promise<void> {
       app.quit()
     },
     onStatus: (status: DesktopUpdateStatus) => mainWindow?.webContents.send('craft-hub:update-status-changed', status),
+    updateBaseUrl: desktopUpdateBaseUrl,
     writeLog: writeApplicationLog,
   })
   await desktopUpdater.initialize()

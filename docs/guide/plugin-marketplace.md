@@ -13,6 +13,35 @@ A Distribution may provide `builtin` or `managed` Marketplace Sources. Users may
 
 Catalog URLs and redirects must use HTTPS without embedded credentials. Craft Hub limits Catalog responses to 1 MiB, requires a JSON content type, and validates the complete document before it changes local state.
 
+Source ownership and Publisher Verification are independent. A source imported by a user remains removable even when its Publisher is verified; only a Distribution can provide a `managed` source.
+
+## Publisher Verification
+
+A host may provision URL-pinned Ed25519 Trust Policies through `distribution.marketplaceTrustPolicies`. The policy is trusted configuration and must not come from a Desktop Link or marketplace import request:
+
+```json
+{
+  "id": "example-catalog-2026",
+  "organization": "Example Enterprise",
+  "catalogUrl": "https://plugins.example.com/catalog.json",
+  "signatureUrl": "https://plugins.example.com/catalog.json.sig",
+  "algorithm": "ed25519",
+  "publicKeySpki": "BASE64URL_DER_SUBJECT_PUBLIC_KEY_INFO"
+}
+```
+
+The Catalog publisher signs the exact `catalog.json` response bytes. It may return the base64url signature in `x-craft-hub-signature` with its policy ID in `x-craft-hub-key-id`, or publish a static sidecar at `catalog.json.sig`:
+
+```json
+{
+  "schemaVersion": 1,
+  "keyId": "example-catalog-2026",
+  "signature": "BASE64URL_ED25519_SIGNATURE"
+}
+```
+
+For a URL covered by a Trust Policy, Craft Hub fails closed when the signature is missing, uses a different key, or does not match the fetched bytes. URLs without a provisioned policy remain ordinary user-added sources. The private signing key belongs in the publisher's deployment secret store and never in Craft Hub configuration or an import link.
+
 ## Manifest contract
 
 A Marketplace Plugin publishes a version-one declaration under `package.json#craftHub`:
@@ -45,19 +74,79 @@ A Marketplace Plugin publishes a version-one declaration under `package.json#cra
     }
   },
   "craftHub": { "minVersion": "0.0.1-alpha.0" },
+  "requiresPlugins": [
+    { "package": "@acme/craft-hub-plugin-shared", "version": "^1.0.0" }
+  ],
   "projectFiles": [],
   "permissions": ["commands"],
   "contributes": {
     "commands": [],
     "commandPresets": [],
     "commandTemplates": [],
+    "packageQuickActions": [],
+    "packageLinks": [],
     "skills": [],
-    "projectTemplates": []
+    "projectTemplates": [],
+    "integrations": []
   }
 }
 ```
 
 `slug`, `links`, `icon`, `maintainers`, `permissionReasons`, and `localizations` are additive discovery metadata. A maintainer may use a stable Distribution-defined `handle`, an HTTPS profile URL, or both. Permission-reason keys must name declared permissions.
+
+`requiresPlugins` declares other Marketplace Plugins from the same source. Each dependency uses a package name and SemVer range. Self-dependencies and duplicate dependencies are invalid; npm `dependencies` remain forbidden.
+
+`packageQuickActions` lets a declarative plugin recognize workspace packages by bounded file markers and place discovered capabilities in that package's overview. A selector may be a capability ID, an unambiguous capability name, or `source:name`. This makes cross-plugin composition possible: if the referenced skill or command is not discovered, the action is omitted and the package keeps its normal command shortcuts. Package matching requires the `read-project-files` permission.
+
+```json
+{
+  "id": "widget-actions",
+  "package": {
+    "allFiles": ["package.json"],
+    "anyFiles": ["widget.config.ts", "widget.config.js"]
+  },
+  "capabilities": ["codex-skill:Widget assistant", "dev", "build"]
+}
+```
+
+`packageLinks` places a user-initiated HTTPS destination beside those actions. The plugin declares bounded package-relative config files and a property key; Craft Hub reads only a quoted string literal (up to 256 characters) from a regular file no larger than 64 KiB, resolves symlinks before enforcing the package boundary, URL-encodes the value, and substitutes it into the single `{value}` placeholder. Computed values are ignored. Package links also require `read-project-files`.
+
+```json
+{
+  "id": "widget-console",
+  "title": { "default": "Widget console", "zh-CN": "组件控制台" },
+  "package": {
+    "allFiles": ["package.json"],
+    "anyFiles": ["widget.config.ts", "widget.config.js"]
+  },
+  "urlTemplate": "https://widgets.example.com/console/{value}",
+  "value": {
+    "files": ["widget.config.ts", "widget.config.js"],
+    "key": "appId"
+  }
+}
+```
+
+Command presets may extend a `select` input through `optionSources`. A `package-json-array` source reads a bounded JSON array from the matching package and requires `read-project-files`. A `user-setting` source reads one exact `extensions.<plugin>.<setting>` key and requires the separately disclosed `read-user-settings` permission. Static options remain first, duplicate values are removed, malformed or missing sources are ignored, and neither source executes project code.
+
+```json
+{
+  "inputs": {
+    "account": {
+      "type": "select",
+      "flag": "--account",
+      "default": "default",
+      "options": [{ "value": "default", "omitArgument": true }]
+    }
+  },
+  "optionSources": {
+    "account": {
+      "type": "user-setting",
+      "key": "extensions.example-widget.accounts"
+    }
+  }
+}
+```
 
 ## Catalog contract
 
@@ -67,8 +156,9 @@ A Plugin Catalog lists immutable package versions. Every entry includes the exac
 - `status`: `active`, `deprecated`, or `blocked`.
 - `statusReason`: required for deprecated and blocked versions.
 - `replacement`: an optional Marketplace Plugin package recommended instead.
+- `requiresPlugins`: the package dependency list copied from the Manifest.
 
-Catalog permission reasons and permissions must match the installed package Manifest. Craft Hub refuses installation when integrity, identity, permissions, permission reasons, or the compatible version range does not match.
+Catalog permission reasons, permissions, and plugin dependencies must match the installed package Manifest. Craft Hub refuses installation when integrity, identity, permissions, permission reasons, plugin dependencies, or the compatible version range does not match.
 
 ## Lifecycle
 
@@ -80,4 +170,8 @@ Catalog maintainers should retain blocked version entries so clients can enforce
 
 ## Installation safety
 
-Craft Hub installs immutable npm versions with lifecycle scripts disabled and without development dependencies. Declarative packages cannot declare runtime or optional dependencies, and contributed file paths must remain inside the package. Plugin installation and Project Trust remain independent: commands discovered from an installed plugin still require explicit trust for the selected Project.
+Before confirmation, Craft Hub recursively resolves the root plugin and its same-source dependency closure, rejects missing versions, incompatible Craft Hub versions, conflicting constraints, blocked packages, and cycles, and returns a dependency-first install plan with combined permissions. One confirmed request installs new dependencies, re-enables compatible disabled dependencies, and leaves already-active versions unchanged.
+
+When the local server starts, Craft Hub refreshes Marketplace Sources used by enabled installed plugins and automatically installs the newest active, compatible version when every package in the resulting plan is already installed from the same source with exactly the same permissions. The previous version remains available for rollback. Updates that add permissions or introduce a new dependency are never approved automatically; the Marketplace shows them as manual updates so the complete plan and combined permissions can be reviewed first. The same safe update check is available through `GET /api/plugins/updates` and can be applied with `POST /api/plugins/updates`.
+
+Craft Hub installs immutable npm versions with lifecycle scripts disabled and without development dependencies. Declarative packages cannot declare runtime or optional npm dependencies, and contributed file paths must remain inside the package. Plugin installation and Project Trust remain independent: commands discovered from an installed plugin still require explicit trust for the selected Project.

@@ -92,8 +92,8 @@ export function parseDesktopLink(rawUrl: string, acceptedSchemes = [productionDe
 }
 
 /** Find the first Desktop Link passed to a Windows or Linux application process. */
-export function findDesktopLinkArgument(argv: string[]): string | undefined {
-  return argv.find(argument => argument.startsWith(`${productionDesktopScheme}://`) || argument.startsWith(`${developmentDesktopScheme}://`))
+export function findDesktopLinkArgument(argv: string[], acceptedSchemes = [productionDesktopScheme, developmentDesktopScheme]): string | undefined {
+  return argv.find(argument => acceptedSchemes.some(scheme => argument.startsWith(`${scheme}://`)))
 }
 
 /** Keep independent pending callbacks while making normal navigation last-wins. */

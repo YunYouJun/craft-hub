@@ -1,6 +1,6 @@
 {
   "name": "@craft-hub/lodash-set-safe",
-  "version": "1.0.0",
+  "version": "0.0.1-alpha.3",
   "private": true,
   "description": "Local compatibility replacement for the unmaintained lodash.set package.",
   "license": "MIT",

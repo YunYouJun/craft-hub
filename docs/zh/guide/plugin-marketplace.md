@@ -42,14 +42,74 @@ Marketplace Plugin 在 `package.json#craftHub` 发布 v1 声明。核心身份�
     "commands": "运行此包声明的命令。"
   },
   "craftHub": { "minVersion": "0.0.1-alpha.0" },
+  "requiresPlugins": [
+    { "package": "@acme/craft-hub-plugin-shared", "version": "^1.0.0" }
+  ],
   "projectFiles": [],
   "permissions": ["commands"],
   "contributes": {
     "commands": [],
     "commandPresets": [],
     "commandTemplates": [],
+    "packageQuickActions": [],
+    "packageLinks": [],
     "skills": [],
-    "projectTemplates": []
+    "projectTemplates": [],
+    "integrations": []
+  }
+}
+```
+
+`requiresPlugins` 声明来自同一 Marketplace Source 的其他市场插件，每项包含包名和 SemVer range。禁止依赖自身或重复声明同一包；npm `dependencies` 仍然禁止使用。
+
+`packageQuickActions` 允许声明式插件通过受限的文件标记识别工作区 package，并把已发现的 capability 放进该 package 的概览页。selector 可以是 capability ID、无歧义的 capability 名称或 `source:name`。因此它可以组合其他插件提供的技能或命令；目标 capability 未被发现时不会展示快捷项，并回退到常规命令快捷项。package 匹配需要 `read-project-files` 权限。
+
+```json
+{
+  "id": "widget-actions",
+  "package": {
+    "allFiles": ["package.json"],
+    "anyFiles": ["widget.config.ts", "widget.config.js"]
+  },
+  "capabilities": ["codex-skill:Widget assistant", "dev", "build"]
+}
+```
+
+`packageLinks` 会在这些操作旁展示由用户主动点击的 HTTPS 入口。插件声明受限的 package 相对配置文件和属性名；Craft Hub 只读取不超过 64 KiB 的普通文件中的带引号字符串字面量（最长 256 字符），在校验 package 边界前解析符号链接，对值做 URL 编码后替换唯一的 `{value}` 占位符。计算值不会被解析。package link 同样需要 `read-project-files` 权限。
+
+```json
+{
+  "id": "widget-console",
+  "title": { "default": "Widget console", "zh-CN": "组件控制台" },
+  "package": {
+    "allFiles": ["package.json"],
+    "anyFiles": ["widget.config.ts", "widget.config.js"]
+  },
+  "urlTemplate": "https://widgets.example.com/console/{value}",
+  "value": {
+    "files": ["widget.config.ts", "widget.config.js"],
+    "key": "appId"
+  }
+}
+```
+
+命令预设可以通过 `optionSources` 扩展 `select` 输入。`package-json-array` 从匹配 package 内受限的 JSON 数组读取选项，需要 `read-project-files`；`user-setting` 只读取一个精确的 `extensions.<plugin>.<setting>` 用户设置键，需要单独披露 `read-user-settings` 权限。静态选项保持在前、重复值会去重，缺失或非法数据源会被忽略，两种来源都不会执行项目代码。
+
+```json
+{
+  "inputs": {
+    "account": {
+      "type": "select",
+      "flag": "--account",
+      "default": "default",
+      "options": [{ "value": "default", "omitArgument": true }]
+    }
+  },
+  "optionSources": {
+    "account": {
+      "type": "user-setting",
+      "key": "extensions.example-widget.accounts"
+    }
   }
 }
 ```
@@ -62,8 +122,9 @@ Plugin Catalog 列出不可变的包版本。每个 Catalog Entry 包含精确�
 - `status`：`active`、`deprecated` 或 `blocked`。
 - `statusReason`：`deprecated` 和 `blocked` 必填。
 - `replacement`：可选的替代 Marketplace Plugin 包名。
+- `requiresPlugins`：从 Manifest 复制的插件依赖清单。
 
-Catalog 的权限和权限说明必须与已安装包的 Manifest 一致。完整性、身份、权限、权限说明或兼容范围不一致时，Craft Hub 拒绝安装。
+Catalog 的权限、权限说明和插件依赖必须与已安装包的 Manifest 一致。完整性、身份、权限、权限说明、插件依赖或兼容范围不一致时，Craft Hub 拒绝安装。
 
 ## 生命周期
 
@@ -75,4 +136,8 @@ Catalog 维护者应保留被阻断的版本条目，让客户端能够实施精
 
 ## 安装安全
 
-Craft Hub 安装不可变 npm 版本时关闭生命周期脚本并排除开发依赖。声明式包不得声明运行时或可选依赖，贡献文件路径不得逃逸包目录。插件安装与 Project Trust 是两条独立边界：插件发现出的命令仍需目标 Project 获得显式信任后才能执行。
+确认安装前，Craft Hub 会递归解析根插件及其同源依赖闭包，拒绝缺失版本、不兼容的 Craft Hub 版本、冲突约束、阻断包和循环依赖，并返回按依赖优先排列、包含合并权限的安装计划。一次确认请求会安装新依赖、重新启用兼容但已停用的依赖，并跳过已启用版本。
+
+本地服务启动后，Craft Hub 会刷新已启用插件使用的市场源；当升级计划中的每个包都已从同一来源安装且权限集合完全不变时，会自动安装最新的 active 兼容版本，并保留上一版本用于回滚。新增权限或新增依赖的升级不会被自动批准，插件市场会将其作为手动升级展示，用户可先检查完整计划和合并权限。也可通过 `GET /api/plugins/updates` 检查安全升级，并以 `POST /api/plugins/updates` 应用。
+
+Craft Hub 安装不可变 npm 版本时关闭生命周期脚本并排除开发依赖。声明式包不得声明运行时或可选 npm 依赖，贡献文件路径不得逃逸包目录。插件安装与 Project Trust 是两条独立边界：插件发现出的命令仍需目标 Project 获得显式信任后才能执行。

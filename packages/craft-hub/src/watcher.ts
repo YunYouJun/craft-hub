@@ -5,7 +5,7 @@ import { extname, relative, sep } from 'node:path'
 import chokidar from 'chokidar'
 
 /** Semantic area affected by a project file change. */
-export type ProjectChangeScope = 'capabilities' | 'project'
+export type ProjectChangeScope = 'capabilities' | 'overview' | 'project'
 
 /** Coalesced project change notification. */
 export interface ProjectChangeEvent {
@@ -49,11 +49,17 @@ function isRelevantPath(path: string): boolean {
     return true
   if (rootCapabilityFiles.has(path) || path.endsWith('/package.json') || path === '.craft-hub' || projectConfigPaths.has(path))
     return true
+  if (/(?:^|\/)readme(?:\.(?:md|markdown|mdown))?$/i.test(path))
+    return true
   return skillRoots.some(root => path === root || path.startsWith(`${root}/`) || root.startsWith(`${path}/`))
 }
 
 function scopesForPath(path: string): ProjectChangeScope[] {
-  return projectConfigPaths.has(path) ? ['project', 'capabilities'] : ['capabilities']
+  if (projectConfigPaths.has(path))
+    return ['capabilities', 'project', 'overview']
+  if (/(?:^|\/)readme(?:\.(?:md|markdown|mdown))?$/i.test(path))
+    return ['overview']
+  return ['capabilities']
 }
 
 /** Watch registered projects and emit coalesced semantic change events. */

@@ -85,8 +85,16 @@ A configured origin that supplies one Plugin Catalog and, optionally, a package 
 _Avoid_: Registry, Plugin Catalog
 
 **Managed Source**:
-A Marketplace Source controlled by a Distribution rather than added or removed by an individual user.
-_Avoid_: Built-in plugin, user source
+A Marketplace Source supplied and controlled by a Distribution rather than added or removed by an individual user. The UI may present this as enterprise-managed; Catalog validation remains a separate state.
+_Avoid_: Built-in plugin, user source, verified source, intranet-authenticated source
+
+**Publisher Verification**:
+A cryptographic assertion that fetched Plugin Catalog bytes were signed by the organization named in a host-provisioned Trust Policy. It does not make a Marketplace Source managed or grant execution trust.
+_Avoid_: Catalog validation, Managed Source, login authentication
+
+**Trust Policy**:
+A host-provisioned association between one Plugin Catalog location, an organization, and its public signing key.
+_Avoid_: Import parameter, user preference, login session
 
 **Plugin Catalog**:
 A versioned, machine-readable collection of immutable Marketplace Plugin listings published by one Marketplace Source.

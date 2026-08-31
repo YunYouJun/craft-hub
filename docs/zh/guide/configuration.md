@@ -9,7 +9,10 @@
   "project": {
     "name": "Craft Hub",
     "icon": "./icon.svg",
-    "color": "purple"
+    "color": "purple",
+    "description": "A local developer workbench.",
+    "readme": "./README.md",
+    "quickActions": ["package.json:dev", "package.json:test"]
   },
   "defaults": {
     "agent": "codex"
@@ -28,7 +31,11 @@
       "description": {
         "default": "Craft Hub web workbench.",
         "zh-CN": "Craft Hub Web 工作台。"
-      }
+      },
+      "order": 10,
+      "featured": true,
+      "readme": "./apps/web/README.md",
+      "quickActions": ["apps/web/package.json:dev"]
     }
   }
 }
@@ -75,6 +82,8 @@ Agent 可以通过 MCP 的 `init_project_config` 工具初始化这个可选文�
 `hidden` 条目可以填写能力名称、能力 ID，或 `package.json:release` 这样的“来源:名称”。`descriptions` 使用同样的键，并会在命令列表的命令名下方显示简介。描述既可以沿用单个字符串，也可以使用以 BCP 47 语言标签为键的多语言映射；Craft Hub 会依次匹配当前语言、上级语言标签和 `default`。当不同来源存在同名命令时，建议使用“来源:名称”。
 
 包元数据使用项目相对目录作为稳定 key，根包使用 `.`。配置的包简介会在 Craft Hub 中覆盖缺失或不够友好的 `package.json` 简介，但不会修改包清单。
+
+即使没有配置，项目和子包概览也应保持可用：Craft Hub 会发现约定名称的 README，保守推断开发、构建、测试和质量检查操作，并按稳定路径分组排列子包。`readme` 可以覆盖默认 README；`quickActions` 只能通过 ID、名称或带来源限定的选择器引用已发现能力，不能定义可执行命令文本。子包的 `order` 提供稳定的数值排序覆盖，`featured` 增强视觉强调，`hidden` 只将子包从概览 Grid 中隐藏，其命令仍可被发现和搜索。
 
 “完善项目说明”会先在本地审计缺失项，再以只读权限调用 Codex 生成结构化的命令与包说明建议。用户检查建议前不会修改仓库；应用时只更新当前生效的项目配置，并拒绝已经过期的建议。
 
@@ -270,4 +279,4 @@ craft-hub settings:import settings.json --dry-run --json
 craft-hub settings:import settings.json --replace
 ```
 
-未知核心键会被拒绝，以便发现拼写错误。`extensions.<extension-id>.*` 下的键会为向前兼容而保留，但在扩展设置注册能力落地前不会生效。
+未知核心键会被拒绝，以便发现拼写错误。`extensions.<extension-id>.*` 下的键会为向前兼容而保留，并对核心保持不透明；已安装的声明式插件只有在声明精确数据源且用户授予 `read-user-settings` 后，才能读取对应键。

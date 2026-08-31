@@ -25,6 +25,7 @@ const command: CommandCapability = {
   source: 'package.json',
   sourcePath: '/workspace/example/package.json',
   sourceLine: 12,
+  script: 'vite build',
   invocation: { command: 'pnpm', args: ['run', 'build'], cwd: project.path, requiredEnv: [] },
 }
 
@@ -67,6 +68,9 @@ describe('detail panel desktop actions', () => {
     store.selectedCapabilityId = command.id
 
     const wrapper = mount(DetailPanel, { global: { plugins: [pinia] } })
+    await vi.waitFor(() => expect(wrapper.findAll('[data-testid="shell-command-preview"]')).toHaveLength(2))
+    expect(wrapper.get('.command-script-preview').text()).toContain('Script definition')
+    expect(wrapper.get('.command-script-preview').text()).toContain(command.script!)
     expect(wrapper.text()).toContain(`${command.sourcePath}:${command.sourceLine}`)
     expect(wrapper.get('[data-testid="open-source-editor"]').text()).toBe('Source')
     expect(wrapper.get('[data-testid="open-source-editor"]').attributes('aria-label')).toBe('Open source in VS Code')

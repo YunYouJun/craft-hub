@@ -85,7 +85,7 @@ async function copyCommand(): Promise<void> {
     <div class="download-grid" aria-hidden="true" />
     <div class="download-shell">
       <section class="download-hero">
-        <header class="download-intro">
+        <header class="download-intro" :class="{ 'is-zh': isZh }">
           <h1>{{ copy.title }}</h1>
           <p>{{ copy.description }}</p>
           <span>{{ copy.release }}</span>
@@ -226,10 +226,14 @@ async function copyCommand(): Promise<void> {
 .download-intro h1 {
   max-width: 500px;
   margin: 0;
-  font-size: clamp(60px, 5.7vw, 88px);
+  font-size: clamp(60px, 4.7vw, 72px);
   font-weight: 760;
   line-height: .98;
   letter-spacing: -.06em;
+}
+
+.download-intro.is-zh h1 {
+  white-space: nowrap;
 }
 
 .download-intro p {
@@ -254,15 +258,6 @@ async function copyCommand(): Promise<void> {
   border-radius: 15px;
   background: #fff;
   box-shadow: 0 24px 70px rgb(31 50 86 / 12%);
-}
-
-.download-surface::after {
-  position: absolute;
-  z-index: -1;
-  border: 1px dashed rgb(21 88 232 / 32%);
-  border-radius: 20px;
-  content: '';
-  inset: -20px -22px -20px 12%;
 }
 
 .download-beam {

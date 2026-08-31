@@ -212,6 +212,7 @@ async function discoverPackageScripts(
       kind: 'command',
       name,
       description: script,
+      script,
       source,
       sourcePath: path,
       sourceLine: sourceLines.get(name),
@@ -460,17 +461,25 @@ export async function discoverCapabilitiesWithDiagnostics(cwd: string, locale = 
     })
     .sort(compareCapabilities)
   const packages = [commandPackage, ...workspace.packages].map((commandPackage) => {
-    const configuredDescription = localizedText(projectConfig?.packages?.[commandPackage.relativePath]?.description, locale)
-    return configuredDescription ? { ...commandPackage, description: configuredDescription } : commandPackage
+    const packageConfig = projectConfig?.packages?.[commandPackage.relativePath]
+    const projectOverviewConfig = commandPackage.root ? projectConfig?.project : undefined
+    const configuredDescription = localizedText(projectOverviewConfig?.description ?? packageConfig?.description, locale)
+    return {
+      ...commandPackage,
+      ...(configuredDescription ? { description: configuredDescription } : {}),
+      ...(packageConfig?.order !== undefined ? { order: packageConfig.order } : {}),
+      ...(packageConfig?.featured !== undefined ? { featured: packageConfig.featured } : {}),
+      ...(packageConfig?.hidden !== undefined ? { hidden: packageConfig.hidden } : {}),
+      ...((projectOverviewConfig?.readme ?? packageConfig?.readme) ? { readme: projectOverviewConfig?.readme ?? packageConfig?.readme } : {}),
+      ...((projectOverviewConfig?.quickActions ?? packageConfig?.quickActions) ? { quickActions: projectOverviewConfig?.quickActions ?? packageConfig?.quickActions } : {}),
+    }
   })
-  const packageDescriptions = new Map(packages.map(commandPackage => [commandPackage.relativePath, commandPackage.description]))
+  const packagesByPath = new Map(packages.map(commandPackage => [commandPackage.relativePath, commandPackage]))
   const localizedCapabilities = capabilities.map((capability) => {
     if (capability.kind !== 'command' || !capability.package)
       return capability
-    const description = packageDescriptions.get(capability.package.relativePath)
-    return description === capability.package.description
-      ? capability
-      : { ...capability, package: { ...capability.package, description } }
+    const resolvedPackage = packagesByPath.get(capability.package.relativePath)
+    return resolvedPackage ? { ...capability, package: resolvedPackage } : capability
   })
   return { capabilities: localizedCapabilities, diagnostics: workspace.diagnostics, packages }
 }

@@ -33,7 +33,7 @@ withDefaults(defineProps<{
   gap: 7px;
   border: 1px solid transparent;
   border-radius: 7px;
-  font-size: 12px;
+  font-size: var(--font-size-body);
   font-weight: 600;
 }
 

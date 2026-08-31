@@ -1,4 +1,4 @@
-import type { AgentActionId, AgentActionSummary, AgentTaskRecord, Capability, CapabilityDiscoveryDiagnostic, CommandInputValues, CommandInvocation, CommandPackage, OwnerScope, ProjectAccentColor, ProjectCatalogDiagnostic, ProjectChangeEvent, ProjectConfigInitializationResult, ProjectDescriptionApplication, ProjectDescriptionChange, ProjectRecord, ProjectRunSummary, RunRecord, SettingsSnapshot, TeamDeletionResult, TeamGitSyncStatus, WorkbenchCodexSetting, WorkbenchEditorSetting, WorkbenchLocale, WorkbenchTheme, WorkspaceGroup, WorkspaceManifest, WorkspaceRecord } from 'craft-hub'
+import type { AgentActionId, AgentActionSummary, AgentTaskRecord, Capability, CapabilityDiscoveryDiagnostic, CommandInputValues, CommandInvocation, CommandPackage, OwnerScope, ProjectAccentColor, ProjectCatalogDiagnostic, ProjectChangeEvent, ProjectConfigInitializationResult, ProjectDescriptionApplication, ProjectDescriptionChange, ProjectOverview, ProjectRecord, ProjectRunSummary, RunRecord, SettingsSnapshot, TeamDeletionResult, TeamGitSyncStatus, WorkbenchCodexSetting, WorkbenchEditorSetting, WorkbenchLocale, WorkbenchTheme, WorkspaceGroup, WorkspaceManifest, WorkspaceRecord } from 'craft-hub'
 import { projectConfigSchemaRevision } from 'craft-hub/project-config-schema-revision'
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
@@ -9,12 +9,25 @@ import { applyWorkbenchTheme } from './theme'
 export type FirstRunStage = 'add-project' | 'select-project' | 'no-capabilities' | 'select-command' | 'trust' | 'run' | 'complete'
 export type ProjectsLoadState = 'idle' | 'loading' | 'ready' | 'error'
 
+const recentProjectsStorageKey = 'craft-hub-recent-projects'
+
+function storedRecentProjectIds(): string[] {
+  try {
+    const stored = JSON.parse(window.localStorage.getItem(recentProjectsStorageKey) ?? '[]') as unknown
+    return Array.isArray(stored) && stored.every(id => typeof id === 'string') ? stored.slice(0, 8) : []
+  }
+  catch {
+    return []
+  }
+}
+
 export const useWorkbenchStore = defineStore('workbench', () => {
   const projects = ref<ProjectRecord[]>([])
   const projectsLoadState = ref<ProjectsLoadState>('idle')
   const projectsLoadError = ref('')
   const projectCatalogDiagnostics = ref<ProjectCatalogDiagnostic[]>([])
   const runtimeSchemaMismatch = ref<{ actual: string, expected: string }>()
+  const applicationName = ref('Craft Hub')
   const ownerScopes = ref<OwnerScope[]>([])
   const activeOwnerScopeId = ref('personal')
   const activeTeamSyncStatus = ref<TeamGitSyncStatus>()
@@ -34,12 +47,18 @@ export const useWorkbenchStore = defineStore('workbench', () => {
   const agentActions = ref<AgentActionSummary[]>([])
   const agentActionDialogOpen = ref(false)
   const selectedProjectId = ref('')
+  const recentProjectIds = ref(storedRecentProjectIds())
   const capabilities = ref<Capability[]>([])
   const capabilityDiagnosticsByProject = ref<Record<string, CapabilityDiscoveryDiagnostic[]>>({})
   const commandPackagesByProject = ref<Record<string, CommandPackage[]>>({})
   const paletteItems = ref<Array<{ project: ProjectRecord, capability: Capability }>>([])
   const capabilityPinsByProject = ref<Record<string, string[]>>({})
   const selectedCapabilityId = ref('')
+  const selectedPackagePath = ref('')
+  const projectOverview = ref<ProjectOverview>()
+  const projectOverviewLoading = ref(false)
+  const projectOverviewError = ref('')
+  const recentPackagePaths = ref<string[]>([])
   const run = ref<RunRecord>()
   const runs = ref<RunRecord[]>([])
   const busy = ref(false)
@@ -79,6 +98,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
   const activeCapability = computed(() => selectedCapability.value ?? workspaceCapability.value)
   const capabilityDiagnostics = computed(() => capabilityDiagnosticsByProject.value[selectedProjectId.value] ?? [])
   const commandPackages = computed(() => commandPackagesByProject.value[selectedProjectId.value] ?? [])
+  const selectedPackage = computed(() => commandPackages.value.find(commandPackage => commandPackage.relativePath === selectedPackagePath.value))
   const pinnedCapabilityIds = computed(() => capabilityPinsByProject.value[selectedProjectId.value] ?? [])
   const pinnedCapabilities = computed(() => pinnedCapabilityIds.value
     .map(id => capabilities.value.find(capability => capability.id === id))
@@ -99,6 +119,11 @@ export const useWorkbenchStore = defineStore('workbench', () => {
       return 'run'
     return 'complete'
   })
+
+  function rememberProject(projectId: string): void {
+    recentProjectIds.value = [projectId, ...recentProjectIds.value.filter(id => id !== projectId)].slice(0, 8)
+    window.localStorage.setItem(recentProjectsStorageKey, JSON.stringify(recentProjectIds.value))
+  }
 
   async function applySettings(next: SettingsSnapshot): Promise<void> {
     const previousLocale = settings.value?.settings['workbench.locale']
@@ -739,16 +764,25 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     projectsLoadError.value = ''
     try {
       const previousCapability = selectedCapability.value
+      const previousProjectId = selectedProjectId.value
       const [catalog, health] = await Promise.all([
         api.projects(),
         api.runtimeHealth().catch(() => undefined),
       ])
       const nextProjects = catalog.projects
       projects.value = nextProjects
+      const projectIds = new Set(nextProjects.map(project => project.id))
+      recentProjectIds.value = recentProjectIds.value.filter(id => projectIds.has(id))
+      window.localStorage.setItem(recentProjectsStorageKey, JSON.stringify(recentProjectIds.value))
       projectCatalogDiagnostics.value = catalog.diagnostics
       runtimeSchemaMismatch.value = health && health.projectConfigSchemaRevision !== projectConfigSchemaRevision
         ? { actual: health.projectConfigSchemaRevision, expected: projectConfigSchemaRevision }
         : undefined
+      if (health?.distribution.name) {
+        applicationName.value = health.distribution.name
+        document.title = applicationName.value
+        document.documentElement.style.setProperty('--desktop-product-name', JSON.stringify(applicationName.value))
+      }
       const groups = await Promise.all(nextProjects.map(async (project) => {
         const [discovery, pins] = await Promise.all([
           api.capabilityDiscovery(project.id).catch(caught => ({
@@ -778,11 +812,27 @@ export const useWorkbenchStore = defineStore('workbench', () => {
       capabilityDiagnosticsByProject.value = Object.fromEntries(groups.map(group => [group.project.id, group.diagnostics]))
       commandPackagesByProject.value = Object.fromEntries(groups.map(group => [group.project.id, group.packages]))
       selectedProjectId.value = nextProject?.id ?? ''
+      if (nextProject)
+        rememberProject(nextProject.id)
+      if (selectedProjectId.value !== previousProjectId) {
+        selectedPackagePath.value = ''
+        try {
+          const stored = JSON.parse(window.localStorage.getItem(`craft-hub-recent-packages:${selectedProjectId.value}`) ?? '[]') as unknown
+          recentPackagePaths.value = Array.isArray(stored) && stored.every(path => typeof path === 'string') ? stored.slice(0, 4) : []
+        }
+        catch {
+          recentPackagePaths.value = []
+        }
+      }
       capabilities.value = nextCapabilities
       agentActions.value = nextProject
         ? await api.agentActions(nextProject.id, settings.value?.settings['workbench.locale'] ?? 'en').catch(() => [])
         : []
       selectFrom(nextCapabilities, previousCapability)
+      if (nextProject && !selectedCapabilityId.value)
+        await loadProjectOverview(selectedPackagePath.value || '.')
+      else if (!nextProject)
+        projectOverview.value = undefined
       snapshot = nextSnapshot
 
       if (changed && announce)
@@ -855,6 +905,14 @@ export const useWorkbenchStore = defineStore('workbench', () => {
           }
         }
       }
+      if (selectedProjectId.value === event.projectId && (event.scopes.includes('overview') || event.scopes.includes('capabilities'))) {
+        const packagePath = commandPackages.value.some(commandPackage => commandPackage.relativePath === selectedPackagePath.value)
+          ? selectedPackagePath.value || '.'
+          : '.'
+        if (packagePath === '.')
+          selectedPackagePath.value = ''
+        await loadProjectOverview(packagePath)
+      }
       snapshot = currentSnapshot()
       if (changed)
         announceUpdate()
@@ -865,10 +923,63 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     }
   }
 
+  async function loadProjectOverview(packagePath = selectedPackagePath.value || '.'): Promise<void> {
+    if (!selectedProjectId.value)
+      return
+    projectOverviewLoading.value = true
+    projectOverviewError.value = ''
+    try {
+      projectOverview.value = await api.projectOverview(
+        selectedProjectId.value,
+        packagePath,
+        settings.value?.settings['workbench.locale'] ?? 'en',
+      )
+    }
+    catch (caught) {
+      projectOverview.value = undefined
+      projectOverviewError.value = caught instanceof Error ? caught.message : String(caught)
+    }
+    finally {
+      projectOverviewLoading.value = false
+    }
+  }
+
+  async function selectPackage(packagePath: string): Promise<void> {
+    if (!commandPackages.value.some(commandPackage => commandPackage.relativePath === packagePath))
+      return
+    selectedPackagePath.value = packagePath
+    selectedCapabilityId.value = ''
+    run.value = undefined
+    if (selectedProjectId.value && packagePath !== '.') {
+      recentPackagePaths.value = [packagePath, ...recentPackagePaths.value.filter(path => path !== packagePath)].slice(0, 4)
+      window.localStorage.setItem(`craft-hub-recent-packages:${selectedProjectId.value}`, JSON.stringify(recentPackagePaths.value))
+    }
+    await loadProjectOverview(packagePath)
+  }
+
+  async function clearPackageSelection(): Promise<void> {
+    selectedPackagePath.value = ''
+    selectedCapabilityId.value = ''
+    run.value = undefined
+    await loadProjectOverview('.')
+  }
+
+  function selectCapability(capabilityId: string, packagePath?: string): void {
+    if (!capabilities.value.some(capability => capability.id === capabilityId))
+      return
+    if (packagePath !== undefined)
+      selectedPackagePath.value = packagePath
+    selectedCapabilityId.value = capabilityId
+    run.value = undefined
+  }
+
   async function selectProject(id: string): Promise<void> {
+    if (!projects.value.some(project => project.id === id))
+      return
     clearWorkspaceCapability()
     selectedWorkspaceId.value = ''
     selectedProjectId.value = id
+    rememberProject(id)
     const [discovery, pins, nextAgentActions] = await Promise.all([
       api.capabilityDiscovery(id),
       api.capabilityPins(id),
@@ -881,7 +992,16 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     agentActions.value = nextAgentActions
     capabilityPinsByProject.value = { ...capabilityPinsByProject.value, [id]: pins.capabilityIds }
     selectedCapabilityId.value = ''
+    selectedPackagePath.value = ''
+    try {
+      const stored = JSON.parse(window.localStorage.getItem(`craft-hub-recent-packages:${id}`) ?? '[]') as unknown
+      recentPackagePaths.value = Array.isArray(stored) && stored.every(path => typeof path === 'string') ? stored.slice(0, 4) : []
+    }
+    catch {
+      recentPackagePaths.value = []
+    }
     run.value = undefined
+    await loadProjectOverview('.')
     persistWorkspaceState()
   }
 
@@ -1076,6 +1196,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     projectCatalogDiagnostics,
     selectedProjectDiagnostics,
     runtimeSchemaMismatch,
+    applicationName,
     ownerScopes,
     activeOwnerScopeId,
     activeOwnerScope,
@@ -1103,11 +1224,18 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     agentActions,
     agentActionDialogOpen,
     selectedProjectId,
+    recentProjectIds,
     capabilities,
     capabilityDiagnostics,
     capabilityDiagnosticsByProject,
     commandPackages,
     commandPackagesByProject,
+    selectedPackagePath,
+    selectedPackage,
+    projectOverview,
+    projectOverviewLoading,
+    projectOverviewError,
+    recentPackagePaths,
     paletteItems,
     capabilityPinsByProject,
     selectedCapabilityId,
@@ -1194,6 +1322,10 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     refreshProjects,
     refreshProject,
     selectProject,
+    loadProjectOverview,
+    selectPackage,
+    clearPackageSelection,
+    selectCapability,
     addProject,
     previewProjectConfigInitialization,
     applyProjectConfigInitialization,

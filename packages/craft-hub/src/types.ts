@@ -45,6 +45,10 @@ export interface ProjectCatalogSnapshot {
 export interface RuntimeHealth {
   status: 'ok'
   projectConfigSchemaRevision: string
+  distribution: {
+    id: string
+    name: string
+  }
 }
 
 /** User-editable visual metadata for a project. */
@@ -225,6 +229,25 @@ export type CapabilitySource = string
 /** Stable category inferred from a command's script or target name. */
 export type CommandCategory = 'build' | 'deploy' | 'develop' | 'other' | 'preview' | 'quality' | 'test'
 
+/** Plugin-defined command surface shown separately from repository-owned scripts. */
+export interface CommandToolGroup {
+  id: string
+  title: string
+  description?: string
+  source: CapabilitySource
+}
+
+/** Resolved, user-initiated HTTPS destination shown in a package overview. */
+export interface CommandPackageLink {
+  id: string
+  title: string
+  description?: string
+  url: string
+  source: CapabilitySource
+  /** Qualified plugin tool group that owns this destination. */
+  toolGroupId?: string
+}
+
 /** Package boundary that declared one project command. */
 export interface CommandPackage {
   /** Package name declared in package.json, when present. */
@@ -234,6 +257,37 @@ export interface CommandPackage {
   /** Project-relative package directory. The project root is represented by '.'. */
   relativePath: string
   root: boolean
+  /** Stable repository-owned ordering override for overview cards. */
+  order?: number
+  /** Whether the package should receive stronger visual emphasis in overviews. */
+  featured?: boolean
+  /** Whether the package is omitted from overview grids while remaining discoverable. */
+  hidden?: boolean
+  /** Configured project-relative README path, when the conventional file should not be used. */
+  readme?: string
+  /** Source-qualified discovered capability selectors shown as overview actions. */
+  quickActions?: string[]
+  /** Plugin-contributed HTTPS destinations resolved from bounded package metadata. */
+  links?: CommandPackageLink[]
+  /** Plugin-defined tool surfaces resolved for this package. */
+  toolGroups?: CommandToolGroup[]
+}
+
+/** Result of safely resolving one project or package README. */
+export interface ProjectReadme {
+  status: 'found' | 'missing' | 'unreadable' | 'invalid' | 'too-large'
+  /** Project-relative README path when one candidate was resolved. */
+  path?: string
+  /** UTF-8 Markdown returned only for a valid, bounded README. */
+  content?: string
+  message?: string
+}
+
+/** Contextual project or package overview returned by the local runtime. */
+export interface ProjectOverview {
+  projectId: string
+  package: CommandPackage
+  readme: ProjectReadme
 }
 
 /** Kind of project-owned description metadata Craft Hub can propose. */
@@ -426,6 +480,8 @@ export interface CommandCapability {
   kind: 'command'
   name: string
   description?: string
+  /** Shell script declared by a package-manager command, kept separate from its human-readable description. */
+  script?: string
   source: CapabilitySource
   /** Absolute path to the file that declared this command, when known. */
   sourcePath?: string
@@ -433,6 +489,8 @@ export interface CommandCapability {
   sourceLine?: number
   /** Built-in commands are categorized; third-party providers may omit this for compatibility. */
   category?: CommandCategory
+  /** Qualified plugin tool group that owns this command surface. */
+  toolGroupId?: string
   /** Built-in commands declare their package boundary; third-party providers may omit it. */
   package?: CommandPackage
   invocation: CommandInvocation

@@ -6,10 +6,25 @@ import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 import { packager } from '@electron/packager'
+import { createDesktopBuildInfo } from '../apps/desktop/src/build-info.ts'
+import { communityDesktopArtifactName, communityDesktopProtocol, loadDesktopDistributionManifest, resolveDesktopDistributionAsset } from '../apps/desktop/src/distribution.ts'
 
 const execFileAsync = promisify(execFile)
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-const outputDirectory = resolve(repositoryRoot, 'release')
+const configuredDistributionPath = process.env.CRAFT_HUB_DESKTOP_DISTRIBUTION_CONFIG
+  ? resolve(process.env.CRAFT_HUB_DESKTOP_DISTRIBUTION_CONFIG)
+  : undefined
+const desktopDistribution = loadDesktopDistributionManifest(configuredDistributionPath)
+if (configuredDistributionPath && !desktopDistribution)
+  throw new Error(`Desktop distribution manifest does not exist: ${configuredDistributionPath}`)
+const outputDirectory = resolve(repositoryRoot, process.env.CRAFT_HUB_DESKTOP_OUTPUT_DIR ?? 'release')
+const productName = desktopDistribution?.distribution.name ?? 'Craft Hub'
+const artifactName = desktopDistribution?.desktop.artifactName ?? communityDesktopArtifactName
+const desktopProtocol = desktopDistribution?.desktop.protocol ?? communityDesktopProtocol
+const appBundleId = desktopDistribution?.distribution.appId ?? 'com.yunyoujun.craft-hub'
+const macosApplicationIcon = configuredDistributionPath && desktopDistribution?.desktop.icons
+  ? resolveDesktopDistributionAsset(configuredDistributionPath, desktopDistribution.desktop.icons.macos)
+  : resolve(repositoryRoot, 'apps/desktop/assets/icon.icns')
 
 interface PackageMetadata {
   author?: string
@@ -38,8 +53,19 @@ function getArchitectures(): MacArchitecture[] {
 }
 
 function getSigningOptions() {
-  if (process.env.MACOS_SIGNING_ENABLED !== 'true')
-    return {}
+  if (process.env.MACOS_SIGNING_ENABLED !== 'true') {
+    return {
+      osxSign: {
+        continueOnError: false,
+        identity: '-',
+        identityValidation: false,
+        optionsForFile: () => ({
+          hardenedRuntime: false,
+          timestamp: 'none',
+        }),
+      },
+    }
+  }
 
   const requiredEnvironment = [
     'MACOS_KEYCHAIN_PATH',
@@ -74,19 +100,19 @@ function macosApplicationVersion(version: string): string {
 }
 
 async function createDistributionArtifacts(appPath: string, architecture: MacArchitecture): Promise<void> {
-  const volumeDirectory = await mkdtemp(join(tmpdir(), `craft-hub-dmg-${architecture}-`))
-  const dmgPath = join(outputDirectory, `Craft-Hub-macOS-${architecture}.dmg`)
-  const zipPath = join(outputDirectory, `Craft-Hub-macOS-${architecture}.zip`)
+  const volumeDirectory = await mkdtemp(join(tmpdir(), `${artifactName.toLowerCase()}-dmg-${architecture}-`))
+  const dmgPath = join(outputDirectory, `${artifactName}-macOS-${architecture}.dmg`)
+  const zipPath = join(outputDirectory, `${artifactName}-macOS-${architecture}.zip`)
 
   try {
-    await cp(appPath, join(volumeDirectory, 'Craft Hub.app'), { recursive: true })
+    await cp(appPath, join(volumeDirectory, `${productName}.app`), { recursive: true })
     await symlink('/Applications', join(volumeDirectory, 'Applications'))
     await rm(dmgPath, { force: true })
     await rm(zipPath, { force: true })
     await execFileAsync('hdiutil', [
       'create',
       '-volname',
-      'Craft Hub',
+      productName,
       '-srcfolder',
       volumeDirectory,
       '-ov',
@@ -143,6 +169,17 @@ async function deployDesktop(targetDirectory: string): Promise<void> {
   process.stderr.write(stderr)
 }
 
+async function copyDistributionAsset(
+  sourceManifestPath: string,
+  targetManifestPath: string,
+  assetPath: string,
+): Promise<void> {
+  const source = resolveDesktopDistributionAsset(sourceManifestPath, assetPath)
+  const target = resolveDesktopDistributionAsset(targetManifestPath, assetPath)
+  await mkdir(dirname(target), { recursive: true })
+  await cp(source, target)
+}
+
 async function main(): Promise<void> {
   if (process.platform !== 'darwin')
     throw new Error('macOS packages must be built on macOS')
@@ -152,6 +189,16 @@ async function main(): Promise<void> {
 
   try {
     await deployDesktop(desktopDirectory)
+    await writeFile(
+      join(desktopDirectory, 'desktop-build.json'),
+      `${JSON.stringify(createDesktopBuildInfo(process.env.MACOS_SIGNING_ENABLED === 'true'), null, 2)}\n`,
+    )
+    if (configuredDistributionPath) {
+      const targetManifestPath = join(desktopDirectory, 'distribution.json')
+      await cp(configuredDistributionPath, targetManifestPath)
+      for (const assetPath of Object.values(desktopDistribution?.desktop.icons ?? {}))
+        await copyDistributionAsset(configuredDistributionPath, targetManifestPath, assetPath)
+    }
     await mkdir(join(stagingDirectory, 'apps/web'), { recursive: true })
     await cp(
       resolve(repositoryRoot, 'apps/web/dist'),
@@ -162,6 +209,7 @@ async function main(): Promise<void> {
     const workspacePackage = JSON.parse(
       await readFile(resolve(repositoryRoot, 'package.json'), 'utf8'),
     ) as PackageMetadata
+    const desktopVersion = process.env.CRAFT_HUB_DESKTOP_VERSION ?? workspacePackage.version
     const electronPackage = JSON.parse(
       await readFile(
         resolve(repositoryRoot, 'apps/desktop/node_modules/electron/package.json'),
@@ -171,9 +219,9 @@ async function main(): Promise<void> {
 
     await writeFile(join(stagingDirectory, 'package.json'), `${JSON.stringify({
       name: 'craft-hub-desktop',
-      productName: 'Craft Hub',
-      version: workspacePackage.version,
-      description: workspacePackage.description,
+      productName,
+      version: desktopVersion,
+      description: desktopDistribution?.desktop.about?.description ?? workspacePackage.description,
       author: workspacePackage.author,
       license: workspacePackage.license,
       main: 'apps/desktop/dist/main.mjs',
@@ -181,19 +229,19 @@ async function main(): Promise<void> {
 
     const architectures = getArchitectures()
     const appPaths = await packager({
-      appBundleId: 'com.yunyoujun.craft-hub',
+      appBundleId,
       appCategoryType: 'public.app-category.developer-tools',
       arch: architectures,
-      appVersion: macosApplicationVersion(workspacePackage.version),
+      appVersion: macosApplicationVersion(desktopVersion),
       asar: { unpack: '**/node-pty/**' },
       dir: stagingDirectory,
       electronVersion: electronPackage.version,
-      icon: resolve(repositoryRoot, 'apps/desktop/assets/icon.icns'),
-      name: 'Craft Hub',
+      icon: macosApplicationIcon,
+      name: productName,
       out: outputDirectory,
       overwrite: true,
       platform: 'darwin',
-      protocols: [{ name: 'Craft Hub Desktop Links', schemes: ['craft-hub'] }],
+      protocols: [{ name: `${productName} Desktop Links`, schemes: [desktopProtocol] }],
       prune: false,
       ...getSigningOptions(),
     })
@@ -211,7 +259,7 @@ async function main(): Promise<void> {
       const appPath = appPaths.find(path => path.endsWith(`darwin-${architecture}`))
       if (!appPath)
         throw new Error(`Packager did not return an app for ${architecture}`)
-      await createDistributionArtifacts(join(appPath, 'Craft Hub.app'), architecture)
+      await createDistributionArtifacts(join(appPath, `${productName}.app`), architecture)
     }
   }
   finally {

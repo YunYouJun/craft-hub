@@ -754,8 +754,8 @@ async function addProjectPath(projectPath: string): Promise<void> {
         class="activity-button brand-mark"
         :class="{ active: activeView === 'workbench' }"
         data-testid="open-workbench"
-        aria-label="Craft Hub"
-        title="Craft Hub"
+        :aria-label="store.applicationName"
+        :title="store.applicationName"
         @click="emit('openWorkbench')"
       ><Icon name="hub" /></button>
       <button

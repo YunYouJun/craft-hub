@@ -1,8 +1,10 @@
+import type { Buffer } from 'node:buffer'
 import type { RunHandle } from './executor'
 import type { CapabilityProvider, CraftHubOptions, DistributionConfig } from './extensions'
 import type { ApplyGitIntegrationRequest, GitIntegrationPlan, GitIntegrationRequest, GitIntegrationResult } from './git-integration'
+import type { IntegrationDiagnostic, ResolvedIntegrationContribution } from './integrations'
 import type { CraftHubPlugin, PluginDiagnostic } from './plugins'
-import type { Capability, CapabilityDiscoveryDiagnostic, CapabilityDiscoveryResult, CapabilityPins, CapabilityReference, CommandCapability, CommandInputValues, CommandInvocation, CommandPackage, ProjectConfigInitializationMode, ProjectConfigInitializationResult, ProjectRecord, ProjectRunSummary, ReleasePlan, RunCleanupOptions, RunCleanupResult, RunOutputEvent, RunRecord } from './types'
+import type { Capability, CapabilityDiscoveryDiagnostic, CapabilityDiscoveryResult, CapabilityPins, CapabilityReference, CommandCapability, CommandInputValues, CommandInvocation, CommandPackage, ProjectConfigInitializationMode, ProjectConfigInitializationResult, ProjectOverview, ProjectRecord, ProjectRunSummary, ReleasePlan, RunCleanupOptions, RunCleanupResult, RunOutputEvent, RunRecord } from './types'
 import { resolve } from 'node:path'
 import process from 'node:process'
 import { AgentActionService } from './agent-actions'
@@ -13,11 +15,13 @@ import { applyProjectConfigInitialization, previewProjectConfigInitialization } 
 import { executeCommand } from './executor'
 import { builtinCapabilityProvider, communityDistribution } from './extensions'
 import { GitIntegration } from './git-integration'
+import { IntegrationRegistry } from './integrations'
 import { PluginManager } from './marketplace'
 import { OwnerScopeService } from './owner-scopes'
 import { assertCommandWorkingDirectory } from './path-security'
 import { PersonalGitSyncService } from './personal-git-sync'
 import { getCraftHubConfigDir, getCraftHubDataDir } from './platform'
+import { readProjectOverviewAsset, readProjectReadme } from './project-overview'
 import { ProjectRegistry } from './projects'
 import { ReleasePlanner } from './release-planner'
 import { CraftHubSettingsService } from './settings'
@@ -40,6 +44,7 @@ export class CraftHubRuntime {
   readonly agentTasks: AgentTaskManager
   readonly agentActions: AgentActionService
   readonly pluginManager: PluginManager
+  readonly integrationRegistry: IntegrationRegistry
   readonly releasePlanner = new ReleasePlanner()
   readonly gitIntegration = new GitIntegration()
   readonly distribution: DistributionConfig
@@ -55,7 +60,15 @@ export class CraftHubRuntime {
     const plugins = normalizedOptions.plugins ?? []
     assertUniquePluginIds(plugins)
     this.store = new CraftHubStore(normalizedOptions.dataDir ?? getCraftHubDataDir(process.env, this.distribution.dataDirectoryName ?? this.distribution.name))
-    this.pluginManager = new PluginManager(this.store.dataDir, this.distribution.marketplaceSources, normalizedOptions.pluginPackageInstaller)
+    this.pluginManager = new PluginManager(
+      this.store.dataDir,
+      this.distribution.marketplaceSources,
+      normalizedOptions.pluginPackageInstaller,
+      undefined,
+      undefined,
+      this.distribution.marketplaceTrustPolicies,
+    )
+    this.integrationRegistry = new IntegrationRegistry(plugins.flatMap(plugin => plugin.integrationProviders ?? []))
     this.capabilityProviders = [
       { provider: builtinCapabilityProvider },
       { provider: this.pluginManager.capabilityProvider },
@@ -126,10 +139,16 @@ export class CraftHubRuntime {
     return (await this.capabilityDiscovery(projectId)).capabilities
   }
 
+  /** Resolve installed marketplace integration declarations against trusted host providers. */
+  async integrationContributions(): Promise<{ integrations: ResolvedIntegrationContribution[], diagnostics: IntegrationDiagnostic[] }> {
+    return this.integrationRegistry.resolve(await this.pluginManager.integrationContributions())
+  }
+
   /** Discover capabilities and non-fatal diagnostics for one registered project. */
   async capabilityDiscovery(projectId: string, requestedLocale?: 'en' | 'zh-CN'): Promise<CapabilityDiscoveryResult> {
     const project = await this.projects.get(projectId)
-    const locale = requestedLocale ?? (await this.settings.get()).settings['workbench.locale']
+    const [settings, extensionSettings] = await Promise.all([this.settings.get(), this.settings.extensionValues()])
+    const locale = requestedLocale ?? settings.settings['workbench.locale']
     this.diagnostics = []
     const capabilities: Capability[] = []
     const diagnostics: CapabilityDiscoveryDiagnostic[] = []
@@ -166,11 +185,34 @@ export class CraftHubRuntime {
       capabilities,
       packages: [...packages.values()],
       plugins: await this.pluginManager.commandContributions(),
+      userSettings: extensionSettings,
     })
     diagnostics.push(...commandContributions.diagnostics)
     const resolvedIds = new Set<string>()
     await validateCapabilities(commandContributions.capabilities, resolvedIds, project.path)
-    return { capabilities: commandContributions.capabilities, diagnostics, packages: [...packages.values()] }
+    return { capabilities: commandContributions.capabilities, diagnostics, packages: commandContributions.packages }
+  }
+
+  /** Resolve one contextual project or package overview and its bounded README. */
+  async projectOverview(projectId: string, packagePath = '.', requestedLocale?: 'en' | 'zh-CN'): Promise<ProjectOverview> {
+    const [project, discovery] = await Promise.all([
+      this.projects.get(projectId),
+      this.capabilityDiscovery(projectId, requestedLocale),
+    ])
+    const commandPackage = discovery.packages?.find(item => item.relativePath === packagePath)
+    if (!commandPackage)
+      throw new Error(`Unknown package: ${packagePath}`)
+    return {
+      projectId,
+      package: commandPackage,
+      readme: await readProjectReadme(project.path, commandPackage),
+    }
+  }
+
+  /** Read one bounded raster asset contained by a registered project. */
+  async projectOverviewAsset(projectId: string, projectRelativePath: string): Promise<{ content: Buffer, contentType: string } | undefined> {
+    const project = await this.projects.get(projectId)
+    return readProjectOverviewAsset(project.path, projectRelativePath)
   }
 
   /** Return the current capability ids represented by this project's machine-local pin order. */

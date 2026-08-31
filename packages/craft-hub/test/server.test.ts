@@ -1,4 +1,5 @@
 import type { AddressInfo } from 'node:net'
+import { Buffer } from 'node:buffer'
 import { execFile } from 'node:child_process'
 import { mkdir, mkdtemp, readFile, realpath, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
@@ -13,6 +14,37 @@ import { startCraftHubServer } from '../src/server'
 const execFileAsync = promisify(execFile)
 
 describe('craft hub server lifecycle', () => {
+  it('serves contextual README overviews and bounded raster assets for registered projects', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'craft-hub-server-overview-'))
+    await mkdir(join(root, 'docs'))
+    await writeFile(join(root, 'package.json'), JSON.stringify({ name: 'example', description: 'Example project.' }))
+    await writeFile(join(root, 'README.md'), '# Example\n\n![Preview](docs/preview.png)')
+    await writeFile(join(root, 'docs', 'preview.png'), Buffer.from([137, 80, 78, 71]))
+    const runtime = new CraftHubRuntime({ dataDir: join(root, 'data'), configDir: join(root, 'config') })
+    const project = await runtime.addProject(root)
+    const app = await startCraftHubServer({ port: 0, runtime })
+    try {
+      const overviewResponse = await fetch(`${app.url}/api/projects/${project.id}/overview?package=.&locale=en`)
+      expect(overviewResponse.status).toBe(200)
+      await expect(overviewResponse.json()).resolves.toMatchObject({
+        projectId: project.id,
+        package: { name: 'example', description: 'Example project.', relativePath: '.', root: true },
+        readme: { status: 'found', path: 'README.md', content: '# Example\n\n![Preview](docs/preview.png)' },
+      })
+
+      const assetResponse = await fetch(`${app.url}/api/projects/${project.id}/overview-asset?path=${encodeURIComponent('docs/preview.png')}`)
+      expect(assetResponse.status).toBe(200)
+      expect(assetResponse.headers.get('content-type')).toBe('image/png')
+      expect(new Uint8Array(await assetResponse.arrayBuffer())).toEqual(new Uint8Array([137, 80, 78, 71]))
+
+      const rejected = await fetch(`${app.url}/api/projects/${project.id}/overview-asset?path=${encodeURIComponent('../outside.png')}`)
+      expect(rejected.status).toBe(404)
+    }
+    finally {
+      await app.close()
+    }
+  })
+
   it('reports the bundled project schema revision for Runtime compatibility checks', async () => {
     const root = await mkdtemp(join(tmpdir(), 'craft-hub-server-health-'))
     const app = await startCraftHubServer({
@@ -23,6 +55,10 @@ describe('craft hub server lifecycle', () => {
       const response = await fetch(`${app.url}/api/health`)
       expect(response.status).toBe(200)
       await expect(response.json()).resolves.toEqual({
+        distribution: {
+          id: 'community',
+          name: 'Craft Hub',
+        },
         projectConfigSchemaRevision,
         status: 'ok',
       })
@@ -379,6 +415,7 @@ describe('craft hub server lifecycle', () => {
               permissions: [],
               categories: [],
               status: 'active',
+              requiresPlugins: [],
             }],
           },
         }],
@@ -393,6 +430,14 @@ describe('craft hub server lifecycle', () => {
         expect.objectContaining({ id: 'test', kind: 'builtin' }),
       ])
       await expect(fetch(`${app.url}/api/plugins`).then(response => response.json())).resolves.toEqual([])
+      await expect(fetch(`${app.url}/api/plugins/install/preview`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ sourceId: 'test', package: '@acme/craft-hub-plugin-test' }),
+      }).then(response => response.json())).resolves.toMatchObject({
+        rootPackage: '@acme/craft-hub-plugin-test',
+        items: [expect.objectContaining({ package: '@acme/craft-hub-plugin-test', action: 'install', root: true })],
+      })
     }
     finally {
       await app.close()

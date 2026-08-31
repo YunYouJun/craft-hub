@@ -113,6 +113,9 @@ export const projectConfigSchema = z.strictObject({
     name: z.string().min(1).optional(),
     icon: z.string().min(1).optional(),
     color: z.enum(projectAccentColors).optional(),
+    description: localizedTextSchema.optional(),
+    readme: z.string().min(1).optional(),
+    quickActions: z.array(z.string().min(1)).optional(),
   }).optional(),
   defaults: z.strictObject({
     agent: z.string().min(1).optional(),
@@ -127,6 +130,11 @@ export const projectConfigSchema = z.strictObject({
   }).optional(),
   packages: z.record(z.string(), z.strictObject({
     description: localizedTextSchema.optional(),
+    order: z.number().finite().optional(),
+    featured: z.boolean().optional(),
+    hidden: z.boolean().optional(),
+    readme: z.string().min(1).optional(),
+    quickActions: z.array(z.string().min(1)).optional(),
   })).optional(),
   extensions: z.record(z.string().min(1), z.unknown()).optional(),
 })
