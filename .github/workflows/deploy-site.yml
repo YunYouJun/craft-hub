@@ -76,7 +76,7 @@ jobs:
         run: |
           mkdir -p _site/updates/alpha/darwin/arm64 _site/updates/alpha/darwin/x64
           for arch in arm64 x64; do
-            ARCH="$arch" node -e "const fs=require('fs');const tag=process.env.RELEASE_TAG;const version=tag.slice(1).split('-')[0];const arch=process.env.ARCH;const asset='Craft-Hub-macOS-'+arch+'.zip';const update={currentRelease:version,releases:[{version,updateTo:{version,pub_date:process.env.RELEASE_PUBLISHED_AT,notes:'Craft Hub '+tag+' alpha update',name:version,url:'https://github.com/'+process.env.GITHUB_REPOSITORY+'/releases/download/'+tag+'/'+asset}}]};fs.writeFileSync('_site/updates/alpha/darwin/'+arch+'/RELEASES.json',JSON.stringify(update,null,2)+'\n')"
+            ARCH="$arch" pnpm tsx scripts/generate-macos-update-feed.ts
           done
       - name: Deploy Cloudflare Pages
         uses: cloudflare/wrangler-action@v4
