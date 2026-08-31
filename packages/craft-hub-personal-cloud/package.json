@@ -1,7 +1,7 @@
 {
   "name": "@craft-hub/personal-cloud",
   "type": "module",
-  "version": "0.0.1-alpha.3",
+  "version": "0.0.1-alpha.4",
   "private": true,
   "description": "Private personal cloud adapter for Craft Hub.",
   "exports": {
