@@ -4,7 +4,7 @@ import { resolve } from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { cac } from 'cac'
-import { launchCraftHubApp } from './app'
+import { launchCraftHubApp, launchCraftHubProject } from './app'
 import { CraftHubRuntime } from './runtime'
 import { startCraftHubServer } from './server'
 import { craftHubVersion } from './version'
@@ -270,15 +270,19 @@ cli.command('run <projectId> <capabilityId>', 'Run a trusted project command')
   })
 
 cli.command('app [path]', 'Start Craft Hub for a project directory')
+  .option('--browser', 'Open a standalone browser workbench instead of the desktop client')
   .option('--no-open', 'Do not open the system browser')
   .option('--port <port>', 'HTTP port (random by default)')
-  .action(async (path: string | undefined, options: { open?: boolean, port?: number | string }) => {
-    const app = await launchCraftHubApp(path ?? '.', {
+  .action(async (path: string | undefined, options: { browser?: boolean, open?: boolean, port?: number | string }) => {
+    const launchOptions = {
       open: options.open !== false,
       port: options.port === undefined ? 0 : Number(options.port),
       runtime,
-    })
-    console.log(`Craft Hub is ready at ${app.url}`)
+    }
+    const app = options.browser || options.open === false || options.port !== undefined
+      ? { kind: 'browser' as const, ...await launchCraftHubApp(path ?? '.', launchOptions) }
+      : await launchCraftHubProject(path ?? '.', launchOptions)
+    console.log(app.kind === 'desktop' ? `Opened Craft Hub Desktop at ${app.url}` : `Craft Hub is ready at ${app.url}`)
   })
 
 cli.command('ui', 'Start the local Craft Hub workbench').option('--port <port>', 'HTTP port', { default: 4318 }).action(async (options: { port: number }) => {

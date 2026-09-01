@@ -67,6 +67,7 @@ pnpm run package:mac
 pnpm dlx craft-hub@next app .
 
 craft-hub app .
+craft-hub app . --browser
 craft-hub app /absolute/path/to/project --no-open
 pnpm --filter craft-hub start -- project:add /absolute/path/to/project
 pnpm --filter craft-hub start -- project:list
@@ -76,7 +77,7 @@ pnpm --filter craft-hub start -- project:trust <project-id>
 pnpm --filter craft-hub start -- run <project-id> <capability-id> --yes
 ```
 
-`craft-hub app [path]` registers the directory as untrusted, starts the workbench on a random available port, selects that project, and opens the system browser. The path defaults to the current directory; pass `--no-open` to print the URL without opening it or `--port <port>` to choose a fixed port.
+`craft-hub app [path]` opens the matching Project in the installed desktop client. The path defaults to the current directory. When the path cannot be represented by a Git Project Reference or the desktop protocol handler is unavailable, it falls back to a standalone browser workbench. Pass `--browser` to force that browser workbench, `--no-open` to start it without opening a browser, or `--port <port>` to choose a fixed port.
 
 Projects are untrusted by default. Listing and inspecting capabilities never executes project code.
 

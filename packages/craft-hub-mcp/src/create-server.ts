@@ -1,13 +1,8 @@
 import type { CommandCapability, CommandInvocation } from 'craft-hub'
-import { execFile } from 'node:child_process'
 import { isAbsolute } from 'node:path'
-import process from 'node:process'
-import { promisify } from 'node:util'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
-import { CraftHubRuntime } from 'craft-hub'
+import { craftHubProjectDesktopUrl, CraftHubRuntime, openCraftHubDesktop } from 'craft-hub'
 import { z } from 'zod/v3'
-
-const execFileAsync = promisify(execFile)
 
 export interface CraftHubMcpServerOptions {
   openDesktopLink?: (url: string) => Promise<void>
@@ -43,7 +38,7 @@ export function createCraftHubMcpServer(runtime = new CraftHubRuntime(), options
     },
     async (target) => {
       const url = await craftHubDesktopUrl(runtime, target)
-      await (options.openDesktopLink ?? openSystemDesktopLink)(url)
+      await (options.openDesktopLink ?? openCraftHubDesktop)(url)
       return result({ target, url }, `Opened Craft Hub ${target.view}.`)
     },
   )
@@ -539,28 +534,12 @@ export async function craftHubDesktopUrl(
   const reference = await runtime.projects.identify(project.path)
   if (target.capabilityId && !(await runtime.capabilities(project.id)).some(capability => capability.id === target.capabilityId))
     throw new Error(`Unknown capability: ${target.capabilityId}`)
-  const url = new URL('craft-hub://project')
-  url.searchParams.set('v', '1')
-  url.searchParams.set('repo', reference.repository)
-  if (reference.subdir)
-    url.searchParams.set('subdir', reference.subdir)
-  if (target.capabilityId)
-    url.searchParams.set('capability', target.capabilityId)
-  return url.href
+  return craftHubProjectDesktopUrl(reference, target.capabilityId)
 }
 
 function assertAbsentNavigationIds(target: { projectId?: string, workspaceId?: string, capabilityId?: string }): void {
   if (target.projectId || target.workspaceId || target.capabilityId)
     throw new Error('home, marketplace, and settings views do not accept navigation IDs')
-}
-
-async function openSystemDesktopLink(url: string): Promise<void> {
-  const invocation = process.platform === 'darwin'
-    ? { command: 'open', args: [url] }
-    : process.platform === 'win32'
-      ? { command: 'explorer.exe', args: [url] }
-      : { command: 'xdg-open', args: [url] }
-  await execFileAsync(invocation.command, invocation.args, { windowsHide: true })
 }
 
 function commandPreview(capability: CommandCapability, invocation: CommandInvocation = capability.invocation): {
