@@ -45,7 +45,7 @@ function skillInputs(config: Record<string, ProjectSkillInputConfig>, locale: st
     const pattern = definition.pattern ? new RegExp(definition.pattern) : undefined
     const options = definition.options?.map(option => typeof option === 'string'
       ? { value: option }
-      : { value: option.value, label: localizedText(option.label, locale) })
+      : { value: option.value, label: localizedText(option.label, locale), icon: option.icon })
     if (definition.type === 'select' && (!options?.length || options.some(option => !option.value)))
       throw new Error(`Select skill input ${input} must declare non-empty options`)
     if (definition.default && definition.type === 'select' && !options?.some(option => option.value === definition.default))
@@ -75,9 +75,14 @@ export function commandInputs(config: Record<string, ProjectCommandInputConfig>,
       throw new Error(`Invalid command input id: ${input}`)
     if (!definition || !['boolean', 'select', 'text'].includes(definition.type))
       throw new Error(`Command input ${input} must use type boolean, select, or text`)
-    if (typeof definition.flag !== 'string' || !definition.flag.startsWith('-') || /\s/.test(definition.flag))
+    const positional = definition.type !== 'boolean' && definition.argumentStyle === 'positional'
+    if ((!definition.flag && !positional && !(definition.type === 'boolean' && definition.omitArgument === true))
+      || (definition.flag && (!definition.flag.startsWith('-') || /\s/.test(definition.flag)))) {
       throw new Error(`Command input ${input} must declare a flag without whitespace`)
-    if (definition.argumentStyle && !['equals', 'separate'].includes(definition.argumentStyle))
+    }
+    if (positional && definition.flag)
+      throw new Error(`Positional command input ${input} must not declare a flag`)
+    if (definition.argumentStyle && !['equals', 'separate', 'positional'].includes(definition.argumentStyle))
       throw new Error(`Command input ${input} has an invalid argumentStyle`)
     for (const configuredCondition of [definition.requiredWhen, definition.visibleWhen]) {
       const conditions = configuredCondition ? (Array.isArray(configuredCondition) ? configuredCondition : [configuredCondition]) : []
@@ -91,7 +96,7 @@ export function commandInputs(config: Record<string, ProjectCommandInputConfig>,
         return { value: option }
       if (option.omitArgument !== undefined && typeof option.omitArgument !== 'boolean')
         throw new Error(`Select command input ${input} option ${option.value} has an invalid omitArgument`)
-      return { value: option.value, label: localizedText(option.label, locale), omitArgument: option.omitArgument, arguments: option.arguments }
+      return { value: option.value, label: localizedText(option.label, locale), icon: option.icon, omitArgument: option.omitArgument, arguments: option.arguments }
     })
     if (definition.type === 'select' && (!options?.length || options.some(option => !option.value)))
       throw new Error(`Select command input ${input} must declare non-empty options`)
@@ -112,6 +117,7 @@ export function commandInputs(config: Record<string, ProjectCommandInputConfig>,
       visibleWhen: definition.visibleWhen,
       pattern: pattern ? definition.pattern : undefined,
       flag: definition.flag,
+      omitArgument: definition.type === 'boolean' ? definition.omitArgument : undefined,
       argumentStyle: definition.argumentStyle,
       private: definition.private,
       redactInHistory: definition.redactInHistory,

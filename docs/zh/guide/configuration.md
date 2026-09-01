@@ -125,8 +125,9 @@ flag 本身，关闭时不追加参数。
 }
 ```
 
-输入项支持 `equals`（默认，生成 `--env=dev`）与 `separate`（生成 `--env dev`）
-两种 `argumentStyle`。下拉框必须声明 `options`；文本框可以通过 `pattern` 校验；布尔输入
+输入项支持 `equals`（默认，生成 `--env=dev`）、`separate`（生成 `--env dev`）与
+`positional`（不带 flag，直接生成 `value`）三种 `argumentStyle`。位置参数不得声明 `flag`，
+并按输入声明顺序追加。下拉框必须声明 `options`；文本框可以通过 `pattern` 校验；布尔输入
 可使用字符串 `"true"` 或 `"false"` 作为默认值。所有输入类型都支持 `default`：下拉框默认值
 必须匹配一个选项，文本框默认值可以是任意字符串，布尔默认值必须是 `"true"` 或 `"false"`。
 Craft Hub 会把默认值同时应用到初始表单与命令预览。`visibleWhen` 控制条件显示，

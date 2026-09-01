@@ -21,6 +21,15 @@ export function resolvePersistedCommandInvocation(capability: CommandCapability,
   return resolveInvocation(capability, provided, true)
 }
 
+/** Flatten prerequisite commands and their main command into execution order. */
+export function commandInvocationSequence(invocation: CommandInvocation): CommandInvocation[] {
+  const { prerequisites = [], ...command } = invocation
+  return [
+    ...prerequisites.flatMap(commandInvocationSequence),
+    command,
+  ]
+}
+
 function resolveInvocation(capability: CommandCapability, provided: CommandInputValues, redact: boolean): CommandInvocation {
   const definitions = capability.inputs ?? []
   const knownInputs = new Set(definitions.map(input => input.id))
@@ -29,6 +38,7 @@ function resolveInvocation(capability: CommandCapability, provided: CommandInput
     throw new CommandInputValidationError(`Unknown input for ${capability.name}: ${unknown}`)
 
   const values = Object.fromEntries(definitions.map(input => [input.id, provided[input.id] ?? input.default ?? '']))
+  validatePrerequisiteConditions(capability.invocation, knownInputs)
   const args = [...capability.invocation.args]
   const inputArgs: string[] = []
 
@@ -43,8 +53,11 @@ function resolveInvocation(capability: CommandCapability, provided: CommandInput
         throw new CommandInputValidationError(`${input.label ?? input.id} must be true or false`)
       if (required && value !== 'true')
         throw new CommandInputValidationError(`${input.label ?? input.id} is required`)
-      if (value === 'true')
+      if (value === 'true' && !input.omitArgument) {
+        if (!input.flag)
+          throw new CommandInputValidationError(`${input.label ?? input.id} has no command flag`)
         inputArgs.push(input.flag)
+      }
       continue
     }
     if (!value) {
@@ -66,7 +79,11 @@ function resolveInvocation(capability: CommandCapability, provided: CommandInput
     }
 
     const argumentValue = redact && (input.private || input.redactInHistory) ? '<redacted>' : value
-    if (input.argumentStyle === 'separate')
+    if (input.argumentStyle === 'positional')
+      inputArgs.push(argumentValue)
+    else if (!input.flag)
+      throw new CommandInputValidationError(`${input.label ?? input.id} has no command flag`)
+    else if (input.argumentStyle === 'separate')
       inputArgs.push(input.flag, argumentValue)
     else
       inputArgs.push(`${input.flag}=${argumentValue}`)
@@ -76,5 +93,25 @@ function resolveInvocation(capability: CommandCapability, provided: CommandInput
     args.push(capability.inputArgSeparator)
   args.push(...inputArgs)
 
-  return { ...capability.invocation, args }
+  return resolvePrerequisiteConditions({ ...capability.invocation, args }, values)
+}
+
+function validatePrerequisiteConditions(invocation: CommandInvocation, knownInputs: Set<string>): void {
+  for (const prerequisite of invocation.prerequisites ?? []) {
+    const conditions = prerequisite.when ? (Array.isArray(prerequisite.when) ? prerequisite.when : [prerequisite.when]) : []
+    if (conditions.some(condition => !knownInputs.has(condition.input)))
+      throw new CommandInputValidationError(`Prerequisite references an unknown condition input: ${conditions.find(condition => !knownInputs.has(condition.input))?.input}`)
+    validatePrerequisiteConditions(prerequisite, knownInputs)
+  }
+}
+
+function resolvePrerequisiteConditions(invocation: CommandInvocation, values: CommandInputValues): CommandInvocation {
+  const { prerequisites = [], ...command } = invocation
+  const resolvedPrerequisites = prerequisites
+    .filter(prerequisite => commandInputConditionMatches(prerequisite.when, values))
+    .map(({ when: _when, ...prerequisite }) => resolvePrerequisiteConditions(prerequisite, values))
+  return {
+    ...command,
+    ...(resolvedPrerequisites.length ? { prerequisites: resolvedPrerequisites } : {}),
+  }
 }

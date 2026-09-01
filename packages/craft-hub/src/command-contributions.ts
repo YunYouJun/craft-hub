@@ -8,7 +8,7 @@ import process from 'node:process'
 import { z } from 'zod'
 import { loadProjectConfig } from './config'
 import { commandInputs, localizedText } from './discovery'
-import { projectCommandInputSchema } from './project-config-schema'
+import { inputConditionSchema, projectCommandInputSchema } from './project-config-schema'
 
 const contributionLocalizedTextSchema = z.union([
   z.string().min(1),
@@ -31,6 +31,14 @@ const commandInputOptionSourceSchema = z.discriminatedUnion('type', [
     key: userSettingKey,
   }),
 ])
+
+const prerequisiteCommandContributionSchema = z.strictObject({
+  label: contributionLocalizedTextSchema.optional(),
+  command: z.string().min(1),
+  args: z.array(z.string()).default([]),
+  requiredEnv: z.array(z.string()).default([]),
+  when: inputConditionSchema.optional(),
+})
 
 /** Declarative matcher evaluated only against discovered workspace package roots. */
 export const commandPackageMatcherSchema = z.strictObject({
@@ -66,6 +74,7 @@ export const commandTemplateContributionSchema = z.strictObject({
   command: z.string().min(1),
   args: z.array(z.string()).default([]),
   requiredEnv: z.array(z.string()).default([]),
+  prerequisites: z.array(prerequisiteCommandContributionSchema).default([]),
   inputPreset: z.string().min(1).optional(),
   inputs: z.record(z.string(), projectCommandInputSchema).default({}),
   toolGroup: z.string().regex(/^[a-z0-9][a-z0-9._-]*$/).optional(),
@@ -236,6 +245,14 @@ export async function resolveCommandContributions(input: ResolveCommandContribut
         const templateInputs = referencedPreset
           ? await resolvePresetInputs(referencedPreset, packageRoot, input.userSettings ?? {})
           : template.inputs
+        const prerequisites = template.prerequisites.map(step => ({
+          command: step.command,
+          args: step.args,
+          cwd: packageRoot,
+          requiredEnv: step.requiredEnv,
+          ...(step.label ? { label: localizedText(step.label, input.locale) } : {}),
+          ...(step.when ? { when: step.when } : {}),
+        }))
         const command: CommandCapability = {
           id,
           kind: 'command',
@@ -244,8 +261,15 @@ export async function resolveCommandContributions(input: ResolveCommandContribut
           source: plugin.source,
           category: template.category as CommandCategory | undefined,
           package: commandPackage,
-          invocation: { command: template.command, args: template.args, cwd: packageRoot, requiredEnv: template.requiredEnv },
-          availability: await executableAvailability(template.command),
+          invocation: {
+            command: template.command,
+            args: template.args,
+            cwd: packageRoot,
+            requiredEnv: template.requiredEnv,
+            ...(prerequisites.length ? { label: template.name } : {}),
+            ...(prerequisites.length ? { prerequisites } : {}),
+          },
+          availability: await commandAvailability([...prerequisites.map(step => step.command), template.command]),
           ...(template.toolGroup ? { toolGroupId: qualifiedToolGroupId(plugin.pluginId, template.toolGroup) } : {}),
           ...(Object.keys(templateInputs).length ? { inputs: commandInputs(templateInputs, input.locale) } : {}),
         }
@@ -344,6 +368,15 @@ async function executableAvailability(command: string): Promise<{ available: boo
     }
   }
   return { available: false, diagnostic: `Required command is not available on PATH: ${command}` }
+}
+
+async function commandAvailability(commands: string[]): Promise<{ available: boolean, diagnostic?: string }> {
+  for (const command of new Set(commands)) {
+    const availability = await executableAvailability(command)
+    if (!availability.available)
+      return availability
+  }
+  return { available: true }
 }
 
 async function packageMatches(packageRoot: string, matcher: CommandPackageMatcher): Promise<boolean> {
