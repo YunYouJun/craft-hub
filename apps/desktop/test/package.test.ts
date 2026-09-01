@@ -110,11 +110,13 @@ describe('desktop package scripts', () => {
     const webIndexUrl = new URL('../../web/index.html', import.meta.url)
     const webMainUrl = new URL('../../web/src/main.ts', import.meta.url)
     const desktopStylesUrl = new URL('../../web/src/desktop.css', import.meta.url)
-    const [desktopMain, webIndex, webMain, desktopStyles] = await Promise.all([
+    const webStylesUrl = new URL('../../web/src/styles.css', import.meta.url)
+    const [desktopMain, webIndex, webMain, desktopStyles, webStyles] = await Promise.all([
       readFile(desktopMainUrl, 'utf8'),
       readFile(webIndexUrl, 'utf8'),
       readFile(webMainUrl, 'utf8'),
       readFile(desktopStylesUrl, 'utf8'),
+      readFile(webStylesUrl, 'utf8'),
     ])
 
     expect(desktopMain).toContain('app.setName(productName)')
@@ -124,6 +126,7 @@ describe('desktop package scripts', () => {
     expect(desktopMain).toContain('const windowTitle = developmentUrl ?')
     expect(desktopMain).toContain(': productName')
     expect(desktopMain).toContain('title: windowTitle')
+    expect(desktopMain).toContain('titleBarOverlay: true')
     expect(desktopMain).toContain('mainWindow.on(\'page-title-updated\', event => event.preventDefault())')
     expect(webIndex).toContain('<title>Craft Hub</title>')
     expect(webMain).toContain('import \'./desktop.css\'')
@@ -131,6 +134,13 @@ describe('desktop package scripts', () => {
     expect(desktopStyles).toContain(':root[data-desktop-platform=\'darwin\'] .app-shell')
     expect(desktopStyles).toContain(':root[data-desktop-platform=\'darwin\'] .marketplace-page')
     expect(desktopStyles).toContain('-webkit-app-region: drag')
+    expect(desktopStyles).toContain('--desktop-titlebar-height: 0px')
+    expect(desktopStyles).toContain('--desktop-titlebar-height: env(titlebar-area-height, 38px)')
+    expect(desktopStyles).toContain('height: var(--desktop-titlebar-height)')
+    expect(desktopStyles).toContain('padding-top: var(--desktop-titlebar-height)')
+    expect(webStyles).toMatch(/\.package-drawer-content \{[^}]*top: var\(--desktop-titlebar-height\)/)
+    expect(webStyles).toMatch(/\.dialog-overlay \{[^}]*top: var\(--desktop-titlebar-height\)/)
+    expect(webStyles).toMatch(/\.palette-overlay \{[^}]*top: var\(--desktop-titlebar-height\)/)
     expect(desktopMain).toContain('nativeTheme.themeSource = theme')
     expect(desktopMain).toContain('settings[\'workbench.theme\']')
     expect(desktopMain).toContain('nativeTheme.shouldUseDarkColors')

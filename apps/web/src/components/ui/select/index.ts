@@ -1,6 +1,8 @@
+export { default as FormSelect } from './FormSelect.vue'
 export { default as Select } from './Select.vue'
 export { default as SelectContent } from './SelectContent.vue'
 export { default as SelectGroup } from './SelectGroup.vue'
 export { default as SelectItem } from './SelectItem.vue'
+export { default as SelectOptionContent } from './SelectOptionContent.vue'
 export { default as SelectTrigger } from './SelectTrigger.vue'
 export { default as SelectValue } from './SelectValue.vue'

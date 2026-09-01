@@ -4,8 +4,10 @@
 import type { CatalogPluginV1, InstalledPlugin, MarketplaceSource, MarketplaceSourcePreview } from 'craft-hub'
 import { flushPromises, mount } from '@vue/test-utils'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { createMemoryHistory } from 'vue-router'
 import { api } from './api'
 import MarketplaceDialog from './MarketplaceDialog.vue'
+import { createWorkbenchRouter } from './router'
 
 const packageName = '@acme/craft-hub-plugin-suite'
 const icon = 'https://plugins.acme.example/.well-known/craft-hub/plugins/v1/assets/acme-suite.svg'
@@ -30,6 +32,7 @@ const catalogPlugin: CatalogPluginV1 & { sourceId: string, sourceName: string, s
   permissions: [],
   categories: ['developer-tools'],
   status: 'active',
+  includesPlugins: [],
   requiresPlugins: [],
   sourceId: 'acme',
   sourceName: 'Acme',
@@ -48,6 +51,7 @@ const installedPlugin: InstalledPlugin = {
     displayName: 'Acme Suite',
     icon: 'assets/icon.svg',
     craftHub: {},
+    includesPlugins: [],
     requiresPlugins: [],
     projectFiles: [],
     permissions: [],
@@ -68,6 +72,13 @@ const sourcePreview: MarketplaceSourcePreview = {
   },
 }
 
+async function mountMarketplace(props: { open: boolean, importCatalogUrl?: string } = { open: true }, attachTo?: Element) {
+  const router = createWorkbenchRouter(createMemoryHistory())
+  await router.push('/marketplace')
+  await router.isReady()
+  return mount(MarketplaceDialog, { attachTo, props, global: { plugins: [router] } })
+}
+
 describe('marketplace dialog', () => {
   afterEach(() => {
     vi.restoreAllMocks()
@@ -79,12 +90,128 @@ describe('marketplace dialog', () => {
     vi.spyOn(api, 'installedPlugins').mockResolvedValue([installedPlugin])
     vi.spyOn(api, 'marketplaceSources').mockResolvedValue([])
 
-    const wrapper = mount(MarketplaceDialog, { props: { open: true } })
+    const wrapper = await mountMarketplace()
     await flushPromises()
 
     expect(wrapper.get('[data-testid="plugin-icon"]').attributes('src')).toBe(icon)
     await wrapper.get('.marketplace-tabs button:nth-child(2)').trigger('click')
     expect(wrapper.get('[data-testid="installed-plugin-icon"]').attributes('src')).toBe(icon)
+  })
+
+  it('opens a versioned plugin detail route from the catalog summary', async () => {
+    vi.spyOn(api, 'marketplaceCatalog').mockResolvedValue([catalogPlugin])
+    vi.spyOn(api, 'installedPlugins').mockResolvedValue([])
+    vi.spyOn(api, 'marketplaceSources').mockResolvedValue([])
+    vi.spyOn(api, 'pluginDocument').mockResolvedValue({
+      package: packageName,
+      version: '0.1.0',
+      sourceId: 'acme',
+      origin: 'marketplace',
+      manifest: installedPlugin.manifest,
+      document: { status: 'found', path: 'README.md', content: '# Acme Suite' },
+    })
+
+    const wrapper = await mountMarketplace()
+    await flushPromises()
+    await wrapper.get('.plugin-summary-link').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="plugin-detail"]').text()).toContain('Acme Suite')
+    expect(wrapper.get('[data-testid="plugin-detail"] .markdown-preview').text()).toContain('Acme Suite')
+    expect(wrapper.vm.$route).toMatchObject({
+      name: 'plugin-detail',
+      params: { sourceId: 'acme', packageName },
+      query: expect.objectContaining({ version: '0.1.0', from: 'marketplace' }),
+    })
+  })
+
+  it('labels extension packs and expands independently managed included plugins', async () => {
+    const childPackage = '@acme/craft-hub-plugin-child'
+    const pack = {
+      ...installedPlugin,
+      manifest: {
+        ...installedPlugin.manifest,
+        includesPlugins: [{ package: childPackage, version: '^1.0.0' }],
+      },
+    }
+    const child: InstalledPlugin = {
+      ...installedPlugin,
+      package: childPackage,
+      version: '1.2.0',
+      packagePath: '/plugins/acme-child',
+      manifest: {
+        ...installedPlugin.manifest,
+        id: childPackage,
+        displayName: 'Acme Child',
+      },
+    }
+    vi.spyOn(api, 'marketplaceCatalog').mockResolvedValue([{ ...catalogPlugin, includesPlugins: pack.manifest.includesPlugins }])
+    vi.spyOn(api, 'installedPlugins').mockResolvedValue([pack, child])
+    vi.spyOn(api, 'marketplaceSources').mockResolvedValue([])
+    vi.spyOn(api, 'pluginDocument').mockResolvedValue({ package: childPackage, version: child.version, sourceId: 'acme', origin: 'marketplace', manifest: child.manifest, document: { status: 'missing' } })
+    const remove = vi.spyOn(api, 'removePlugin').mockResolvedValue({ deleted: true })
+    vi.stubGlobal('confirm', vi.fn(() => true))
+
+    const wrapper = await mountMarketplace()
+    await flushPromises()
+
+    expect(wrapper.get('.plugin-row .plugin-pack-count').text()).toBe('1')
+    expect(wrapper.get('.plugin-row .plugin-pack-badge').text()).toBe('Extension Pack')
+    await wrapper.get('.marketplace-tabs button:nth-child(2)').trigger('click')
+    const packRow = wrapper.findAll('.installed-plugin-row').find(row => row.text().includes('Acme Suite'))!
+    expect(packRow.text()).toContain('1/1 available')
+    expect(packRow.text()).toContain('Remove pack')
+    expect(packRow.text()).not.toContain('Disable')
+    expect(packRow.get('[aria-expanded="false"]').text()).toBe('View included')
+
+    await packRow.get('[aria-expanded="false"]').trigger('click')
+    expect(packRow.get('[aria-expanded="true"]').text()).toBe('Hide included')
+    expect(packRow.get('.plugin-pack-contents').text()).toContain('Acme Child')
+    expect(packRow.get('.plugin-pack-contents').text()).toContain('1.2.0')
+    expect(packRow.get('.plugin-pack-contents').text()).toContain('Enabled')
+
+    await packRow.get('.plugin-pack-item').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-testid="plugin-detail"]').text()).toContain('Acme Child')
+    expect(wrapper.vm.$route).toMatchObject({ name: 'plugin-detail', params: { sourceId: 'acme', packageName: childPackage }, query: expect.objectContaining({ version: '1.2.0', parentName: 'Acme Suite' }) })
+    await wrapper.get('.plugin-detail-back').trigger('click')
+    await flushPromises()
+
+    const returnedPackRow = wrapper.findAll('.installed-plugin-row').find(row => row.text().includes('Acme Suite'))!
+    await returnedPackRow.findAll('button').find(button => button.text() === 'Remove pack')!.trigger('click')
+    await flushPromises()
+    expect(remove).toHaveBeenCalledWith(packageName)
+    expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining('Included plugins will remain installed'))
+  })
+
+  it('loads and clearly labels a local plugin directory', async () => {
+    const localPlugin = {
+      ...installedPlugin,
+      version: '0.2.0',
+      sourceId: 'local' as const,
+      origin: 'local' as const,
+      linkedAt: '2026-09-01T00:00:00.000Z',
+      installedAt: '2026-09-01T00:00:00.000Z',
+      packagePath: '/workspace/plugin',
+    }
+    vi.spyOn(api, 'marketplaceCatalog').mockResolvedValue([])
+    vi.spyOn(api, 'installedPlugins').mockResolvedValue([localPlugin])
+    vi.spyOn(api, 'marketplaceSources').mockResolvedValue([])
+    const link = vi.spyOn(api, 'linkLocalPlugin').mockResolvedValue(localPlugin)
+
+    const wrapper = await mountMarketplace()
+    await flushPromises()
+    await wrapper.get('.marketplace-tabs button:nth-child(2)').trigger('click')
+
+    expect(wrapper.get('.installed-plugin-row .local-plugin-badge').text()).toBe('Local')
+    expect(wrapper.get('.installed-plugin-row').text()).toContain('/workspace/plugin')
+    expect(wrapper.get('.installed-plugin-row').text()).toContain('Unlink')
+    expect(wrapper.get('.installed-plugin-row').text()).not.toContain('Uninstall')
+
+    await wrapper.get('[data-testid="local-plugin-form"] input').setValue('/workspace/next-plugin')
+    await wrapper.get('[data-testid="local-plugin-form"]').trigger('submit')
+    await flushPromises()
+    expect(link).toHaveBeenCalledWith('/workspace/next-plugin')
   })
 
   it('offers a reviewed manual update when the Catalog has a newer version', async () => {
@@ -101,9 +228,9 @@ describe('marketplace dialog', () => {
     const install = vi.spyOn(api, 'installPlugin').mockResolvedValue({ ...installedPlugin, version: '0.2.0', previousVersion: '0.1.0' })
     vi.stubGlobal('confirm', vi.fn(() => true))
 
-    const wrapper = mount(MarketplaceDialog, { props: { open: true } })
+    const wrapper = await mountMarketplace()
     await flushPromises()
-    const button = wrapper.get('.plugin-row button')
+    const button = wrapper.get('.plugin-row > .ui-button')
     expect(button.text()).toBe('Update')
     await button.trigger('click')
     await flushPromises()
@@ -116,7 +243,7 @@ describe('marketplace dialog', () => {
     vi.spyOn(api, 'installedPlugins').mockResolvedValue([])
     vi.spyOn(api, 'marketplaceSources').mockResolvedValue([builtinSource])
 
-    const wrapper = mount(MarketplaceDialog, { props: { open: true } })
+    const wrapper = await mountMarketplace()
     await flushPromises()
     await wrapper.get('.marketplace-tabs button:nth-child(3)').trigger('click')
 
@@ -144,7 +271,7 @@ describe('marketplace dialog', () => {
       },
     ])
 
-    const wrapper = mount(MarketplaceDialog, { props: { open: true } })
+    const wrapper = await mountMarketplace()
     await flushPromises()
     await wrapper.get('.marketplace-tabs button:nth-child(3)').trigger('click')
 
@@ -178,10 +305,7 @@ describe('marketplace dialog', () => {
       catalog: sourcePreview.catalog,
     })
 
-    const wrapper = mount(MarketplaceDialog, {
-      attachTo: document.body,
-      props: { open: true, importCatalogUrl: sourcePreview.catalogUrl },
-    })
+    const wrapper = await mountMarketplace({ open: true, importCatalogUrl: sourcePreview.catalogUrl }, document.body)
     await flushPromises()
     expect(wrapper.findAll('.source-field-label small').map(label => label.text())).toEqual(['Auto-filled', 'Auto-filled'])
     await wrapper.get('.source-form').trigger('submit')
@@ -210,9 +334,7 @@ describe('marketplace dialog', () => {
     vi.spyOn(api, 'marketplaceSources').mockResolvedValue([])
     vi.spyOn(api, 'previewMarketplaceSource').mockRejectedValue(new Error('fetch failed'))
 
-    const wrapper = mount(MarketplaceDialog, {
-      props: { open: true, importCatalogUrl: sourcePreview.catalogUrl },
-    })
+    const wrapper = await mountMarketplace({ open: true, importCatalogUrl: sourcePreview.catalogUrl })
     await flushPromises()
     await wrapper.get('.source-form').trigger('submit')
     await flushPromises()

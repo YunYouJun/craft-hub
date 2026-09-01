@@ -47,6 +47,7 @@ const skill: SkillCapability = {
 describe('detail panel desktop actions', () => {
   afterEach(() => {
     Reflect.deleteProperty(window, 'craftHubDesktop')
+    window.localStorage.clear()
     document.body.innerHTML = ''
     vi.restoreAllMocks()
   })
@@ -134,8 +135,11 @@ describe('detail panel desktop actions', () => {
     await flushPromises()
     expect(wrapper.get('[data-testid="skill-input-fields"]').text()).toContain('Application')
     expect(wrapper.get('[data-testid="skill-input-app"]').text()).toContain('Task Center')
-    expect(wrapper.get('[data-testid="skill-invocation-mode"]').text()).toContain('Codex App (default)')
-    expect(wrapper.find('[data-testid="skill-invocation-mode"] .codex-icon').exists()).toBe(true)
+    expect(wrapper.get('[data-testid="start-skill-in-codex"]').text()).toContain('New task in Codex')
+    expect(wrapper.get('[data-testid="run-skill-in-background"]').text()).toContain('Run in Craft Hub background')
+    expect(wrapper.get('[data-testid="start-skill-in-codex"] .codex-icon').classes()).toContain('codex-icon')
+    expect(wrapper.get('[data-testid="start-skill-in-codex"]').attributes('disabled')).toBeUndefined()
+    expect(wrapper.get('[data-testid="run-skill-in-background"]').attributes('disabled')).toBeDefined()
     expect(wrapper.get('label[for="skill-agent-request"]').text()).toBe('Additional request (optional)')
     wrapper.findAllComponents(Select)[0]!.vm.$emit('update:modelValue', 'todo')
     await wrapper.get('#skill-agent-request').setValue('Publish a patch release')
@@ -219,7 +223,7 @@ describe('detail panel desktop actions', () => {
 
     const wrapper = mount(DetailPanel, { global: { plugins: [pinia] } })
     await flushPromises()
-    expect(wrapper.get('[data-testid="use-skill-with-agent"]').attributes('disabled')).toBeUndefined()
+    expect(wrapper.get('[data-testid="start-skill-in-codex"]').attributes('disabled')).toBeUndefined()
     await wrapper.get('[data-testid="skill-agent-form"]').trigger('submit')
     await flushPromises()
 
@@ -283,11 +287,8 @@ describe('detail panel desktop actions', () => {
 
     const wrapper = mount(DetailPanel, { global: { plugins: [pinia] } })
     await wrapper.get('#skill-agent-request').setValue('Publish a patch release')
-    wrapper.findAllComponents(Select).at(-1)!.vm.$emit('update:modelValue', 'background')
-    await flushPromises()
-    expect(wrapper.get('[data-testid="skill-invocation-mode"]').text()).toContain('Craft Hub background')
-    expect(wrapper.get('[data-testid="skill-invocation-mode"] .app-icon').classes()).toContain('i-ri-node-tree')
-    await wrapper.get('[data-testid="skill-agent-form"]').trigger('submit')
+    expect(wrapper.get('[data-testid="run-skill-in-background"] .app-icon').classes()).toContain('i-ri-node-tree')
+    await wrapper.get('[data-testid="run-skill-in-background"]').trigger('click')
     await flushPromises()
 
     expect(startAgentTask).toHaveBeenCalledWith(
@@ -390,6 +391,55 @@ describe('detail panel desktop actions', () => {
     expect(run).toHaveBeenCalledWith({ environment: 'staging', askAccount: 'true', account: '12345' })
   })
 
+  it('previews prerequisite commands before the parameterized main command', async () => {
+    useI18n().setLocale('en')
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    const store = useWorkbenchStore()
+    const deploy: CommandCapability = {
+      ...command,
+      name: 'deploy',
+      invocation: {
+        command: 'pnpm',
+        args: ['exec', 'widget-cli', 'deploy'],
+        cwd: project.path,
+        requiredEnv: [],
+        prerequisites: [{ label: 'Compile', command: 'pnpm', args: ['exec', 'widget-cli', 'build'], cwd: project.path, requiredEnv: [] }],
+      },
+      inputs: [
+        { id: 'compileBeforeDeploy', type: 'boolean', label: 'Compile before deployment', default: 'true', omitArgument: true },
+        { id: 'environment', type: 'select', label: 'Environment', options: [{ value: 'dev' }, { value: 'rdm' }], default: 'dev', flag: '--env' },
+      ],
+    }
+    store.projects = [{ ...project, trust: 'trusted' }]
+    store.selectedProjectId = project.id
+    store.capabilities = [deploy]
+    store.selectedCapabilityId = deploy.id
+    vi.spyOn(store, 'previewSelectedCommand').mockImplementation(async (inputs = {}) => {
+      const { prerequisites, ...invocation } = deploy.invocation
+      return {
+        ...invocation,
+        args: ['exec', 'widget-cli', 'deploy', `--env=${inputs.environment}`],
+        ...(inputs.compileBeforeDeploy === 'true' ? { prerequisites } : {}),
+      }
+    })
+
+    const wrapper = mount(DetailPanel, { attachTo: document.body, global: { plugins: [pinia] } })
+    await flushPromises()
+
+    const preview = wrapper.get('.command-sequence-preview')
+    expect(preview.findAll('[data-testid="shell-command-preview"]')).toHaveLength(2)
+    expect(preview.text()).toContain('1. Compile')
+    expect(preview.text()).toContain('pnpm exec widget-cli build')
+    expect(preview.text()).toContain('pnpm exec widget-cli deploy --env=dev')
+
+    await wrapper.get('input[type="checkbox"]').setValue(false)
+    await flushPromises()
+    expect(preview.findAll('[data-testid="shell-command-preview"]')).toHaveLength(1)
+    expect(preview.text()).not.toContain('widget-cli build')
+    expect(preview.text()).toContain('pnpm exec widget-cli deploy --env=dev')
+  })
+
   it('initializes select, text, and boolean command inputs from configured defaults', async () => {
     useI18n().setLocale('en')
     const pinia = createPinia()
@@ -421,6 +471,53 @@ describe('detail panel desktop actions', () => {
     expect((wrapper.get('#command-input-silent').element as HTMLInputElement).checked).toBe(true)
     expect(preview).toHaveBeenCalledWith({ environment: 'staging', entry: 'pages/home/index?pf=ios', silent: 'true' })
     expect(wrapper.text()).toContain('pnpm run deploy -- --env=staging --entry=pages/home/index?pf=ios --silent')
+  })
+
+  it('renders declared option icons and restores the last submitted non-private selections', async () => {
+    useI18n().setLocale('en')
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    const remembered: CommandCapability = {
+      ...command,
+      name: 'deploy',
+      inputs: [
+        { id: 'environment', type: 'select', label: 'Environment', options: [{ value: 'dev' }, { value: 'staging', label: 'Staging', icon: 'cloud' }], default: 'dev', flag: '--env' },
+        { id: 'account', type: 'select', label: 'Account', options: [{ value: 'default' }, { value: '12345' }], default: 'default', flag: '--account', private: true },
+      ],
+    }
+    const store = useWorkbenchStore()
+    store.projects = [{ ...project, trust: 'trusted' }]
+    store.selectedProjectId = project.id
+    store.capabilities = [remembered]
+    store.selectedCapabilityId = remembered.id
+    vi.spyOn(store, 'previewSelectedCommand').mockImplementation(async (inputs = {}) => ({
+      ...remembered.invocation,
+      args: ['run', 'build', `--env=${inputs.environment}`],
+    }))
+    vi.spyOn(store, 'runSelected').mockResolvedValue()
+
+    const wrapper = mount(DetailPanel, { attachTo: document.body, global: { plugins: [pinia] } })
+    await flushPromises()
+    const selects = wrapper.findAllComponents(Select)
+    selects[0]!.vm.$emit('update:modelValue', 'staging')
+    selects[1]!.vm.$emit('update:modelValue', '12345')
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+    wrapper.unmount()
+
+    store.selectedCapabilityId = ''
+    await Promise.resolve()
+    store.selectedCapabilityId = remembered.id
+    const restored = mount(DetailPanel, { attachTo: document.body, global: { plugins: [pinia] } })
+    await flushPromises()
+
+    expect(restored.findAllComponents(Select)[0]!.props('modelValue')).toBe('staging')
+    expect(restored.findAllComponents(Select)[1]!.props('modelValue')).toBe('default')
+    expect(window.localStorage.getItem(`craft-hub-command-inputs:${project.id}:${remembered.id}`)).not.toContain('12345')
+
+    await restored.findAll('[role="combobox"]')[0]!.trigger('pointerdown', { button: 0, ctrlKey: false })
+    await flushPromises()
+    expect(document.body.querySelector('[role="option"] .i-ri-cloud-line')).not.toBeNull()
   })
 
   it('shows a release plan and requires a separate per-run confirmation', async () => {

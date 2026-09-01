@@ -42,6 +42,9 @@ Marketplace Plugin 在 `package.json#craftHub` 发布 v1 声明。核心身份�
     "commands": "运行此包声明的命令。"
   },
   "craftHub": { "minVersion": "0.0.1-alpha.0" },
+  "includesPlugins": [
+    { "package": "@acme/craft-hub-plugin-toolkit", "version": "^1.0.0" }
+  ],
   "requiresPlugins": [
     { "package": "@acme/craft-hub-plugin-shared", "version": "^1.0.0" }
   ],
@@ -60,7 +63,9 @@ Marketplace Plugin 在 `package.json#craftHub` 发布 v1 声明。核心身份�
 }
 ```
 
-`requiresPlugins` 声明来自同一 Marketplace Source 的其他市场插件，每项包含包名和 SemVer range。禁止依赖自身或重复声明同一包；npm `dependencies` 仍然禁止使用。
+`includesPlugins` 声明插件合集：列出的市场插件会从同一 Source 经一次审阅后一起安装，之后仍可独立管理。移除合集不会移除其中已经安装的插件。
+
+`requiresPlugins` 声明来自同一 Marketplace Source 的强依赖。每项包含包名和 SemVer range；禁止引用自身、重复声明或同时出现在两个清单中。npm `dependencies` 仍然禁止使用。
 
 `packageQuickActions` 允许声明式插件通过受限的文件标记识别工作区 package，并把已发现的 capability 放进该 package 的概览页。selector 可以是 capability ID、无歧义的 capability 名称或 `source:name`。因此它可以组合其他插件提供的技能或命令；目标 capability 未被发现时不会展示快捷项，并回退到常规命令快捷项。package 匹配需要 `read-project-files` 权限。
 
@@ -95,6 +100,10 @@ Marketplace Plugin 在 `package.json#craftHub` 发布 v1 声明。核心身份�
 
 命令预设可以通过 `optionSources` 扩展 `select` 输入。`package-json-array` 从匹配 package 内受限的 JSON 数组读取选项，需要 `read-project-files`；`user-setting` 只读取一个精确的 `extensions.<plugin>.<setting>` 用户设置键，需要单独披露 `read-user-settings` 权限。静态选项保持在前、重复值会去重，缺失或非法数据源会被忽略，两种来源都不会执行项目代码。
 
+命令模板和命令预设与项目配置共用同一套输入协议。`text` 或 `select` 输入可以把
+`argumentStyle` 设为 `positional` 并省略 `flag`；Craft Hub 会按声明顺序把校验后的值作为
+独立 argv 参数追加。整个过程仍是结构化执行，不会开放 shell 插值。
+
 ```json
 {
   "inputs": {
@@ -122,6 +131,7 @@ Plugin Catalog 列出不可变的包版本。每个 Catalog Entry 包含精确�
 - `status`：`active`、`deprecated` 或 `blocked`。
 - `statusReason`：`deprecated` 和 `blocked` 必填。
 - `replacement`：可选的替代 Marketplace Plugin 包名。
+- `includesPlugins`：从 Manifest 复制的插件合集成员清单。
 - `requiresPlugins`：从 Manifest 复制的插件依赖清单。
 
 Catalog 的权限、权限说明和插件依赖必须与已安装包的 Manifest 一致。完整性、身份、权限、权限说明、插件依赖或兼容范围不一致时，Craft Hub 拒绝安装。
@@ -134,9 +144,15 @@ Catalog 的权限、权限说明和插件依赖必须与已安装包的 Manifest
 
 Catalog 维护者应保留被阻断的版本条目，让客户端能够实施精确撤销。
 
+## 本地插件
+
+开发版和正式版都可以直接从绝对路径加载同一种声明式插件包。可在 **已安装 → 加载本地插件** 中输入目录，或运行 `craft-hub plugin:link /插件目录的绝对路径`。本地插件会显示 **本地** 标记、跨重启保留，并覆盖同名市场版本而不修改原安装包。刷新插件列表或能力时会重新读取 Manifest，也可以使用 `craft-hub plugin:refresh <package>` 强制刷新；运行 `craft-hub plugin:unlink <package>` 后，会自动恢复同名市场版本。
+
+关联本地目录属于用户显式信任操作，不具备 Catalog 完整性校验和发布者认证；但仍会校验包身份、Manifest Schema、Craft Hub 最低版本、文件路径边界、生命周期脚本和运行时依赖限制。本地修改不合法时，插件会保留在列表中并显示错误，其贡献会暂停启用，修复后可再次刷新恢复。
+
 ## 安装安全
 
-确认安装前，Craft Hub 会递归解析根插件及其同源依赖闭包，拒绝缺失版本、不兼容的 Craft Hub 版本、冲突约束、阻断包和循环依赖，并返回按依赖优先排列、包含合并权限的安装计划。一次确认请求会安装新依赖、重新启用兼容但已停用的依赖，并跳过已启用版本。
+确认安装前，Craft Hub 会递归解析根插件及其同源合集成员和强依赖闭包，拒绝缺失版本、不兼容的 Craft Hub 版本、冲突约束、阻断包和循环依赖，并返回按依赖优先排列、包含合并权限的安装计划。一次确认请求会安装新成员和依赖、重新启用兼容但已停用的插件，并跳过已启用版本。安装完成后，合集成员可以独立启停、更新或移除。
 
 本地服务启动后，Craft Hub 会刷新已启用插件使用的市场源；当升级计划中的每个包都已从同一来源安装且权限集合完全不变时，会自动安装最新的 active 兼容版本，并保留上一版本用于回滚。新增权限或新增依赖的升级不会被自动批准，插件市场会将其作为手动升级展示，用户可先检查完整计划和合并权限。也可通过 `GET /api/plugins/updates` 检查安全升级，并以 `POST /api/plugins/updates` 应用。
 

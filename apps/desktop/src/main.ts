@@ -233,7 +233,13 @@ async function projectPath(projectId: string): Promise<string> {
 }
 
 async function openCodexThread(threadId: string): Promise<void> {
-  await shell.openExternal(codexThreadUrl(threadId))
+  try {
+    await shell.openExternal(codexThreadUrl(threadId))
+  }
+  catch {
+    await focusCodexApplication().catch(() => {})
+    throw new Error('Codex could not open this task link. The task and its output remain available in Craft Hub.')
+  }
 }
 
 async function openConfiguredEditor(path: string, line?: number, column?: number, projectRoot?: string): Promise<void> {
@@ -446,7 +452,7 @@ ipcMain.handle('craft-hub:cloud-synchronize', () => personalCloud?.synchronize()
 ipcMain.handle('craft-hub:consume-marketplace-source-import', () => desktopLinks.consumeMarketplaceImport())
 ipcMain.handle('craft-hub:consume-desktop-navigation', async () => {
   const navigation = desktopLinks.consumeNavigation()
-  if (!navigation || navigation.kind === 'home')
+  if (!navigation || navigation.kind !== 'project')
     return navigation
   if (!craftHubServer)
     throw new Error('Craft Hub is still starting')
@@ -570,6 +576,7 @@ async function createWindow(): Promise<void> {
     title: windowTitle,
     icon: applicationIcon,
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
+    ...(process.platform === 'darwin' ? { titleBarOverlay: true } : {}),
     backgroundColor: nativeTheme.shouldUseDarkColors ? '#1f232b' : '#ffffff',
     webPreferences: {
       contextIsolation: true,

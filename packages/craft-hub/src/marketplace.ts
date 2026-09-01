@@ -1,13 +1,14 @@
+import type { Buffer } from 'node:buffer'
 import type { ChildProcessWithoutNullStreams } from 'node:child_process'
 import type { PluginCommandContributions } from './command-contributions'
 import type { CapabilityProvider } from './extensions'
 import type { InstalledIntegrationContribution } from './integrations'
 import type { MarketplaceSourceVerification, MarketplaceTrustPolicy } from './marketplace-trust'
-import type { Capability, ProjectRecord } from './types'
+import type { Capability, ProjectReadme, ProjectRecord } from './types'
 import { spawn } from 'node:child_process'
 import { createHash, randomUUID } from 'node:crypto'
 import { existsSync, realpathSync } from 'node:fs'
-import { access, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import { access, mkdir, readFile, realpath, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { delimiter, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import process from 'node:process'
 import pacote from 'pacote'
@@ -16,6 +17,7 @@ import { z } from 'zod'
 import { commandPresetContributionSchema, commandTemplateContributionSchema, packageLinkContributionSchema, packageQuickActionContributionSchema, packageToolGroupContributionSchema } from './command-contributions'
 import { integrationContributionSchema } from './integrations'
 import { MarketplaceCatalogTrust } from './marketplace-trust'
+import { readPackageDocument, readPackageDocumentAsset } from './project-overview'
 import { craftHubVersion } from './version'
 
 const packageNamePattern = /^@[a-z0-9][a-z0-9._-]*\/(?:craft-hub-plugin-[a-z0-9][a-z0-9._-]*|plugin-[a-z0-9][a-z0-9._-]*)$/
@@ -23,6 +25,7 @@ const lifecycleScripts = new Set(['preinstall', 'install', 'postinstall'])
 const catalogResponseLimit = 1024 * 1024
 const catalogRedirectLimit = 5
 const catalogTimeoutMs = 10_000
+const pluginDocumentTimeoutMs = 15_000
 
 const safeRelativePath = z.string().min(1).refine(value => !isAbsolute(value) && !value.split(/[\\/]/).includes('..'), 'Path must stay inside the plugin package')
 const secureHttpsUrlSchema = z.string().min(1).refine(isSecureHttpsUrl, 'URL must use HTTPS and must not contain credentials')
@@ -76,6 +79,7 @@ export const pluginManifestV1Schema = z.object({
   craftHub: z.object({
     minVersion: z.string().refine(value => valid(value) !== null, 'Craft Hub minimum version must be valid SemVer').optional(),
   }).default({}),
+  includesPlugins: z.array(pluginDependencyV1Schema).default([]),
   requiresPlugins: z.array(pluginDependencyV1Schema).default([]),
   projectFiles: z.array(safeRelativePath).default([]),
   permissions: z.array(pluginPermissionSchema).default([]),
@@ -91,7 +95,9 @@ export const pluginManifestV1Schema = z.object({
     integrations: z.array(integrationContributionSchema).default([]),
   }),
 }).superRefine((manifest, context) => {
-  validatePluginDependencies(manifest.id, manifest.requiresPlugins, context)
+  validatePluginDependencies(manifest.id, manifest.includesPlugins, 'includesPlugins', context)
+  validatePluginDependencies(manifest.id, manifest.requiresPlugins, 'requiresPlugins', context)
+  validateDistinctPluginRelations(manifest.includesPlugins, manifest.requiresPlugins, context)
   if (manifest.contributes.commands.length && !manifest.permissions.includes('commands'))
     context.addIssue({ code: 'custom', message: 'Command contributions require the commands permission', path: ['permissions'] })
   if ((manifest.contributes.commandPresets.length || manifest.contributes.commandTemplates.length) && !manifest.permissions.includes('command-presets'))
@@ -138,9 +144,12 @@ export const catalogPluginV1Schema = z.object({
   statusReason: z.string().min(1).optional(),
   replacement: z.string().regex(packageNamePattern).optional(),
   requires: z.string().refine(value => validRange(value) !== null, 'Craft Hub requirement must be a valid SemVer range').optional(),
+  includesPlugins: z.array(pluginDependencyV1Schema).default([]),
   requiresPlugins: z.array(pluginDependencyV1Schema).default([]),
 }).superRefine((plugin, context) => {
-  validatePluginDependencies(plugin.package, plugin.requiresPlugins, context)
+  validatePluginDependencies(plugin.package, plugin.includesPlugins, 'includesPlugins', context)
+  validatePluginDependencies(plugin.package, plugin.requiresPlugins, 'requiresPlugins', context)
+  validateDistinctPluginRelations(plugin.includesPlugins, plugin.requiresPlugins, context)
   for (const issue of permissionMetadataIssues(plugin))
     context.addIssue({ code: 'custom', ...issue })
   if (plugin.status !== 'active' && !plugin.statusReason)
@@ -201,8 +210,29 @@ export interface InstalledPlugin {
   enabled: boolean
   packagePath: string
   manifest: PluginManifestV1
+  origin?: 'marketplace' | 'local'
   previousVersion?: string
   error?: string
+}
+
+/** A plugin loaded directly from a local package directory. */
+export interface LocalPlugin extends InstalledPlugin {
+  sourceId: 'local'
+  origin: 'local'
+  linkedAt: string
+}
+
+/** A marketplace installation or a local package currently managed by Craft Hub. */
+export type ManagedPlugin = InstalledPlugin | LocalPlugin
+
+/** Safely rendered source document for one exact plugin package version. */
+export interface PluginDocumentPreview {
+  package: string
+  version: string
+  sourceId: string
+  origin: 'marketplace' | 'local'
+  manifest: PluginManifestV1
+  document: ProjectReadme
 }
 
 /** Request to install one catalog package. */
@@ -256,13 +286,14 @@ export interface InstalledPackage {
 
 /** Adapter seam for installing an immutable plugin package. */
 export interface PluginPackageInstaller {
-  install: (input: { package: string, version: string, registry?: string, integrity?: string, destination: string }) => Promise<InstalledPackage>
+  install: (input: { package: string, version: string, registry?: string, integrity?: string, destination: string, signal?: AbortSignal }) => Promise<InstalledPackage>
 }
 
 interface MarketplaceState {
   schemaVersion: 1
   sources: MarketplaceSource[]
   installed: InstalledPlugin[]
+  linked: LocalPlugin[]
 }
 
 interface RestrictedPacoteOptions {
@@ -274,6 +305,7 @@ interface RestrictedPacoteOptions {
   allowRemote: 'none'
   integrity: string
   registry?: string
+  signal?: AbortSignal
 }
 
 interface PacoteExtractResult {
@@ -286,7 +318,7 @@ type PacoteExtract = (spec: string, destination: string, options: RestrictedPaco
 export class PacotePluginPackageInstaller implements PluginPackageInstaller {
   constructor(private readonly extract: PacoteExtract = pacote.extract as PacoteExtract) {}
 
-  async install(input: { package: string, version: string, registry?: string, integrity?: string, destination: string }): Promise<InstalledPackage> {
+  async install(input: { package: string, version: string, registry?: string, integrity?: string, destination: string, signal?: AbortSignal }): Promise<InstalledPackage> {
     if (!input.integrity)
       throw new Error(`Catalog integrity is required for ${input.package}@${input.version}`)
     const staging = join(input.destination, '.staging', randomUUID())
@@ -302,6 +334,7 @@ export class PacotePluginPackageInstaller implements PluginPackageInstaller {
         allowRemote: 'none',
         integrity: input.integrity,
         registry: input.registry,
+        signal: input.signal,
       })
       const packageJson = JSON.parse(await readFile(join(packagePath, 'package.json'), 'utf8')) as Record<string, unknown>
       assertNoRuntimeInstallSurface(packageJson)
@@ -319,7 +352,7 @@ export class PacotePluginPackageInstaller implements PluginPackageInstaller {
 
 /** Install npm packages without invoking package lifecycle scripts. */
 export class NpmPluginPackageInstaller implements PluginPackageInstaller {
-  async install(input: { package: string, version: string, registry?: string, integrity?: string, destination: string }): Promise<InstalledPackage> {
+  async install(input: { package: string, version: string, registry?: string, integrity?: string, destination: string, signal?: AbortSignal }): Promise<InstalledPackage> {
     const staging = join(input.destination, '.staging', randomUUID())
     await mkdir(staging, { recursive: true })
     const args = ['install', '--ignore-scripts', '--no-audit', '--no-fund', '--omit=dev', '--package-lock=true', '--prefix', staging]
@@ -328,7 +361,7 @@ export class NpmPluginPackageInstaller implements PluginPackageInstaller {
     args.push(`${input.package}@${input.version}`)
     try {
       const npm = resolveNpmInvocation()
-      await runProcess(spawn(npm.command, [...npm.args, ...args], { shell: false, stdio: 'pipe' }))
+      await runProcess(spawn(npm.command, [...npm.args, ...args], { shell: false, signal: input.signal, stdio: 'pipe' }))
       const packagePath = join(staging, 'node_modules', ...input.package.split('/'))
       const packageJson = JSON.parse(await readFile(join(packagePath, 'package.json'), 'utf8')) as Record<string, unknown>
       assertNoRuntimeInstallSurface(packageJson)
@@ -398,6 +431,7 @@ export class PluginManager {
   private initialized = false
   private operationTail: Promise<void> = Promise.resolve()
   private readonly listeners = new Set<() => void>()
+  private readonly documentPackageRequests = new Map<string, Promise<{ packagePath: string, manifest: PluginManifestV1 }>>()
   private state: MarketplaceState
 
   constructor(
@@ -416,6 +450,7 @@ export class PluginManager {
         ? source
         : withoutVerification(source)),
       installed: [],
+      linked: [],
     }
     this.capabilityProvider = { id: 'marketplace', discover: context => this.discover(context.project) }
   }
@@ -444,12 +479,16 @@ export class PluginManager {
             }
           })
         : []
+      const linked = Array.isArray(persisted.linked)
+        ? persisted.linked.filter(plugin => plugin && typeof plugin === 'object').map(plugin => ({ ...plugin, sourceId: 'local' as const, origin: 'local' as const }))
+        : []
       this.state = {
         schemaVersion: 1,
         sources: mergeManagedSources(this.state.sources, persisted.sources ?? []).map(source => this.catalogTrust.retains(source.catalogUrl, source.verification)
           ? source
           : withoutVerification(source)),
         installed,
+        linked,
       }
     }
     catch (error) {
@@ -466,9 +505,43 @@ export class PluginManager {
     return structuredClone(this.state.sources)
   }
 
-  async listInstalled(): Promise<InstalledPlugin[]> {
+  async listInstalled(): Promise<ManagedPlugin[]> {
     await this.initialize()
-    return structuredClone(this.state.installed)
+    await this.refreshLocalPlugins()
+    return structuredClone(this.activePluginSnapshot())
+  }
+
+  /** Load a declarative plugin directly from a local package directory. */
+  async linkLocal(packagePath: string): Promise<LocalPlugin> {
+    await this.initialize()
+    const linked = await this.readLocalPlugin(packagePath)
+    const existing = this.state.linked.find(plugin => plugin.package === linked.package || plugin.packagePath === linked.packagePath)
+    if (existing) {
+      linked.linkedAt = existing.linkedAt
+      linked.installedAt = existing.installedAt
+      linked.enabled = existing.enabled
+    }
+    await this.mutate(() => {
+      this.state.linked = [...this.state.linked.filter(plugin => plugin.package !== linked.package && plugin.packagePath !== linked.packagePath), linked]
+    })
+    return structuredClone(linked)
+  }
+
+  /** Re-read one linked plugin from disk so manifest edits take effect immediately. */
+  async refreshLocal(packageName: string): Promise<LocalPlugin> {
+    await this.initialize()
+    const linked = this.requireLocal(packageName)
+    await this.refreshLocalPlugins(packageName, true)
+    return structuredClone(this.requireLocal(linked.package))
+  }
+
+  /** Stop loading a local plugin. A same-name marketplace installation becomes active again. */
+  async unlinkLocal(packageName: string): Promise<void> {
+    await this.initialize()
+    this.requireLocal(packageName)
+    await this.mutate(() => {
+      this.state.linked = this.state.linked.filter(plugin => plugin.package !== packageName)
+    })
   }
 
   /** Subscribe to installed-plugin or marketplace-source changes. */
@@ -491,6 +564,25 @@ export class PluginManager {
           }
         })
       : [])
+  }
+
+  /** Read a bounded Markdown document from one exact marketplace or local plugin package. */
+  async pluginDocument(request: { sourceId: string, package: string, version?: string, path?: string }): Promise<PluginDocumentPreview> {
+    const resolved = await this.resolvePluginDocumentPackage(request)
+    return {
+      package: request.package,
+      version: resolved.version,
+      sourceId: request.sourceId,
+      origin: request.sourceId === 'local' ? 'local' : 'marketplace',
+      manifest: structuredClone(resolved.manifest),
+      document: await readPackageDocument(resolved.packagePath, request.path),
+    }
+  }
+
+  /** Read a bounded raster asset from one exact marketplace or local plugin package. */
+  async pluginDocumentAsset(request: { sourceId: string, package: string, version?: string, path: string }): Promise<{ content: Buffer, contentType: string } | undefined> {
+    const resolved = await this.resolvePluginDocumentPackage(request)
+    return readPackageDocumentAsset(resolved.packagePath, request.path)
   }
 
   async addSource(input: { name: string, catalogUrl: string, registry?: string }): Promise<MarketplaceSource> {
@@ -643,7 +735,7 @@ export class PluginManager {
       this.assertCatalogEntryInstallable(entry)
       selected.set(packageName, entry)
       visiting.push(packageName)
-      for (const dependency of entry.requiresPlugins)
+      for (const dependency of [...entry.requiresPlugins, ...entry.includesPlugins])
         visit(dependency.package, dependency.version)
       visiting.pop()
       ordered.push(entry)
@@ -741,9 +833,9 @@ export class PluginManager {
     return result
   }
 
-  async setEnabled(packageName: string, enabled: boolean): Promise<InstalledPlugin> {
+  async setEnabled(packageName: string, enabled: boolean): Promise<ManagedPlugin> {
     await this.initialize()
-    const plugin = this.requireInstalled(packageName)
+    const plugin = this.state.linked.find(item => item.package === packageName) ?? this.requireInstalled(packageName)
     await this.mutate(() => {
       plugin.enabled = enabled
     })
@@ -786,7 +878,8 @@ export class PluginManager {
   /** Return active declarative command contributions without executing plugin code. */
   async commandContributions(): Promise<PluginCommandContributions[]> {
     await this.initialize()
-    return this.state.installed
+    await this.refreshLocalPlugins()
+    return this.activePluginSnapshot()
       .filter(plugin => this.pluginActive(plugin))
       .filter(plugin => plugin.manifest.contributes.commandPresets.length || plugin.manifest.contributes.commandTemplates.length || plugin.manifest.contributes.packageQuickActions.length || plugin.manifest.contributes.packageLinks.length || plugin.manifest.contributes.packageToolGroups.length)
       .map(plugin => ({
@@ -803,7 +896,8 @@ export class PluginManager {
   /** Return active declarative integrations without executing plugin code. */
   async integrationContributions(): Promise<InstalledIntegrationContribution[]> {
     await this.initialize()
-    return this.state.installed
+    await this.refreshLocalPlugins()
+    return this.activePluginSnapshot()
       .filter(plugin => this.pluginActive(plugin))
       .flatMap(plugin => plugin.manifest.contributes.integrations.map(integration => ({
         ...structuredClone(integration),
@@ -814,7 +908,8 @@ export class PluginManager {
 
   private async discover(project: Readonly<ProjectRecord>): Promise<Capability[]> {
     await this.initialize()
-    const snapshot = this.state.installed.filter(plugin => this.pluginActive(plugin))
+    await this.refreshLocalPlugins()
+    const snapshot = this.activePluginSnapshot().filter(plugin => this.pluginActive(plugin))
     const capabilities: Capability[] = []
     for (const plugin of snapshot) {
       if (!(await matchesProject(plugin.manifest, project.path)))
@@ -847,13 +942,82 @@ export class PluginManager {
     return capabilities
   }
 
-  private pluginActive(plugin: InstalledPlugin): boolean {
+  private pluginActive(plugin: ManagedPlugin): boolean {
     if (!plugin.enabled || plugin.error)
       return false
+    if (plugin.origin === 'local')
+      return true
     const source = this.state.sources.find(item => item.id === plugin.sourceId)
     const catalogEntry = source?.catalog?.plugins.find(item => item.package === plugin.package && item.version === plugin.version)
     return catalogEntry?.status !== 'blocked'
       && (!catalogEntry?.requires || satisfies(this.applicationVersion, catalogEntry.requires, { includePrerelease: true }))
+  }
+
+  private async resolvePluginDocumentPackage(request: { sourceId: string, package: string, version?: string }): Promise<{ packagePath: string, version: string, manifest: PluginManifestV1 }> {
+    await this.initialize()
+    if (request.sourceId === 'local') {
+      await this.refreshLocalPlugins(request.package)
+      const plugin = this.requireLocal(request.package)
+      if (request.version && plugin.version !== request.version)
+        throw new Error(`Local plugin version is no longer available: ${request.package}@${request.version}`)
+      return { packagePath: plugin.packagePath, version: plugin.version, manifest: plugin.manifest }
+    }
+
+    const source = this.requireSource(request.sourceId)
+    const entry = this.selectCatalogEntry(source, request.package, undefined, request.version)
+    const installed = this.state.installed.find(plugin => plugin.package === entry.package && plugin.sourceId === source.id && plugin.version === entry.version)
+    if (installed)
+      return { packagePath: installed.packagePath, version: installed.version, manifest: installed.manifest }
+    this.assertCatalogEntryInstallable(entry)
+
+    const cacheKey = createHash('sha256').update(`${source.id}\0${entry.package}\0${entry.version}\0${entry.integrity}`).digest('hex')
+    const cachedPath = join(this.dataDir, 'plugins', '.document-cache', cacheKey, 'package')
+    try {
+      await access(join(cachedPath, 'package.json'))
+      const manifest = await this.validateInstalledPackage(entry, { packagePath: cachedPath, integrity: entry.integrity })
+      return { packagePath: cachedPath, version: entry.version, manifest }
+    }
+    catch {
+      // A missing or invalid cache entry is replaced from the integrity-pinned package.
+    }
+
+    let pending = this.documentPackageRequests.get(cacheKey)
+    if (!pending) {
+      pending = this.cachePluginDocumentPackage(source, entry, cachedPath)
+      this.documentPackageRequests.set(cacheKey, pending)
+    }
+    try {
+      return { ...await pending, version: entry.version }
+    }
+    finally {
+      if (this.documentPackageRequests.get(cacheKey) === pending)
+        this.documentPackageRequests.delete(cacheKey)
+    }
+  }
+
+  private async cachePluginDocumentPackage(source: MarketplaceSource, entry: CatalogPluginV1, cachedPath: string): Promise<{ packagePath: string, manifest: PluginManifestV1 }> {
+    const staging = join(this.dataDir, 'plugins', '.document-cache', '.staging', randomUUID())
+    const abortController = new AbortController()
+    const timeout = setTimeout(() => abortController.abort(new Error(`Plugin README download exceeded ${pluginDocumentTimeoutMs}ms`)), pluginDocumentTimeoutMs)
+    try {
+      const installedPackage = await this.installer.install({
+        package: entry.package,
+        version: entry.version,
+        registry: source.registry,
+        integrity: entry.integrity,
+        destination: staging,
+        signal: abortController.signal,
+      })
+      const manifest = await this.validateInstalledPackage(entry, installedPackage)
+      await mkdir(dirname(cachedPath), { recursive: true })
+      await rm(cachedPath, { recursive: true, force: true })
+      await rename(installedPackage.packagePath, cachedPath)
+      return { packagePath: cachedPath, manifest }
+    }
+    finally {
+      clearTimeout(timeout)
+      await rm(staging, { recursive: true, force: true })
+    }
   }
 
   private requireSource(id: string): MarketplaceSource {
@@ -902,6 +1066,8 @@ export class PluginManager {
       throw new Error(`Catalog permission reasons do not match the package manifest for ${entry.package}`)
     if (!samePluginDependencies(manifest.requiresPlugins, entry.requiresPlugins))
       throw new Error(`Catalog plugin dependencies do not match the package manifest for ${entry.package}`)
+    if (!samePluginDependencies(manifest.includesPlugins, entry.includesPlugins))
+      throw new Error(`Catalog included plugins do not match the package manifest for ${entry.package}`)
     if (manifest.craftHub.minVersion && !satisfies(this.applicationVersion, `>=${manifest.craftHub.minVersion}`, { includePrerelease: true }))
       throw new Error(`${entry.package}@${entry.version} requires Craft Hub >=${manifest.craftHub.minVersion}; current version is ${this.applicationVersion}`)
     if (entry.requires && manifest.craftHub.minVersion && !satisfies(manifest.craftHub.minVersion, entry.requires, { includePrerelease: true }))
@@ -914,6 +1080,87 @@ export class PluginManager {
     if (!plugin)
       throw new Error(`Plugin is not installed: ${packageName}`)
     return plugin
+  }
+
+  private requireLocal(packageName: string): LocalPlugin {
+    const plugin = this.state.linked.find(item => item.package === packageName)
+    if (!plugin)
+      throw new Error(`Local plugin is not linked: ${packageName}`)
+    return plugin
+  }
+
+  private activePluginSnapshot(): ManagedPlugin[] {
+    const plugins = new Map<string, ManagedPlugin>(this.state.installed.map(plugin => [plugin.package, plugin]))
+    for (const plugin of this.state.linked)
+      plugins.set(plugin.package, plugin)
+    return [...plugins.values()]
+  }
+
+  private async readLocalPlugin(packagePath: string): Promise<LocalPlugin> {
+    const resolvedPath = await realpath(resolve(packagePath))
+    if (!(await stat(resolvedPath)).isDirectory())
+      throw new Error(`Local plugin path must be a directory: ${resolvedPath}`)
+    const packageJson = JSON.parse(await readFile(join(resolvedPath, 'package.json'), 'utf8')) as Record<string, unknown>
+    if (typeof packageJson.name !== 'string' || !packageNamePattern.test(packageJson.name))
+      throw new Error('Local plugin package name must follow the scoped Craft Hub plugin naming convention')
+    if (typeof packageJson.version !== 'string' || valid(packageJson.version) === null)
+      throw new Error('Local plugin package version must be valid SemVer')
+    const manifest = await readPackageManifest(resolvedPath, packageJson.name, packageJson.version)
+    this.assertLocalManifestCompatible(packageJson.name, packageJson.version, manifest)
+    const linkedAt = new Date().toISOString()
+    return {
+      package: packageJson.name,
+      version: packageJson.version,
+      sourceId: 'local',
+      origin: 'local',
+      linkedAt,
+      installedAt: linkedAt,
+      enabled: true,
+      packagePath: resolvedPath,
+      manifest,
+    }
+  }
+
+  private assertLocalManifestCompatible(packageName: string, version: string, manifest: PluginManifestV1): void {
+    if (manifest.craftHub.minVersion && !satisfies(this.applicationVersion, `>=${manifest.craftHub.minVersion}`, { includePrerelease: true }))
+      throw new Error(`${packageName}@${version} requires Craft Hub >=${manifest.craftHub.minVersion}; current version is ${this.applicationVersion}`)
+  }
+
+  private async refreshLocalPlugins(packageName?: string, forcePersist = false): Promise<void> {
+    const targets = packageName ? [this.requireLocal(packageName)] : this.state.linked
+    if (!targets.length)
+      return
+    let changed = forcePersist
+    for (const linked of targets) {
+      try {
+        const refreshed = await this.readLocalPlugin(linked.packagePath)
+        if (refreshed.package !== linked.package)
+          throw new Error(`Local plugin package identity changed from ${linked.package} to ${refreshed.package}`)
+        const next = {
+          ...refreshed,
+          linkedAt: linked.linkedAt,
+          installedAt: linked.installedAt,
+          enabled: linked.enabled,
+        }
+        if (linked.error) {
+          delete linked.error
+          changed = true
+        }
+        if (JSON.stringify(next) !== JSON.stringify(linked)) {
+          Object.assign(linked, next)
+          changed = true
+        }
+      }
+      catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        if (linked.error !== message) {
+          linked.error = message
+          changed = true
+        }
+      }
+    }
+    if (changed)
+      await this.mutate(() => {})
   }
 
   private async mutate(operation: () => void): Promise<void> {
@@ -1010,14 +1257,22 @@ function permissionMetadataIssues(plugin: {
   return issues
 }
 
-function validatePluginDependencies(packageName: string, dependencies: PluginDependencyV1[], context: z.RefinementCtx): void {
+function validatePluginDependencies(packageName: string, dependencies: PluginDependencyV1[], field: 'includesPlugins' | 'requiresPlugins', context: z.RefinementCtx): void {
   const seen = new Set<string>()
   for (const [index, dependency] of dependencies.entries()) {
     if (dependency.package === packageName)
-      context.addIssue({ code: 'custom', message: 'Plugin cannot depend on itself', path: ['requiresPlugins', index, 'package'] })
+      context.addIssue({ code: 'custom', message: 'Plugin cannot reference itself', path: [field, index, 'package'] })
     if (seen.has(dependency.package))
-      context.addIssue({ code: 'custom', message: `Plugin dependency is declared more than once: ${dependency.package}`, path: ['requiresPlugins', index, 'package'] })
+      context.addIssue({ code: 'custom', message: `Plugin relation is declared more than once: ${dependency.package}`, path: [field, index, 'package'] })
     seen.add(dependency.package)
+  }
+}
+
+function validateDistinctPluginRelations(included: PluginDependencyV1[], required: PluginDependencyV1[], context: z.RefinementCtx): void {
+  const requiredPackages = new Set(required.map(dependency => dependency.package))
+  for (const [index, dependency] of included.entries()) {
+    if (requiredPackages.has(dependency.package))
+      context.addIssue({ code: 'custom', message: `Plugin cannot be both included and required: ${dependency.package}`, path: ['includesPlugins', index, 'package'] })
   }
 }
 

@@ -1,3 +1,11 @@
+:root {
+  --desktop-titlebar-height: 0px;
+}
+
+:root[data-desktop-platform='darwin'] {
+  --desktop-titlebar-height: env(titlebar-area-height, 38px);
+}
+
 :root[data-desktop-platform='darwin'] body::before {
   position: fixed;
   z-index: 100;
@@ -5,7 +13,7 @@
   right: 0;
   left: 0;
   display: grid;
-  height: 38px;
+  height: var(--desktop-titlebar-height);
   place-items: center;
   border-bottom: 1px solid var(--border);
   background: var(--surface-subtle);
@@ -19,9 +27,9 @@
 
 :root[data-desktop-platform='darwin'] .app-shell {
   box-sizing: border-box;
-  padding-top: 38px;
+  padding-top: var(--desktop-titlebar-height);
 }
 
 :root[data-desktop-platform='darwin'] .marketplace-page {
-  top: 38px;
+  top: var(--desktop-titlebar-height);
 }

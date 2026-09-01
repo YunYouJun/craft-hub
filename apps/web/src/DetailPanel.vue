@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import type { AgentTaskRecord, CommandInputConditions, CommandInputDefinition, CommandInputValues, CommandInvocation, ReleasePlan, SkillCapability, SkillInputDefinition } from 'craft-hub'
+import { commandInvocationSequence } from 'craft-hub/command-inputs'
 import { resolveSkillInputSelections } from 'craft-hub/skill-inputs'
 import { buildSkillInvocationPrompt } from 'craft-hub/skill-prompts'
 import { computed, defineAsyncComponent, ref, watch } from 'vue'
 import AgentTaskOutput from './AgentTaskOutput.vue'
 import { api } from './api'
 import { Button as UiButton } from './components/ui/button'
-import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from './components/ui/select'
+import { FormSelect } from './components/ui/select'
+import { commandInputInitialValues, rememberCommandInputValues } from './command-input-history'
 import { Icon } from './icons'
 import { useI18n } from './i18n'
 import { useWorkbenchStore } from './store'
@@ -16,6 +18,12 @@ const TerminalOutput = defineAsyncComponent(() => import('./TerminalOutput.vue')
 const SkillContentPreview = defineAsyncComponent(() => import('./SkillContentPreview.vue'))
 const ShellCommandPreview = defineAsyncComponent(() => import('./ShellCommandPreview.vue'))
 const ProjectOverviewPanel = defineAsyncComponent(() => import('./ProjectOverviewPanel.vue'))
+
+withDefaults(defineProps<{
+  packageDrawerContent?: boolean
+}>(), {
+  packageDrawerContent: false,
+})
 
 const store = useWorkbenchStore()
 const { locale, t } = useI18n()
@@ -162,13 +170,17 @@ function skillInputRequired(input: SkillInputDefinition): boolean {
 }
 
 function resetCapabilityInputs(): void {
-  inputValues.value = Object.fromEntries(commandInputs.value.map(input => [input.id, input.default ?? '']))
+  const project = store.activeProject
+  const capability = store.activeCapability
+  inputValues.value = project && capability?.kind === 'command'
+    ? commandInputInitialValues(project.id, capability, window.localStorage)
+    : {}
   skillInputValues.value = Object.fromEntries(skillInputs.value.map(input => [input.id, input.default ?? '']))
   resolvedInvocation.value = undefined
   previewError.value = ''
 }
 
-watch(() => store.activeCapability?.id, () => {
+watch([() => store.activeProject?.id, () => store.activeCapability?.id], () => {
   resetCapabilityInputs()
   skillSupplementalRequest.value = ''
   skillTaskId.value = ''
@@ -208,9 +220,9 @@ const displayedInvocation = computed(() => {
     return undefined
   return resolvedInvocation.value ?? capability.invocation
 })
-const displayedCommand = computed(() => displayedInvocation.value
-  ? [displayedInvocation.value.command, ...displayedInvocation.value.args].join(' ')
-  : '')
+const displayedInvocations = computed(() => displayedInvocation.value
+  ? commandInvocationSequence(displayedInvocation.value)
+  : [])
 const commandDescription = computed(() => {
   const capability = store.activeCapability
   if (capability?.kind !== 'command' || capability.description === capability.script)
@@ -252,6 +264,10 @@ async function runCommand(): Promise<void> {
   if (isRelease.value && (!releasePlan.value || releasePlan.value.blockers.length))
     return
   releaseConfirmationOpen.value = false
+  const project = store.activeProject
+  const capability = store.activeCapability
+  if (project && capability?.kind === 'command')
+    rememberCommandInputValues(project.id, capability, inputValues.value, window.localStorage)
   await store.runSelected({ ...inputValues.value })
 }
 
@@ -283,12 +299,13 @@ function openWorkingDirectory(): Promise<void> {
     : undefined)
 }
 
-async function invokeSkill(): Promise<void> {
+async function invokeSkill(invocation: 'codex-app' | 'background' = 'codex-app'): Promise<void> {
   const project = store.activeProject
   const skill = store.activeCapability
   const supplementalRequest = skillSupplementalRequest.value.trim()
   if (!project || skill?.kind !== 'skill' || !skillCanSubmit.value)
     return
+  skillInvocation.value = invocation
   skillTaskStarting.value = true
   skillNotice.value = ''
   openError.value = ''
@@ -330,7 +347,7 @@ function openSkillThread(): Promise<void> {
 
 <template>
   <main class="detail-panel">
-    <ProjectOverviewPanel v-if="!store.activeCapability && store.selectedProject" />
+    <ProjectOverviewPanel v-if="store.selectedProject && (!store.activeCapability || (store.packageCapabilityDrawerOpen && !packageDrawerContent))" />
     <div v-else-if="!store.activeCapability" class="detail-empty">{{ t('selectCapability') }}</div>
     <template v-else>
       <button v-if="store.workspaceCapability" class="workspace-capability-back" type="button" @click="store.clearWorkspaceCapability">
@@ -368,7 +385,13 @@ function openSkillThread(): Promise<void> {
               <template v-else>{{ sourceLocation }}</template>
             </dd>
           </template>
-          <dt>{{ t('command') }}</dt><dd><ShellCommandPreview v-if="displayedCommand" :command="displayedCommand" compact /></dd>
+          <dt>{{ t('command') }}</dt>
+          <dd class="command-sequence-preview">
+            <div v-for="(invocation, index) in displayedInvocations" :key="`${index}:${invocation.command}`">
+              <small v-if="displayedInvocations.length > 1">{{ index + 1 }}. {{ invocation.label ?? invocation.command }}</small>
+              <ShellCommandPreview :command="[invocation.command, ...invocation.args].join(' ')" compact />
+            </div>
+          </dd>
           <dt>{{ t('workingDirectory') }}</dt>
           <dd>
             <button v-if="desktopActions" class="preview-path-link" type="button" data-testid="open-working-directory" :aria-label="openWorkingDirectoryLabel" :title="openWorkingDirectoryLabel" @click="openWorkingDirectory">
@@ -404,18 +427,13 @@ function openSkillThread(): Promise<void> {
               </label>
               <template v-else>
                 <label :for="`command-input-${input.id}`">{{ input.label ?? input.id }}<small v-if="inputRequired(input)"> *</small></label>
-                <Select v-if="input.type === 'select'" v-model="inputValues[input.id]" :required="inputRequired(input)">
-                  <SelectTrigger :id="`command-input-${input.id}`" :aria-required="inputRequired(input)">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectGroup>
-                      <SelectItem v-for="option in input.options" :key="option.value" :value="option.value">
-                        {{ option.label ?? option.value }}
-                      </SelectItem>
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
+                <FormSelect
+                  v-if="input.type === 'select'"
+                  :id="`command-input-${input.id}`"
+                  v-model="inputValues[input.id]"
+                  :options="input.options"
+                  :required="inputRequired(input)"
+                />
                 <input v-else :id="`command-input-${input.id}`" v-model.trim="inputValues[input.id]" :type="input.private ? 'password' : 'text'" :autocomplete="input.private ? 'off' : undefined" :pattern="input.pattern" :required="inputRequired(input)">
               </template>
               <small v-if="input.description" class="command-input-description">{{ input.description }}</small>
@@ -489,22 +507,18 @@ function openSkillThread(): Promise<void> {
             <p>{{ skillDescription.useWhen }}</p>
           </div>
         </section>
-        <form class="skill-agent-form" data-testid="skill-agent-form" @submit.prevent="invokeSkill">
+        <form class="skill-agent-form" data-testid="skill-agent-form" @submit.prevent="invokeSkill('codex-app')">
           <div v-if="skillInputs.length" class="skill-input-fields" data-testid="skill-input-fields">
             <div v-for="input in skillInputs" v-show="skillInputVisible(input)" :key="input.id" class="skill-input-field">
               <label :for="`skill-input-${input.id}`">{{ input.label ?? input.id }}<small v-if="skillInputRequired(input)"> *</small></label>
-              <Select v-if="input.type === 'select'" v-model="skillInputValues[input.id]" :required="skillInputRequired(input)">
-                <SelectTrigger :id="`skill-input-${input.id}`" :aria-required="skillInputRequired(input)" :data-testid="`skill-input-${input.id}`">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectGroup>
-                    <SelectItem v-for="option in input.options" :key="option.value" :value="option.value">
-                      {{ option.label ?? option.value }}
-                    </SelectItem>
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
+              <FormSelect
+                v-if="input.type === 'select'"
+                :id="`skill-input-${input.id}`"
+                v-model="skillInputValues[input.id]"
+                :options="input.options"
+                :required="skillInputRequired(input)"
+                :test-id="`skill-input-${input.id}`"
+              />
               <input v-else :id="`skill-input-${input.id}`" v-model.trim="skillInputValues[input.id]" type="text" :pattern="input.pattern" :required="skillInputRequired(input)">
               <small v-if="input.description" class="command-input-description">{{ input.description }}</small>
             </div>
@@ -512,34 +526,28 @@ function openSkillThread(): Promise<void> {
           <p v-if="skillInputError" class="error-message">{{ skillInputError }}</p>
           <label for="skill-agent-request">{{ t('skillSupplementalRequest') }}</label>
           <textarea id="skill-agent-request" v-model="skillSupplementalRequest" rows="4" :placeholder="t('skillSupplementalRequestPlaceholder')" />
-          <div class="skill-invocation-field">
-            <label for="skill-invocation">{{ t('skillInvocationMode') }}</label>
-            <Select v-model="skillInvocation">
-              <SelectTrigger id="skill-invocation" data-testid="skill-invocation-mode">
-                <SelectValue>
-                  <span class="skill-invocation-option"><Icon :name="skillInvocation === 'codex-app' ? 'codex' : 'hub'" />{{ t(skillInvocation === 'codex-app' ? 'skillInvocationCodexApp' : 'skillInvocationBackground') }}</span>
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  <SelectItem value="codex-app"><span class="skill-invocation-option"><Icon name="codex" />{{ t('skillInvocationCodexApp') }}</span></SelectItem>
-                  <SelectItem value="background"><span class="skill-invocation-option"><Icon name="hub" />{{ t('skillInvocationBackground') }}</span></SelectItem>
-                </SelectGroup>
-              </SelectContent>
-            </Select>
-            <small>{{ t(skillInvocation === 'codex-app' ? 'skillInvocationCodexAppDescription' : 'skillInvocationBackgroundDescription') }}</small>
-          </div>
-          <p class="permission-note">{{ t(skillInvocation === 'codex-app' ? 'skillAgentCodexAppPermission' : 'skillAgentPermission') }}</p>
+          <p class="permission-note">{{ t('skillInvocationChoiceDescription') }}</p>
           <p v-if="skillNotice" class="success-message">{{ skillNotice }}</p>
           <div class="skill-agent-actions">
             <UiButton
               variant="primary"
               type="submit"
-              data-testid="use-skill-with-agent"
-              :disabled="!desktopActions || skillTaskStarting || !skillCanSubmit || (skillInvocation === 'background' && store.activeProject?.trust !== 'trusted')"
+              data-testid="start-skill-in-codex"
+              :title="t('skillInvocationCodexAppDescription')"
+              :disabled="!desktopActions?.startProjectInCodex || skillTaskStarting || !skillCanSubmit"
             >
-              <Icon :name="skillInvocation === 'codex-app' ? 'codex' : 'refresh'" />
-              {{ skillTaskStarting ? t('skillAgentStarting') : t(skillInvocation === 'codex-app' ? 'startInCodex' : 'runInCraftHubBackground') }}
+              <Icon name="codex" />
+              {{ skillTaskStarting && skillInvocation === 'codex-app' ? t('skillAgentStarting') : t('startInCodex') }}
+            </UiButton>
+            <UiButton
+              type="button"
+              data-testid="run-skill-in-background"
+              :title="t('skillInvocationBackgroundDescription')"
+              :disabled="!desktopActions || skillTaskStarting || !skillCanSubmit || store.activeProject?.trust !== 'trusted'"
+              @click="invokeSkill('background')"
+            >
+              <Icon name="hub" />
+              {{ skillTaskStarting && skillInvocation === 'background' ? t('skillAgentStarting') : t('runInCraftHubBackground') }}
             </UiButton>
             <UiButton v-if="skillTask?.externalThreadId && skillTask.status !== 'running'" type="button" data-testid="open-skill-thread" @click="openSkillThread">
               <Icon name="codex" /> {{ t('openInCodex') }}

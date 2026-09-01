@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { readProjectOverviewAsset, readProjectReadme } from '../src/project-overview'
+import { readPackageDocument, readPackageDocumentAsset, readProjectOverviewAsset, readProjectReadme } from '../src/project-overview'
 
 describe('project overview files', () => {
   it('discovers a case-insensitive package README and returns bounded UTF-8 Markdown', async () => {
@@ -36,5 +36,20 @@ describe('project overview files', () => {
     await expect(readProjectOverviewAsset(root, 'docs/preview.png')).resolves.toMatchObject({ contentType: 'image/png' })
     await expect(readProjectOverviewAsset(root, 'docs/active.svg')).resolves.toBeUndefined()
     await expect(readProjectOverviewAsset(root, '../preview.png')).resolves.toBeUndefined()
+  })
+
+  it('contains plugin Markdown documents and assets inside their package root', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'craft-hub-plugin-document-'))
+    await mkdir(join(root, 'docs'), { recursive: true })
+    await writeFile(join(root, 'README.md'), '# Plugin')
+    await writeFile(join(root, 'docs', 'guide.md'), '# Guide')
+    await writeFile(join(root, 'docs', 'preview.webp'), Buffer.from([82, 73, 70, 70]))
+
+    await expect(readPackageDocument(root)).resolves.toMatchObject({ status: 'found', path: 'README.md', content: '# Plugin' })
+    await expect(readPackageDocument(root, 'docs/guide.md')).resolves.toMatchObject({ status: 'found', path: 'docs/guide.md', content: '# Guide' })
+    await expect(readPackageDocument(root, '../README.md')).resolves.toMatchObject({ status: 'invalid' })
+    await expect(readPackageDocument(root, 'package.json')).resolves.toMatchObject({ status: 'invalid' })
+    await expect(readPackageDocumentAsset(root, 'docs/preview.webp')).resolves.toMatchObject({ contentType: 'image/webp' })
+    await expect(readPackageDocumentAsset(root, '../preview.webp')).resolves.toBeUndefined()
   })
 })

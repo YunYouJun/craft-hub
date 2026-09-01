@@ -3,7 +3,8 @@ import DOMPurify from 'dompurify'
 import { marked } from 'marked'
 import { computed } from 'vue'
 
-const props = defineProps<{ content: string, projectId: string, readmePath: string }>()
+const props = defineProps<{ content: string, readmePath: string, projectId?: string, assetUrl?: (path: string) => string }>()
+const emit = defineEmits<{ navigateDocument: [path: string] }>()
 
 function projectRelativePath(target: string): string | undefined {
   const cleanTarget = target.split(/[?#]/, 1)[0] ?? ''
@@ -37,14 +38,19 @@ const html = computed(() => {
     element.remove()
   for (const image of document.querySelectorAll<HTMLImageElement>('img')) {
     const source = image.getAttribute('src') ?? ''
-    if (/^data:image\/(?:avif|gif|jpeg|png|webp);base64,/i.test(source) || /^https:\/\//i.test(source))
+    if (/^data:image\/(?:avif|gif|jpeg|png|webp);base64,/i.test(source))
       continue
+    if (/^https:\/\//i.test(source)) {
+      image.referrerPolicy = 'no-referrer'
+      continue
+    }
     const path = hasUrlScheme(source) ? undefined : projectRelativePath(source)
     if (!path) {
       image.removeAttribute('src')
       continue
     }
-    image.src = `/api/projects/${encodeURIComponent(props.projectId)}/overview-asset?path=${encodeURIComponent(path)}`
+    image.src = props.assetUrl?.(path) ?? (props.projectId ? `/api/projects/${encodeURIComponent(props.projectId)}/overview-asset?path=${encodeURIComponent(path)}` : '')
+    image.referrerPolicy = 'no-referrer'
   }
   for (const link of document.querySelectorAll<HTMLAnchorElement>('a')) {
     const href = link.getAttribute('href') ?? ''
@@ -65,7 +71,7 @@ const html = computed(() => {
       link.setAttribute('aria-disabled', 'true')
   }
   return DOMPurify.sanitize(document.body.innerHTML, {
-    ADD_ATTR: ['target'],
+    ADD_ATTR: ['target', 'referrerpolicy'],
     FORBID_TAGS: ['embed', 'iframe', 'math', 'object', 'script', 'style', 'svg'],
     USE_PROFILES: { html: true },
   })
@@ -76,7 +82,8 @@ async function handleClick(event: MouseEvent): Promise<void> {
   if (!link)
     return
   event.preventDefault()
-  if (window.craftHubDesktop?.openProjectEvidenceInEditor)
+  emit('navigateDocument', link.dataset.localPath!)
+  if (props.projectId && window.craftHubDesktop?.openProjectEvidenceInEditor)
     await window.craftHubDesktop.openProjectEvidenceInEditor(props.projectId, link.dataset.localPath!)
 }
 </script>

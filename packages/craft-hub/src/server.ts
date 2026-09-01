@@ -397,6 +397,50 @@ export async function startCraftHubServer(options: CraftHubServerOptions = {}): 
       if (request.method === 'GET' && url.pathname === '/api/plugins')
         return sendJson(response, 200, await runtime.pluginManager.listInstalled())
 
+      if (request.method === 'GET' && url.pathname === '/api/plugins/document') {
+        const sourceId = url.searchParams.get('sourceId')
+        const packageName = url.searchParams.get('package')
+        if (!sourceId || !packageName)
+          return sendJson(response, 400, { error: 'sourceId and package are required' })
+        return sendJson(response, 200, await runtime.pluginManager.pluginDocument({
+          sourceId,
+          package: packageName,
+          version: url.searchParams.get('version') ?? undefined,
+          path: url.searchParams.get('path') ?? undefined,
+        }))
+      }
+
+      if (request.method === 'GET' && url.pathname === '/api/plugins/document-asset') {
+        const sourceId = url.searchParams.get('sourceId')
+        const packageName = url.searchParams.get('package')
+        const path = url.searchParams.get('path')
+        if (!sourceId || !packageName || !path)
+          return sendJson(response, 400, { error: 'sourceId, package, and path are required' })
+        const asset = await runtime.pluginManager.pluginDocumentAsset({
+          sourceId,
+          package: packageName,
+          version: url.searchParams.get('version') ?? undefined,
+          path,
+        })
+        if (!asset)
+          return sendJson(response, 404, { error: 'Asset not found' })
+        response.writeHead(200, {
+          'cache-control': 'private, max-age=3600',
+          'content-length': asset.content.byteLength,
+          'content-type': asset.contentType,
+          'x-content-type-options': 'nosniff',
+        })
+        response.end(asset.content)
+        return
+      }
+
+      if (request.method === 'POST' && url.pathname === '/api/plugins/local') {
+        const body = await jsonBody(request)
+        if (typeof body.path !== 'string' || !body.path.trim())
+          return sendJson(response, 400, { error: 'path is required' })
+        return sendJson(response, 201, await runtime.pluginManager.linkLocal(body.path))
+      }
+
       if (request.method === 'GET' && url.pathname === '/api/plugins/updates')
         return sendJson(response, 200, await runtime.pluginManager.planUpdates())
 
@@ -508,7 +552,17 @@ export async function startCraftHubServer(options: CraftHubServerOptions = {}): 
         }
       }
 
-      if (parts[0] === 'api' && parts[1] === 'plugins' && parts[2] && parts[2] !== 'install' && parts[2] !== 'updates') {
+      if (parts[0] === 'api' && parts[1] === 'plugins' && parts[2] === 'local' && parts[3]) {
+        const packageName = decodeURIComponent(parts[3])
+        if (request.method === 'POST' && parts[4] === 'refresh')
+          return sendJson(response, 200, await runtime.pluginManager.refreshLocal(packageName))
+        if (request.method === 'DELETE' && parts.length === 4) {
+          await runtime.pluginManager.unlinkLocal(packageName)
+          return sendJson(response, 200, { unlinked: true })
+        }
+      }
+
+      if (parts[0] === 'api' && parts[1] === 'plugins' && parts[2] && parts[2] !== 'install' && parts[2] !== 'updates' && parts[2] !== 'local') {
         const packageName = decodeURIComponent(parts[2])
         if (request.method === 'PUT' && parts[3] === 'enabled') {
           const body = await jsonBody(request)

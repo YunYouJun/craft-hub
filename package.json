@@ -15,7 +15,6 @@
     "lint": "pnpm check:public-boundary && eslint --cache .",
     "package:mac": "tsx scripts/package-macos.ts",
     "prepublishOnly": "nr build",
-    "prototype:plugin-ui": "vite plugins/craft-hub/ui",
     "predocs": "typedoc",
     "docs:dev": "pnpm -C docs run docs:dev",
     "docs:build": "pnpm build && pnpm predocs && pnpm -C docs run docs:build",

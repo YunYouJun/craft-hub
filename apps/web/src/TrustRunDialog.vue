@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { CommandInputValues, CommandInvocation } from 'craft-hub'
+import { commandInvocationSequence } from 'craft-hub/command-inputs'
 import { defineAsyncComponent } from 'vue'
 import { Button as UiButton } from './components/ui/button'
 import { DialogShell } from './components/ui/dialog'
@@ -30,7 +31,15 @@ async function trustAndRun(): Promise<void> {
     <template #description>{{ t('trustRunDescription', { project: store.activeProject?.name ?? '' }) }}</template>
         <dl class="trust-run-summary">
           <div v-if="source"><dt>{{ t('sourceFile') }}</dt><dd>{{ source }}</dd></div>
-          <div><dt>{{ t('command') }}</dt><dd><ShellCommandPreview v-if="invocation" :command="[invocation.command, ...invocation.args].join(' ')" compact /></dd></div>
+          <div>
+            <dt>{{ t('command') }}</dt>
+            <dd v-if="invocation" class="command-sequence-preview">
+              <div v-for="(step, index) in commandInvocationSequence(invocation)" :key="`${index}:${step.command}`">
+                <small v-if="commandInvocationSequence(invocation).length > 1">{{ index + 1 }}. {{ step.label ?? step.command }}</small>
+                <ShellCommandPreview :command="[step.command, ...step.args].join(' ')" compact />
+              </div>
+            </dd>
+          </div>
           <div><dt>{{ t('workingDirectory') }}</dt><dd>{{ invocation?.cwd }}</dd></div>
           <div><dt>{{ t('requiredEnvironment') }}</dt><dd>{{ invocation?.requiredEnv.join(', ') || t('none') }}</dd></div>
         </dl>

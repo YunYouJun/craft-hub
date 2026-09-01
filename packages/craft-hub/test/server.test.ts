@@ -415,6 +415,7 @@ describe('craft hub server lifecycle', () => {
               permissions: [],
               categories: [],
               status: 'active',
+              includesPlugins: [],
               requiresPlugins: [],
             }],
           },
@@ -430,6 +431,42 @@ describe('craft hub server lifecycle', () => {
         expect.objectContaining({ id: 'test', kind: 'builtin' }),
       ])
       await expect(fetch(`${app.url}/api/plugins`).then(response => response.json())).resolves.toEqual([])
+      const localPluginPath = join(dataDir, 'local-plugin')
+      await mkdir(localPluginPath)
+      await writeFile(join(localPluginPath, 'package.json'), JSON.stringify({
+        name: '@acme/craft-hub-plugin-local',
+        version: '1.0.0',
+        craftHub: {
+          schemaVersion: 1,
+          id: '@acme/craft-hub-plugin-local',
+          displayName: 'Local plugin',
+          permissions: [],
+          contributes: {},
+        },
+      }))
+      await writeFile(join(localPluginPath, 'README.md'), '# Local plugin')
+      await writeFile(join(localPluginPath, 'preview.png'), Buffer.from([137, 80, 78, 71]))
+      const linkResponse = await fetch(`${app.url}/api/plugins/local`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ path: localPluginPath }),
+      })
+      expect(linkResponse.status).toBe(201)
+      await expect(linkResponse.json()).resolves.toMatchObject({ origin: 'local', package: '@acme/craft-hub-plugin-local' })
+      const documentQuery = new URLSearchParams({ sourceId: 'local', package: '@acme/craft-hub-plugin-local', version: '1.0.0' })
+      await expect(fetch(`${app.url}/api/plugins/document?${documentQuery}`).then(response => response.json())).resolves.toMatchObject({
+        package: '@acme/craft-hub-plugin-local',
+        version: '1.0.0',
+        document: { status: 'found', path: 'README.md', content: '# Local plugin' },
+      })
+      const assetQuery = new URLSearchParams({ sourceId: 'local', package: '@acme/craft-hub-plugin-local', version: '1.0.0', path: 'preview.png' })
+      const assetResponse = await fetch(`${app.url}/api/plugins/document-asset?${assetQuery}`)
+      expect(assetResponse.status).toBe(200)
+      expect(assetResponse.headers.get('content-type')).toBe('image/png')
+      expect(assetResponse.headers.get('x-content-type-options')).toBe('nosniff')
+      const unlinkResponse = await fetch(`${app.url}/api/plugins/local/${encodeURIComponent('@acme/craft-hub-plugin-local')}`, { method: 'DELETE' })
+      expect(unlinkResponse.status).toBe(200)
+      await expect(unlinkResponse.json()).resolves.toEqual({ unlinked: true })
       await expect(fetch(`${app.url}/api/plugins/install/preview`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },

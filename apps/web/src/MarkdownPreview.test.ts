@@ -35,4 +35,16 @@ describe('markdown preview', () => {
     await wrapper.get('a').trigger('click')
     expect(openProjectEvidenceInEditor).toHaveBeenCalledWith('project', 'docs/configuration.md')
   })
+
+  it('resolves plugin assets and emits contained Markdown navigation without a project bridge', async () => {
+    const assetUrl = vi.fn((path: string) => `/api/plugins/document-asset?path=${encodeURIComponent(path)}`)
+    const wrapper = mount(MarkdownPreview, {
+      props: { content: '![Preview](./assets/preview.png)\n\n[Guide](./guide.md)', readmePath: 'docs/README.md', assetUrl },
+    })
+
+    expect(wrapper.findAll('img')[0]!.attributes('src')).toBe('/api/plugins/document-asset?path=docs%2Fassets%2Fpreview.png')
+    expect(wrapper.findAll('img')[0]!.attributes('referrerpolicy')).toBe('no-referrer')
+    await wrapper.get('a').trigger('click')
+    expect(wrapper.emitted('navigateDocument')).toEqual([['docs/guide.md']])
+  })
 })
