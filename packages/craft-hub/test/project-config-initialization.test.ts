@@ -2,7 +2,7 @@ import { access, mkdir, mkdtemp, readFile, symlink, writeFile } from 'node:fs/pr
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { projectConfigJsonSchema, projectConfigSchemaUrl } from '../src/config'
+import { projectConfigJsonSchema, projectConfigSchema, projectConfigSchemaUrl } from '../src/config'
 import { CraftHubRuntime } from '../src/runtime'
 
 async function setup() {
@@ -13,6 +13,25 @@ async function setup() {
 }
 
 describe('project config initialization', () => {
+  it('accepts positional text inputs and rejects ambiguous flag combinations', () => {
+    const config = (input: Record<string, unknown>) => ({
+      version: 1,
+      capabilities: { inputs: { 'package.json:logs': { pipelineId: input } } },
+    })
+
+    expect(projectConfigSchema.safeParse(config({
+      type: 'text',
+      argumentStyle: 'positional',
+      required: true,
+    })).success).toBe(true)
+    expect(projectConfigSchema.safeParse(config({
+      type: 'text',
+      argumentStyle: 'positional',
+      flag: '--pipeline',
+    })).success).toBe(false)
+    expect(projectConfigSchema.safeParse(config({ type: 'text' })).success).toBe(false)
+  })
+
   it('previews without writing and requires trust before applying', async () => {
     const fixture = await setup()
     try {

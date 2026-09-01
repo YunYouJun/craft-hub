@@ -14,7 +14,7 @@ const singleInputConditionSchema = z.strictObject({
   equals: z.string(),
 })
 
-const inputConditionSchema = z.union([
+export const inputConditionSchema = z.union([
   singleInputConditionSchema,
   z.array(singleInputConditionSchema).min(1),
 ])
@@ -22,6 +22,7 @@ const inputConditionSchema = z.union([
 const inputOptionBaseShape = {
   value: z.string().min(1),
   label: localizedTextSchema.optional(),
+  icon: z.string().regex(/^[a-z][a-z0-9-]*$/).optional(),
 }
 
 const inputOptionSchema = z.union([
@@ -49,34 +50,68 @@ const capabilityInputBaseShape = {
   redactInHistory: z.boolean().optional(),
 }
 
-const commandInputBaseShape = {
+const commandFlagSchema = z.string().regex(/^-\S*$/, 'Flags must start with a hyphen and contain no whitespace')
+
+const flaggedCommandInputShape = {
   ...capabilityInputBaseShape,
-  flag: z.string().regex(/^-\S*$/, 'Flags must start with a hyphen and contain no whitespace'),
+  flag: commandFlagSchema,
   argumentStyle: z.enum(['equals', 'separate']).optional(),
 }
 
+const positionalCommandInputShape = {
+  ...capabilityInputBaseShape,
+  flag: z.never().optional(),
+  argumentStyle: z.literal('positional'),
+}
+
+const selectCommandInputShape = {
+  type: z.literal('select'),
+  options: z.array(inputOptionSchema).min(1),
+  pattern: z.string().optional(),
+}
+
+const textCommandInputShape = {
+  type: z.literal('text'),
+  options: z.never().optional(),
+  pattern: z.string().optional(),
+}
+
+const booleanCommandInputShape = {
+  ...capabilityInputBaseShape,
+  type: z.literal('boolean'),
+  default: z.enum(['true', 'false']).optional(),
+  options: z.never().optional(),
+  pattern: z.never().optional(),
+  argumentStyle: z.never().optional(),
+}
+
 /** Validation schema for a Project-defined command input. */
-export const projectCommandInputSchema = z.discriminatedUnion('type', [
+export const projectCommandInputSchema = z.union([
   z.strictObject({
-    ...commandInputBaseShape,
-    type: z.literal('select'),
-    options: z.array(inputOptionSchema).min(1),
-    pattern: z.string().optional(),
+    ...flaggedCommandInputShape,
+    ...selectCommandInputShape,
   }),
   z.strictObject({
-    ...commandInputBaseShape,
-    type: z.literal('text'),
-    options: z.never().optional(),
-    pattern: z.string().optional(),
+    ...positionalCommandInputShape,
+    ...selectCommandInputShape,
   }),
   z.strictObject({
-    ...capabilityInputBaseShape,
-    type: z.literal('boolean'),
-    default: z.enum(['true', 'false']).optional(),
-    options: z.never().optional(),
-    pattern: z.never().optional(),
-    flag: commandInputBaseShape.flag,
-    argumentStyle: z.never().optional(),
+    ...flaggedCommandInputShape,
+    ...textCommandInputShape,
+  }),
+  z.strictObject({
+    ...positionalCommandInputShape,
+    ...textCommandInputShape,
+  }),
+  z.strictObject({
+    ...booleanCommandInputShape,
+    flag: commandFlagSchema,
+    omitArgument: z.literal(false).optional(),
+  }),
+  z.strictObject({
+    ...booleanCommandInputShape,
+    flag: z.never().optional(),
+    omitArgument: z.literal(true),
   }),
 ])
 

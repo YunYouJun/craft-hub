@@ -44,6 +44,7 @@ function plugin(inputs: Record<string, ProjectCommandInputConfig> = { environmen
       command: 'widget-cli',
       args: ['deploy'],
       requiredEnv: [],
+      prerequisites: [],
       inputs,
     }],
     packageQuickActions: [],
@@ -99,6 +100,29 @@ describe('declarative command contributions', () => {
     })
   })
 
+  it('preserves host-rendered icons on declarative select options', async () => {
+    const root = await fixture()
+    const existing = command(root, 'deploy')
+    const contribution = plugin({
+      editor: {
+        type: 'select',
+        flag: '--editor',
+        default: 'default',
+        options: [
+          { value: 'default', omitArgument: true },
+          { value: 'code', label: 'Code', icon: 'vscode' },
+        ],
+      },
+    })
+
+    const result = await resolveCommandContributions({ projectPath: root, locale: 'en', capabilities: [existing], packages: [{ relativePath: '.', root: true }, widgetPackage], plugins: [contribution] })
+
+    expect((result.capabilities[0] as CommandCapability).inputs?.[0]?.options).toEqual([
+      { value: 'default', omitArgument: true },
+      { value: 'code', label: 'Code', icon: 'vscode' },
+    ])
+  })
+
   it('keeps repository scripts untouched when a preset is template-only', async () => {
     const root = await fixture()
     const existing = command(root, 'deploy')
@@ -146,6 +170,44 @@ describe('declarative command contributions', () => {
         invocation: { command: 'widget-cli', args: ['deploy'], cwd: join(root, 'apps/widget'), requiredEnv: [] },
       }),
     ])
+  })
+
+  it('runs structured prerequisite commands before a parameterized template command', async () => {
+    const root = await fixture()
+    const contribution = plugin()
+    contribution.templates[0]!.command = 'pnpm'
+    contribution.templates[0]!.args = ['exec', 'widget-cli', 'deploy']
+    contribution.templates[0]!.prerequisites = [{
+      label: { 'default': 'Compile', 'zh-CN': '编译' },
+      command: 'pnpm',
+      args: ['exec', 'widget-cli', 'build'],
+      requiredEnv: [],
+      when: { input: 'compileBeforeDeploy', equals: 'true' },
+    }]
+    contribution.templates[0]!.inputs = {
+      environment: { type: 'select', flag: '--env', options: ['dev', 'release'], default: 'dev' },
+      compileBeforeDeploy: { type: 'boolean', omitArgument: true, default: 'true' },
+    }
+
+    const result = await resolveCommandContributions({
+      projectPath: root,
+      locale: 'zh-CN',
+      capabilities: [],
+      packages: [widgetPackage],
+      plugins: [contribution],
+    })
+    const capability = result.capabilities[0] as CommandCapability
+
+    expect(capability.invocation).toMatchObject({
+      command: 'pnpm',
+      args: ['exec', 'widget-cli', 'deploy'],
+      prerequisites: [{ label: '编译', command: 'pnpm', args: ['exec', 'widget-cli', 'build'] }],
+    })
+    expect(resolveCommandInvocation(capability, { environment: 'release', compileBeforeDeploy: 'true' })).toMatchObject({
+      args: ['exec', 'widget-cli', 'deploy', '--env=release'],
+      prerequisites: [{ args: ['exec', 'widget-cli', 'build'] }],
+    })
+    expect(resolveCommandInvocation(capability, { environment: 'release', compileBeforeDeploy: 'false' })).not.toHaveProperty('prerequisites')
   })
 
   it('contributes capability selectors to matching package overviews', async () => {

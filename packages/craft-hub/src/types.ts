@@ -378,6 +378,15 @@ export interface CommandInvocation {
   args: string[]
   cwd: string
   requiredEnv: string[]
+  /** Ordered structured commands that must complete successfully before this command starts. */
+  prerequisites?: CommandPrerequisite[]
+  /** Optional human-readable step label used when previewing a command sequence. */
+  label?: string
+}
+
+/** One structured prerequisite that can be enabled by effective form input values. */
+export interface CommandPrerequisite extends CommandInvocation {
+  when?: CommandInputConditions
 }
 
 /** Discovery-time availability of a direct executable contributed by a plugin. */
@@ -399,6 +408,8 @@ export type CommandInputConditions = CommandInputCondition | CommandInputConditi
 export interface CommandInputOption {
   value: string
   label?: string
+  /** Host-rendered semantic icon name; unsupported names are ignored by clients. */
+  icon?: string
   /** Whether selecting this option intentionally omits the input's command-line argument. */
   omitArgument?: boolean
   /** Exact structured argv contributed by this option instead of flag/value formatting. */
@@ -417,8 +428,11 @@ export interface CommandInputDefinition {
   requiredWhen?: CommandInputConditions
   visibleWhen?: CommandInputConditions
   pattern?: string
-  flag: string
-  argumentStyle?: 'equals' | 'separate'
+  flag?: string
+  /** Keep this input in the reviewed execution plan without adding a CLI argument. */
+  omitArgument?: boolean
+  /** Format this value as --flag=value, --flag value, or a positional argv entry. */
+  argumentStyle?: 'equals' | 'separate' | 'positional'
   /** Treat the current value as a private identifier and omit it from persisted run history. */
   private?: boolean
   /** Redact the resolved argument in persisted run history. */

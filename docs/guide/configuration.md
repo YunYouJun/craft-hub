@@ -125,8 +125,9 @@ string. Enabled boolean inputs append the flag without a value; disabled inputs 
 }
 ```
 
-`argumentStyle` accepts `equals` (the default, producing `--env=dev`) or `separate` (producing
-`--env dev`). Select inputs require `options`; text inputs may use `pattern`; boolean inputs accept
+`argumentStyle` accepts `equals` (the default, producing `--env=dev`), `separate` (producing
+`--env dev`), or `positional` (producing `value` without a flag). Positional inputs must omit
+`flag` and are appended in input declaration order. Select inputs require `options`; text inputs may use `pattern`; boolean inputs accept
 an optional string default of `"true"` or `"false"`. Every input type accepts `default`: a select
 default must match an option, a text default may be any string, and a boolean default must be
 `"true"` or `"false"`. Craft Hub applies defaults to the initial form and command preview.

@@ -1,7 +1,7 @@
 {
   "name": "craft-hub",
   "type": "module",
-  "version": "0.0.1-alpha.5",
+  "version": "0.0.1-alpha.8",
   "private": false,
   "description": "A local, cross-project workbench for project commands and agent skills.",
   "author": "YunYouJun",
@@ -22,6 +22,7 @@
   "exports": {
     ".": "./dist/index.mjs",
     "./cli": "./dist/cli.mjs",
+    "./command-inputs": "./dist/command-inputs.mjs",
     "./project-config-schema-revision": "./dist/project-config-schema-revision.mjs",
     "./skill-inputs": "./dist/skill-inputs.mjs",
     "./skill-prompts": "./dist/skill-prompts.mjs",

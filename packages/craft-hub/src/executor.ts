@@ -1,3 +1,4 @@
+import type { IPty } from 'node-pty'
 import type { CraftHubStore } from './store'
 import type { CommandCapability, ProjectRecord, RunOutputEvent, RunRecord } from './types'
 import { Buffer } from 'node:buffer'
@@ -7,6 +8,7 @@ import { createRequire } from 'node:module'
 import { delimiter, join } from 'node:path'
 import process from 'node:process'
 import { spawn } from 'node-pty'
+import { commandInvocationSequence } from './command-inputs'
 import { assertCommandWorkingDirectory } from './path-security'
 
 interface ParsedCommand {
@@ -40,7 +42,8 @@ export async function executeCommand(
 ): Promise<RunHandle> {
   if (project.trust !== 'trusted')
     throw new Error(`Project ${project.name} is untrusted. Trust it before running commands.`)
-  await assertCommandWorkingDirectory(project.path, capability.invocation.cwd)
+  const invocations = commandInvocationSequence(capability.invocation)
+  await Promise.all(invocations.map(invocation => assertCommandWorkingDirectory(project.path, invocation.cwd)))
 
   const run: RunRecord = {
     id: randomUUID(),
@@ -58,40 +61,77 @@ export async function executeCommand(
   void store.saveRun(run)
 
   const env = commandEnvironment()
-  const parsed = process.platform === 'win32'
-    ? parseCommand(capability.invocation.command, capability.invocation.args, {
-        cwd: capability.invocation.cwd,
-        env,
-        shell: false,
-      })
-    : capability.invocation
-  const terminal = spawn(parsed.command, process.platform === 'win32' ? parsed.args.join(' ') : parsed.args, {
-    cwd: capability.invocation.cwd,
-    cols: 120,
-    env,
-    name: 'xterm-256color',
-    rows: 30,
-  })
   let cancelled = false
   let closed = false
-  terminal.onData((text) => {
+  let terminal: IPty | undefined
+  let resolveCompletion!: (run: RunRecord) => void
+
+  function appendOutput(text: string): void {
     const next = appendPersistedOutput(run.stdout, text)
     run.stdout = next.output
     run.truncated ||= next.truncated
     onOutput?.({ stream: 'stdout', chunk: text })
-  })
+  }
+
+  async function finish(status: RunRecord['status'], exitCode: number | null): Promise<void> {
+    if (closed)
+      return
+    closed = true
+    run.exitCode = exitCode
+    run.status = status
+    run.finishedAt = new Date().toISOString()
+    await store.saveRun(run)
+    void store.applyDefaultRunRetention().catch(() => {})
+    resolveCompletion(run)
+  }
+
+  function startStep(index: number): void {
+    const invocation = invocations[index]!
+    if (invocations.length > 1)
+      appendOutput(`\r\n[Craft Hub ${index + 1}/${invocations.length}] ${invocation.label ?? invocation.command}\r\n`)
+    const parsed = process.platform === 'win32'
+      ? parseCommand(invocation.command, invocation.args, {
+          cwd: invocation.cwd,
+          env,
+          shell: false,
+        })
+      : invocation
+    try {
+      terminal = spawn(parsed.command, process.platform === 'win32' ? parsed.args.join(' ') : parsed.args, {
+        cwd: invocation.cwd,
+        cols: 120,
+        env,
+        name: 'xterm-256color',
+        rows: 30,
+      })
+    }
+    catch (error) {
+      appendOutput(`\r\n${error instanceof Error ? error.message : String(error)}\r\n`)
+      void finish(cancelled ? 'cancelled' : 'failed', null)
+      return
+    }
+    terminal.onData(appendOutput)
+    terminal.onExit(({ exitCode }) => {
+      if (cancelled) {
+        void finish('cancelled', exitCode)
+        return
+      }
+      if (exitCode !== 0) {
+        void finish('failed', exitCode)
+        return
+      }
+      if (index + 1 < invocations.length) {
+        startStep(index + 1)
+        return
+      }
+      void finish('completed', exitCode)
+    })
+  }
 
   const completion = new Promise<RunRecord>((resolve) => {
-    terminal.onExit(async ({ exitCode }) => {
-      closed = true
-      run.exitCode = exitCode
-      run.status = cancelled ? 'cancelled' : exitCode === 0 ? 'completed' : 'failed'
-      run.finishedAt = new Date().toISOString()
-      await store.saveRun(run)
-      void store.applyDefaultRunRetention().catch(() => {})
-      resolve(run)
-    })
+    resolveCompletion = resolve
   })
+  startStep(0)
 
   return {
     run,
@@ -100,15 +140,16 @@ export async function executeCommand(
       if (closed)
         return
       cancelled = true
-      terminal.kill(process.platform === 'win32' ? undefined : 'SIGTERM')
+      const activeTerminal = terminal
+      activeTerminal?.kill(process.platform === 'win32' ? undefined : 'SIGTERM')
       const forceKill = setTimeout(() => {
-        if (!closed)
-          terminal.kill(process.platform === 'win32' ? undefined : 'SIGKILL')
+        if (!closed && terminal === activeTerminal)
+          activeTerminal?.kill(process.platform === 'win32' ? undefined : 'SIGKILL')
       }, 2_000)
       forceKill.unref()
     },
-    resize: (columns, rows) => terminal.resize(columns, rows),
-    write: data => terminal.write(data),
+    resize: (columns, rows) => terminal?.resize(columns, rows),
+    write: data => terminal?.write(data),
   }
 }
 
