@@ -74,6 +74,9 @@ A Marketplace Plugin publishes a version-one declaration under `package.json#cra
     }
   },
   "craftHub": { "minVersion": "0.0.1-alpha.0" },
+  "includesPlugins": [
+    { "package": "@acme/craft-hub-plugin-toolkit", "version": "^1.0.0" }
+  ],
   "requiresPlugins": [
     { "package": "@acme/craft-hub-plugin-shared", "version": "^1.0.0" }
   ],
@@ -94,7 +97,9 @@ A Marketplace Plugin publishes a version-one declaration under `package.json#cra
 
 `slug`, `links`, `icon`, `maintainers`, `permissionReasons`, and `localizations` are additive discovery metadata. A maintainer may use a stable Distribution-defined `handle`, an HTTPS profile URL, or both. Permission-reason keys must name declared permissions.
 
-`requiresPlugins` declares other Marketplace Plugins from the same source. Each dependency uses a package name and SemVer range. Self-dependencies and duplicate dependencies are invalid; npm `dependencies` remain forbidden.
+`includesPlugins` declares an Extension Pack: the listed Marketplace Plugins are installed from the same source in one reviewed operation, then remain independently manageable. Removing the pack does not remove its included plugins.
+
+`requiresPlugins` declares hard plugin dependencies from the same source. Each relation uses a package name and SemVer range. A package cannot be self-referenced, duplicated, or present in both lists; npm `dependencies` remain forbidden.
 
 `packageQuickActions` lets a declarative plugin recognize workspace packages by bounded file markers and place discovered capabilities in that package's overview. A selector may be a capability ID, an unambiguous capability name, or `source:name`. This makes cross-plugin composition possible: if the referenced skill or command is not discovered, the action is omitted and the package keeps its normal command shortcuts. Package matching requires the `read-project-files` permission.
 
@@ -129,6 +134,11 @@ A Marketplace Plugin publishes a version-one declaration under `package.json#cra
 
 Command presets may extend a `select` input through `optionSources`. A `package-json-array` source reads a bounded JSON array from the matching package and requires `read-project-files`. A `user-setting` source reads one exact `extensions.<plugin>.<setting>` key and requires the separately disclosed `read-user-settings` permission. Static options remain first, duplicate values are removed, malformed or missing sources are ignored, and neither source executes project code.
 
+Command templates and presets use the same input protocol as project configuration. A `text` or
+`select` input may set `argumentStyle` to `positional` and omit `flag`; Craft Hub then appends its
+validated value as one argv entry in declaration order. This remains structured execution and never
+enables shell interpolation.
+
 ```json
 {
   "inputs": {
@@ -156,6 +166,7 @@ A Plugin Catalog lists immutable package versions. Every entry includes the exac
 - `status`: `active`, `deprecated`, or `blocked`.
 - `statusReason`: required for deprecated and blocked versions.
 - `replacement`: an optional Marketplace Plugin package recommended instead.
+- `includesPlugins`: the Extension Pack member list copied from the Manifest.
 - `requiresPlugins`: the package dependency list copied from the Manifest.
 
 Catalog permission reasons, permissions, and plugin dependencies must match the installed package Manifest. Craft Hub refuses installation when integrity, identity, permissions, permission reasons, plugin dependencies, or the compatible version range does not match.
@@ -168,9 +179,15 @@ Catalog permission reasons, permissions, and plugin dependencies must match the 
 
 Catalog maintainers should retain blocked version entries so clients can enforce precise revocation.
 
+## Local plugins
+
+Craft Hub can load the same declarative package format directly from an absolute local directory in both development and production builds. Use the **Installed → Load local plugin** form, or run `craft-hub plugin:link /absolute/path/to/plugin`. A linked plugin is marked **Local**, persists across restarts, and overrides a same-name Marketplace installation without modifying it. Manifest edits are picked up when the plugin list or capabilities refresh; `craft-hub plugin:refresh <package>` forces a refresh. Use `craft-hub plugin:unlink <package>` to remove the override and restore any installed Marketplace version.
+
+Local linking is an explicit trust action and does not provide Catalog integrity or publisher verification. Package identity, manifest schema, minimum Craft Hub version, file containment, lifecycle-script, and runtime-dependency restrictions are still validated. Invalid local changes keep the plugin visible with an error and prevent its contributions from activating until repaired.
+
 ## Installation safety
 
-Before confirmation, Craft Hub recursively resolves the root plugin and its same-source dependency closure, rejects missing versions, incompatible Craft Hub versions, conflicting constraints, blocked packages, and cycles, and returns a dependency-first install plan with combined permissions. One confirmed request installs new dependencies, re-enables compatible disabled dependencies, and leaves already-active versions unchanged.
+Before confirmation, Craft Hub recursively resolves the root plugin and its same-source included and required plugin closure, rejects missing versions, incompatible Craft Hub versions, conflicting constraints, blocked packages, and cycles, and returns a dependency-first install plan with combined permissions. One confirmed request installs new members and dependencies, re-enables compatible disabled plugins, and leaves already-active versions unchanged. After installation, Extension Pack members can be enabled, disabled, updated, or removed independently.
 
 When the local server starts, Craft Hub refreshes Marketplace Sources used by enabled installed plugins and automatically installs the newest active, compatible version when every package in the resulting plan is already installed from the same source with exactly the same permissions. The previous version remains available for rollback. Updates that add permissions or introduce a new dependency are never approved automatically; the Marketplace shows them as manual updates so the complete plan and combined permissions can be reviewed first. The same safe update check is available through `GET /api/plugins/updates` and can be applied with `POST /api/plugins/updates`.
 

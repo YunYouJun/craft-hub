@@ -55,6 +55,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
   const capabilityPinsByProject = ref<Record<string, string[]>>({})
   const selectedCapabilityId = ref('')
   const selectedPackagePath = ref('')
+  const packageCapabilityDrawerOpen = ref(false)
   const projectOverview = ref<ProjectOverview>()
   const projectOverviewLoading = ref(false)
   const projectOverviewError = ref('')
@@ -197,6 +198,8 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     if (selectedCapabilityId.value !== (nextCapability?.id ?? ''))
       run.value = undefined
     selectedCapabilityId.value = nextCapability?.id ?? ''
+    if (!selectedCapabilityId.value)
+      packageCapabilityDrawerOpen.value = false
   }
 
   function currentSnapshot(): string {
@@ -377,6 +380,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
       capabilities.value = []
       agentActions.value = []
       selectedCapabilityId.value = ''
+      packageCapabilityDrawerOpen.value = false
       return
     }
     if (state.selectedProjectId && projects.value.some(project => project.id === state.selectedProjectId))
@@ -427,6 +431,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     capabilities.value = []
     agentActions.value = []
     selectedCapabilityId.value = ''
+    packageCapabilityDrawerOpen.value = false
     run.value = undefined
     clearWorkspaceCapability()
     persistWorkspaceState()
@@ -949,6 +954,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
       return
     selectedPackagePath.value = packagePath
     selectedCapabilityId.value = ''
+    packageCapabilityDrawerOpen.value = false
     run.value = undefined
     if (selectedProjectId.value && packagePath !== '.') {
       recentPackagePaths.value = [packagePath, ...recentPackagePaths.value.filter(path => path !== packagePath)].slice(0, 4)
@@ -960,6 +966,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
   async function clearPackageSelection(): Promise<void> {
     selectedPackagePath.value = ''
     selectedCapabilityId.value = ''
+    packageCapabilityDrawerOpen.value = false
     run.value = undefined
     await loadProjectOverview('.')
   }
@@ -970,7 +977,22 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     if (packagePath !== undefined)
       selectedPackagePath.value = packagePath
     selectedCapabilityId.value = capabilityId
+    packageCapabilityDrawerOpen.value = false
     run.value = undefined
+  }
+
+  function openPackageCapability(capabilityId: string, packagePath: string): void {
+    if (!capabilities.value.some(capability => capability.id === capabilityId))
+      return
+    selectedPackagePath.value = packagePath
+    selectedCapabilityId.value = capabilityId
+    packageCapabilityDrawerOpen.value = true
+    run.value = undefined
+  }
+
+  function closePackageCapabilityDrawer(): void {
+    packageCapabilityDrawerOpen.value = false
+    selectedCapabilityId.value = ''
   }
 
   async function selectProject(id: string): Promise<void> {
@@ -993,6 +1015,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     capabilityPinsByProject.value = { ...capabilityPinsByProject.value, [id]: pins.capabilityIds }
     selectedCapabilityId.value = ''
     selectedPackagePath.value = ''
+    packageCapabilityDrawerOpen.value = false
     try {
       const stored = JSON.parse(window.localStorage.getItem(`craft-hub-recent-packages:${id}`) ?? '[]') as unknown
       recentPackagePaths.value = Array.isArray(stored) && stored.every(path => typeof path === 'string') ? stored.slice(0, 4) : []
@@ -1232,6 +1255,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     commandPackagesByProject,
     selectedPackagePath,
     selectedPackage,
+    packageCapabilityDrawerOpen,
     projectOverview,
     projectOverviewLoading,
     projectOverviewError,
@@ -1326,6 +1350,8 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     selectPackage,
     clearPackageSelection,
     selectCapability,
+    openPackageCapability,
+    closePackageCapabilityDrawer,
     addProject,
     previewProjectConfigInitialization,
     applyProjectConfigInitialization,

@@ -118,6 +118,19 @@ cli.command('plugin:list', 'List installed Craft Hub plugins').action(async () =
   console.log(JSON.stringify(await runtime.pluginManager.listInstalled(), null, 2))
 })
 
+cli.command('plugin:link <path>', 'Load a declarative plugin directly from a local package directory').action(async (path: string) => {
+  console.log(JSON.stringify(await runtime.pluginManager.linkLocal(path), null, 2))
+})
+
+cli.command('plugin:refresh <packageName>', 'Reload a linked local plugin manifest from disk').action(async (packageName: string) => {
+  console.log(JSON.stringify(await runtime.pluginManager.refreshLocal(packageName), null, 2))
+})
+
+cli.command('plugin:unlink <packageName>', 'Stop loading a linked local plugin').action(async (packageName: string) => {
+  await runtime.pluginManager.unlinkLocal(packageName)
+  console.log(JSON.stringify({ unlinked: true, package: packageName }))
+})
+
 cli.command('plugin:search [query]', 'Search enabled marketplace catalogs').action(async (query = '') => {
   const normalized = query.toLowerCase()
   const plugins = (await runtime.pluginManager.catalog()).filter(plugin => !normalized

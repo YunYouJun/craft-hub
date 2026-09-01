@@ -166,7 +166,7 @@ Hosts that accept package names from configuration can call `loadCraftHubPlugins
 
 ### Marketplace plugins
 
-Marketplace plugins are declarative packages listed by a Plugin Catalog. Craft Hub installs immutable versions with lifecycle scripts disabled, validates their SHA-512 integrity and permission disclosure, and never imports package code. Meta-plugins can use same-source `requiresPlugins` to preview and install a reviewed solution pack in one request. See the [plugin marketplace contract](./docs/guide/plugin-marketplace.md).
+Marketplace plugins are declarative packages listed by a Plugin Catalog. Craft Hub installs immutable versions with lifecycle scripts disabled, validates their SHA-512 integrity and permission disclosure, and never imports package code. Extension packs use same-source `includesPlugins` to install a reviewed set whose members remain independently manageable; `requiresPlugins` is reserved for hard dependencies. See the [plugin marketplace contract](./docs/guide/plugin-marketplace.md).
 
 ## Roadmap
 

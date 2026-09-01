@@ -7,7 +7,10 @@ const maximumDesktopLinkLength = 2_048
 
 export type DesktopNavigationRequest
   = | { kind: 'home' }
-    | { kind: 'project', reference: ProjectReference }
+    | { kind: 'marketplace' }
+    | { kind: 'settings' }
+    | { kind: 'workspace', workspaceId: string, ownerScopeId?: string }
+    | { kind: 'project', reference: ProjectReference, capabilityId?: string }
 
 export type DesktopLink
   = | { kind: 'cloud-connect', url: string }
@@ -24,6 +27,7 @@ export type DesktopLinkErrorCode
     | 'unexpected-parameter'
     | 'unexpected-scheme'
     | 'unexpected-version'
+    | 'unexpected-view'
     | 'unsafe-repository'
 
 /** Stable, privacy-safe reason returned when a Desktop Link is rejected. */
@@ -67,20 +71,38 @@ export function parseDesktopLink(rawUrl: string, acceptedSchemes = [productionDe
   if (url.pathname !== '' && url.pathname !== '/')
     throw new DesktopLinkError('unexpected-action')
   if (url.host === 'open') {
-    assertParameters(url, ['v'], ['v'])
+    assertParameters(url, ['v'], ['v', 'view'])
     assertVersion(url)
-    return { kind: 'navigation', navigation: { kind: 'home' } }
+    const view = url.searchParams.get('view') ?? 'home'
+    if (view !== 'home' && view !== 'marketplace' && view !== 'settings')
+      throw new DesktopLinkError('unexpected-view')
+    return { kind: 'navigation', navigation: { kind: view } }
+  }
+  if (url.host === 'workspace') {
+    assertParameters(url, ['id', 'v'], ['id', 'scope', 'v'])
+    assertVersion(url)
+    const ownerScopeId = url.searchParams.get('scope')
+    return {
+      kind: 'navigation',
+      navigation: {
+        kind: 'workspace',
+        workspaceId: navigationIdentifier(url.searchParams.get('id')!),
+        ...(ownerScopeId ? { ownerScopeId: navigationIdentifier(ownerScopeId) } : {}),
+      },
+    }
   }
   if (url.host === 'project') {
-    assertParameters(url, ['repo', 'v'], ['repo', 'v', 'subdir'])
+    assertParameters(url, ['repo', 'v'], ['capability', 'repo', 'v', 'subdir'])
     assertVersion(url)
     const repository = secureHttpsUrl(url.searchParams.get('repo')!)
     try {
+      const capabilityId = url.searchParams.get('capability')
       return {
         kind: 'navigation',
         navigation: {
           kind: 'project',
           reference: normalizeProjectReference({ repository, subdir: url.searchParams.get('subdir') ?? undefined }),
+          ...(capabilityId ? { capabilityId: navigationIdentifier(capabilityId) } : {}),
         },
       }
     }
@@ -156,6 +178,12 @@ function assertParameters(url: URL, required: string[], allowed: string[]): void
 function assertVersion(url: URL): void {
   if (url.searchParams.get('v') !== '1')
     throw new DesktopLinkError('unexpected-version')
+}
+
+function navigationIdentifier(input: string): string {
+  if (input.length > 512 || [...input].some(character => character.charCodeAt(0) <= 31 || character.charCodeAt(0) === 127))
+    throw new DesktopLinkError('unexpected-parameter')
+  return input
 }
 
 function secureHttpsUrl(input: string): string {

@@ -2,6 +2,7 @@
 import type { WorkbenchEditorId } from 'craft-hub'
 import type { IconName } from './icons'
 import { computed, ref } from 'vue'
+import { SelectOptionContent } from './components/ui/select'
 import { Icon } from './icons'
 import { useI18n } from './i18n'
 import { useWorkbenchStore } from './store'
@@ -56,9 +57,11 @@ async function selectEditor(id: WorkbenchEditorId): Promise<void> {
           :class="{ active: setting.default === choice.id }"
           @click="selectEditor(choice.id)"
         >
-          <Icon :name="choice.icon" />
-          {{ choice.name }}
-          <Icon v-if="setting.default === choice.id" name="check" />
+          <SelectOptionContent
+            :icon="choice.icon"
+            :label="choice.name"
+            :selected="setting.default === choice.id"
+          />
         </button>
       </div>
     </details>

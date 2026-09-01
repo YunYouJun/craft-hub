@@ -55,6 +55,12 @@ export const iconClasses: Record<Exclude<IconName, 'codex' | 'cursor' | 'plugins
   workspace: 'i-ri-folders-line',
 }
 
+/** Return whether a declarative semantic icon is supported by this host. */
+export function isIconName(name: string | undefined): name is IconName {
+  return name === 'codex' || name === 'cursor' || name === 'plugins' || name === 'vscode'
+    || (typeof name === 'string' && Object.hasOwn(iconClasses, name))
+}
+
 export function Icon(props: { name: IconName }): VNode {
   if (props.name === 'plugins') {
     return h('svg', {

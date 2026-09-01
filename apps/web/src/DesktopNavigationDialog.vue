@@ -9,6 +9,7 @@ import { useWorkbenchStore } from './store'
 const props = defineProps<{
   matches: ProjectRecord[]
   reference: ProjectReference
+  capabilityId?: string
 }>()
 const emit = defineEmits<{ close: [], resolved: [] }>()
 const store = useWorkbenchStore()
@@ -27,6 +28,8 @@ async function openProject(projectId: string): Promise<void> {
   error.value = ''
   try {
     await store.selectProject(projectId)
+    if (props.capabilityId)
+      store.selectCapability(props.capabilityId)
     emit('resolved')
   }
   catch (caught) {
@@ -67,6 +70,8 @@ async function registerCheckout(): Promise<void> {
   error.value = ''
   try {
     await store.addProject(selectedPath.value)
+    if (props.capabilityId)
+      store.selectCapability(props.capabilityId)
     emit('resolved')
   }
   catch (caught) {

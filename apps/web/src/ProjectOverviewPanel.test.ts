@@ -173,5 +173,6 @@ describe('project overview panel', () => {
 
     await toolGroup.get('button').trigger('click')
     expect(store.selectedCapabilityId).toBe(toolCommand.id)
+    expect(store.packageCapabilityDrawerOpen).toBe(true)
   })
 })

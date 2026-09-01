@@ -8,6 +8,7 @@ export function createWorkbenchRouter(history: RouterHistory = createWebHistory(
     routes: [
       { path: '/', name: 'workbench', component: App },
       { path: '/marketplace', name: 'marketplace', component: App },
+      { path: '/marketplace/plugins/:sourceId/:packageName', name: 'plugin-detail', component: App },
       { path: '/:pathMatch(.*)*', redirect: '/' },
     ],
   })

@@ -53,7 +53,8 @@ function actions(commandPackage: CommandPackage, limit = 4): Capability[] {
   if (commandPackage.quickActions?.length) {
     const configured = commandPackage.quickActions
       .map(selector => configuredAction(selector, commandPackage))
-      .filter((capability): capability is Capability => Boolean(capability) && (capability.kind !== 'command' || !capability.toolGroupId))
+      .filter((capability): capability is Capability => capability !== undefined)
+      .filter(capability => capability.kind !== 'command' || !capability.toolGroupId)
     if (configured.length)
       return configured.slice(0, limit)
   }
@@ -70,7 +71,11 @@ function openPackage(commandPackage: CommandPackage): void {
 }
 
 function openAction(commandPackage: CommandPackage, capability: Capability): void {
-  store.selectCapability(capability.id, commandPackage.root ? '' : commandPackage.relativePath)
+  const packagePath = commandPackage.root ? '' : commandPackage.relativePath
+  if (isPackageOverview.value)
+    store.openPackageCapability(capability.id, packagePath)
+  else
+    store.selectCapability(capability.id, packagePath)
 }
 
 async function openPackageLink(link: CommandPackageLink): Promise<void> {

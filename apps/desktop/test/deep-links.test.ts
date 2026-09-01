@@ -6,8 +6,9 @@ const rejectedLinks: Array<[string, DesktopLinkErrorCode]> = [
   ['https://example.com', 'unexpected-scheme'],
   ['craft-hub://run?v=1&command=test', 'unexpected-action'],
   ['craft-hub://open?v=2', 'unexpected-version'],
-  ['craft-hub://open?v=1&view=capabilities', 'unexpected-parameter'],
+  ['craft-hub://open?v=1&view=capabilities', 'unexpected-view'],
   ['craft-hub://open?v=1&v=1', 'repeated-parameter'],
+  ['craft-hub://workspace?v=1&id=%00', 'unexpected-parameter'],
   ['craft-hub://project?v=1&repo=file%3A%2F%2F%2Ftmp%2Fproject', 'unsafe-repository'],
   ['craft-hub://project?v=1&repo=https%3A%2F%2Fexample.com%2Frepo&subdir=..%2Foutside', 'unsafe-repository'],
   [`craft-hub://open?v=1&padding=${'x'.repeat(2_100)}`, 'link-too-long'],
@@ -16,6 +17,10 @@ const rejectedLinks: Array<[string, DesktopLinkErrorCode]> = [
 describe('desktop links', () => {
   it.each([
     ['craft-hub://open?v=1', { kind: 'navigation', navigation: { kind: 'home' } }],
+    ['craft-hub://open?v=1&view=marketplace', { kind: 'navigation', navigation: { kind: 'marketplace' } }],
+    ['craft-hub://open?v=1&view=settings', { kind: 'navigation', navigation: { kind: 'settings' } }],
+    ['craft-hub://workspace?v=1&id=product-team', { kind: 'navigation', navigation: { kind: 'workspace', workspaceId: 'product-team' } }],
+    ['craft-hub://workspace?v=1&id=release&scope=team-platform', { kind: 'navigation', navigation: { kind: 'workspace', workspaceId: 'release', ownerScopeId: 'team-platform' } }],
     ['craft-hub-dev://open?v=1', { kind: 'navigation', navigation: { kind: 'home' } }],
     [
       'craft-hub://project?v=1&repo=https%3A%2F%2Fgithub.com%2FYunYouJun%2Fcraft-hub.git&subdir=apps%2Fweb',
@@ -24,6 +29,17 @@ describe('desktop links', () => {
         navigation: {
           kind: 'project',
           reference: { repository: 'https://github.com/YunYouJun/craft-hub', subdir: 'apps/web' },
+        },
+      },
+    ],
+    [
+      'craft-hub://project?v=1&repo=https%3A%2F%2Fgithub.com%2FYunYouJun%2Fcraft-hub.git&capability=command%3Adev',
+      {
+        kind: 'navigation',
+        navigation: {
+          kind: 'project',
+          reference: { repository: 'https://github.com/YunYouJun/craft-hub' },
+          capabilityId: 'command:dev',
         },
       },
     ],

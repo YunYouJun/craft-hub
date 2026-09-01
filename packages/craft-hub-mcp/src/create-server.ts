@@ -1,19 +1,24 @@
-import type { CommandCapability, CommandInvocation, ProjectRecord } from 'craft-hub'
-import { readFileSync } from 'node:fs'
+import type { CommandCapability, CommandInvocation } from 'craft-hub'
+import { execFile } from 'node:child_process'
 import { isAbsolute } from 'node:path'
+import process from 'node:process'
+import { promisify } from 'node:util'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { CraftHubRuntime } from 'craft-hub'
 import { z } from 'zod/v3'
 
-const PANEL_URI = 'ui://craft-hub/project-panel-v1.html'
-const panelHtml = readFileSync(new URL('../../../plugins/craft-hub/ui/index.html', import.meta.url), 'utf8')
+const execFileAsync = promisify(execFile)
+
+export interface CraftHubMcpServerOptions {
+  openDesktopLink?: (url: string) => Promise<void>
+}
 
 /** Create a Craft Hub MCP server backed by the supplied runtime. */
-export function createCraftHubMcpServer(runtime = new CraftHubRuntime()): McpServer {
+export function createCraftHubMcpServer(runtime = new CraftHubRuntime(), options: CraftHubMcpServerOptions = {}): McpServer {
   const server = new McpServer(
     { name: 'craft-hub', version: '0.1.0' },
     {
-      instructions: 'Treat Craft Hub as authoritative for projects, workspaces, Craft Hub execution authorization, project configuration initialization, and working directories. Resolve existing projects and workspaces before changing them. Registration and discovery do not authorize execution. Preview project configuration before applying it, and preview commands before execution.',
+      instructions: 'Treat Craft Hub as authoritative for projects, workspaces, Craft Hub execution authorization, project configuration initialization, navigation, and working directories. Resolve existing projects, workspaces, and capabilities before targeting them. Opening Craft Hub only navigates and does not authorize execution. Registration and discovery do not authorize execution. Preview project configuration before applying it, and preview commands before execution.',
     },
   )
   let closingRuntime: Promise<void> | undefined
@@ -22,14 +27,26 @@ export function createCraftHubMcpServer(runtime = new CraftHubRuntime()): McpSer
     void closingRuntime.catch(() => {})
   }
 
-  server.registerResource('craft-hub-project-panel', PANEL_URI, {}, async () => ({
-    contents: [{
-      uri: PANEL_URI,
-      mimeType: 'text/html;profile=mcp-app',
-      text: panelHtml,
-      _meta: { ui: { prefersBorder: false } },
-    }],
-  }))
+  server.registerTool(
+    'open_craft_hub',
+    {
+      title: 'Open Craft Hub',
+      description: 'Open the local Craft Hub desktop app at its home, marketplace, settings, workspace, project, or project capability view. This only navigates; it never runs project commands or changes trust.',
+      inputSchema: {
+        view: z.enum(['home', 'marketplace', 'settings', 'workspace', 'project', 'capability']).default('home'),
+        projectId: z.string().min(1).optional(),
+        workspaceId: z.string().min(1).optional(),
+        capabilityId: z.string().min(1).optional(),
+        ownerScopeId: z.string().min(1).default('personal'),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    async (target) => {
+      const url = await craftHubDesktopUrl(runtime, target)
+      await (options.openDesktopLink ?? openSystemDesktopLink)(url)
+      return result({ target, url }, `Opened Craft Hub ${target.view}.`)
+    },
+  )
 
   server.registerTool(
     'list_projects',
@@ -472,38 +489,78 @@ export function createCraftHubMcpServer(runtime = new CraftHubRuntime()): McpSer
     },
   )
 
-  server.registerTool(
-    'render_craft_hub_panel',
-    {
-      title: 'Render the Craft Hub project panel',
-      description: 'Render a compact visual project, command preview, and run-status prototype. Use after resolving project data.',
-      inputSchema: {
-        projectId: z.string().optional(),
-        variant: z.enum(['A', 'B', 'C']).default('A'),
-      },
-      annotations: { readOnlyHint: true },
-      _meta: {
-        'ui': { resourceUri: PANEL_URI },
-        'openai/outputTemplate': PANEL_URI,
-      },
-    },
-    async ({ projectId, variant }) => {
-      const projects = await runtime.projects.list()
-      const project = projectId ? await runtime.projects.get(projectId) : projects[0]
-      const capabilities = project ? await runtime.capabilities(project.id) : []
-      const firstCommand = capabilities.find(item => item.kind === 'command') as CommandCapability | undefined
-      return result({
-        variant,
-        projects,
-        project,
-        capabilities,
-        preview: firstCommand ? commandPreview(firstCommand) : undefined,
-        run: mockRun(project),
-      }, 'Rendered the read-only Craft Hub panel prototype.')
-    },
-  )
-
   return server
+}
+
+/** Build one navigation-only Craft Hub Desktop link after resolving local identifiers. */
+export async function craftHubDesktopUrl(
+  runtime: CraftHubRuntime,
+  target: {
+    view: 'home' | 'marketplace' | 'settings' | 'workspace' | 'project' | 'capability'
+    projectId?: string
+    workspaceId?: string
+    capabilityId?: string
+    ownerScopeId?: string
+  },
+): Promise<string> {
+  if (target.view === 'home' || target.view === 'marketplace' || target.view === 'settings') {
+    assertAbsentNavigationIds(target)
+    const url = new URL('craft-hub://open')
+    url.searchParams.set('v', '1')
+    if (target.view !== 'home')
+      url.searchParams.set('view', target.view)
+    return url.href
+  }
+
+  if (target.view === 'workspace') {
+    if (!target.workspaceId)
+      throw new Error('workspaceId is required for the workspace view')
+    if (target.projectId || target.capabilityId)
+      throw new Error('The workspace view does not accept projectId or capabilityId')
+    await runtime.workspaces.get(target.workspaceId, target.ownerScopeId ?? 'personal')
+    const url = new URL('craft-hub://workspace')
+    url.searchParams.set('v', '1')
+    url.searchParams.set('id', target.workspaceId)
+    if (target.ownerScopeId && target.ownerScopeId !== 'personal')
+      url.searchParams.set('scope', target.ownerScopeId)
+    return url.href
+  }
+
+  if (!target.projectId)
+    throw new Error(`projectId is required for the ${target.view} view`)
+  if (target.workspaceId)
+    throw new Error(`The ${target.view} view does not accept workspaceId`)
+  if (target.view === 'capability' && !target.capabilityId)
+    throw new Error('capabilityId is required for the capability view')
+  if (target.view === 'project' && target.capabilityId)
+    throw new Error('Use the capability view when capabilityId is provided')
+
+  const project = await runtime.projects.get(target.projectId)
+  const reference = await runtime.projects.identify(project.path)
+  if (target.capabilityId && !(await runtime.capabilities(project.id)).some(capability => capability.id === target.capabilityId))
+    throw new Error(`Unknown capability: ${target.capabilityId}`)
+  const url = new URL('craft-hub://project')
+  url.searchParams.set('v', '1')
+  url.searchParams.set('repo', reference.repository)
+  if (reference.subdir)
+    url.searchParams.set('subdir', reference.subdir)
+  if (target.capabilityId)
+    url.searchParams.set('capability', target.capabilityId)
+  return url.href
+}
+
+function assertAbsentNavigationIds(target: { projectId?: string, workspaceId?: string, capabilityId?: string }): void {
+  if (target.projectId || target.workspaceId || target.capabilityId)
+    throw new Error('home, marketplace, and settings views do not accept navigation IDs')
+}
+
+async function openSystemDesktopLink(url: string): Promise<void> {
+  const invocation = process.platform === 'darwin'
+    ? { command: 'open', args: [url] }
+    : process.platform === 'win32'
+      ? { command: 'explorer.exe', args: [url] }
+      : { command: 'xdg-open', args: [url] }
+  await execFileAsync(invocation.command, invocation.args, { windowsHide: true })
 }
 
 function commandPreview(capability: CommandCapability, invocation: CommandInvocation = capability.invocation): {
@@ -525,26 +582,6 @@ function commandPreview(capability: CommandCapability, invocation: CommandInvoca
     requiredEnv: invocation.requiredEnv,
     category: capability.category,
     package: capability.package,
-  }
-}
-
-function mockRun(project?: ProjectRecord): {
-  id: string
-  status: string
-  title: string
-  projectName: string
-  elapsed: string
-  progress: number
-  note: string
-} {
-  return {
-    id: 'prototype-run',
-    status: 'running',
-    title: 'pnpm test --run',
-    projectName: project?.name ?? 'No project selected',
-    elapsed: '01:42',
-    progress: 68,
-    note: 'Prototype data — no command was run.',
   }
 }
 

@@ -22,11 +22,13 @@ describe('desktop navigation dialog', () => {
     setActivePinia(pinia)
     const store = useWorkbenchStore()
     const selectProject = vi.spyOn(store, 'selectProject').mockResolvedValue()
-    const wrapper = mount(DesktopNavigationDialog, { props: { matches: projects, reference }, global: { plugins: [pinia] } })
+    const selectCapability = vi.spyOn(store, 'selectCapability')
+    const wrapper = mount(DesktopNavigationDialog, { props: { matches: projects, reference, capabilityId: 'command:dev' }, global: { plugins: [pinia] } })
 
     expect(selectProject).not.toHaveBeenCalled()
     await wrapper.get('.desktop-project-matches button').trigger('click')
     expect(selectProject).toHaveBeenCalledWith('one')
+    expect(selectCapability).toHaveBeenCalledWith('command:dev')
     expect(wrapper.emitted('resolved')).toHaveLength(1)
   })
 

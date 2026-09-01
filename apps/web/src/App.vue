@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { computed, onBeforeMount, onBeforeUnmount, ref } from 'vue'
-import { SplitterGroup, SplitterPanel, SplitterResizeHandle } from 'reka-ui'
+import { DialogClose, DialogContent, DialogDescription, DialogOverlay, DialogPortal, DialogRoot, DialogTitle, SplitterGroup, SplitterPanel, SplitterResizeHandle } from 'reka-ui'
 import { useRoute, useRouter } from 'vue-router'
 import { subscribeToProjectChanges } from './api'
 import CapabilityList from './CapabilityList.vue'
 import CommandPalette from './CommandPalette.vue'
+import { Button as UiButton } from './components/ui/button'
 import DesktopNavigationDialog from './DesktopNavigationDialog.vue'
 import DetailPanel from './DetailPanel.vue'
 import { Icon } from './icons'
@@ -26,7 +27,7 @@ const route = useRoute()
 const router = useRouter()
 const paletteOpen = ref(false)
 const settingsOpen = ref(false)
-const marketplaceOpen = computed(() => route.name === 'marketplace')
+const marketplaceOpen = computed(() => route.name === 'marketplace' || route.name === 'plugin-detail')
 const marketplaceImportCatalogUrl = ref('')
 const onboardingOpen = ref(false)
 const desktopNavigation = ref<Extract<DesktopNavigation, { kind: 'project' }>>()
@@ -65,15 +66,32 @@ async function openMarketplaceSourceImport(catalogUrl: string): Promise<void> {
 }
 
 async function openDesktopNavigation(navigation: DesktopNavigation): Promise<void> {
-  await openWorkbench()
   onboardingOpen.value = false
+  settingsOpen.value = false
+  desktopNavigation.value = undefined
+  if (navigation.kind === 'marketplace') {
+    await openMarketplace()
+    return
+  }
+  await openWorkbench()
+  if (navigation.kind === 'settings') {
+    settingsOpen.value = true
+    return
+  }
   if (navigation.kind === 'home') {
-    desktopNavigation.value = undefined
+    return
+  }
+  if (navigation.kind === 'workspace') {
+    if (navigation.ownerScopeId && navigation.ownerScopeId !== store.activeOwnerScopeId)
+      await store.switchOwnerScope(navigation.ownerScopeId)
+    if (store.allWorkspaces.some(workspace => workspace.id === navigation.workspaceId))
+      store.selectWorkspace(navigation.workspaceId)
     return
   }
   if (navigation.matches.length === 1) {
     await store.selectProject(navigation.matches[0]!.id)
-    desktopNavigation.value = undefined
+    if (navigation.capabilityId)
+      store.selectCapability(navigation.capabilityId)
     return
   }
   desktopNavigation.value = navigation
@@ -272,8 +290,24 @@ onBeforeUnmount(() => {
       v-if="desktopNavigation"
       :matches="desktopNavigation.matches"
       :reference="desktopNavigation.reference"
+      :capability-id="desktopNavigation.capabilityId"
       @close="desktopNavigation = undefined"
       @resolved="desktopNavigation = undefined"
     />
+    <DialogRoot :open="store.packageCapabilityDrawerOpen" @update:open="$event || store.closePackageCapabilityDrawer()">
+      <DialogPortal>
+        <DialogOverlay class="package-drawer-overlay" />
+        <DialogContent class="package-drawer-content">
+          <DialogTitle class="sr-only">{{ store.activeCapability?.name ?? t('package') }}</DialogTitle>
+          <DialogDescription class="sr-only">{{ store.selectedPackage?.name ?? store.activeProject?.name }}</DialogDescription>
+          <DialogClose as-child>
+            <UiButton class="package-drawer-close" size="icon" variant="ghost" :aria-label="t('close')" :title="t('close')">
+              <Icon name="close" />
+            </UiButton>
+          </DialogClose>
+          <DetailPanel package-drawer-content />
+        </DialogContent>
+      </DialogPortal>
+    </DialogRoot>
   </div>
 </template>

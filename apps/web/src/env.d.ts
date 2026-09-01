@@ -2,7 +2,10 @@
 
 type DesktopNavigation
   = | { kind: 'home' }
-    | { kind: 'project', reference: import('craft-hub').ProjectReference, matches: import('craft-hub').ProjectRecord[] }
+    | { kind: 'marketplace' }
+    | { kind: 'settings' }
+    | { kind: 'workspace', workspaceId: string, ownerScopeId?: string }
+    | { kind: 'project', reference: import('craft-hub').ProjectReference, matches: import('craft-hub').ProjectRecord[], capabilityId?: string }
 
 interface Window {
   craftHubDesktop?: {

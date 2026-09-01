@@ -1,3 +1,4 @@
+import type { CraftHubMcpServerOptions } from './create-server'
 import { execFile } from 'node:child_process'
 import { access, mkdir, mkdtemp, readFile, realpath, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -18,14 +19,14 @@ async function callTool(client: Client, name: string, args: Record<string, unkno
   return Object.fromEntries(Object.entries(response.structuredContent))
 }
 
-async function setup() {
+async function setup(options: CraftHubMcpServerOptions = {}) {
   const root = await mkdtemp(join(tmpdir(), 'craft-hub-mcp-'))
   const dataDir = join(root, 'data')
   const configDir = join(root, 'config')
   const projectPath = join(root, 'project')
   await mkdir(projectPath)
   const runtime = new CraftHubRuntime({ dataDir, configDir })
-  const server = createCraftHubMcpServer(runtime)
+  const server = createCraftHubMcpServer(runtime, options)
   const client = new Client({ name: 'craft-hub-test', version: '1.0.0' })
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair()
   await server.connect(serverTransport)
@@ -48,7 +49,9 @@ describe('craft hub MCP write tools', () => {
     const fixture = await setup()
     try {
       const tools = await fixture.client.listTools()
+      expect(tools.tools.map(tool => tool.name)).not.toContain('render_craft_hub_panel')
       expect(tools.tools).toEqual(expect.arrayContaining([
+        expect.objectContaining({ name: 'open_craft_hub', annotations: expect.objectContaining({ destructiveHint: false, idempotentHint: true }) }),
         expect.objectContaining({ name: 'add_project', annotations: expect.objectContaining({ destructiveHint: false, idempotentHint: true }) }),
         expect.objectContaining({ name: 'init_project_config', annotations: expect.objectContaining({ destructiveHint: false, readOnlyHint: false }) }),
         expect.objectContaining({ name: 'list_workspaces', annotations: expect.objectContaining({ readOnlyHint: true }) }),
@@ -68,7 +71,6 @@ describe('craft hub MCP write tools', () => {
         expect.objectContaining({ name: 'create_workspace', annotations: expect.objectContaining({ destructiveHint: false, idempotentHint: false }) }),
         expect.objectContaining({ name: 'add_workspace_member', annotations: expect.objectContaining({ destructiveHint: false, idempotentHint: true }) }),
       ]))
-
       const added = await callTool(fixture.client, 'add_project', { path: fixture.projectPath })
       const project = added.project as { id: string, path: string, trust: string }
       expect(added.created).toBe(true)
@@ -106,6 +108,42 @@ describe('craft hub MCP write tools', () => {
       expect(manifest).toContain('project: project')
       expect(manifest).not.toContain(project.id)
       expect(manifest).not.toContain(fixture.projectPath)
+    }
+    finally {
+      await fixture.client.close()
+      await fixture.server.close()
+      await fixture.runtime.close()
+    }
+  })
+
+  it('opens navigation-only desktop views through an injected system launcher', async () => {
+    const openDesktopLink = vi.fn(async () => {})
+    const fixture = await setup({ openDesktopLink })
+    try {
+      await expect(callTool(fixture.client, 'open_craft_hub', { view: 'marketplace' }))
+        .resolves
+        .toMatchObject({ url: 'craft-hub://open?v=1&view=marketplace' })
+      expect(openDesktopLink).toHaveBeenCalledWith('craft-hub://open?v=1&view=marketplace')
+
+      const created = await callTool(fixture.client, 'create_workspace', { name: 'Product Team' })
+      const workspace = created.workspace as { id: string }
+      await expect(callTool(fixture.client, 'open_craft_hub', { view: 'workspace', workspaceId: workspace.id }))
+        .resolves
+        .toMatchObject({ url: `craft-hub://workspace?v=1&id=${workspace.id}` })
+      expect(openDesktopLink).toHaveBeenLastCalledWith(`craft-hub://workspace?v=1&id=${workspace.id}`)
+
+      await writeFile(join(fixture.projectPath, 'package.json'), JSON.stringify({ scripts: { dev: 'vite' } }))
+      await execFileAsync('git', ['init', fixture.projectPath])
+      await execFileAsync('git', ['-C', fixture.projectPath, 'remote', 'add', 'origin', 'git@github.com:YunYouJun/example.git'])
+      const added = await callTool(fixture.client, 'add_project', { path: fixture.projectPath })
+      const project = added.project as { id: string }
+      const discovery = await callTool(fixture.client, 'list_capabilities', { projectId: project.id })
+      const capability = (discovery.capabilities as Array<{ id: string }>)[0]!
+      const opened = await callTool(fixture.client, 'open_craft_hub', { view: 'capability', projectId: project.id, capabilityId: capability.id })
+      const projectUrl = new URL(opened.url as string)
+      expect(projectUrl.host).toBe('project')
+      expect(projectUrl.searchParams.get('repo')).toBe('https://github.com/YunYouJun/example')
+      expect(projectUrl.searchParams.get('capability')).toBe(capability.id)
     }
     finally {
       await fixture.client.close()

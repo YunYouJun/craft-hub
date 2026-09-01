@@ -54,7 +54,7 @@ function repositoryUrl(protocol: 'http:' | 'https:', hostname: string, pathname:
   return new URL(`/${repositoryPath}`, `${protocol}//${hostname}`).href.replace(/\/$/, '')
 }
 
-/** Build the documented Codex Desktop deep link for one local thread. */
+/** Build the best-effort Codex Desktop deep link used by compatible app versions. */
 export function codexThreadUrl(threadId: string): string {
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(threadId))
     throw new Error('Invalid Codex thread id')

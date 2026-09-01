@@ -375,6 +375,9 @@ importers:
       reka-ui:
         specifier: 'catalog:'
         version: 2.10.4(vue@3.5.41(typescript@6.0.3))
+      semver:
+        specifier: 'catalog:'
+        version: 7.8.5
       shiki:
         specifier: 'catalog:'
         version: 4.4.3
@@ -391,6 +394,9 @@ importers:
       '@iconify-json/svg-spinners':
         specifier: 'catalog:'
         version: 1.2.4
+      '@types/semver':
+        specifier: 'catalog:'
+        version: 7.8.0
       '@vitejs/plugin-vue':
         specifier: 'catalog:'
         version: 6.0.8(vite@8.2.2(@types/node@26.3.0)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))(vue@3.5.41(typescript@6.0.3))

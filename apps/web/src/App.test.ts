@@ -299,6 +299,46 @@ describe('app startup', () => {
     wrapper.unmount()
   })
 
+  it('handles desktop links for workspace, marketplace, and settings views', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const path = typeof input === 'string' ? input : input.toString()
+      const body = path === '/api/settings'
+        ? { explicitKeys: [], path: '/settings.json', revision: 'initial', settings: { 'workbench.locale': 'en', 'workbench.shortcuts': {}, 'workbench.theme': 'system' } }
+        : path === '/api/workspaces/state'
+          ? { expandedWorkspaceIds: [] }
+          : path === '/api/workspaces'
+            ? [workspace]
+            : []
+      return new Response(JSON.stringify(body), { status: 200 })
+    }))
+    vi.stubGlobal('EventSource', FakeEventSource)
+    let navigate: ((navigation: DesktopNavigation) => void) | undefined
+    window.craftHubDesktop = {
+      onDesktopNavigation: vi.fn((callback) => {
+        navigate = callback
+        return () => {}
+      }),
+    }
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    const { router, wrapper } = await mountApp(pinia)
+    await flushPromises()
+
+    navigate?.({ kind: 'workspace', workspaceId: workspace.id })
+    await flushPromises()
+    expect(useWorkbenchStore().selectedWorkspace?.id).toBe(workspace.id)
+
+    navigate?.({ kind: 'marketplace' })
+    await flushPromises()
+    expect(router.currentRoute.value.path).toBe('/marketplace')
+
+    navigate?.({ kind: 'settings' })
+    await flushPromises()
+    expect(router.currentRoute.value.path).toBe('/')
+    expect(document.body.querySelector('.settings-dialog')).not.toBeNull()
+    wrapper.unmount()
+  })
+
   it('selects the project requested by the launch URL', async () => {
     let replayOnboarding: (() => void) | undefined
     const stopReplayOnboarding = vi.fn()

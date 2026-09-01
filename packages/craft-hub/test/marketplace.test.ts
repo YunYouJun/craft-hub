@@ -38,6 +38,7 @@ const manifest: PluginManifestV1 = {
     },
   },
   craftHub: { minVersion: '0.0.1-alpha.0' },
+  includesPlugins: [],
   requiresPlugins: [],
   projectFiles: ['package.json'],
   permissions: ['commands', 'read-project-files'],
@@ -80,6 +81,7 @@ function source(): MarketplaceSource {
         integrity: 'sha512-dGVzdA==',
         status: 'active',
         requires: '>=0.0.1-alpha.0',
+        includesPlugins: [],
         requiresPlugins: [],
       }],
     },
@@ -114,11 +116,46 @@ class FixtureInstaller implements PluginPackageInstaller {
       '---',
       '# Hello',
     ].join('\n'))
+    await mkdir(join(packagePath, 'docs'), { recursive: true })
+    await writeFile(join(packagePath, 'README.md'), '# Fixture plugin\n\n[Guide](docs/guide.md)')
+    await writeFile(join(packagePath, 'docs', 'guide.md'), '# Guide')
+    await writeFile(join(packagePath, 'docs', 'preview.png'), Buffer.from([137, 80, 78, 71]))
     return { packagePath, integrity: this.integrity }
   }
 }
 
+async function writeLocalPlugin(packagePath: string, version: string, displayName: string): Promise<void> {
+  const localManifest: PluginManifestV1 = {
+    ...manifest,
+    displayName,
+    contributes: {
+      ...manifest.contributes,
+      commands: [{ id: 'hello', name: `${displayName} command`, command: 'node', args: ['--version'], requiredEnv: [] }],
+      skills: [],
+    },
+  }
+  await mkdir(packagePath, { recursive: true })
+  await writeFile(join(packagePath, 'package.json'), JSON.stringify({ name: packageName, version, craftHub: localManifest }))
+}
+
 describe('plugin marketplace contracts', () => {
+  it('previews and caches exact-version plugin documents without installing the plugin', async () => {
+    const installer = new FixtureInstaller()
+    const manager = new PluginManager(await mkdtemp(join(tmpdir(), 'craft-hub-marketplace-document-')), [source()], installer)
+
+    await expect(manager.pluginDocument({ sourceId: 'test', package: packageName, version: '1.0.0' })).resolves.toMatchObject({
+      package: packageName,
+      version: '1.0.0',
+      document: { status: 'found', path: 'README.md', content: expect.stringContaining('Fixture plugin') },
+    })
+    await expect(manager.pluginDocument({ sourceId: 'test', package: packageName, version: '1.0.0', path: 'docs/guide.md' })).resolves.toMatchObject({
+      document: { status: 'found', path: 'docs/guide.md', content: '# Guide' },
+    })
+    await expect(manager.pluginDocumentAsset({ sourceId: 'test', package: packageName, version: '1.0.0', path: 'docs/preview.png' })).resolves.toMatchObject({ contentType: 'image/png' })
+    await expect(manager.listInstalled()).resolves.toEqual([])
+    expect(installer.installs).toEqual([packageName])
+  })
+
   it('extracts an integrity-pinned registry package without invoking npm', async () => {
     const destination = await mkdtemp(join(tmpdir(), 'craft-hub-pacote-installer-'))
     const integrity = 'sha512-dGVzdA=='
@@ -280,17 +317,22 @@ describe('plugin marketplace contracts', () => {
     expect(() => pluginManifestV1Schema.parse({
       ...manifest,
       requiresPlugins: [{ package: packageName, version: '^1.0.0' }],
-    })).toThrow(/depend on itself/)
+    })).toThrow(/reference itself/)
     expect(() => catalogPluginV1Schema.parse({
       ...source().catalog!.plugins[0]!,
-      requiresPlugins: [
+      includesPlugins: [
         { package: '@acme/craft-hub-plugin-dependency', version: '^1.0.0' },
         { package: '@acme/craft-hub-plugin-dependency', version: '^2.0.0' },
       ],
     })).toThrow(/more than once/)
+    expect(() => pluginManifestV1Schema.parse({
+      ...manifest,
+      includesPlugins: [{ package: '@acme/craft-hub-plugin-dependency', version: '^1.0.0' }],
+      requiresPlugins: [{ package: '@acme/craft-hub-plugin-dependency', version: '^1.0.0' }],
+    })).toThrow(/both included and required/)
   })
 
-  it('plans and installs a plugin bundle dependency-first with one request', async () => {
+  it('plans and installs an extension pack dependency-first with one request', async () => {
     const dependencyPackage = '@acme/craft-hub-plugin-dependency'
     const suitePackage = '@acme/craft-hub-plugin-suite'
     const dependencyManifest = pluginManifestV1Schema.parse({
@@ -305,7 +347,7 @@ describe('plugin marketplace contracts', () => {
       schemaVersion: 1,
       id: suitePackage,
       displayName: 'Suite',
-      requiresPlugins: [{ package: dependencyPackage, version: '^1.0.0' }],
+      includesPlugins: [{ package: dependencyPackage, version: '^1.0.0' }],
       contributes: { commands: [], commandPresets: [], commandTemplates: [], skills: [], projectTemplates: [], integrations: [] },
     })
     const bundleSource: MarketplaceSource = {
@@ -333,7 +375,7 @@ describe('plugin marketplace contracts', () => {
             displayName: 'Suite',
             publisher: 'Acme',
             integrity: 'sha512-dGVzdA==',
-            requiresPlugins: suiteManifest.requiresPlugins,
+            includesPlugins: suiteManifest.includesPlugins,
           }),
         ],
       },
@@ -375,6 +417,11 @@ describe('plugin marketplace contracts', () => {
     await expect(manager.listInstalled()).resolves.toEqual(expect.arrayContaining([
       expect.objectContaining({ package: dependencyPackage, enabled: true }),
     ]))
+
+    await manager.remove(suitePackage)
+    await expect(manager.listInstalled()).resolves.toEqual([
+      expect.objectContaining({ package: dependencyPackage, enabled: true }),
+    ])
   })
 
   it('rejects dependency cycles before downloading packages', async () => {
@@ -452,6 +499,64 @@ describe('plugin marketplace contracts', () => {
       expect.objectContaining({ package: packageName, enabled: false, version: '1.0.0' }),
     ])
     expect(JSON.parse(await readFile(join(dataDir, 'plugins.json'), 'utf8'))).toMatchObject({ schemaVersion: 1 })
+  })
+
+  it('loads persistent local plugins as an override and restores the marketplace version when unlinked', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'craft-hub-local-plugin-'))
+    const dataDir = join(root, 'data')
+    const localPath = join(root, 'local-plugin')
+    await writeLocalPlugin(localPath, '2.0.0', 'Local hello')
+    const manager = new PluginManager(dataDir, [source()], new FixtureInstaller())
+    await manager.install({ sourceId: 'test', package: packageName })
+
+    await expect(manager.linkLocal(localPath)).resolves.toMatchObject({
+      package: packageName,
+      version: '2.0.0',
+      sourceId: 'local',
+      origin: 'local',
+    })
+    await expect(manager.listInstalled()).resolves.toEqual([
+      expect.objectContaining({ package: packageName, version: '2.0.0', origin: 'local' }),
+    ])
+    await manager.setEnabled(packageName, false)
+    await expect(manager.listInstalled()).resolves.toEqual([
+      expect.objectContaining({ package: packageName, version: '2.0.0', origin: 'local', enabled: false }),
+    ])
+    await manager.setEnabled(packageName, true)
+
+    const reloaded = new PluginManager(dataDir, [source()], new FixtureInstaller())
+    await expect(reloaded.listInstalled()).resolves.toEqual([
+      expect.objectContaining({ package: packageName, version: '2.0.0', origin: 'local' }),
+    ])
+    await writeLocalPlugin(localPath, '2.1.0', 'Refreshed local hello')
+    await expect(reloaded.refreshLocal(packageName)).resolves.toMatchObject({
+      version: '2.1.0',
+      manifest: { displayName: 'Refreshed local hello' },
+    })
+
+    await reloaded.unlinkLocal(packageName)
+    await expect(reloaded.listInstalled()).resolves.toEqual([
+      expect.objectContaining({ package: packageName, version: '1.0.0', sourceId: 'test' }),
+    ])
+  })
+
+  it('keeps a broken linked plugin visible but inactive until its local manifest is repaired', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'craft-hub-local-plugin-error-'))
+    const localPath = join(root, 'local-plugin')
+    const manager = new PluginManager(join(root, 'data'))
+    await writeLocalPlugin(localPath, '2.0.0', 'Local hello')
+    await manager.linkLocal(localPath)
+    await writeFile(join(localPath, 'package.json'), '{ invalid')
+
+    await expect(manager.listInstalled()).resolves.toEqual([
+      expect.objectContaining({ package: packageName, origin: 'local', error: expect.any(String) }),
+    ])
+    await expect(manager.commandContributions()).resolves.toEqual([])
+
+    await writeLocalPlugin(localPath, '2.0.1', 'Repaired local hello')
+    const repaired = await manager.refreshLocal(packageName)
+    expect(repaired).toMatchObject({ version: '2.0.1' })
+    expect(repaired.error).toBeUndefined()
   })
 
   it('migrates persisted plugin manifest defaults before resolving command presets', async () => {
