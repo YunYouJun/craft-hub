@@ -1,17 +1,27 @@
 import type { ChildProcess } from 'node:child_process'
-import { spawn } from 'node:child_process'
+import { execFile, spawn } from 'node:child_process'
 import { mkdir, mkdtemp, realpath, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { promisify } from 'node:util'
 import { describe, expect, it } from 'vitest'
-import { launchCraftHubApp } from '../src/app'
+import { craftHubProjectDesktopUrl, launchCraftHubApp, launchCraftHubProject } from '../src/app'
 import { CraftHubRuntime } from '../src/runtime'
+
+const execFileAsync = promisify(execFile)
 
 async function projectFixture(): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), 'craft-hub-app-'))
   await writeFile(join(root, 'package.json'), JSON.stringify({ scripts: { dev: 'vite' } }))
   return realpath(root)
+}
+
+async function gitProjectFixture(): Promise<string> {
+  const root = await projectFixture()
+  await execFileAsync('git', ['init', root])
+  await execFileAsync('git', ['-C', root, 'remote', 'add', 'origin', 'git@github.com:YunYouJun/craft-hub.git'])
+  return root
 }
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../..')
@@ -69,6 +79,49 @@ async function readChunk<T>(reader: ReadableStreamDefaultReader<T>, timeoutMs = 
 }
 
 describe('app launcher', () => {
+  it('builds normalized project and capability Desktop Links', () => {
+    expect(craftHubProjectDesktopUrl({
+      repository: 'git@github.com:YunYouJun/craft-hub.git',
+      subdir: 'apps/web',
+    }, 'package.json:dev')).toBe(
+      'craft-hub://project?v=1&repo=https%3A%2F%2Fgithub.com%2FYunYouJun%2Fcraft-hub&subdir=apps%2Fweb&capability=package.json%3Adev',
+    )
+  })
+
+  it('opens the requested project in the installed desktop client by default', async () => {
+    const projectPath = await gitProjectFixture()
+    const openedDesktopUrls: string[] = []
+    const openedBrowserUrls: string[] = []
+
+    const launched = await launchCraftHubProject(projectPath, {
+      openBrowser: async (url) => { openedBrowserUrls.push(url) },
+      openDesktop: async (url) => { openedDesktopUrls.push(url) },
+      runtime: new CraftHubRuntime(join(projectPath, '.data')),
+    })
+
+    expect(launched).toEqual({
+      kind: 'desktop',
+      url: 'craft-hub://project?v=1&repo=https%3A%2F%2Fgithub.com%2FYunYouJun%2Fcraft-hub',
+    })
+    expect(openedDesktopUrls).toEqual([launched.url])
+    expect(openedBrowserUrls).toEqual([])
+  })
+
+  it('falls back to the browser workbench when the desktop client cannot be opened', async () => {
+    const projectPath = await gitProjectFixture()
+    const openedBrowserUrls: string[] = []
+    const launched = await launchCraftHubProject(projectPath, {
+      openBrowser: async (url) => { openedBrowserUrls.push(url) },
+      openDesktop: async () => { throw new Error('protocol handler unavailable') },
+      runtime: new CraftHubRuntime(join(projectPath, '.data')),
+    })
+
+    expect(launched.kind).toBe('browser')
+    expect(openedBrowserUrls).toEqual([launched.url])
+    if (launched.kind === 'browser')
+      await launched.close()
+  })
+
   it('registers the requested project and starts on a random port', async () => {
     const projectPath = await projectFixture()
     const runtime = new CraftHubRuntime(join(projectPath, '.data'))
