@@ -4,6 +4,7 @@ import { computed, ref, watch } from 'vue'
 import AgentTaskOutput from './AgentTaskOutput.vue'
 import { Button as UiButton } from './components/ui/button'
 import { DialogShell } from './components/ui/dialog'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from './components/ui/dropdown-menu'
 import EditorLauncher from './EditorLauncher.vue'
 import { Icon } from './icons'
 import { useI18n } from './i18n'
@@ -263,15 +264,17 @@ async function openThread(threadId: string): Promise<void> {
         <UiButton variant="primary" type="submit" data-testid="start-in-codex" :disabled="openingCodex || startingInBackground || !prompt.trim() || !primaryProjectId || (Boolean(desktopActions?.startWorkspaceInCodex) && !selectedProjectIds.includes(primaryProjectId))">
           <Icon name="codex" /> {{ openingCodex ? t('openingCodex') : t('startInCodex') }}
         </UiButton>
-        <details :open="taskMenuOpen" class="agent-task-action-menu" @toggle="taskMenuOpen = ($event.target as HTMLDetailsElement).open">
-          <summary role="button" :aria-expanded="taskMenuOpen" :aria-label="t('moreCodexTaskActions')" :title="t('moreCodexTaskActions')"><Icon name="arrowDown" /></summary>
-          <div>
-            <button type="button" data-testid="start-in-background" :disabled="openingCodex || startingInBackground || !prompt.trim() || !primaryProjectId || !selectedProjectIds.includes(primaryProjectId)" @click="startInBackground">
-              <Icon name="refresh" /> {{ startingInBackground ? t('startingTask') : t('runInCraftHubBackground') }}
-            </button>
-            <small>{{ t('codexTaskPermission') }}</small>
-          </div>
-        </details>
+        <div class="agent-task-action-menu" :data-state="taskMenuOpen ? 'open' : 'closed'">
+          <DropdownMenu v-model:open="taskMenuOpen">
+            <DropdownMenuTrigger :aria-label="t('moreCodexTaskActions')" :title="t('moreCodexTaskActions')"><Icon name="arrowDown" /></DropdownMenuTrigger>
+            <DropdownMenuContent class="agent-task-action-menu-content" align="start">
+              <DropdownMenuItem data-testid="start-in-background" :disabled="openingCodex || startingInBackground || !prompt.trim() || !primaryProjectId || !selectedProjectIds.includes(primaryProjectId)" @select="startInBackground">
+                <Icon name="refresh" /> {{ startingInBackground ? t('startingTask') : t('runInCraftHubBackground') }}
+              </DropdownMenuItem>
+              <small>{{ t('codexTaskPermission') }}</small>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
       </div>
     </form>
 

@@ -1,10 +1,13 @@
 #!/usr/bin/env node
+import type { MarketplacePluginInitOptions } from './plugin-authoring'
 import { readFile, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import process from 'node:process'
+import { createInterface } from 'node:readline/promises'
 import { fileURLToPath } from 'node:url'
 import { cac } from 'cac'
 import { launchCraftHubApp, launchCraftHubProject } from './app'
+import { initializeMarketplacePlugin, packMarketplacePlugin, validateMarketplacePlugin } from './plugin-authoring'
 import { CraftHubRuntime } from './runtime'
 import { startCraftHubServer } from './server'
 import { craftHubVersion } from './version'
@@ -117,6 +120,49 @@ cli.command('list <projectId>', 'List commands and skills for a project').action
 cli.command('plugin:list', 'List installed Craft Hub plugins').action(async () => {
   console.log(JSON.stringify(await runtime.pluginManager.listInstalled(), null, 2))
 })
+
+cli.command('plugin:init <path>', 'Create a declarative Marketplace Plugin package')
+  .option('--non-interactive', 'Require explicit metadata instead of prompting')
+  .option('--package <name>', 'Scoped npm package name')
+  .option('--display-name <name>', 'User-facing plugin name')
+  .option('--description <text>', 'Plugin description')
+  .option('--license <id>', 'Explicit SPDX license identifier or expression')
+  .option('--version <version>', 'Initial package version', { default: '0.1.0' })
+  .option('--min-version <version>', 'Minimum Craft Hub version', { default: craftHubVersion })
+  .option('--with-command', 'Scaffold a structured command contribution')
+  .option('--with-skill', 'Scaffold an Agent Skill contribution')
+  .option('--with-project-template', 'Scaffold a project template contribution')
+  .action(async (path: string, options: PluginInitCliOptions) => {
+    const init = options.nonInteractive ? requirePluginInitOptions(options) : await promptForPluginInitOptions(options)
+    console.log(JSON.stringify(await initializeMarketplacePlugin(path, init), null, 2))
+  })
+
+cli.command('plugin:validate <path>', 'Validate a declarative Marketplace Plugin without changing it').action(async (path: string) => {
+  const result = await validateMarketplacePlugin(path)
+  console.log(JSON.stringify({
+    valid: true,
+    rootPath: result.rootPath,
+    package: result.packageName,
+    version: result.version,
+    packedFiles: result.packedFiles,
+  }, null, 2))
+})
+
+cli.command('plugin:pack <path>', 'Pack a validated Marketplace Plugin and create a Catalog Entry draft')
+  .option('--publisher <id>', 'Explicit Catalog publisher identity')
+  .option('--output <path>', 'Artifact directory; defaults to the plugin dist directory')
+  .action(async (path: string, options: { publisher?: string, output?: string }) => {
+    if (!options.publisher)
+      throw new Error('--publisher is required')
+    const result = await packMarketplacePlugin(path, options.publisher, options.output)
+    console.log(JSON.stringify({
+      package: result.packageName,
+      version: result.version,
+      integrity: result.integrity,
+      tarballPath: result.tarballPath,
+      catalogEntryPath: result.catalogEntryPath,
+    }, null, 2))
+  })
 
 cli.command('plugin:link <path>', 'Load a declarative plugin directly from a local package directory').action(async (path: string) => {
   console.log(JSON.stringify(await runtime.pluginManager.linkLocal(path), null, 2))
@@ -299,3 +345,74 @@ process.on('unhandledRejection', (error) => {
   console.error(error instanceof Error ? error.message : error)
   process.exitCode = 1
 })
+
+interface PluginInitCliOptions {
+  nonInteractive?: boolean
+  package?: string
+  displayName?: string
+  description?: string
+  license?: string
+  version?: string
+  minVersion?: string
+  withCommand?: boolean
+  withSkill?: boolean
+  withProjectTemplate?: boolean
+}
+
+function requirePluginInitOptions(options: PluginInitCliOptions): MarketplacePluginInitOptions {
+  if (!options.package)
+    throw new Error('--package is required with --non-interactive')
+  if (!options.displayName)
+    throw new Error('--display-name is required with --non-interactive')
+  if (!options.license)
+    throw new Error('--license is required with --non-interactive')
+  return {
+    packageName: options.package,
+    displayName: options.displayName,
+    description: options.description,
+    license: options.license,
+    version: options.version,
+    minCraftHubVersion: options.minVersion,
+    withCommand: options.withCommand,
+    withSkill: options.withSkill,
+    withProjectTemplate: options.withProjectTemplate,
+  }
+}
+
+async function promptForPluginInitOptions(options: PluginInitCliOptions): Promise<MarketplacePluginInitOptions> {
+  const prompts = createInterface({ input: process.stdin, output: process.stdout })
+  try {
+    const packageName = options.package ?? await requiredAnswer(prompts, 'Scoped package name: ')
+    const displayName = options.displayName ?? await requiredAnswer(prompts, 'Display name: ')
+    const license = options.license ?? await requiredAnswer(prompts, 'License: ')
+    const description = options.description ?? await prompts.question('Description (optional): ')
+    const withCommand = options.withCommand || await confirmAnswer(prompts, 'Add a command contribution? [y/N] ')
+    const withSkill = options.withSkill || await confirmAnswer(prompts, 'Add an Agent Skill contribution? [y/N] ')
+    const withProjectTemplate = options.withProjectTemplate || await confirmAnswer(prompts, 'Add a project template contribution? [y/N] ')
+    return {
+      packageName,
+      displayName,
+      license,
+      description: description || undefined,
+      version: options.version,
+      minCraftHubVersion: options.minVersion,
+      withCommand,
+      withSkill,
+      withProjectTemplate,
+    }
+  }
+  finally {
+    prompts.close()
+  }
+}
+
+async function requiredAnswer(prompts: ReturnType<typeof createInterface>, question: string): Promise<string> {
+  const answer = (await prompts.question(question)).trim()
+  if (!answer)
+    throw new Error(`${question.trim().replace(/:$/, '')} is required`)
+  return answer
+}
+
+async function confirmAnswer(prompts: ReturnType<typeof createInterface>, question: string): Promise<boolean> {
+  return /^(?:y|yes)$/i.test((await prompts.question(question)).trim())
+}

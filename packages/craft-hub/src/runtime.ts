@@ -12,6 +12,7 @@ import { AgentTaskManager } from './agent-tasks'
 import { resolveCommandContributions } from './command-contributions'
 import { resolveCommandInvocation, resolvePersistedCommandInvocation } from './command-inputs'
 import { applyProjectConfigInitialization, previewProjectConfigInitialization } from './config'
+import { DotfilesManager } from './dotfiles-manager'
 import { executeCommand } from './executor'
 import { builtinCapabilityProvider, communityDistribution } from './extensions'
 import { GitIntegration } from './git-integration'
@@ -28,6 +29,7 @@ import { CraftHubSettingsService } from './settings'
 import { CraftHubStore } from './store'
 import { TeamGitSyncService } from './team-git-sync'
 import { TeamManager } from './teams'
+import { UserConfigService } from './user-config'
 import { WorkspaceImportService } from './workspace-import'
 import { WorkspaceService } from './workspaces'
 
@@ -35,6 +37,8 @@ export class CraftHubRuntime {
   readonly store: CraftHubStore
   readonly projects: ProjectRegistry
   readonly settings: CraftHubSettingsService
+  readonly userConfig: UserConfigService
+  readonly dotfilesManager: DotfilesManager
   readonly workspaces: WorkspaceService
   readonly workspaceImports: WorkspaceImportService
   readonly personalGitSync: PersonalGitSyncService
@@ -50,6 +54,7 @@ export class CraftHubRuntime {
   readonly distribution: DistributionConfig
   private readonly capabilityProviders: Array<{ pluginId?: string, provider: CapabilityProvider }>
   private readonly activeRuns = new Map<string, RunHandle>()
+  private readonly capabilityDiscoveryRequests = new Map<string, Promise<CapabilityDiscoveryResult>>()
   private readonly lastRuns = new Map<string, Pick<ProjectRunSummary, 'lastFinishedAt' | 'lastStatus'>>()
   private readonly runListeners = new Set<(summary: ProjectRunSummary) => void>()
   private diagnostics: PluginDiagnostic[] = []
@@ -77,8 +82,11 @@ export class CraftHubRuntime {
     ]
     this.projects = new ProjectRegistry(this.store)
     this.settings = new CraftHubSettingsService(this.store.dataDir)
-    this.workspaces = new WorkspaceService(normalizedOptions.configDir ?? getCraftHubConfigDir(process.env), this.store.dataDir, this.projects)
-    this.ownerScopes = new OwnerScopeService(normalizedOptions.configDir ?? getCraftHubConfigDir(process.env), this.store.dataDir)
+    this.dotfilesManager = new DotfilesManager(this.store.dataDir)
+    const configDir = normalizedOptions.configDir ?? getCraftHubConfigDir(process.env)
+    this.userConfig = new UserConfigService(configDir, this.store.dataDir)
+    this.workspaces = new WorkspaceService(configDir, this.store.dataDir, this.projects, this.userConfig)
+    this.ownerScopes = new OwnerScopeService(configDir, this.store.dataDir, this.userConfig)
     this.teamGitSync = new TeamGitSyncService(this.store.dataDir, this.ownerScopes, this.workspaces)
     this.teams = new TeamManager(this.ownerScopes, this.teamGitSync, this.workspaces)
     this.workspaceImports = new WorkspaceImportService(this.projects, this.workspaces)
@@ -146,9 +154,27 @@ export class CraftHubRuntime {
 
   /** Discover capabilities and non-fatal diagnostics for one registered project. */
   async capabilityDiscovery(projectId: string, requestedLocale?: 'en' | 'zh-CN'): Promise<CapabilityDiscoveryResult> {
-    const project = await this.projects.get(projectId)
-    const [settings, extensionSettings] = await Promise.all([this.settings.get(), this.settings.extensionValues()])
-    const locale = requestedLocale ?? settings.settings['workbench.locale']
+    const locale = requestedLocale ?? (await this.settings.get()).settings['workbench.locale']
+    const key = `${projectId}:${locale}`
+    const pending = this.capabilityDiscoveryRequests.get(key)
+    if (pending)
+      return pending
+    const request = this.discoverCapabilities(projectId, locale)
+    this.capabilityDiscoveryRequests.set(key, request)
+    try {
+      return await request
+    }
+    finally {
+      if (this.capabilityDiscoveryRequests.get(key) === request)
+        this.capabilityDiscoveryRequests.delete(key)
+    }
+  }
+
+  private async discoverCapabilities(projectId: string, locale: 'en' | 'zh-CN'): Promise<CapabilityDiscoveryResult> {
+    const [project, extensionSettings] = await Promise.all([
+      this.projects.get(projectId),
+      this.settings.extensionValues(),
+    ])
     this.diagnostics = []
     const capabilities: Capability[] = []
     const diagnostics: CapabilityDiscoveryDiagnostic[] = []
@@ -361,6 +387,7 @@ export class CraftHubRuntime {
   async close(): Promise<void> {
     await this.agentTasks.cancelAll()
     await this.cancelAllRuns()
+    await this.userConfig.close()
   }
 
   private getActiveRun(runId: string): RunHandle {

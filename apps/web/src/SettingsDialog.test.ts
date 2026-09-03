@@ -33,6 +33,25 @@ describe('settings dialog', () => {
       }
       if (path === '/api/personal-git-sync/synchronize')
         return new Response(JSON.stringify({ state: 'clean' }), { status: 200 })
+      if (path === '/api/user-config')
+        return new Response(JSON.stringify({ configDir: '/Users/me/.craft-hub', diagnostics: [], files: ['config.jsonc'], format: 'jsonc' }), { status: 200 })
+      if (path === '/api/dotfiles-manager') {
+        if (init?.method === 'PUT') {
+          const { repositoryPath } = JSON.parse(String(init.body)) as { repositoryPath: string }
+          return new Response(JSON.stringify({
+            state: 'untrusted',
+            repositoryPath,
+            manifestPath: `${repositoryPath}/.craft-hub/dotfiles.jsonc`,
+            manifestRevision: 'manifest',
+            manifest: { version: 1, adapter: 'command', operations: { check: { command: 'pnpm', args: ['doctor'] } } },
+          }), { status: 200 })
+        }
+        return new Response(JSON.stringify({ state: 'unconfigured' }), { status: 200 })
+      }
+      if (path === '/api/dotfiles-manager/trust')
+        return new Response(JSON.stringify({ state: 'ready', repositoryPath: '/Users/me/dotfiles', manifest: { version: 1, adapter: 'command', operations: { check: { command: 'pnpm', args: ['doctor'] } } } }), { status: 200 })
+      if (path === '/api/dotfiles-manager/operations/check')
+        return new Response(JSON.stringify({ operation: 'check', command: 'pnpm', args: ['doctor'], durationMs: 5, exitCode: 0, stdout: 'healthy', stderr: '', succeeded: true, timedOut: false }), { status: 200 })
       const patch = init?.body ? JSON.parse(String(init.body)).settings as Record<string, unknown> : {}
       return new Response(JSON.stringify({
         explicitKeys: Object.keys(patch),
@@ -154,13 +173,13 @@ describe('settings dialog', () => {
     await flushPromises()
 
     const tabs = [...document.body.querySelectorAll<HTMLElement>('[role="tab"]')]
-    expect(tabs.map(tab => tab.textContent)).toEqual(['General', 'Keyboard shortcuts', 'Personal cloud', 'Run history', 'Import and export'])
+    expect(tabs.map(tab => tab.textContent)).toEqual(['General', 'Keyboard shortcuts', 'Personal cloud', 'Configuration', 'Run history', 'Import and export'])
     expect(document.body.textContent).not.toContain('Export changed settings')
 
-    tabs[4]!.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0 }))
+    tabs[5]!.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0 }))
     await flushPromises()
 
-    expect(tabs[4]!.getAttribute('data-state')).toBe('active')
+    expect(tabs[5]!.getAttribute('data-state')).toBe('active')
     expect(document.body.textContent).toContain('Export changed settings')
     expect(document.body.textContent).not.toContain('Choose the language used throughout Craft Hub.')
   })
@@ -274,11 +293,11 @@ describe('settings dialog', () => {
     expect(document.body.textContent).toContain('Open /hooks in Codex')
   })
 
-  it('configures a Personal Git sync target from the cloud settings panel', async () => {
+  it('configures a Personal Git sync target from the configuration panel', async () => {
     mount(SettingsDialog, { props: { open: true }, attachTo: document.body })
     await flushPromises()
-    const cloudTab = [...document.body.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find(tab => tab.textContent === 'Personal cloud')!
-    cloudTab.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0 }))
+    const configurationTab = [...document.body.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find(tab => tab.textContent === 'Configuration')!
+    configurationTab.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0 }))
     await flushPromises()
 
     const repository = document.body.querySelector<HTMLInputElement>('input[name="git-repository-path"]')!
@@ -293,5 +312,31 @@ describe('settings dialog', () => {
       method: 'PUT',
     }))
     expect(document.body.textContent).toContain('Local configuration has changes to export')
+  })
+
+  it('reviews, trusts, and runs a read-only dotfiles operation', async () => {
+    mount(SettingsDialog, { props: { open: true }, attachTo: document.body })
+    await flushPromises()
+    const configurationTab = [...document.body.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find(tab => tab.textContent === 'Configuration')!
+    configurationTab.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0 }))
+    await flushPromises()
+
+    const repository = document.body.querySelector<HTMLInputElement>('input[name="dotfiles-repository-path"]')!
+    repository.value = '/Users/me/dotfiles'
+    repository.dispatchEvent(new Event('input', { bubbles: true }))
+    document.body.querySelector<HTMLFormElement>('[data-testid="dotfiles-manager-form"]')!
+      .dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+    await flushPromises()
+    expect(document.body.textContent).toContain('pnpm doctor')
+    expect(document.body.querySelectorAll('.dotfiles-command')).toHaveLength(1)
+    expect(document.body.querySelector('.dotfiles-command code')?.textContent).toBe('check')
+
+    document.body.querySelector<HTMLButtonElement>('[data-testid="trust-dotfiles"]')!.click()
+    await flushPromises()
+    document.body.querySelector<HTMLButtonElement>('[data-testid="run-dotfiles-check"]')!.click()
+    await flushPromises()
+
+    expect(document.body.textContent).toContain('healthy')
+    expect(vi.mocked(fetch)).toHaveBeenCalledWith('/api/dotfiles-manager/operations/check', expect.objectContaining({ method: 'POST' }))
   })
 })

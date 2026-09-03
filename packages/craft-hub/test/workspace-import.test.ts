@@ -31,7 +31,7 @@ describe('workspace import', () => {
     expect(imported.validation).toMatchObject({ valid: true, workspaceCount: 1, memberCount: 1 })
     const canonicalMemberPath = await realpath(memberPath)
     expect(imported.workspaces[0]?.members[0]).toMatchObject({ label: 'Member', resolved: false, path: canonicalMemberPath })
-    const manifest = await readFile(join(root, 'config', 'workspaces', 'full.yaml'), 'utf8')
+    const manifest = await readFile(join(root, 'config', 'workspaces', 'full.jsonc'), 'utf8')
     expect(manifest).not.toContain(canonicalMemberPath)
 
     const registered = await runtime.workspaces.registerImportedProject(imported.workspaces[0]!.id, imported.workspaces[0]!.members[0]!.project)

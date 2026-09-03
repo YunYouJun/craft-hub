@@ -7,6 +7,8 @@ Craft Hub has two deliberately separate extension models:
 
 Codex plugins use another manifest and are not Craft Hub Marketplace Plugins.
 
+For the supported scaffolding, validation, local-link, and packing workflow, see [Author a Marketplace Plugin](./plugin-authoring.md).
+
 ## Marketplace sources
 
 A Distribution may provide `builtin` or `managed` Marketplace Sources. Users may also preview and add HTTPS `user` sources. Each source resolves to one versioned Plugin Catalog and may select an npm registry.

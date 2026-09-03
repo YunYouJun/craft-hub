@@ -5,15 +5,34 @@ import { mkdir, mkdtemp, readFile, realpath, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import process from 'node:process'
 import { promisify } from 'node:util'
 import { describe, expect, it, vi } from 'vitest'
 import { projectConfigSchemaRevision } from '../src/config'
 import { CraftHubRuntime } from '../src/runtime'
 import { startCraftHubServer } from '../src/server'
+import { ProjectWatcher } from '../src/watcher'
 
 const execFileAsync = promisify(execFile)
 
 describe('craft hub server lifecycle', () => {
+  it('skips expensive project watcher teardown when the host process is exiting', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'craft-hub-server-process-exit-'))
+    const closeWatcher = vi.spyOn(ProjectWatcher.prototype, 'close').mockResolvedValue()
+    const app = await startCraftHubServer({
+      port: 0,
+      runtime: new CraftHubRuntime({ dataDir: join(root, 'data'), configDir: join(root, 'config') }),
+    })
+
+    try {
+      await app.close({ processExiting: true })
+      expect(closeWatcher).not.toHaveBeenCalled()
+    }
+    finally {
+      closeWatcher.mockRestore()
+    }
+  })
+
   it('serves contextual README overviews and bounded raster assets for registered projects', async () => {
     const root = await mkdtemp(join(tmpdir(), 'craft-hub-server-overview-'))
     await mkdir(join(root, 'docs'))
@@ -296,6 +315,43 @@ describe('craft hub server lifecycle', () => {
         body: JSON.stringify({ resolution: 'auto' }),
       }).then(response => response.json())
       expect(synchronized).toMatchObject({ state: 'clean' })
+    }
+    finally {
+      await app.close()
+    }
+  })
+
+  it('exposes local JSONC status and trusted read-only dotfiles operations', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'craft-hub-server-dotfiles-'))
+    const repositoryPath = join(root, 'dotfiles')
+    await execFileAsync('git', ['init', repositoryPath])
+    await mkdir(join(repositoryPath, '.craft-hub'), { recursive: true })
+    await writeFile(join(repositoryPath, '.craft-hub', 'dotfiles.jsonc'), JSON.stringify({
+      version: 1,
+      adapter: 'command',
+      operations: { status: { command: process.execPath, args: ['-e', 'process.stdout.write("ready")'] } },
+    }))
+    const runtime = new CraftHubRuntime({ dataDir: join(root, 'data'), configDir: join(root, 'config') })
+    const app = await startCraftHubServer({ port: 0, runtime })
+    try {
+      await expect(fetch(`${app.url}/api/user-config`).then(response => response.json())).resolves.toMatchObject({
+        configDir: join(root, 'config'),
+        diagnostics: [],
+        format: 'jsonc',
+      })
+      const configured = await fetch(`${app.url}/api/dotfiles-manager`, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ repositoryPath }),
+      })
+      await expect(configured.json()).resolves.toMatchObject({ state: 'untrusted' })
+      const forbidden = await fetch(`${app.url}/api/dotfiles-manager/operations/status`, { method: 'POST' })
+      expect(forbidden.status).toBe(403)
+      await expect(fetch(`${app.url}/api/dotfiles-manager/trust`, { method: 'POST' }).then(response => response.json())).resolves.toMatchObject({ state: 'ready' })
+      await expect(fetch(`${app.url}/api/dotfiles-manager/operations/status`, { method: 'POST' }).then(response => response.json())).resolves.toMatchObject({
+        succeeded: true,
+        stdout: 'ready',
+      })
     }
     finally {
       await app.close()

@@ -33,6 +33,7 @@ const EN_GUIDES: DefaultTheme.NavItemWithLink[] = [
   { text: 'Desktop Links', link: '/guide/desktop-links' },
   { text: 'Codex Tasks', link: '/guide/codex-tasks' },
   { text: 'Plugin Marketplace', link: '/guide/plugin-marketplace' },
+  { text: 'Author a Plugin', link: '/guide/plugin-authoring' },
   { text: 'Nuxt Web Application', link: '/guide/web-app' },
   { text: 'Configuration', link: '/guide/configuration' },
 ]
@@ -43,6 +44,7 @@ const ZH_GUIDES: DefaultTheme.NavItemWithLink[] = [
   { text: '桌面链接', link: '/zh/guide/desktop-links' },
   { text: 'Codex 任务', link: '/zh/guide/codex-tasks' },
   { text: '插件市场', link: '/zh/guide/plugin-marketplace' },
+  { text: '编写插件', link: '/zh/guide/plugin-authoring' },
   { text: 'Nuxt Web 应用', link: '/zh/guide/web-app' },
   { text: '配置', link: '/zh/guide/configuration' },
 ]

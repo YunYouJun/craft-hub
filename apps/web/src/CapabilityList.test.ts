@@ -2,14 +2,15 @@
 /// <reference lib="dom" />
 
 import type { CommandCapability, ProjectRecord, SkillCapability } from 'craft-hub'
-import { mount } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import CapabilityList from './CapabilityList.vue'
 import { useWorkbenchStore } from './store'
 
 describe('capability list', () => {
   beforeEach(() => window.localStorage.clear())
+  afterEach(() => vi.unstubAllGlobals())
 
   it('shows project-level command and skill counts in the filters', () => {
     const pinia = createPinia()
@@ -228,6 +229,16 @@ describe('capability list', () => {
   })
 
   it('summarizes monorepo packages and scopes commands when a package is selected', async () => {
+    const overviewRequests: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const path = typeof input === 'string' ? input : input.toString()
+      overviewRequests.push(path)
+      return new Response(JSON.stringify({
+        projectId: 'monorepo',
+        package: { name: 'root', relativePath: '.', root: true },
+        readme: { status: 'missing' },
+      }), { status: 200 })
+    }))
     const pinia = createPinia()
     setActivePinia(pinia)
     const store = useWorkbenchStore()
@@ -290,11 +301,17 @@ describe('capability list', () => {
     await wrapper.get('.search-box input').setValue('')
 
     await wrapper.findAll('.package-overview-row')[1]!.trigger('click')
+    await flushPromises()
     expect(wrapper.get('.package-scope-filter').text()).toContain('apps/web')
     expect(wrapper.findAll('.capability-row strong').map(row => row.text())).toEqual(['build', 'test'])
 
     await wrapper.get('.package-scope-filter').trigger('click')
+    await flushPromises()
     expect(wrapper.findAll('.capability-row strong').map(row => row.text())).toEqual(['dev', 'build', 'test'])
+    expect(overviewRequests).toEqual([
+      '/api/projects/monorepo/overview?package=apps%2Fweb&locale=en',
+      '/api/projects/monorepo/overview?package=.&locale=en',
+    ])
   })
 
   it('shows mixed pins first and supports direct and keyboard reordering controls', async () => {

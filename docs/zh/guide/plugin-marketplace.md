@@ -7,6 +7,8 @@ Craft Hub 有两套刻意隔离的扩展模型：
 
 Codex 插件使用另一套 Manifest，不属于 Craft Hub Marketplace Plugin。
 
+创建脚手架、校验、本地关联和打包流程参见[编写 Marketplace Plugin](./plugin-authoring.md)。
+
 ## 市场源
 
 Distribution 可以提供 `builtin` 或 `managed` Marketplace Source，用户也可以先预览、再添加 HTTPS `user` Source。每个 Source 对应一个版本化 Plugin Catalog，并可指定 npm Registry。

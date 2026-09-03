@@ -211,6 +211,8 @@ not contain credentials or additional executable commands.
 
 Cross-project relationships belong to the user rather than to any member repository. Craft Hub stores one versioned manifest per workspace in `~/.craft-hub/workspaces/`; `CRAFT_HUB_CONFIG_DIR` overrides this portable configuration directory.
 
+Craft Hub-owned, user-editable declarations use JSONC consistently: `config.jsonc`, `owner-scopes.jsonc`, and `workspaces/<id>.jsonc`. On first use, legacy global YAML is converted once and moved to a timestamped `migration-backups/global-config-yaml-*` directory in the operating-system data directory. Runtime reads do not maintain a YAML compatibility path.
+
 Every workspace and workspace group has exactly one Owner Scope. Legacy manifests without `ownerScopeId` belong to the fixed `Personal` scope. A Team manifest records its stable Team id, for example `ownerScopeId: acme`. The Team identity is independent from its Git checkout so the repository can move without changing ownership.
 
 The workbench switches Owner Scopes as navigation state: each scope has an isolated workspace tree, project-reference bindings, standalone-project grouping, and remembered workspace selection. Registered project directories, trust, runs, and credentials remain machine-local. Team views show only projects referenced by that Team; unassigned local projects remain in Personal. The command palette can search across scopes and jumps to the selected scope before opening its workspace.
@@ -219,18 +221,42 @@ Creating a Team requires an existing local Git checkout. Craft Hub writes the Te
 
 Renaming a Team keeps its stable id and Git target, then marks the local snapshot as changed for the next explicit synchronization. Deleting a Team requires typing its exact name; Craft Hub removes that Team's local workspaces, bindings, navigation state, and sync target, switches an active deleted Team back to Personal, and leaves the shared Git snapshot untouched so it remains recoverable.
 
-```yaml
-schemaVersion: 1
-id: craft-hub
-name: Craft Hub
-primaryProject: craft-hub
-members:
-  - project: craft-hub
-    pinned: true
-  - project: dotfiles
+```jsonc
+{
+  "$schema": "https://raw.githubusercontent.com/YunYouJun/craft-hub/main/packages/craft-hub/schema/workspace-v1.schema.json",
+  "schemaVersion": 1,
+  "id": "craft-hub",
+  "name": "Craft Hub",
+  "primaryProject": "craft-hub",
+  "members": [
+    { "project": "craft-hub", "pinned": true },
+    { "project": "dotfiles" }
+  ]
+}
 ```
 
 The member keys, order, pins, and primary project are portable and suitable for a private dotfiles repository. Absolute paths, Craft Hub execution authorizations, local bindings, active selection, run history, credentials, and Codex thread IDs remain in the operating-system data directory and must not be synced. On a new device unresolved members stay visible until they are bound to a local registered project; binding never transfers execution authorization.
+
+## Dotfiles Manager
+
+The experimental Dotfiles Manager is a read-only control surface for an explicit local Git checkout. It never scans the home directory, clones or updates Git repositories, installs tools, or applies changes. A repository opts in with `.craft-hub/dotfiles.jsonc` and declares shell-free `check`, `status`, and `diff` commands as separate `command` and `args` values. Craft Hub fixes the working directory to the repository root and requires the exact current manifest to be trusted before any declared command runs. Editing the manifest invalidates that trust.
+
+```jsonc
+{
+  "$schema": "https://raw.githubusercontent.com/YunYouJun/craft-hub/main/packages/craft-hub/schema/dotfiles-v1.schema.json",
+  "version": 1,
+  "name": "My workstation",
+  "adapter": "command",
+  "platforms": ["darwin"],
+  "operations": {
+    "check": { "command": "pnpm", "args": ["doctor"] },
+    "status": { "command": "pnpm", "args": ["status"] },
+    "diff": { "command": "pnpm", "args": ["diff"] }
+  }
+}
+```
+
+Operation names describe intent but do not sandbox arbitrary repository code. Review the displayed command and trust only repositories you control. Applying changes remains a manual terminal action in this first version.
 
 Project icons may use a repository-relative SVG or PNG path, `emoji:<character>`, or one of the built-ins `builtin:folder`, `builtin:hub`, `builtin:skill`, and `builtin:terminal`. File paths are resolved inside the project directory; invalid or escaping paths fall back to the folder icon and produce a non-blocking warning. `color` is optional and accepts `blue`, `cyan`, `green`, `orange`, `pink`, `purple`, `red`, or `yellow`. Accent colors identify projects without changing execution-authorization or run-status colors.
 
@@ -270,7 +296,7 @@ User preferences are separate from project configuration. Craft Hub stores stric
 
 The project and workspace toolbar share `workbench.editor`. Built-in values are `vscode` and `cursor`; a custom editor uses a direct command plus individual arguments. Custom arguments must include `{path}`. Craft Hub substitutes that placeholder and launches the command with `shell: false`.
 
-The Settings dialog can open this file in the desktop app and import or export portable JSON. Minimal exports include explicitly changed values; full snapshots include every effective, non-sensitive setting. Craft Hub execution authorizations, registered projects, run history, usernames, and machine paths are never exported. Replace imports create a backup and retain the five most recent backups.
+The Settings dialog can open this file in the desktop app and import or export portable JSON. Minimal exports include explicitly changed allowlisted values; full snapshots add portable defaults. Repository roots, custom editor commands, unclassified `extensions.*`, Craft Hub execution authorizations, registered projects, run history, usernames, and machine paths are never exported. Replace imports create a backup and retain the five most recent backups.
 
 Pinned commands and skills are direct, machine-local workbench state. Their mixed order is stored in `workspace-state.json` beside the other Craft Hub data and is intentionally excluded from settings import and export.
 

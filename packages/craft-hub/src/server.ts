@@ -2,6 +2,7 @@ import type { IncomingMessage, Server, ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import type { PersonalGitSyncResolution } from './personal-git-sync'
 import type { CommandInputValues, ProjectAccentColor, ProjectCatalogSnapshot, ProjectDescriptionChange, WorkspaceManifest } from './types'
+import type { UserConfigStatus } from './user-config'
 import { Buffer } from 'node:buffer'
 import { createReadStream } from 'node:fs'
 import { access } from 'node:fs/promises'
@@ -10,6 +11,7 @@ import { extname, join, normalize } from 'node:path'
 import { ZodError } from 'zod'
 import { CommandInputValidationError } from './command-inputs'
 import { projectConfigSchemaRevision } from './config'
+import { dotfilesOperations, DotfilesTrustError, DotfilesValidationError } from './dotfiles-manager'
 import { GitIntegrationConflictError, GitIntegrationValidationError } from './git-integration'
 import { CraftHubRuntime } from './runtime'
 import { SettingsConflictError, SettingsValidationError } from './settings'
@@ -91,11 +93,16 @@ export interface CraftHubServerOptions {
   runtime?: CraftHubRuntime
 }
 
+export interface CraftHubServerCloseOptions {
+  /** Skip read-only project watcher teardown when the host will terminate immediately. */
+  processExiting?: boolean
+}
+
 export interface CraftHubServer {
   runtime: CraftHubRuntime
   server: Server
   url: string
-  close: () => Promise<void>
+  close: (options?: CraftHubServerCloseOptions) => Promise<void>
 }
 
 /** Start the local-only HTTP API used by the web and Electron clients. */
@@ -112,6 +119,15 @@ export async function startCraftHubServer(options: CraftHubServerOptions = {}): 
   const stopAgentTaskEvents = runtime.agentTasks.onChanged(task => broadcastEvent('agent-task-change', task))
   const stopSettingsEvents = runtime.settings.onChanged(snapshot => broadcastEvent('settings-change', snapshot))
   const stopPluginEvents = runtime.pluginManager.onChanged(() => broadcastEvent('plugin-change', { changedAt: new Date().toISOString() }))
+  const localConfigStatus = async (): Promise<UserConfigStatus> => {
+    await Promise.allSettled([runtime.ownerScopes.list(), runtime.workspaces.list()])
+    return runtime.userConfig.status()
+  }
+  const stopUserConfigEvents = runtime.userConfig.onChanged(() => {
+    void localConfigStatus()
+      .then(status => broadcastEvent('user-config-change', status))
+      .catch(error => broadcastEvent('user-config-change', { error: error instanceof Error ? error.message : String(error) }))
+  })
   const watchProjects = async (): Promise<ProjectCatalogSnapshot> => {
     const snapshot = await runtime.projects.snapshot()
     await Promise.allSettled(snapshot.projects.map(project => watcher.watch(project)))
@@ -154,6 +170,28 @@ export async function startCraftHubServer(options: CraftHubServerOptions = {}): 
 
       if (request.method === 'GET' && url.pathname === '/api/owner-scopes')
         return sendJson(response, 200, await runtime.ownerScopes.list())
+
+      if (request.method === 'GET' && url.pathname === '/api/user-config')
+        return sendJson(response, 200, await localConfigStatus())
+
+      if (request.method === 'GET' && url.pathname === '/api/dotfiles-manager')
+        return sendJson(response, 200, await runtime.dotfilesManager.status())
+
+      if (request.method === 'PUT' && url.pathname === '/api/dotfiles-manager') {
+        const body = await jsonBody(request)
+        if (typeof body.repositoryPath !== 'string')
+          return sendJson(response, 400, { error: 'repositoryPath is required' })
+        return sendJson(response, 200, await runtime.dotfilesManager.configure(body.repositoryPath))
+      }
+
+      if (request.method === 'POST' && url.pathname === '/api/dotfiles-manager/trust')
+        return sendJson(response, 200, await runtime.dotfilesManager.trust())
+
+      if (request.method === 'POST' && parts[0] === 'api' && parts[1] === 'dotfiles-manager' && parts[2] === 'operations' && parts[3] && parts.length === 4) {
+        if (!dotfilesOperations.includes(parts[3] as typeof dotfilesOperations[number]))
+          return sendJson(response, 400, { error: 'operation must be check, status, or diff' })
+        return sendJson(response, 200, await runtime.dotfilesManager.run(parts[3] as typeof dotfilesOperations[number]))
+      }
 
       if (request.method === 'POST' && url.pathname === '/api/owner-scopes') {
         const body = await jsonBody(request)
@@ -822,14 +860,16 @@ export async function startCraftHubServer(options: CraftHubServerOptions = {}): 
         return sendJson(response, 409, { error: error.message, actualRevision: error.actualRevision })
       if (error instanceof GitIntegrationConflictError)
         return sendJson(response, 409, { error: error.message, actualRevision: error.actualRevision })
-      if (error instanceof CommandInputValidationError || error instanceof GitIntegrationValidationError || error instanceof SettingsValidationError || error instanceof TeamLifecycleValidationError || error instanceof ZodError || error instanceof SyntaxError)
+      if (error instanceof DotfilesTrustError)
+        return sendJson(response, 403, { error: error.message })
+      if (error instanceof CommandInputValidationError || error instanceof DotfilesValidationError || error instanceof GitIntegrationValidationError || error instanceof SettingsValidationError || error instanceof TeamLifecycleValidationError || error instanceof ZodError || error instanceof SyntaxError)
         return sendJson(response, 400, { error: error.message })
       sendJson(response, 500, { error: error instanceof Error ? error.message : String(error) })
     }
   })
 
   let closing: Promise<void> | undefined
-  const close = (): Promise<void> => {
+  const close = (closeOptions: CraftHubServerCloseOptions = {}): Promise<void> => {
     closing ??= (async () => {
       if (heartbeat)
         clearInterval(heartbeat)
@@ -837,15 +877,17 @@ export async function startCraftHubServer(options: CraftHubServerOptions = {}): 
       stopAgentTaskEvents()
       stopSettingsEvents()
       stopPluginEvents()
+      stopUserConfigEvents()
       for (const client of eventClients)
         client.end()
       eventClients.clear()
 
       const cleanup = [
         runtime.close(),
-        watcher.close(),
         runtime.settings.close(),
       ]
+      if (!closeOptions.processExiting)
+        cleanup.push(watcher.close())
       if (server.listening) {
         cleanup.push(new Promise<void>((resolve, reject) => {
           server.close(error => error ? reject(error) : resolve())
@@ -864,6 +906,7 @@ export async function startCraftHubServer(options: CraftHubServerOptions = {}): 
   try {
     await watchProjects()
     await runtime.settings.startWatching()
+    await runtime.userConfig.startWatching()
     heartbeat = setInterval(() => {
       for (const client of eventClients)
         client.write(': keep-alive\n\n')

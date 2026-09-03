@@ -5,6 +5,7 @@ import { resolveSkillInputSelections } from 'craft-hub/skill-inputs'
 import { buildSkillInvocationPrompt } from 'craft-hub/skill-prompts'
 import { computed, defineAsyncComponent, ref, watch } from 'vue'
 import AgentTaskOutput from './AgentTaskOutput.vue'
+import AsyncTerminalOutput from './AsyncTerminalOutput.vue'
 import { api } from './api'
 import { Button as UiButton } from './components/ui/button'
 import { FormSelect } from './components/ui/select'
@@ -14,7 +15,6 @@ import { useI18n } from './i18n'
 import { useWorkbenchStore } from './store'
 import TrustRunDialog from './TrustRunDialog.vue'
 
-const TerminalOutput = defineAsyncComponent(() => import('./TerminalOutput.vue'))
 const SkillContentPreview = defineAsyncComponent(() => import('./SkillContentPreview.vue'))
 const ShellCommandPreview = defineAsyncComponent(() => import('./ShellCommandPreview.vue'))
 const ProjectOverviewPanel = defineAsyncComponent(() => import('./ProjectOverviewPanel.vue'))
@@ -477,7 +477,7 @@ function openSkillThread(): Promise<void> {
               </button>
             </span>
           </div>
-          <TerminalOutput
+          <AsyncTerminalOutput
             v-if="store.run"
             :key="store.run.id"
             :run="store.run"

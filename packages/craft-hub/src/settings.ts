@@ -11,7 +11,7 @@ export const settingsFileName = 'settings.json'
 /** File name used for the generated settings schema. */
 export const settingsSchemaFileName = 'settings.schema.json'
 /** Current portable settings export format. */
-export const settingsExportFormatVersion = 1
+export const settingsExportFormatVersion = 2
 
 const localeSchema = z.enum(['en', 'zh-CN'])
 const themeSchema = z.enum(['system', 'light', 'dark'])
@@ -103,7 +103,7 @@ export interface SettingsExportEnvelope {
   applicationVersion: string
   exportedAt: string
   exportMode: SettingsExportMode
-  formatVersion: 1
+  formatVersion: 2
   settings: Record<string, unknown>
 }
 
@@ -159,6 +159,31 @@ function stableSettingsValue(explicit: Partial<CraftHubSettings>, extensions: Re
     ...explicit,
     ...Object.fromEntries(Object.entries(extensions).sort(([left], [right]) => left.localeCompare(right))),
   }
+}
+
+const portableCoreSettingKeys = [
+  'workbench.codex',
+  'workbench.editor',
+  'workbench.locale',
+  'workbench.shortcuts',
+  'workbench.theme',
+] as const satisfies Array<keyof CraftHubSettings>
+
+function portableSettings(input: Record<string, unknown>): { ignored: string[], settings: Record<string, unknown> } {
+  const settings: Record<string, unknown> = {}
+  const ignored: string[] = []
+  for (const [key, value] of Object.entries(input)) {
+    if (!portableCoreSettingKeys.includes(key as typeof portableCoreSettingKeys[number])) {
+      ignored.push(key)
+      continue
+    }
+    if (key === 'workbench.editor' && value && typeof value === 'object' && !Array.isArray(value) && (value as { default?: unknown }).default === 'custom') {
+      ignored.push(key)
+      continue
+    }
+    settings[key] = value
+  }
+  return { ignored: ignored.sort(), settings }
 }
 
 function revisionFor(value: Record<string, unknown>): string {
@@ -291,9 +316,10 @@ export class CraftHubSettingsService {
   /** Create a portable, versioned settings export. */
   async export(mode: SettingsExportMode): Promise<SettingsExportEnvelope> {
     await this.initialize()
-    const settings = mode === 'minimal'
+    const source = mode === 'minimal'
       ? { ...this.explicit, ...this.extensions }
       : { ...defaultSettings, ...this.explicit, ...this.extensions }
+    const { settings } = portableSettings(source)
     return {
       $schema: 'https://craft-hub.dev/schemas/settings-export.schema.json',
       formatVersion: settingsExportFormatVersion,
@@ -308,10 +334,11 @@ export class CraftHubSettingsService {
   async previewImport(document: unknown, strategy: SettingsImportStrategy): Promise<SettingsImportPreview> {
     await this.initialize()
     const envelope = exportEnvelopeSchema.parse(document)
-    const imported = validateSettingsFile(envelope.settings)
+    const portable = portableSettings(envelope.settings)
+    const imported = validateSettingsFile(portable.settings)
     const candidate: Record<string, unknown> = strategy === 'merge'
       ? { ...this.explicit, ...this.extensions, ...imported.explicit, ...imported.extensions }
-      : { ...imported.explicit, ...imported.extensions }
+      : { ...imported.explicit, ...this.extensions }
     const before: Record<string, unknown> = { ...this.explicit, ...this.extensions }
     const keys = [...new Set([...Object.keys(before), ...Object.keys(candidate)])].sort()
     const changes = keys.flatMap((key): SettingsChange[] => {
@@ -323,12 +350,12 @@ export class CraftHubSettingsService {
         return [{ key, type: 'change', before: before[key], after: candidate[key] }]
       return []
     })
-    const ignored = Object.keys(imported.extensions)
+    const ignored = portable.ignored
     return {
       strategy,
       changes,
       ignored,
-      warnings: ignored.length ? ['Extension settings are preserved; only installed plugins with explicit read-user-settings permission can consume their declared keys.'] : [],
+      warnings: ignored.length ? ['Machine-local paths, custom commands, and unclassified extension settings are not portable and were ignored.'] : [],
     }
   }
 
@@ -338,12 +365,12 @@ export class CraftHubSettingsService {
       await this.initialize()
       this.assertRevision(expectedRevision)
       const envelope = exportEnvelopeSchema.parse(document)
-      const imported = validateSettingsFile(envelope.settings)
+      const imported = validateSettingsFile(portableSettings(envelope.settings).settings)
       if (strategy === 'replace')
         await this.backupCurrentFile()
       const validated = strategy === 'merge'
         ? validateSettingsFile({ ...this.explicit, ...this.extensions, ...imported.explicit, ...imported.extensions })
-        : imported
+        : validateSettingsFile({ ...imported.explicit, ...this.extensions })
       await this.persist(validated)
       return this.snapshot()
     })

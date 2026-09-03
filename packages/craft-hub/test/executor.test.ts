@@ -52,6 +52,37 @@ describe('structured command sequences', () => {
     expect(run.stdout).toContain(`[Craft Hub 2/2] ${process.execPath}`)
   })
 
+  it.runIf(process.platform !== 'win32')('preserves the resized terminal dimensions across command steps', async () => {
+    const { project, root, store } = await fixture()
+    const capability: CommandCapability = {
+      id: 'responsive-sequence',
+      kind: 'command',
+      name: 'Responsive sequence',
+      source: 'plugin:test',
+      invocation: {
+        command: process.execPath,
+        args: ['-e', 'console.log(process.stdout.columns + "x" + process.stdout.rows)'],
+        cwd: root,
+        requiredEnv: [],
+        prerequisites: [{
+          label: 'Wait for terminal resize',
+          command: process.execPath,
+          args: ['-e', 'process.stdin.once("data", () => process.exit(0))'],
+          cwd: root,
+          requiredEnv: [],
+        }],
+      },
+    }
+
+    const handle = await executeCommand(store, project, capability)
+    handle.resize(64, 18)
+    handle.write('\r')
+    const run = await handle.completion
+
+    expect(run.status).toBe('completed')
+    expect(run.stdout).toContain('64x18')
+  })
+
   it('stops before the main command when a prerequisite fails', async () => {
     const { project, root, store } = await fixture()
     const log = join(root, 'steps.log')

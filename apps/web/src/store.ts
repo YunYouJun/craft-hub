@@ -1,4 +1,4 @@
-import type { AgentActionId, AgentActionSummary, AgentTaskRecord, Capability, CapabilityDiscoveryDiagnostic, CommandInputValues, CommandInvocation, CommandPackage, OwnerScope, ProjectAccentColor, ProjectCatalogDiagnostic, ProjectChangeEvent, ProjectConfigInitializationResult, ProjectDescriptionApplication, ProjectDescriptionChange, ProjectOverview, ProjectRecord, ProjectRunSummary, RunRecord, SettingsSnapshot, TeamDeletionResult, TeamGitSyncStatus, WorkbenchCodexSetting, WorkbenchEditorSetting, WorkbenchLocale, WorkbenchTheme, WorkspaceGroup, WorkspaceManifest, WorkspaceRecord } from 'craft-hub'
+import type { AgentActionId, AgentActionSummary, AgentTaskRecord, Capability, CapabilityDiscoveryDiagnostic, CommandInputValues, CommandInvocation, CommandPackage, OwnerScope, ProjectAccentColor, ProjectCatalogDiagnostic, ProjectChangeEvent, ProjectConfigInitializationResult, ProjectDescriptionApplication, ProjectDescriptionChange, ProjectOverview, ProjectRecord, ProjectRunSummary, RunRecord, SettingsSnapshot, TeamDeletionResult, TeamGitSyncStatus, UserConfigStatus, WorkbenchCodexSetting, WorkbenchEditorSetting, WorkbenchLocale, WorkbenchTheme, WorkspaceGroup, WorkspaceManifest, WorkspaceRecord } from 'craft-hub'
 import { projectConfigSchemaRevision } from 'craft-hub/project-config-schema-revision'
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
@@ -71,6 +71,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
   const error = ref('')
   const projectConfigInitialization = ref<ProjectConfigInitializationResult>()
   const settings = ref<SettingsSnapshot>()
+  const userConfigStatus = ref<UserConfigStatus>()
   let snapshot = ''
   let refreshTail: Promise<void> = Promise.resolve()
   let projectsRefresh: Promise<boolean> | undefined
@@ -142,6 +143,14 @@ export const useWorkbenchStore = defineStore('workbench', () => {
       next = await api.updateSettings({ 'workbench.locale': legacyLocale }, next.revision)
     window.localStorage.removeItem(legacyLocaleStorageKey)
     await applySettings(next)
+  }
+
+  async function loadUserConfigStatus(): Promise<void> {
+    userConfigStatus.value = await api.userConfigStatus()
+  }
+
+  function applyUserConfigStatus(status: UserConfigStatus): void {
+    userConfigStatus.value = status
   }
 
   async function updateLocale(locale: WorkbenchLocale): Promise<void> {
@@ -369,11 +378,11 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     teamProjectOwnerScopes.value = next
   }
 
-  async function loadWorkspaceState(preferredProjectId?: string): Promise<void> {
+  async function loadWorkspaceState(preferredProjectId?: string): Promise<string | undefined> {
     const state = await api.workspaceState(activeOwnerScopeId.value)
     expandedWorkspaceIds.value = state.expandedWorkspaceIds
     if (preferredProjectId)
-      return
+      return preferredProjectId
     if (state.selectedWorkspaceId && allWorkspaces.value.some(workspace => workspace.id === state.selectedWorkspaceId)) {
       selectedWorkspaceId.value = state.selectedWorkspaceId
       selectedProjectId.value = ''
@@ -383,8 +392,11 @@ export const useWorkbenchStore = defineStore('workbench', () => {
       packageCapabilityDrawerOpen.value = false
       return
     }
-    if (state.selectedProjectId && projects.value.some(project => project.id === state.selectedProjectId))
-      await selectProject(state.selectedProjectId)
+    if (state.selectedProjectId) {
+      if (projects.value.some(project => project.id === state.selectedProjectId))
+        await selectProject(state.selectedProjectId)
+      return state.selectedProjectId
+    }
   }
 
   function persistWorkspaceState(): void {
@@ -1002,17 +1014,10 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     selectedWorkspaceId.value = ''
     selectedProjectId.value = id
     rememberProject(id)
-    const [discovery, pins, nextAgentActions] = await Promise.all([
-      api.capabilityDiscovery(id),
-      api.capabilityPins(id),
-      api.agentActions(id, settings.value?.settings['workbench.locale'] ?? 'en'),
-    ])
-    const nextCapabilities = discovery.capabilities
+    const nextCapabilities = paletteItems.value
+      .filter(item => item.project.id === id)
+      .map(item => item.capability)
     capabilities.value = nextCapabilities
-    capabilityDiagnosticsByProject.value = { ...capabilityDiagnosticsByProject.value, [id]: discovery.diagnostics }
-    commandPackagesByProject.value = { ...commandPackagesByProject.value, [id]: discovery.packages ?? [] }
-    agentActions.value = nextAgentActions
-    capabilityPinsByProject.value = { ...capabilityPinsByProject.value, [id]: pins.capabilityIds }
     selectedCapabilityId.value = ''
     selectedPackagePath.value = ''
     packageCapabilityDrawerOpen.value = false
@@ -1024,7 +1029,10 @@ export const useWorkbenchStore = defineStore('workbench', () => {
       recentPackagePaths.value = []
     }
     run.value = undefined
-    await loadProjectOverview('.')
+    await Promise.all([
+      loadAgentActions(id),
+      loadProjectOverview('.'),
+    ])
     persistWorkspaceState()
   }
 
@@ -1280,9 +1288,12 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     error,
     projectConfigInitialization,
     settings,
+    userConfigStatus,
     repositoriesRoot,
     applySettings,
     loadSettings,
+    loadUserConfigStatus,
+    applyUserConfigStatus,
     updateLocale,
     updateRepositoriesRoot,
     updateCodexSetting,

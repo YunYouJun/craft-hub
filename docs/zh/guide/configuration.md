@@ -206,6 +206,8 @@ Skill 可以使用能力 ID、名称或“来源:名称”作为 key；推荐使
 
 跨项目关系属于用户，而不属于任一成员仓库。Craft Hub 在 `~/.craft-hub/workspaces/` 中为每个工作空间保存一份带版本的 manifest；可通过 `CRAFT_HUB_CONFIG_DIR` 覆盖此便携配置目录。
 
+Craft Hub 自有、由用户编辑的声明文件统一使用 JSONC：`config.jsonc`、`owner-scopes.jsonc` 和 `workspaces/<id>.jsonc`。首次使用时，旧版全局 YAML 会被转换一次，并移至操作系统数据目录下带时间戳的 `migration-backups/global-config-yaml-*` 目录；运行时不保留 YAML 双读路径。
+
 每个工作空间和工作空间组都只属于一个 Owner Scope。旧 manifest 未声明 `ownerScopeId` 时归入固定的 `Personal`；Team manifest 会记录稳定的 Team ID，例如 `ownerScopeId: acme`。Team 身份与 Git 工作区相互独立，因此迁移仓库不会改变所有权。
 
 工作台将 Owner Scope 切换视为即时导航：每个 Scope 独立维护工作空间树、项目引用绑定、独立项目分组和上次选中的工作空间。本机注册目录、信任状态、运行记录和凭据仍只属于当前设备。Team 视图只显示该 Team 引用的项目，未分配的本机项目只显示在 Personal。命令面板可以跨 Scope 搜索，并在打开工作空间前先切换到它所属的 Scope。
@@ -214,18 +216,42 @@ Skill 可以使用能力 ID、名称或“来源:名称”作为 key；推荐使
 
 重命名 Team 时会保留稳定 ID 和 Git 目标，并将本地快照标记为有变更，等待下一次显式同步。删除 Team 前必须准确输入 Team 名称；Craft Hub 会清理该 Team 的本地工作空间、绑定、导航状态和同步目标，若删除的是当前 Team 则自动切回 Personal，同时保留共享 Git 快照以供恢复。
 
-```yaml
-schemaVersion: 1
-id: craft-hub
-name: Craft Hub
-primaryProject: craft-hub
-members:
-  - project: craft-hub
-    pinned: true
-  - project: dotfiles
+```jsonc
+{
+  "$schema": "https://raw.githubusercontent.com/YunYouJun/craft-hub/main/packages/craft-hub/schema/workspace-v1.schema.json",
+  "schemaVersion": 1,
+  "id": "craft-hub",
+  "name": "Craft Hub",
+  "primaryProject": "craft-hub",
+  "members": [
+    { "project": "craft-hub", "pinned": true },
+    { "project": "dotfiles" }
+  ]
+}
 ```
 
 成员 key、顺序、置顶和主要项目可以通过私有 dotfiles 仓库同步。绝对路径、Craft Hub 执行授权、本机 binding、当前选择、运行历史、凭证和 Codex thread ID 仍保存在操作系统数据目录中，不应同步。新设备上无法解析的成员会继续显示，直到绑定本机已注册项目；binding 不会转移执行授权。
+
+## Dotfiles 管理器
+
+实验性的 Dotfiles 管理器是显式本地 Git 工作区的只读控制台。它不会扫描 HOME、克隆或更新 Git 仓库、安装工具或应用变更。仓库通过 `.craft-hub/dotfiles.jsonc` 主动接入，并以独立的 `command` 与 `args` 声明无 shell 的 `check`、`status` 和 `diff` 命令。Craft Hub 将工作目录固定为仓库根目录；任何命令运行前都必须信任当前 manifest，manifest 一旦改变，信任立即失效。
+
+```jsonc
+{
+  "$schema": "https://raw.githubusercontent.com/YunYouJun/craft-hub/main/packages/craft-hub/schema/dotfiles-v1.schema.json",
+  "version": 1,
+  "name": "My workstation",
+  "adapter": "command",
+  "platforms": ["darwin"],
+  "operations": {
+    "check": { "command": "pnpm", "args": ["doctor"] },
+    "status": { "command": "pnpm", "args": ["status"] },
+    "diff": { "command": "pnpm", "args": ["diff"] }
+  }
+}
+```
+
+操作名称只表达意图，并不会沙箱隔离仓库代码。请检查界面展示的命令，只信任自己控制的仓库；首版仍需在终端中手动应用变更。
 
 项目图标可以填写仓库内的 SVG/PNG 相对路径、`emoji:<字符>`，或 `builtin:folder`、`builtin:hub`、`builtin:skill`、`builtin:terminal`。文件路径只能解析到项目目录内；无效或越界路径会回退为文件夹图标，并显示非阻塞警告。可选的 `color` 只接受 `blue`、`cyan`、`green`、`orange`、`pink`、`purple`、`red`、`yellow`。强调色用于识别项目，不会覆盖执行授权或运行状态的语义色。
 
@@ -263,7 +289,7 @@ members:
 
 项目与工作空间顶部按钮共用 `workbench.editor`。内置值为 `vscode` 与 `cursor`；自定义编辑器使用一个直接执行的命令及独立参数。自定义参数必须包含 `{path}`，Craft Hub 会替换该占位符，并始终以 `shell: false` 启动命令。
 
-桌面端的设置弹窗可以打开此文件，也可以导入或导出便携 JSON。精简导出只包含用户明确修改的值，完整快照包含全部有效且非敏感的设置。Craft Hub 执行授权、项目注册记录、运行历史、用户名和机器路径永远不会导出。替换导入前会自动备份，并保留最近五份。
+桌面端的设置弹窗可以打开此文件，也可以导入或导出便携 JSON。精简导出只包含用户明确修改且在白名单内的值，完整快照会补充便携默认值。仓库根目录、自定义编辑器命令、未分类的 `extensions.*`、Craft Hub 执行授权、项目注册记录、运行历史、用户名和机器路径永远不会导出。替换导入前会自动备份，并保留最近五份。
 
 置顶的命令与 Skill 属于直接操作产生的本机工作台状态。混合排序保存在同一数据目录下的 `workspace-state.json` 中，不参与设置导入或导出。
 

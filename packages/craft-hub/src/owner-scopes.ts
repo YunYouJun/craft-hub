@@ -2,12 +2,13 @@ import type { OwnerScope, OwnerScopeUiState } from './types'
 import { randomUUID } from 'node:crypto'
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
-import { parse, stringify } from 'yaml'
 import { PERSONAL_OWNER_SCOPE_ID } from './types'
+import { ownerScopesFileName, ownerScopesSchemaUrl, UserConfigService } from './user-config'
 
 interface OwnerScopeCatalog {
   schemaVersion: 1
   teams: OwnerScope[]
+  extensions?: Record<string, unknown>
 }
 
 interface PersistedOwnerScopeUiState {
@@ -25,10 +26,12 @@ const personalScope: OwnerScope = {
 export class OwnerScopeService {
   private readonly catalogPath: string
   private readonly statePath: string
+  private readonly userConfig: UserConfigService
 
-  constructor(configDir: string, dataDir: string) {
-    this.catalogPath = join(configDir, 'owner-scopes.yaml')
+  constructor(configDir: string, dataDir: string, userConfig?: UserConfigService) {
+    this.catalogPath = ownerScopesFileName
     this.statePath = join(dataDir, 'owner-scope-state.json')
+    this.userConfig = userConfig ?? new UserConfigService(configDir, dataDir)
   }
 
   /** List Personal first, followed by Teams in creation order. */
@@ -56,7 +59,7 @@ export class OwnerScopeService {
     while (existing.some(scope => scope.id === id))
       id = `${base}-${suffix++}`
     const team: OwnerScope = { id, kind: 'team', name: trimmed }
-    await writeAtomic(this.catalogPath, stringify({ ...catalog, teams: [...catalog.teams, team] }, { lineWidth: 0 }))
+    await this.writeCatalog({ ...catalog, teams: [...catalog.teams, team] })
     return team
   }
 
@@ -69,10 +72,10 @@ export class OwnerScopeService {
       throw new Error(`Unknown owner scope: ${id}`)
     assertUniqueTeamName(await this.list(), trimmed, id)
     const team = { ...existing, name: trimmed }
-    await writeAtomic(this.catalogPath, stringify({
+    await this.writeCatalog({
       ...catalog,
       teams: catalog.teams.map(item => item.id === id ? team : item),
-    }, { lineWidth: 0 }))
+    })
     return team
   }
 
@@ -83,7 +86,7 @@ export class OwnerScopeService {
     const catalog = await this.catalog()
     if (!catalog.teams.some(team => team.id === id))
       throw new Error(`Unknown owner scope: ${id}`)
-    await writeAtomic(this.catalogPath, stringify({ ...catalog, teams: catalog.teams.filter(team => team.id !== id) }, { lineWidth: 0 }))
+    await this.writeCatalog({ ...catalog, teams: catalog.teams.filter(team => team.id !== id) })
     if ((await this.uiState()).activeScopeId === id)
       await this.activate(PERSONAL_OWNER_SCOPE_ID)
   }
@@ -114,19 +117,41 @@ export class OwnerScopeService {
   }
 
   private async catalog(): Promise<OwnerScopeCatalog> {
-    try {
-      const value = parse(await readFile(this.catalogPath, 'utf8')) as OwnerScopeCatalog
-      if (value.schemaVersion !== 1 || !Array.isArray(value.teams))
-        throw new Error('Unsupported owner scope catalog schema')
-      if (value.teams.some(scope => scope.kind !== 'team' || !scope.id || !scope.name?.trim()))
-        throw new Error('Owner scope catalog contains an invalid Team')
-      return value
-    }
-    catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT')
-        return { schemaVersion: 1, teams: [] }
-      throw error
-    }
+    return this.userConfig.read(this.catalogPath, validateOwnerScopeCatalog, () => ({ schemaVersion: 1, teams: [] }))
+  }
+
+  private writeCatalog(catalog: OwnerScopeCatalog): Promise<void> {
+    return this.userConfig.write(this.catalogPath, catalog, ownerScopesSchemaUrl, ['schemaVersion', 'teams', 'extensions'], validateOwnerScopeCatalog)
+  }
+}
+
+function validateOwnerScopeCatalog(input: unknown): OwnerScopeCatalog {
+  if (!input || typeof input !== 'object' || Array.isArray(input))
+    throw new Error('Owner scope catalog must contain an object')
+  const record = input as Record<string, unknown>
+  const unknown = Object.keys(record).filter(key => !['$schema', 'schemaVersion', 'teams', 'extensions'].includes(key))
+  if (unknown.length)
+    throw new Error(`Owner scope catalog contains unknown fields: ${unknown.join(', ')}`)
+  if (record.schemaVersion !== 1 || !Array.isArray(record.teams))
+    throw new Error('Unsupported owner scope catalog schema')
+  const teams = record.teams as OwnerScope[]
+  if (teams.some(scope => !scope || typeof scope !== 'object' || Array.isArray(scope)
+    || Object.keys(scope).some(key => !['id', 'kind', 'name'].includes(key))
+    || scope.kind !== 'team'
+    || typeof scope.id !== 'string'
+    || !/^[a-z0-9][a-z0-9-]*$/.test(scope.id)
+    || typeof scope.name !== 'string'
+    || !scope.name.trim())) {
+    throw new Error('Owner scope catalog contains an invalid Team')
+  }
+  if (new Set(teams.map(team => team.id)).size !== teams.length)
+    throw new Error('Owner scope catalog Team ids must be unique')
+  if (record.extensions !== undefined && (!record.extensions || typeof record.extensions !== 'object' || Array.isArray(record.extensions)))
+    throw new Error('Owner scope catalog extensions must contain an object')
+  return {
+    schemaVersion: 1,
+    teams,
+    ...(record.extensions && typeof record.extensions === 'object' && !Array.isArray(record.extensions) ? { extensions: record.extensions as Record<string, unknown> } : {}),
   }
 }
 

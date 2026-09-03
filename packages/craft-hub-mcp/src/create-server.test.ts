@@ -104,8 +104,8 @@ describe('craft hub MCP write tools', () => {
 
       const registered = JSON.parse(await readFile(join(fixture.dataDir, 'projects.json'), 'utf8')) as Array<{ id: string, trust: string }>
       expect(registered).toEqual([expect.objectContaining({ id: project.id, trust: 'untrusted' })])
-      const manifest = await readFile(join(fixture.configDir, 'workspaces', 'product-team.yaml'), 'utf8')
-      expect(manifest).toContain('project: project')
+      const manifest = await readFile(join(fixture.configDir, 'workspaces', 'product-team.jsonc'), 'utf8')
+      expect(manifest).toContain('"project": "project"')
       expect(manifest).not.toContain(project.id)
       expect(manifest).not.toContain(fixture.projectPath)
     }

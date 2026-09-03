@@ -2,6 +2,7 @@
 import type { WorkbenchEditorId } from 'craft-hub'
 import type { IconName } from './icons'
 import { computed, ref } from 'vue'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from './components/ui/dropdown-menu'
 import { SelectOptionContent } from './components/ui/select'
 import { Icon } from './icons'
 import { useI18n } from './i18n'
@@ -46,24 +47,25 @@ async function selectEditor(id: WorkbenchEditorId): Promise<void> {
     >
       <Icon :name="icon" />
     </button>
-    <details :open="menuOpen" class="editor-action-menu" @toggle="menuOpen = ($event.target as HTMLDetailsElement).open">
-      <summary :aria-label="t('chooseDefaultEditor')" :title="t('chooseDefaultEditor')"><Icon name="arrowDown" /></summary>
-      <div>
-        <button
-          v-for="choice in choices"
-          :key="choice.id"
-          type="button"
-          :data-testid="`select-editor-${choice.id}`"
-          :class="{ active: setting.default === choice.id }"
-          @click="selectEditor(choice.id)"
-        >
-          <SelectOptionContent
-            :icon="choice.icon"
-            :label="choice.name"
-            :selected="setting.default === choice.id"
-          />
-        </button>
-      </div>
-    </details>
+    <div class="editor-action-menu" :data-state="menuOpen ? 'open' : 'closed'">
+      <DropdownMenu v-model:open="menuOpen">
+        <DropdownMenuTrigger :aria-label="t('chooseDefaultEditor')" :title="t('chooseDefaultEditor')"><Icon name="arrowDown" /></DropdownMenuTrigger>
+        <DropdownMenuContent class="editor-action-menu-content">
+          <DropdownMenuItem
+            v-for="choice in choices"
+            :key="choice.id"
+            :data-testid="`select-editor-${choice.id}`"
+            :class="{ active: setting.default === choice.id }"
+            @select="selectEditor(choice.id)"
+          >
+            <SelectOptionContent
+              :icon="choice.icon"
+              :label="choice.name"
+              :selected="setting.default === choice.id"
+            />
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
   </div>
 </template>

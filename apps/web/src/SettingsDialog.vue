@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { PersonalGitSyncResolution, PersonalGitSyncStatus, WorkbenchCodexReasoningEffort, WorkbenchEditorId } from 'craft-hub'
+import type { DotfilesManagerStatus, DotfilesOperation, DotfilesOperationResult, PersonalGitSyncResolution, PersonalGitSyncStatus, WorkbenchCodexReasoningEffort, WorkbenchEditorId } from 'craft-hub'
 import { TabsContent, TabsList, TabsRoot, TabsTrigger } from 'reka-ui'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { api } from './api'
@@ -15,6 +15,7 @@ const { locale, t } = useI18n()
 const store = useWorkbenchStore()
 const canOpenSettingsFile = Boolean(window.craftHubDesktop?.openSettingsFile)
 const canChooseGitRepository = Boolean(window.craftHubDesktop?.selectProjectDirectory)
+const canOpenDotfilesInTerminal = Boolean(window.craftHubDesktop?.openDotfilesInTerminal)
 const canManageUpdates = Boolean(window.craftHubDesktop?.updateStatus)
 const canManageCodexActivity = Boolean(window.craftHubDesktop?.codexActivityStatus)
 const replaceOnImport = ref(false)
@@ -46,6 +47,12 @@ const gitSyncStatus = ref<PersonalGitSyncStatus>({ state: 'unconfigured' })
 const gitRepositoryPath = ref('')
 const gitDirectory = ref('.craft-hub')
 const gitSyncBusy = ref(false)
+const userConfigStatus = computed(() => store.userConfigStatus)
+const dotfilesStatus = ref<DotfilesManagerStatus>({ state: 'unconfigured' })
+const dotfilesRepositoryPath = ref('')
+const dotfilesBusy = ref(false)
+const dotfilesResult = ref<DotfilesOperationResult>()
+const readonlyDotfilesOperations: DotfilesOperation[] = ['check', 'status', 'diff']
 const updateStatus = ref<DesktopUpdateStatus>()
 const updateBusy = ref(false)
 const codexActivityStatus = ref<CodexActivityStatus>()
@@ -159,7 +166,7 @@ watch(() => props.open, (open) => {
     const codex = store.settings?.settings['workbench.codex']
     codexModel.value = codex?.model ?? ''
     codexReasoningEffort.value = codex?.reasoningEffort ?? ''
-    void Promise.all([refreshCloudStatus(), refreshGitSyncStatus(), refreshUpdateStatus(), refreshCodexActivityStatus()])
+    void Promise.all([refreshCloudStatus(), refreshGitSyncStatus(), refreshUserConfigStatus(), refreshDotfilesStatus(), refreshUpdateStatus(), refreshCodexActivityStatus()])
   }
 }, { immediate: true })
 
@@ -236,6 +243,91 @@ async function refreshGitSyncStatus(): Promise<void> {
   gitSyncStatus.value = await api.personalGitSyncStatus()
   gitRepositoryPath.value = gitSyncStatus.value.target?.repositoryPath ?? gitRepositoryPath.value
   gitDirectory.value = gitSyncStatus.value.target?.directory ?? gitDirectory.value
+}
+
+async function refreshUserConfigStatus(): Promise<void> {
+  await store.loadUserConfigStatus()
+}
+
+async function refreshDotfilesStatus(): Promise<void> {
+  dotfilesStatus.value = await api.dotfilesManagerStatus()
+  dotfilesRepositoryPath.value = dotfilesStatus.value.repositoryPath ?? dotfilesRepositoryPath.value
+}
+
+async function configureDotfiles(): Promise<void> {
+  dotfilesBusy.value = true
+  transferError.value = ''
+  dotfilesResult.value = undefined
+  try {
+    dotfilesStatus.value = await api.configureDotfilesManager(dotfilesRepositoryPath.value.trim())
+  }
+  catch (error) {
+    transferError.value = error instanceof Error ? error.message : String(error)
+  }
+  finally {
+    dotfilesBusy.value = false
+  }
+}
+
+async function chooseDotfilesRepository(): Promise<void> {
+  const selected = await window.craftHubDesktop?.selectProjectDirectory?.(store.repositoriesRoot)
+  if (selected)
+    dotfilesRepositoryPath.value = selected
+}
+
+async function trustDotfiles(): Promise<void> {
+  dotfilesBusy.value = true
+  transferError.value = ''
+  try {
+    dotfilesStatus.value = await api.trustDotfilesManager()
+  }
+  catch (error) {
+    transferError.value = error instanceof Error ? error.message : String(error)
+  }
+  finally {
+    dotfilesBusy.value = false
+  }
+}
+
+async function runDotfilesOperation(operation: DotfilesOperation): Promise<void> {
+  dotfilesBusy.value = true
+  transferError.value = ''
+  try {
+    dotfilesResult.value = await api.runDotfilesOperation(operation)
+  }
+  catch (error) {
+    transferError.value = error instanceof Error ? error.message : String(error)
+  }
+  finally {
+    dotfilesBusy.value = false
+  }
+}
+
+function dotfilesStateLabel(): string {
+  if (dotfilesStatus.value.state === 'ready')
+    return t('dotfilesManagerState_ready')
+  if (dotfilesStatus.value.state === 'untrusted')
+    return t('dotfilesManagerState_untrusted')
+  if (dotfilesStatus.value.state === 'unsupported-platform')
+    return t('dotfilesManagerState_unsupportedPlatform')
+  return t('dotfilesManagerState_unconfigured')
+}
+
+function dotfilesOperationLabel(operation: DotfilesOperation): string {
+  if (operation === 'check')
+    return t('dotfilesOperation_check')
+  if (operation === 'status')
+    return t('dotfilesOperation_status')
+  return t('dotfilesOperation_diff')
+}
+
+async function openDotfilesInTerminal(): Promise<void> {
+  try {
+    await window.craftHubDesktop?.openDotfilesInTerminal?.()
+  }
+  catch (error) {
+    transferError.value = error instanceof Error ? error.message : String(error)
+  }
 }
 
 async function configureGitSync(): Promise<void> {
@@ -502,6 +594,7 @@ async function cleanupRuns(includeAllUnpinned: boolean): Promise<void> {
               <TabsTrigger value="general">{{ t('settingsGeneral') }}</TabsTrigger>
               <TabsTrigger value="shortcuts">{{ t('keyboardShortcuts') }}</TabsTrigger>
               <TabsTrigger value="cloud">{{ t('personalCloud') }}</TabsTrigger>
+              <TabsTrigger value="configuration">{{ t('configurationFiles') }}</TabsTrigger>
               <TabsTrigger value="history">{{ t('runHistory') }}</TabsTrigger>
               <TabsTrigger value="transfer">{{ t('settingsTransfer') }}</TabsTrigger>
             </TabsList>
@@ -721,6 +814,22 @@ async function cleanupRuns(includeAllUnpinned: boolean): Promise<void> {
                   </div>
                 </div>
               </section>
+            </TabsContent>
+
+            <TabsContent value="configuration" class="settings-tab-content">
+              <section class="settings-section">
+                <h3>{{ t('localConfiguration') }}</h3>
+                <p>{{ t('localConfigurationDescription') }}</p>
+                <div class="git-sync-status" :data-state="userConfigStatus?.diagnostics.length ? 'conflict' : 'clean'">
+                  <div>
+                    <strong>{{ userConfigStatus?.diagnostics.length ? t('localConfigurationInvalid') : t('localConfigurationReady') }}</strong>
+                    <small v-if="userConfigStatus">{{ userConfigStatus.configDir }}</small>
+                    <small v-if="userConfigStatus?.migrationBackupPath">{{ t('localConfigurationMigrated', { path: userConfigStatus.migrationBackupPath }) }}</small>
+                    <small v-for="diagnostic in userConfigStatus?.diagnostics ?? []" :key="diagnostic.path" role="alert">{{ diagnostic.path }}: {{ diagnostic.message }}</small>
+                  </div>
+                </div>
+              </section>
+
               <section class="settings-section">
                 <h3>{{ t('personalGitSync') }}</h3>
                 <p>{{ t('personalGitSyncDescription') }}</p>
@@ -752,6 +861,40 @@ async function cleanupRuns(includeAllUnpinned: boolean): Promise<void> {
                     </template>
                   </div>
                 </div>
+              </section>
+
+              <section class="settings-section">
+                <h3>{{ t('dotfilesManager') }}</h3>
+                <p>{{ t('dotfilesManagerDescription') }}</p>
+                <form class="git-sync-form dotfiles-form" data-testid="dotfiles-manager-form" @submit.prevent="configureDotfiles">
+                  <label>
+                    <span>{{ t('gitRepositoryPath') }}</span>
+                    <span class="git-repository-entry">
+                      <input v-model="dotfilesRepositoryPath" name="dotfiles-repository-path" :placeholder="t('gitRepositoryPathPlaceholder')">
+                      <button v-if="canChooseGitRepository" type="button" @click="chooseDotfilesRepository">{{ t('chooseGitRepository') }}</button>
+                    </span>
+                  </label>
+                  <button type="submit" :disabled="dotfilesBusy || !dotfilesRepositoryPath.trim()">{{ t('useDotfilesRepository') }}</button>
+                </form>
+                <div class="git-sync-status" :data-state="dotfilesStatus.state === 'ready' ? 'clean' : dotfilesStatus.state === 'untrusted' ? 'conflict' : ''">
+                  <div>
+                    <strong>{{ dotfilesStateLabel() }}</strong>
+                    <small v-if="dotfilesStatus.manifestPath">{{ dotfilesStatus.manifestPath }}</small>
+                    <small v-if="dotfilesStatus.manifest?.name">{{ dotfilesStatus.manifest.name }}</small>
+                    <small v-for="(command, operation) in dotfilesStatus.manifest?.operations ?? {}" :key="operation" class="dotfiles-command">
+                      <code>{{ operation }}</code>
+                      <span>· {{ command.command }} {{ command.args.join(' ') }}</span>
+                    </small>
+                  </div>
+                  <div class="settings-transfer-actions">
+                    <button v-if="dotfilesStatus.state === 'untrusted'" type="button" :disabled="dotfilesBusy" data-testid="trust-dotfiles" @click="trustDotfiles">{{ t('trustDotfilesSource') }}</button>
+                    <template v-if="dotfilesStatus.state === 'ready'">
+                      <button v-for="operation in readonlyDotfilesOperations" v-show="dotfilesStatus.manifest?.operations[operation]" :key="operation" type="button" :disabled="dotfilesBusy" :data-testid="`run-dotfiles-${operation}`" @click="runDotfilesOperation(operation)">{{ dotfilesOperationLabel(operation) }}</button>
+                      <button v-if="canOpenDotfilesInTerminal" type="button" :disabled="dotfilesBusy" @click="openDotfilesInTerminal">{{ t('openInTerminal') }}</button>
+                    </template>
+                  </div>
+                </div>
+                <pre v-if="dotfilesResult" class="dotfiles-output" :data-succeeded="dotfilesResult.succeeded"><code>{{ dotfilesResult.stdout }}{{ dotfilesResult.stderr }}{{ dotfilesResult.error && !dotfilesResult.stderr ? dotfilesResult.error : '' }}</code></pre>
               </section>
             </TabsContent>
 

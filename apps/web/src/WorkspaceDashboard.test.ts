@@ -102,7 +102,9 @@ describe('workspace Codex tasks', () => {
     await wrapper.get('textarea').setValue('Inspect the project')
 
     expect(wrapper.get('[data-testid="start-in-codex"]').attributes('disabled')).toBeDefined()
-    expect(wrapper.get('[data-testid="start-in-background"]').attributes('disabled')).toBeDefined()
+    await wrapper.get('.agent-task-action-menu [data-slot="dropdown-menu-trigger"]').trigger('click')
+    await flushPromises()
+    expect(document.body.querySelector<HTMLElement>('[data-testid="start-in-background"]')?.getAttribute('data-disabled')).not.toBeNull()
     expect(wrapper.text()).toContain('1 project(s) are excluded')
 
     await wrapper.get('form').trigger('submit')
@@ -146,8 +148,8 @@ describe('workspace Codex tasks', () => {
     await flushPromises()
 
     await wrapper.get('textarea').setValue('Run in background')
-    await wrapper.get('.agent-task-action-menu summary').trigger('click')
-    await wrapper.get('[data-testid="start-in-background"]').trigger('click')
+    await wrapper.get('.agent-task-action-menu [data-slot="dropdown-menu-trigger"]').trigger('click')
+    document.body.querySelector<HTMLElement>('[data-testid="start-in-background"]')?.click()
     await flushPromises()
 
     expect(startAgentTask).toHaveBeenCalledWith('Run in background', [project.id], project.id, workspace.id)

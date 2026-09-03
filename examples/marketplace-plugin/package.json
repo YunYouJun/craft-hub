@@ -1,0 +1,60 @@
+{
+  "name": "@example/craft-hub-plugin-starter",
+  "version": "0.1.0",
+  "description": "A complete declarative Craft Hub Marketplace Plugin example.",
+  "license": "MIT",
+  "files": [
+    "README.md",
+    "skills",
+    "templates"
+  ],
+  "craftHub": {
+    "schemaVersion": 1,
+    "id": "@example/craft-hub-plugin-starter",
+    "displayName": "Starter tools",
+    "description": "Contributes a safe command, an Agent Skill, and a project template.",
+    "craftHub": {
+      "minVersion": "0.0.1-alpha.8"
+    },
+    "includesPlugins": [],
+    "requiresPlugins": [],
+    "projectFiles": [],
+    "permissions": [
+      "commands"
+    ],
+    "permissionReasons": {
+      "commands": "Runs the version-check command declared by this package."
+    },
+    "contributes": {
+      "commands": [
+        {
+          "id": "node-version",
+          "name": "Check Node.js version",
+          "description": "Print the Node.js version in the selected project.",
+          "command": "node",
+          "args": [
+            "--version"
+          ],
+          "requiredEnv": []
+        }
+      ],
+      "commandPresets": [],
+      "commandTemplates": [],
+      "packageQuickActions": [],
+      "packageLinks": [],
+      "packageToolGroups": [],
+      "skills": [
+        {
+          "path": "skills/starter-tools/SKILL.md"
+        }
+      ],
+      "projectTemplates": [
+        {
+          "id": "starter-notes",
+          "path": "templates/starter-notes"
+        }
+      ],
+      "integrations": []
+    }
+  }
+}

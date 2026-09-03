@@ -119,23 +119,24 @@ describe('global settings', () => {
     const minimal = await service.export('minimal')
     const full = await service.export('full')
     expect(minimal).toMatchObject({
-      formatVersion: 1,
+      formatVersion: 2,
       exportMode: 'minimal',
       applicationVersion: '1.2.3',
-      settings: { 'extensions.example.enabled': true },
+      settings: {},
     })
     expect(full.settings).toEqual({
       'workbench.codex': {},
       'workbench.editor': { default: 'vscode' },
       'workbench.locale': 'en',
-      'workbench.repositoriesRoot': '',
       'workbench.shortcuts': { 'workbench.showCommandPalette': 'Mod+K' },
       'workbench.theme': 'system',
-      'extensions.example.enabled': true,
     })
-    await expect(service.previewImport(minimal, 'replace')).resolves.toMatchObject({
-      ignored: ['extensions.example.enabled'],
-      warnings: [expect.stringContaining('read-user-settings')],
+    await expect(service.previewImport({
+      ...minimal,
+      settings: { 'workbench.repositoriesRoot': '/private/repos', 'extensions.example.enabled': true },
+    }, 'replace')).resolves.toMatchObject({
+      ignored: ['extensions.example.enabled', 'workbench.repositoriesRoot'],
+      warnings: [expect.stringContaining('not portable')],
     })
   })
 

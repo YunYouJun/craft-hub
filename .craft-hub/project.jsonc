@@ -2,13 +2,24 @@
   "$schema": "https://raw.githubusercontent.com/YunYouJun/craft-hub/main/packages/craft-hub/schema/project-v1.schema.json",
   "version": 1,
   "project": {
-    "name": "Craft Hub"
+    "name": "Craft Hub",
+    "quickActions": [
+      "package.json:dev",
+      "package.json:build",
+      "package.json:build:mac",
+      "package.json:reinstall:mac",
+      "package.json:test"
+    ]
   },
   "capabilities": {
     "descriptions": {
       "package.json:build": {
         "default": "Build every workspace package.",
         "zh-CN": "构建所有工作区包。"
+      },
+      "package.json:build:mac": {
+        "default": "Build the workspace and package the Electron desktop app for macOS.",
+        "zh-CN": "构建工作区并打包适用于 macOS 的 Electron 桌面应用。"
       },
       "package.json:dev": {
         "default": "Start the runtime, web app, and Electron shell in development mode.",
@@ -25,6 +36,10 @@
       "package.json:package:mac": {
         "default": "Package the Electron desktop app for macOS.",
         "zh-CN": "打包适用于 macOS 的 Electron 桌面应用。"
+      },
+      "package.json:reinstall:mac": {
+        "default": "Build, package, reinstall, and open the macOS desktop app for this Mac.",
+        "zh-CN": "为当前 Mac 构建、打包、重新安装并打开桌面应用。"
       },
       "package.json:predocs": {
         "default": "Generate API reference documentation with TypeDoc.",

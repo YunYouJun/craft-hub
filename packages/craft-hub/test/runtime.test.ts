@@ -1,7 +1,7 @@
 import { chmod, mkdir, mkdtemp, readFile, realpath, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { applyProjectDescriptionChanges, CraftHubRuntime, createCraftHub, defineCapabilityProvider, defineCraftHubPlugin, discoverCapabilities, discoverCapabilitiesWithDiagnostics, loadCraftHubPlugins, projectConfigRevision, resolveSkillInputSelections } from '../src/index'
 
 async function writeProjectConfig(root: string, config: Record<string, unknown>): Promise<void> {
@@ -46,6 +46,40 @@ async function downstreamFixture(): Promise<string> {
 }
 
 describe('capability discovery', () => {
+  it('coalesces concurrent discovery consumers without caching completed results', async () => {
+    const root = await fixture()
+    let releaseDiscovery!: () => void
+    let providerCalls = 0
+    const discoveryReady = new Promise<void>((resolve) => {
+      releaseDiscovery = resolve
+    })
+    const runtime = new CraftHubRuntime({
+      dataDir: join(root, '.discovery-coalescing-data'),
+      capabilityProviders: [defineCapabilityProvider({
+        id: 'counting',
+        async discover() {
+          providerCalls += 1
+          await discoveryReady
+          return []
+        },
+      })],
+    })
+    const project = await runtime.addProject(root)
+
+    const requests = Promise.all([
+      runtime.capabilityDiscovery(project.id),
+      runtime.capabilityPins(project.id),
+      runtime.projectOverview(project.id),
+      runtime.agentActions.list(project.id, 'en'),
+    ])
+    await vi.waitFor(() => expect(providerCalls).toBe(1))
+    releaseDiscovery()
+    await requests
+
+    await runtime.capabilityDiscovery(project.id)
+    expect(providerCalls).toBe(2)
+  })
+
   it('applies localized overview metadata without hiding packages from discovery', async () => {
     const root = await mkdtemp(join(tmpdir(), 'craft-hub-overview-metadata-'))
     const widget = join(root, 'apps', 'widget')
