@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/YunYouJun/craft-hub/main/packages/craft-hub/schema/user-config-v1.schema.json",
+  "title": "Craft Hub portable user configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "workspaceOrder"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "schemaVersion": { "const": 1 },
+    "workspaceOrder": { "type": "array", "uniqueItems": true, "items": { "type": "string" } },
+    "groups": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "name"],
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string", "minLength": 1 },
+          "icon": { "type": "string" },
+          "ownerScopeId": { "type": "string" }
+        }
+      }
+    },
+    "workspaceGroups": { "type": "object", "additionalProperties": { "type": "string" } },
+    "extensions": { "type": "object" }
+  }
+}

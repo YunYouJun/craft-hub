@@ -17,7 +17,7 @@ describe('owner scopes', () => {
     ])
     await expect(scopes.activate(team.id)).resolves.toEqual({ activeScopeId: team.id })
     await expect(scopes.uiState()).resolves.toEqual({ activeScopeId: team.id })
-    expect(await readFile(join(root, 'config', 'owner-scopes.yaml'), 'utf8')).toContain('kind: team')
+    expect(await readFile(join(root, 'config', 'owner-scopes.jsonc'), 'utf8')).toContain('"kind": "team"')
   })
 
   it('rejects duplicate names and unknown active scopes', async () => {

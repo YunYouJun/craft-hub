@@ -24,6 +24,7 @@ describe('project toolbar', () => {
   })
 
   afterEach(() => {
+    document.body.innerHTML = ''
     Reflect.deleteProperty(window, 'craftHubDesktop')
     vi.unstubAllGlobals()
   })
@@ -67,7 +68,10 @@ describe('project toolbar', () => {
     expect(wrapper.get('[data-testid="open-project-directory"]').attributes('title')).toBe('Open project in Finder')
     expect(wrapper.get('[data-testid="project-git-integration"]').attributes('title')).toBe('Integrate Git branch')
     expect(wrapper.element.querySelector('[data-testid="open-project-editor"] .vscode-icon')).not.toBeNull()
-    expect(wrapper.element.querySelector('[data-testid="select-editor-cursor"] .cursor-icon')).not.toBeNull()
+    await wrapper.get('.editor-action-menu [data-slot="dropdown-menu-trigger"]').trigger('click')
+    await flushPromises()
+    expect(document.body.querySelector('[data-testid="select-editor-cursor"] .cursor-icon')).not.toBeNull()
+    await wrapper.get('.editor-action-menu [data-slot="dropdown-menu-trigger"]').trigger('click')
     expect(wrapper.get('[data-testid="open-project-terminal"]').attributes('title')).toBe('Open project in Ghostty')
 
     await wrapper.get('[data-testid="terminal-application"]').setValue('Terminal')
@@ -132,10 +136,42 @@ describe('project toolbar', () => {
     await flushPromises()
 
     expect(wrapper.get('[data-testid="open-project-codex"]').attributes('title')).toBe('Open project in Codex')
-    expect(wrapper.get('.codex-action-menu summary .app-icon').classes()).toContain('i-ri-arrow-down-s-line')
-    await wrapper.get('.codex-action-menu summary').trigger('click')
-    await wrapper.get('.codex-action-menu button').trigger('click')
+    expect(wrapper.get('.codex-action-menu [data-slot="dropdown-menu-trigger"] .app-icon').classes()).toContain('i-ri-arrow-down-s-line')
+    await wrapper.get('.codex-action-menu [data-slot="dropdown-menu-trigger"]').trigger('click')
+    document.body.querySelector<HTMLElement>('.codex-action-menu-content [data-slot="dropdown-menu-item"]')?.click()
 
     expect(store.agentActionDialogOpen).toBe(true)
+  })
+
+  it('dismisses the editor menu when clicking outside or pressing Escape', async () => {
+    window.craftHubDesktop = {
+      listTerminalApplications: vi.fn(async () => []),
+      openProjectInEditor: vi.fn(async () => {}),
+    }
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    const store = useWorkbenchStore()
+    store.projects = [project]
+    store.selectedProjectId = project.id
+    const wrapper = mount(ProjectToolbar, { attachTo: document.body, global: { plugins: [pinia] } })
+    await flushPromises()
+
+    const menu = wrapper.get('.editor-action-menu')
+    await menu.get('[data-slot="dropdown-menu-trigger"]').trigger('click')
+    await flushPromises()
+    expect(menu.attributes('data-state')).toBe('open')
+
+    document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0, ctrlKey: false }))
+    document.body.click()
+    await flushPromises()
+    expect(menu.attributes('data-state')).toBe('closed')
+
+    await menu.get('[data-slot="dropdown-menu-trigger"]').trigger('click')
+    await flushPromises()
+    document.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'Escape' }))
+    await flushPromises()
+    expect(menu.attributes('data-state')).toBe('closed')
+
+    wrapper.unmount()
   })
 })

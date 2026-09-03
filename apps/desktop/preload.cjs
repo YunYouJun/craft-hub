@@ -30,6 +30,7 @@ contextBridge.exposeInMainWorld('craftHubDesktop', {
   },
   listTerminalApplications: () => ipcRenderer.invoke('craft-hub:list-terminal-applications'),
   openProjectInTerminal: (projectId, application) => ipcRenderer.invoke('craft-hub:open-project-in-terminal', projectId, application),
+  openDotfilesInTerminal: () => ipcRenderer.invoke('craft-hub:open-dotfiles-in-terminal'),
   openExternalUrl: url => ipcRenderer.invoke('craft-hub:open-external-url', url),
   openSettingsFile: () => ipcRenderer.invoke('craft-hub:open-settings-file'),
   setTheme: theme => ipcRenderer.invoke('craft-hub:set-theme', theme),

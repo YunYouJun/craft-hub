@@ -3,6 +3,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { ToolbarButton, ToolbarRoot, ToolbarSeparator } from 'reka-ui'
 import { Button as UiButton } from './components/ui/button'
 import { DialogShell } from './components/ui/dialog'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from './components/ui/dropdown-menu'
 import EditorLauncher from './EditorLauncher.vue'
 import GitIntegrationDialog from './GitIntegrationDialog.vue'
 import { Icon } from './icons'
@@ -158,10 +159,14 @@ onMounted(async () => {
           <Icon name="codex" />
         </ToolbarButton>
         <UiButton v-else class="codex-configure-action" data-testid="configure-project-codex" @click="openAgentAction"><Icon name="codex" /> {{ t('configureWithCodex') }}</UiButton>
-        <details v-if="desktopActions" :open="codexMenuOpen" class="codex-action-menu" @toggle="codexMenuOpen = ($event.target as HTMLDetailsElement).open">
-          <summary :aria-label="t('configureWithCodex')" :title="t('configureWithCodex')"><Icon name="arrowDown" /></summary>
-          <div><button type="button" @click="openAgentAction"><Icon name="codex" /> {{ t('configureWithCodex') }}</button></div>
-        </details>
+        <div v-if="desktopActions" class="codex-action-menu" :data-state="codexMenuOpen ? 'open' : 'closed'">
+          <DropdownMenu v-model:open="codexMenuOpen">
+            <DropdownMenuTrigger :aria-label="t('configureWithCodex')" :title="t('configureWithCodex')"><Icon name="arrowDown" /></DropdownMenuTrigger>
+            <DropdownMenuContent class="codex-action-menu-content">
+              <DropdownMenuItem @select="openAgentAction"><Icon name="codex" /> {{ t('configureWithCodex') }}</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
       </div>
       <ToolbarSeparator v-if="desktopActions" class="toolbar-separator" />
       <div v-if="desktopActions && applications.length" class="terminal-picker">

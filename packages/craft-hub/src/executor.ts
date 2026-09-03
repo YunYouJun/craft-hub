@@ -64,6 +64,8 @@ export async function executeCommand(
   let cancelled = false
   let closed = false
   let terminal: IPty | undefined
+  let terminalColumns = 120
+  let terminalRows = 30
   let resolveCompletion!: (run: RunRecord) => void
 
   function appendOutput(text: string): void {
@@ -99,10 +101,10 @@ export async function executeCommand(
     try {
       terminal = spawn(parsed.command, process.platform === 'win32' ? parsed.args.join(' ') : parsed.args, {
         cwd: invocation.cwd,
-        cols: 120,
+        cols: terminalColumns,
         env,
         name: 'xterm-256color',
-        rows: 30,
+        rows: terminalRows,
       })
     }
     catch (error) {
@@ -148,7 +150,11 @@ export async function executeCommand(
       }, 2_000)
       forceKill.unref()
     },
-    resize: (columns, rows) => terminal?.resize(columns, rows),
+    resize: (columns, rows) => {
+      terminalColumns = columns
+      terminalRows = rows
+      terminal?.resize(columns, rows)
+    },
     write: data => terminal?.write(data),
   }
 }

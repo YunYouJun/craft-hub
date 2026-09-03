@@ -32,6 +32,7 @@ interface Window {
     onCodexActivityStatus?: (callback: (status: CodexActivityStatus) => void) => () => void
     listTerminalApplications?: () => Promise<string[]>
     openProjectInTerminal?: (projectId: string, application?: string) => Promise<void>
+    openDotfilesInTerminal?: () => Promise<void>
     openExternalUrl?: (url: string) => Promise<void>
     openSettingsFile?: () => Promise<void>
     setTheme?: (theme: 'system' | 'light' | 'dark') => Promise<void>

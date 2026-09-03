@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/YunYouJun/craft-hub/main/packages/craft-hub/schema/owner-scopes-v1.schema.json",
+  "title": "Craft Hub owner scopes",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "teams"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "schemaVersion": { "const": 1 },
+    "teams": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "kind", "name"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
+          "kind": { "const": "team" },
+          "name": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "extensions": { "type": "object" }
+  }
+}

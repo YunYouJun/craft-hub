@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/YunYouJun/craft-hub/main/packages/craft-hub/schema/dotfiles-v1.schema.json",
+  "title": "Craft Hub dotfiles manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "adapter", "operations"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "version": { "const": 1 },
+    "name": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "adapter": { "const": "command" },
+    "platforms": {
+      "type": "array",
+      "items": { "enum": ["aix", "darwin", "freebsd", "linux", "openbsd", "sunos", "win32"] },
+      "uniqueItems": true
+    },
+    "operations": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "check": { "$ref": "#/$defs/command" },
+        "status": { "$ref": "#/$defs/command" },
+        "diff": { "$ref": "#/$defs/command" }
+      }
+    },
+    "extensions": { "type": "object" }
+  },
+  "$defs": {
+    "command": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["command", "args"],
+      "properties": {
+        "command": { "type": "string", "minLength": 1, "maxLength": 1024 },
+        "args": {
+          "type": "array",
+          "maxItems": 64,
+          "items": { "type": "string", "maxLength": 4096 }
+        }
+      }
+    }
+  }
+}

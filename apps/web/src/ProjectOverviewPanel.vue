@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { Capability, CommandCapability, CommandCategory, CommandPackage, CommandPackageLink } from 'craft-hub'
+import { DialogClose, DialogContent, DialogDescription, DialogOverlay, DialogPortal, DialogRoot, DialogTitle } from 'reka-ui'
 import { computed, ref } from 'vue'
 import { Button as UiButton } from './components/ui/button'
 import { Icon } from './icons'
@@ -18,6 +19,7 @@ const overviewTitle = computed(() => isPackageOverview.value
   : store.selectedProject?.name ?? '')
 const overviewDescription = computed(() => activePackage.value?.description ?? t(isPackageOverview.value ? 'packageDescriptionMissing' : 'projectDescriptionMissing'))
 const readme = computed(() => store.projectOverview?.readme)
+const readmeDrawerOpen = ref(false)
 const packageLinkError = ref('')
 const toolGroups = computed(() => (activePackage.value?.toolGroups ?? []).map(group => ({
   ...group,
@@ -110,6 +112,20 @@ async function openPackageLink(link: CommandPackageLink): Promise<void> {
           </div>
         </div>
         <p class="overview-description">{{ overviewDescription }}</p>
+        <section class="overview-section readme-section readme-section-top">
+          <button v-if="readme?.status === 'found' && readme.content && readme.path" class="readme-launcher" type="button" data-testid="open-readme-drawer" @click="readmeDrawerOpen = true">
+            <span class="readme-launcher-icon"><Icon name="docs" /></span>
+            <span class="readme-launcher-copy">
+              <strong>README</strong>
+              <small>{{ readme.path }}</small>
+            </span>
+            <span class="readme-launcher-action">{{ t('openReadme') }} <Icon name="arrowRight" /></span>
+          </button>
+          <div v-else class="readme-empty">
+            <Icon name="docs" />
+            <span>{{ readme?.status === 'too-large' ? t('readmeTooLarge') : readme?.status === 'invalid' || readme?.status === 'unreadable' ? readme.message : t('readmeMissing') }}</span>
+          </div>
+        </section>
       </header>
 
       <section v-for="group in toolGroups" :key="group.id" class="overview-section overview-actions overview-tool-group" :data-testid="`package-tool-group-${group.id}`">
@@ -129,11 +145,16 @@ async function openPackageLink(link: CommandPackageLink): Promise<void> {
         <p v-if="packageLinkError" class="error-message" role="alert">{{ packageLinkError }}</p>
       </section>
 
-      <section v-if="actions(activePackage).length || ungroupedLinks.length" class="overview-section overview-actions">
+      <section v-if="actions(activePackage).length || ungroupedLinks.length" class="overview-section overview-actions overview-common-actions">
         <h3>{{ t('commonActions') }}</h3>
-        <div>
-          <UiButton v-for="capability in actions(activePackage)" :key="capability.id" @click="openAction(activePackage, capability)">
-            <Icon :name="capability.kind === 'command' ? 'terminal' : 'skill'" /> {{ capability.name }}
+        <div class="overview-action-grid">
+          <UiButton v-for="capability in actions(activePackage)" :key="capability.id" class="overview-action-card" :data-testid="`quick-action-${capability.id}`" @click="openAction(activePackage, capability)">
+            <span class="overview-action-icon"><Icon :name="capability.kind === 'command' ? 'terminal' : 'skill'" /></span>
+            <span class="overview-action-copy">
+              <strong>{{ capability.name }}</strong>
+              <small v-if="capability.description">{{ capability.description }}</small>
+            </span>
+            <Icon class="overview-action-arrow" name="arrowRight" />
           </UiButton>
           <UiButton v-for="link in ungroupedLinks" :key="link.id" :title="link.description" :data-testid="`package-link-${link.id}`" @click="openPackageLink(link)">
             <Icon name="web" /> {{ link.title }}
@@ -181,17 +202,29 @@ async function openPackageLink(link: CommandPackageLink): Promise<void> {
         </div>
       </section>
 
-      <section class="overview-section readme-section">
-        <div class="overview-section-heading">
-          <h3><Icon name="docs" /> README</h3>
-          <span v-if="readme?.path">{{ readme.path }}</span>
-        </div>
-        <MarkdownPreview v-if="readme?.status === 'found' && readme.content && readme.path" :content="readme.content" :project-id="store.selectedProject.id" :readme-path="readme.path" />
-        <div v-else class="readme-empty">
-          <Icon name="docs" />
-          <span>{{ readme?.status === 'too-large' ? t('readmeTooLarge') : readme?.status === 'invalid' || readme?.status === 'unreadable' ? readme.message : t('readmeMissing') }}</span>
-        </div>
-      </section>
     </template>
   </section>
+
+  <DialogRoot v-model:open="readmeDrawerOpen">
+    <DialogPortal>
+      <DialogOverlay class="package-drawer-overlay" />
+      <DialogContent class="package-drawer-content readme-drawer-content" data-testid="readme-drawer">
+        <header class="readme-drawer-heading">
+          <span class="readme-launcher-icon"><Icon name="docs" /></span>
+          <div>
+            <DialogTitle>README</DialogTitle>
+            <DialogDescription>{{ readme?.path }}</DialogDescription>
+          </div>
+        </header>
+        <DialogClose as-child>
+          <UiButton class="package-drawer-close" size="icon" variant="ghost" :aria-label="t('close')" :title="t('close')">
+            <Icon name="close" />
+          </UiButton>
+        </DialogClose>
+        <div class="readme-drawer-body">
+          <MarkdownPreview v-if="readme?.status === 'found' && readme.content && readme.path && store.selectedProject" :content="readme.content" :project-id="store.selectedProject.id" :readme-path="readme.path" />
+        </div>
+      </DialogContent>
+    </DialogPortal>
+  </DialogRoot>
 </template>

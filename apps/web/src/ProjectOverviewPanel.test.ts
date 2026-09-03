@@ -5,6 +5,7 @@ import type { CommandCapability, ProjectRecord, SkillCapability } from 'craft-hu
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { nextTick } from 'vue'
 import { useI18n } from './i18n'
 import ProjectOverviewPanel from './ProjectOverviewPanel.vue'
 import { useWorkbenchStore } from './store'
@@ -21,6 +22,7 @@ const dev: CommandCapability = {
   id: 'dev',
   kind: 'command',
   name: 'dev',
+  description: 'Start the web application.',
   source: 'apps/web/package.json',
   category: 'develop',
   package: { name: '@example/web', description: 'Web application.', relativePath: 'apps/web', root: false },
@@ -31,6 +33,7 @@ const assistant: SkillCapability = {
   id: 'widget-assistant',
   kind: 'skill',
   name: 'Widget assistant',
+  description: 'Help develop and ship the widget.',
   source: 'codex-skill',
   path: '/plugins/widget/SKILL.md',
   content: '# Widget assistant',
@@ -65,8 +68,12 @@ describe('project overview panel', () => {
     const wrapper = mount(ProjectOverviewPanel, { global: { plugins: [pinia] } })
 
     expect(wrapper.get('.overview-description').text()).toBe('Example project.')
+    expect(wrapper.get('.overview-heading [data-testid="open-readme-drawer"]').text()).toContain('README')
     expect(wrapper.get('.package-card').text()).toContain('@example/web')
-    expect(wrapper.get('.markdown-preview').text()).toContain('Example')
+    expect(wrapper.find('.markdown-preview').exists()).toBe(false)
+    await wrapper.get('[data-testid="open-readme-drawer"]').trigger('click')
+    await nextTick()
+    expect(document.body.querySelector('[data-testid="readme-drawer"]')?.textContent).toContain('Example')
 
     await wrapper.get('.package-card-main').trigger('click')
     expect(selectPackage).toHaveBeenCalledWith('apps/web')
@@ -101,7 +108,10 @@ describe('project overview panel', () => {
 
     expect(wrapper.get('.overview-actions').text()).toContain('Widget assistant')
     expect(wrapper.get('.overview-actions .i-ri-sparkling-2-line')).toBeTruthy()
-    await wrapper.get('.overview-actions button').trigger('click')
+    const quickAction = wrapper.get('[data-testid="quick-action-widget-assistant"]')
+    expect(quickAction.get('strong').text()).toBe('Widget assistant')
+    expect(quickAction.get('small').text()).toBe('Help develop and ship the widget.')
+    await quickAction.trigger('click')
     expect(store.selectedCapabilityId).toBe(assistant.id)
     expect(store.selectedPackagePath).toBe('apps/web')
   })

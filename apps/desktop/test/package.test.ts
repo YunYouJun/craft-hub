@@ -91,6 +91,28 @@ describe('desktop package scripts', () => {
     expect(releaseWorkflow.indexOf('Upload verified macOS artifacts')).toBeGreaterThan(releaseWorkflow.indexOf('Run mounted DMG startup smoke test'))
   })
 
+  it('can rebuild and transactionally reinstall the app for the current Mac', async () => {
+    const workspacePackage = JSON.parse(await readFile(new URL('../../../package.json', import.meta.url), 'utf8')) as {
+      scripts: Record<string, string>
+    }
+    const reinstallSource = await readFile(new URL('../../../scripts/reinstall-macos.ts', import.meta.url), 'utf8')
+
+    const packageMacSource = await readFile(new URL('../../../scripts/package-macos.ts', import.meta.url), 'utf8')
+
+    expect(workspacePackage.scripts['package:mac']).toBe('tsx scripts/run-package-macos.ts')
+    expect(workspacePackage.scripts['reinstall:mac']).toBe('tsx scripts/reinstall-macos.ts')
+    expect(reinstallSource).toContain('await run(\'pnpm\', [\'build\'])')
+    expect(reinstallSource).toContain('createArtifacts: false')
+    expect(reinstallSource).toContain('architectures: [architecture]')
+    expect(packageMacSource).toContain('export async function packageMacos')
+    expect(packageMacSource).toContain('if (options.createArtifacts !== false)')
+    expect(reinstallSource).toContain('process.env.CRAFT_HUB_DESKTOP_INSTALL_DIR ?? \'/Applications\'')
+    expect(reinstallSource).toContain('await rename(target, previousApplication)')
+    expect(reinstallSource).toContain('await rename(previousApplication, target)')
+    expect(reinstallSource).toContain('preserveTransaction = true')
+    expect(reinstallSource).toContain('await execFileAsync(\'open\', [installedApplication])')
+  })
+
   it('keeps the alpha updater behind a narrow desktop IPC boundary', async () => {
     const updater = await readFile(new URL('../src/updater.ts', import.meta.url), 'utf8')
     const main = await readFile(new URL('../src/main.ts', import.meta.url), 'utf8')
@@ -170,7 +192,8 @@ describe('desktop package scripts', () => {
 
     expect(desktopMain).toContain('app.on(\'before-quit\'')
     expect(desktopMain).toContain('window.destroy()')
-    expect(desktopMain).toContain('await craftHubServer?.close()')
+    expect(desktopMain).toContain('await craftHubServer?.close({ processExiting: !installUpdateAfterShutdown })')
+    expect(desktopMain).toContain('immediateProcess.reallyExit(0)')
     expect(desktopMain).toContain('process.platform !== \'darwin\' || developmentUrl')
   })
 
@@ -234,6 +257,8 @@ describe('desktop package scripts', () => {
     expect(desktopMain).toContain('craft-hub:start-project-in-codex')
     expect(desktopMain).toContain('clipboard.writeText(normalizedPrompt)')
     expect(desktopMain).toContain('craft-hub:open-project-in-terminal')
+    expect(desktopMain).toContain('craft-hub:open-dotfiles-in-terminal')
+    expect(desktopMain).toContain('runtime.dotfilesManager.status()')
     expect(desktopMain).toContain('craft-hub:list-terminal-applications')
     expect(desktopMain).toContain('await craftHubServer.runtime.projects.get(projectId)')
     expect(preload).toContain('openCapabilitySourceInEditor')
@@ -248,6 +273,7 @@ describe('desktop package scripts', () => {
     expect(preload).toContain('startWorkspaceInCodex')
     expect(preload).toContain('startProjectInCodex')
     expect(preload).toContain('openProjectInTerminal')
+    expect(preload).toContain('openDotfilesInTerminal')
     expect(preload).toContain('listTerminalApplications')
   })
 })

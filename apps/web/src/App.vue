@@ -49,6 +49,8 @@ let stopCodexActivityEvents: (() => void) | undefined
 let stopOnboardingEvents: (() => void) | undefined
 let stopMarketplaceImportEvents: (() => void) | undefined
 let stopDesktopNavigationEvents: (() => void) | undefined
+let visibilityRefreshTimer: ReturnType<typeof setTimeout> | undefined
+let workbenchRefresh: Promise<void> | undefined
 
 async function openMarketplace(): Promise<void> {
   if (!marketplaceOpen.value)
@@ -127,9 +129,34 @@ async function refreshCodexActivity(): Promise<void> {
   codexActivityStatus.value = await window.craftHubDesktop?.codexActivityStatus?.() ?? codexActivityStatus.value
 }
 
+async function refreshWorkbench(): Promise<void> {
+  if (workbenchRefresh)
+    return workbenchRefresh
+  const request = Promise.all([
+    store.refreshProjects(),
+    store.loadWorkspaces(),
+    store.loadAgentTasks(),
+    refreshCodexActivity(),
+  ]).then(() => {})
+  workbenchRefresh = request
+  try {
+    await request
+  }
+  finally {
+    if (workbenchRefresh === request)
+      workbenchRefresh = undefined
+  }
+}
+
 function refreshWhenVisible(): void {
-  if (document.visibilityState === 'visible')
-    void Promise.all([store.refreshProjects(), store.loadWorkspaces(), store.loadAgentTasks(), refreshCodexActivity()]).catch(() => {})
+  if (document.visibilityState !== 'visible')
+    return
+  if (visibilityRefreshTimer)
+    clearTimeout(visibilityRefreshTimer)
+  visibilityRefreshTimer = setTimeout(() => {
+    visibilityRefreshTimer = undefined
+    void refreshWorkbench().catch(() => {})
+  }, 100)
 }
 
 function retryProjects(): void {
@@ -147,19 +174,23 @@ onBeforeMount(async () => {
   const initialProjectId = typeof route.query.project === 'string' ? route.query.project : undefined
   await store.loadSettings()
   await store.loadOwnerScopes()
+  await store.loadWorkspaces()
+  const restoredProjectId = await store.loadWorkspaceState(initialProjectId)
   await Promise.all([
-    store.loadProjects(initialProjectId).catch(() => {}),
-    store.loadWorkspaces(),
+    store.loadProjects(restoredProjectId).catch(() => {}),
     store.loadAgentTasks(),
     refreshCodexActivity(),
     store.loadRuns(),
   ])
-  await store.loadWorkspaceState(initialProjectId)
   await store.loadRunSummaries()
   stopProjectEvents = subscribeToProjectChanges({
     onChange: event => void store.refreshProject(event).catch(() => {}),
     onRunChange: summary => store.applyRunSummary(summary),
     onSettingsChange: snapshot => void store.applySettings(snapshot).catch(() => {}),
+    onUserConfigChange: (status) => {
+      store.applyUserConfigStatus(status)
+      void Promise.all([store.loadOwnerScopes(), store.loadWorkspaces()]).catch(() => {})
+    },
     onAgentTaskChange: task => store.applyAgentTask(task),
     onPluginChange: () => void store.refreshProjects().catch(() => {}),
     onError: () => { eventStreamConnected.value = false },
@@ -183,6 +214,8 @@ onBeforeMount(async () => {
     await openDesktopNavigation(pendingDesktopNavigation)
 })
 onBeforeUnmount(() => {
+  if (visibilityRefreshTimer)
+    clearTimeout(visibilityRefreshTimer)
   window.removeEventListener('keydown', onKeydown)
   window.removeEventListener('focus', refreshWhenVisible)
   document.removeEventListener('visibilitychange', refreshWhenVisible)
@@ -235,14 +268,14 @@ onBeforeUnmount(() => {
       </SplitterResizeHandle>
       <SplitterPanel id="detail-panel" :order="3" size-unit="px" :min-size="350" :aria-hidden="marketplaceOpen" :inert="marketplaceOpen">
         <section class="detail-workspace">
-          <ProjectToolbar v-if="store.projects.length && !store.selectedWorkspace" />
+          <ProjectToolbar v-if="store.selectedProject && !store.selectedWorkspace" />
           <section v-if="store.projectsLoadState === 'error' && !store.projects.length" class="project-load-state error" data-testid="project-load-error" role="alert">
             <Icon name="error" />
             <h1>{{ t('projectLoadFailed') }}</h1>
             <p>{{ store.projectsLoadError }}</p>
             <button type="button" @click="retryProjects">{{ t('retry') }}</button>
           </section>
-          <section v-else-if="store.projectsLoadState !== 'ready' && !store.projects.length" class="project-load-state" aria-live="polite">
+          <section v-else-if="store.projectsLoadState !== 'ready' && store.projectsLoadState !== 'error' && !store.selectedProject && !store.selectedWorkspace" class="project-load-state" aria-live="polite">
             <Icon name="loading" />
             <p>{{ t('loading') }}</p>
           </section>
@@ -276,7 +309,7 @@ onBeforeUnmount(() => {
           <Icon name="codex" />
           <strong>{{ runningCodexTaskCount }}</strong>
         </button>
-        <button class="tooltip-action" :aria-label="t('refresh')" :aria-busy="store.refreshing" :data-tooltip="t('refresh')" :disabled="store.refreshing" :title="t('refresh')" @click="refreshWhenVisible">
+        <button class="tooltip-action" :aria-label="t('refresh')" :aria-busy="store.refreshing" :data-tooltip="t('refresh')" :disabled="store.refreshing" :title="t('refresh')" @click="refreshWorkbench">
           <Icon :name="store.refreshing ? 'loading' : 'refresh'" :class="{ 'refresh-loading-icon': store.refreshing }" />
         </button>
         <span v-if="store.selectedProject">{{ t('project', { name: store.selectedProject.name }) }}</span>

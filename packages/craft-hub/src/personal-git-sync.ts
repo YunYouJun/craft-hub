@@ -6,6 +6,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { mkdir, readFile, realpath, rename, writeFile } from 'node:fs/promises'
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { promisify } from 'node:util'
+import { settingsExportFormatVersion } from './settings'
 
 const execFileAsync = promisify(execFile)
 
@@ -242,7 +243,7 @@ async function nearestExistingPath(path: string): Promise<string> {
 function validateSnapshot(value: PersonalPortableSnapshot): void {
   if (value.schemaVersion !== 1 || value.workspaces?.schemaVersion !== 1 || !Array.isArray(value.workspaces.workspaces))
     throw new Error('Unsupported Personal Git snapshot schema')
-  if (!value.settings || value.settings.formatVersion !== 1)
+  if (!value.settings || value.settings.formatVersion !== settingsExportFormatVersion)
     throw new Error('Personal Git snapshot settings are invalid')
 }
 

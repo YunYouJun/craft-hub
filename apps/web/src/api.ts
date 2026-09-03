@@ -1,4 +1,4 @@
-import type { AgentActionId, AgentActionSummary, AgentTaskRecord, ApplyGitIntegrationRequest, Capability, CapabilityDiscoveryResult, CapabilityPins, CatalogPluginV1, CommandInputValues, CommandInvocation, GitIntegrationPlan, GitIntegrationRequest, GitIntegrationResult, InstalledPlugin, LocalPlugin, ManagedPlugin, MarketplaceSource, MarketplaceSourcePreview, OwnerScope, OwnerScopeUiState, PersonalGitSyncResolution, PersonalGitSyncStatus, PluginDocumentPreview, PluginInstallPlan, PluginUpdatePlanItem, PluginUpdateResult, ProjectCatalogSnapshot, ProjectChangeEvent, ProjectConfigInitializationResult, ProjectDescriptionApplication, ProjectDescriptionAudit, ProjectDescriptionChange, ProjectOverview, ProjectRecord, ProjectRunSummary, ProjectVisualInput, ReleasePlan, RunCleanupOptions, RunCleanupResult, RunRecord, RunStreamEvent, RuntimeHealth, SettingsExportEnvelope, SettingsExportMode, SettingsImportPreview, SettingsImportStrategy, SettingsSnapshot, TeamDeletionResult, TeamGitSyncStatus, WorkbenchLocale, WorkspaceCatalog, WorkspaceGroup, WorkspaceImportPreview, WorkspaceImportResult, WorkspaceManifest, WorkspaceRecord, WorkspaceUiState } from 'craft-hub'
+import type { AgentActionId, AgentActionSummary, AgentTaskRecord, ApplyGitIntegrationRequest, Capability, CapabilityDiscoveryResult, CapabilityPins, CatalogPluginV1, CommandInputValues, CommandInvocation, DotfilesManagerStatus, DotfilesOperation, DotfilesOperationResult, GitIntegrationPlan, GitIntegrationRequest, GitIntegrationResult, InstalledPlugin, LocalPlugin, ManagedPlugin, MarketplaceSource, MarketplaceSourcePreview, OwnerScope, OwnerScopeUiState, PersonalGitSyncResolution, PersonalGitSyncStatus, PluginDocumentPreview, PluginInstallPlan, PluginUpdatePlanItem, PluginUpdateResult, ProjectCatalogSnapshot, ProjectChangeEvent, ProjectConfigInitializationResult, ProjectDescriptionApplication, ProjectDescriptionAudit, ProjectDescriptionChange, ProjectOverview, ProjectRecord, ProjectRunSummary, ProjectVisualInput, ReleasePlan, RunCleanupOptions, RunCleanupResult, RunRecord, RunStreamEvent, RuntimeHealth, SettingsExportEnvelope, SettingsExportMode, SettingsImportPreview, SettingsImportStrategy, SettingsSnapshot, TeamDeletionResult, TeamGitSyncStatus, UserConfigStatus, WorkbenchLocale, WorkspaceCatalog, WorkspaceGroup, WorkspaceImportPreview, WorkspaceImportResult, WorkspaceManifest, WorkspaceRecord, WorkspaceUiState } from 'craft-hub'
 
 export class ApiRequestError extends Error {
   constructor(message: string, readonly status: number) {
@@ -142,6 +142,11 @@ export const api = {
   personalGitSyncStatus: () => request<PersonalGitSyncStatus>('/api/personal-git-sync'),
   configurePersonalGitSync: (repositoryPath: string, directory: string) => request<PersonalGitSyncStatus>('/api/personal-git-sync', { method: 'PUT', body: JSON.stringify({ repositoryPath, directory }) }),
   synchronizePersonalGit: (resolution: PersonalGitSyncResolution = 'auto') => request<PersonalGitSyncStatus>('/api/personal-git-sync/synchronize', { method: 'POST', body: JSON.stringify({ resolution }) }),
+  userConfigStatus: () => request<UserConfigStatus>('/api/user-config'),
+  dotfilesManagerStatus: () => request<DotfilesManagerStatus>('/api/dotfiles-manager'),
+  configureDotfilesManager: (repositoryPath: string) => request<DotfilesManagerStatus>('/api/dotfiles-manager', { method: 'PUT', body: JSON.stringify({ repositoryPath }) }),
+  trustDotfilesManager: () => request<DotfilesManagerStatus>('/api/dotfiles-manager/trust', { method: 'POST' }),
+  runDotfilesOperation: (operation: DotfilesOperation) => request<DotfilesOperationResult>(`/api/dotfiles-manager/operations/${operation}`, { method: 'POST' }),
   createWorkspaceGroup: (name: string, ownerScopeId = 'personal') => request<WorkspaceGroup>(scopedPath('/api/workspace-groups', ownerScopeId), { method: 'POST', body: JSON.stringify({ name }) }),
   renameWorkspaceGroup: (groupId: string, name: string, ownerScopeId = 'personal') => request<WorkspaceGroup>(scopedPath(`/api/workspace-groups/${groupId}`, ownerScopeId), { method: 'PUT', body: JSON.stringify({ name }) }),
   updateWorkspaceGroupAppearance: (groupId: string, icon: string | undefined, ownerScopeId = 'personal') => request<WorkspaceGroup>(scopedPath(`/api/workspace-groups/${groupId}`, ownerScopeId), { method: 'PATCH', body: JSON.stringify({ icon }) }),
@@ -254,6 +259,7 @@ export interface ProjectChangeSubscription {
   onChange: (event: ProjectChangeEvent) => void
   onRunChange?: (summary: ProjectRunSummary) => void
   onSettingsChange?: (snapshot: SettingsSnapshot) => void
+  onUserConfigChange?: (status: UserConfigStatus) => void
   onAgentTaskChange?: (task: AgentTaskRecord) => void
   onPluginChange?: () => void
   onError?: () => void
@@ -283,6 +289,16 @@ export function subscribeToProjectChanges(subscription: ProjectChangeSubscriptio
   events.addEventListener('settings-change', (event) => {
     try {
       subscription.onSettingsChange?.(JSON.parse((event as MessageEvent<string>).data) as SettingsSnapshot)
+    }
+    catch {
+      // Ignore malformed local events and wait for the next valid update.
+    }
+  })
+  events.addEventListener('user-config-change', (event) => {
+    try {
+      const status = JSON.parse((event as MessageEvent<string>).data) as UserConfigStatus & { error?: string }
+      if (!status.error)
+        subscription.onUserConfigChange?.(status)
     }
     catch {
       // Ignore malformed local events and wait for the next valid update.

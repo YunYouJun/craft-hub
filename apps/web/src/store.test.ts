@@ -104,6 +104,40 @@ describe('workbench refresh', () => {
     expect(projectRequests).toBe(1)
   })
 
+  it('reuses the loaded project snapshot when selecting a project', async () => {
+    const requestedPaths: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const path = typeof input === 'string' ? input : input.toString()
+      requestedPaths.push(path)
+      if (path.includes('/agent-actions'))
+        return new Response(JSON.stringify([]), { status: 200 })
+      if (path.includes('/overview?')) {
+        return new Response(JSON.stringify({
+          projectId: project.id,
+          package: { name: project.name, relativePath: '.', root: true },
+          readme: { status: 'missing' },
+        }), { status: 200 })
+      }
+      return new Response(JSON.stringify({ error: `Unexpected request: ${path}` }), { status: 500 })
+    }))
+    const store = useWorkbenchStore()
+    const capability = skill('release', 'Prepare a safe release.')
+    store.projects = [project]
+    store.paletteItems = [{ project, capability }]
+    store.capabilityPinsByProject = { [project.id]: [capability.id] }
+    store.capabilityDiagnosticsByProject = { [project.id]: [] }
+    store.commandPackagesByProject = { [project.id]: [{ name: project.name, relativePath: '.', root: true }] }
+
+    await store.selectProject(project.id)
+
+    expect(store.capabilities).toEqual([capability])
+    expect(store.capabilityPinsByProject[project.id]).toEqual([capability.id])
+    expect(requestedPaths.filter(path => path.includes(`/projects/${project.id}/`))).toEqual([
+      `/api/projects/${project.id}/agent-actions?locale=en`,
+      `/api/projects/${project.id}/overview?package=.&locale=en`,
+    ])
+  })
+
   it('persists the most recently selected project for the quick switcher', async () => {
     const store = useWorkbenchStore()
     await store.loadProjects()

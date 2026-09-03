@@ -56,6 +56,7 @@ async function mountApp(pinia: ReturnType<typeof createPinia>, path = '/') {
 
 describe('app startup', () => {
   afterEach(() => {
+    vi.useRealTimers()
     FakeEventSource.instances = []
     vi.restoreAllMocks()
     vi.unstubAllGlobals()
@@ -91,6 +92,140 @@ describe('app startup', () => {
 
     expect(wrapper.get('[data-testid="project-load-error"]').text()).toContain('runtime unavailable')
     expect(wrapper.find('[data-testid="guided-first-run-welcome"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('keeps the detail workspace loading while the initial project selection is pending', async () => {
+    let releaseDiscovery!: () => void
+    const discoveryReady = new Promise<void>((resolve) => {
+      releaseDiscovery = resolve
+    })
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const path = typeof input === 'string' ? input : input.toString()
+      if (path === '/api/settings') {
+        return new Response(JSON.stringify({
+          explicitKeys: [],
+          path: '/settings.json',
+          revision: 'initial',
+          settings: { 'workbench.locale': 'en', 'workbench.shortcuts': {}, 'workbench.theme': 'system' },
+        }), { status: 200 })
+      }
+      if (path === '/api/projects')
+        return new Response(JSON.stringify({ projects: [projects[0]], diagnostics: [] }), { status: 200 })
+      if (path.endsWith('/capability-discovery')) {
+        await discoveryReady
+        return new Response(JSON.stringify({ capabilities: [], diagnostics: [], packages: [] }), { status: 200 })
+      }
+      if (path === '/api/workspaces/state')
+        return new Response(JSON.stringify({ expandedWorkspaceIds: [], selectedProjectId: projects[0]!.id }), { status: 200 })
+      if (path.endsWith('/pins'))
+        return new Response(JSON.stringify({ projectId: projects[0]!.id, capabilityIds: [] }), { status: 200 })
+      return new Response(JSON.stringify([]), { status: 200 })
+    }))
+    vi.stubGlobal('EventSource', FakeEventSource)
+    const pinia = createPinia()
+    setActivePinia(pinia)
+
+    const { wrapper } = await mountApp(pinia)
+    await vi.waitFor(() => expect(useWorkbenchStore().projects).toHaveLength(1))
+
+    const loadingState = {
+      detailEmpty: wrapper.find('.detail-empty').exists(),
+      loadingText: wrapper.find('.project-load-state').text(),
+      projectToolbar: wrapper.find('.project-toolbar').exists(),
+    }
+
+    releaseDiscovery()
+    await flushPromises()
+    wrapper.unmount()
+
+    expect(loadingState.loadingText).toContain('Loading')
+    expect(loadingState.detailEmpty).toBe(false)
+    expect(loadingState.projectToolbar).toBe(false)
+  })
+
+  it('restores the persisted project before loading an initial project overview', async () => {
+    const overviewProjectIds: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const path = typeof input === 'string' ? input : input.toString()
+      if (path === '/api/settings') {
+        return new Response(JSON.stringify({
+          explicitKeys: [],
+          path: '/settings.json',
+          revision: 'initial',
+          settings: { 'workbench.locale': 'en', 'workbench.shortcuts': {}, 'workbench.theme': 'system' },
+        }), { status: 200 })
+      }
+      if (path === '/api/projects')
+        return new Response(JSON.stringify({ projects, diagnostics: [] }), { status: 200 })
+      if (path === '/api/workspaces/state')
+        return new Response(JSON.stringify({ expandedWorkspaceIds: [], selectedProjectId: projects[1]!.id }), { status: 200 })
+      if (path.endsWith('/capability-discovery'))
+        return new Response(JSON.stringify({ capabilities: [], diagnostics: [], packages: [] }), { status: 200 })
+      if (path.endsWith('/pins'))
+        return new Response(JSON.stringify({ projectId: path.split('/')[3], capabilityIds: [] }), { status: 200 })
+      if (path.includes('/overview?')) {
+        const projectId = path.split('/')[3]!
+        overviewProjectIds.push(projectId)
+        return new Response(JSON.stringify({
+          projectId,
+          package: { name: projectId, relativePath: '.', root: true },
+          readme: { status: 'missing' },
+        }), { status: 200 })
+      }
+      return new Response(JSON.stringify([]), { status: 200 })
+    }))
+    vi.stubGlobal('EventSource', FakeEventSource)
+    const pinia = createPinia()
+    setActivePinia(pinia)
+
+    const { wrapper } = await mountApp(pinia)
+    await flushPromises()
+
+    expect(useWorkbenchStore().selectedProjectId).toBe(projects[1]!.id)
+    expect(overviewProjectIds).toEqual([projects[1]!.id])
+    wrapper.unmount()
+  })
+
+  it('coalesces focus and visibility refreshes into one request batch', async () => {
+    const requests: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const path = typeof input === 'string' ? input : input.toString()
+      requests.push(path)
+      if (path === '/api/settings') {
+        return new Response(JSON.stringify({
+          explicitKeys: [],
+          path: '/settings.json',
+          revision: 'initial',
+          settings: { 'workbench.locale': 'en', 'workbench.shortcuts': {}, 'workbench.theme': 'system' },
+        }), { status: 200 })
+      }
+      if (path === '/api/projects')
+        return new Response(JSON.stringify({ projects: [], diagnostics: [] }), { status: 200 })
+      if (path === '/api/workspaces/state')
+        return new Response(JSON.stringify({ expandedWorkspaceIds: [] }), { status: 200 })
+      return new Response(JSON.stringify([]), { status: 200 })
+    }))
+    vi.stubGlobal('EventSource', FakeEventSource)
+    const codexActivityStatus = vi.fn(async () => ({ installed: false, runningSessionIds: [], supported: false }))
+    window.craftHubDesktop = { codexActivityStatus }
+    const pinia = createPinia()
+    setActivePinia(pinia)
+
+    const { wrapper } = await mountApp(pinia)
+    await flushPromises()
+    requests.length = 0
+    codexActivityStatus.mockClear()
+    vi.useFakeTimers()
+
+    window.dispatchEvent(new Event('focus'))
+    document.dispatchEvent(new Event('visibilitychange'))
+    await vi.runAllTimersAsync()
+    await flushPromises()
+
+    expect(requests.filter(path => path === '/api/workspaces')).toHaveLength(1)
+    expect(requests.filter(path => path === '/api/agent-tasks')).toHaveLength(1)
+    expect(codexActivityStatus).toHaveBeenCalledOnce()
     wrapper.unmount()
   })
 
@@ -457,6 +592,7 @@ describe('app startup', () => {
     expect(agentTaskRequests()).toBe(2)
     expect(codexActivityStatus).toHaveBeenCalledTimes(2)
     window.dispatchEvent(new Event('focus'))
+    await new Promise(resolve => setTimeout(resolve, 110))
     await flushPromises()
     expect(projectRequests()).toBe(3)
     expect(workspaceRequests()).toBe(3)

@@ -1,10 +1,14 @@
 import type { ProjectRegistry } from './projects'
 import type { PortableWorkspaceSnapshot, ResolvedWorkspaceMember, WorkspaceCatalog, WorkspaceGroup, WorkspaceManifest, WorkspaceRecord, WorkspaceUiState } from './types'
+import type { UserConfigDocument } from './user-config'
 import { createHash, randomUUID } from 'node:crypto'
-import { mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
-import { parse, stringify } from 'yaml'
 import { PERSONAL_OWNER_SCOPE_ID, projectAccentColors } from './types'
+import { userConfigCatalogFileName, userConfigCatalogSchemaUrl, UserConfigService, workspaceFileExtension, workspaceSchemaUrl } from './user-config'
+
+const workspaceManifestKeys = ['schemaVersion', 'id', 'ownerScopeId', 'name', 'icon', 'color', 'pinned', 'primaryProject', 'members', 'extensions']
+const workspaceCatalogKeys = ['schemaVersion', 'workspaceOrder', 'groups', 'workspaceGroups', 'extensions']
 
 interface WorkspaceBindings {
   schemaVersion: 1
@@ -53,26 +57,21 @@ export class WorkspaceConflictError extends Error {
 /** Manage portable workspace manifests separately from machine-local bindings. */
 export class WorkspaceService {
   private readonly bindingsPath: string
+  private readonly userConfig: UserConfigService
 
   constructor(
     readonly configDir: string,
     dataDir: string,
     private readonly projects: ProjectRegistry,
+    userConfig?: UserConfigService,
   ) {
     this.bindingsPath = join(dataDir, 'workspace-bindings.json')
+    this.userConfig = userConfig ?? new UserConfigService(configDir, dataDir)
   }
 
   async list(ownerScopeId = PERSONAL_OWNER_SCOPE_ID): Promise<WorkspaceRecord[]> {
-    const directory = join(this.configDir, 'workspaces')
-    let names: string[] = []
-    try {
-      names = (await readdir(directory)).filter(name => name.endsWith('.yaml')).sort()
-    }
-    catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT')
-        throw error
-    }
-    const records = (await Promise.all(names.map(name => this.readFile(join(directory, name)))))
+    const names = await this.userConfig.list('workspaces')
+    const records = (await Promise.all(names.map(name => this.readFile(name))))
       .filter(record => workspaceOwnerScopeId(record) === ownerScopeId)
     const catalog = await this.catalog()
     const positions = new Map(catalog.workspaceOrder.map((id, index) => [id, index]))
@@ -86,7 +85,7 @@ export class WorkspaceService {
 
   async get(id: string, ownerScopeId?: string): Promise<WorkspaceRecord> {
     assertWorkspaceId(id)
-    const [workspace, catalog] = await Promise.all([this.readFile(this.workspacePath(id)), this.catalog()])
+    const [workspace, catalog] = await Promise.all([this.readFile(this.workspaceRelativePath(id)), this.catalog()])
     if (ownerScopeId && workspaceOwnerScopeId(workspace) !== ownerScopeId)
       throw new Error(`Workspace ${id} does not belong to owner scope ${ownerScopeId}`)
     return { ...workspace, groupId: catalog.workspaceGroups[id] }
@@ -96,7 +95,8 @@ export class WorkspaceService {
     const id = slug(name) || randomUUID()
     let candidate = id
     let suffix = 2
-    while (await readOptional(this.workspacePath(candidate)) !== undefined)
+    const existing = new Set(await this.userConfig.list('workspaces'))
+    while (existing.has(this.workspaceRelativePath(candidate)))
       candidate = `${id}-${suffix++}`
     const record = await this.save({
       manifest: { schemaVersion: 1, id: candidate, name: name.trim(), ownerScopeId: portableOwnerScopeId(ownerScopeId), members: [] },
@@ -280,20 +280,20 @@ export class WorkspaceService {
   }
 
   async save(input: SaveWorkspaceInput): Promise<WorkspaceRecord> {
-    validateManifest(input.manifest)
-    const path = this.workspacePath(input.manifest.id)
-    const current = await readOptional(path)
-    if (current !== undefined) {
-      const currentManifest = parse(current) as WorkspaceManifest
+    const manifest = validateManifest(input.manifest)
+    const path = this.workspaceRelativePath(manifest.id)
+    const current = await this.workspaceSource(manifest.id)
+    if (current) {
+      const currentManifest = current.value
       if ((currentManifest.ownerScopeId ?? PERSONAL_OWNER_SCOPE_ID) !== (input.manifest.ownerScopeId ?? PERSONAL_OWNER_SCOPE_ID))
         throw new Error('Changing workspace owner scope requires an explicit copy operation')
     }
-    const actualRevision = revision(current ?? '')
-    if (current !== undefined && input.revision !== actualRevision)
+    const actualRevision = revision(current?.content ?? '')
+    if (current && input.revision !== actualRevision)
       throw new WorkspaceConflictError(actualRevision)
-    if (current === undefined && input.revision)
+    if (!current && input.revision)
       throw new WorkspaceConflictError(revision(''))
-    await writeAtomic(path, stringify(input.manifest, { lineWidth: 0 }))
+    await this.userConfig.write(path, manifest, workspaceSchemaUrl, workspaceManifestKeys, validateManifest)
     return this.get(input.manifest.id)
   }
 
@@ -301,7 +301,7 @@ export class WorkspaceService {
     const current = await this.get(id, ownerScopeId)
     if (current.revision !== expectedRevision)
       throw new WorkspaceConflictError(current.revision)
-    await rm(this.workspacePath(id))
+    await this.userConfig.remove(this.workspaceRelativePath(id))
     const catalog = await this.catalog()
     const workspaceGroups = { ...catalog.workspaceGroups }
     delete workspaceGroups[id]
@@ -412,19 +412,21 @@ export class WorkspaceService {
     const previousWorkspaces = await this.list(ownerScopeId)
     const previousIds = new Set(previousWorkspaces.map(workspace => workspace.id))
     for (const manifest of snapshot.workspaces) {
-      const existing = await readOptional(this.workspacePath(manifest.id))
+      const existing = await this.workspaceSource(manifest.id)
       if (existing) {
-        const existingManifest = parse(existing) as WorkspaceManifest
+        const existingManifest = existing.value
         if ((existingManifest.ownerScopeId ?? PERSONAL_OWNER_SCOPE_ID) !== ownerScopeId)
           throw new Error(`Workspace id belongs to another owner scope: ${manifest.id}`)
       }
     }
-    for (const manifest of snapshot.workspaces)
-      await writeAtomic(this.workspacePath(manifest.id), stringify({ ...manifest, ownerScopeId: portableOwnerScopeId(ownerScopeId) }, { lineWidth: 0 }))
+    for (const manifest of snapshot.workspaces) {
+      const scopedManifest = validateManifest({ ...manifest, ownerScopeId: portableOwnerScopeId(ownerScopeId) })
+      await this.userConfig.write(this.workspaceRelativePath(manifest.id), scopedManifest, workspaceSchemaUrl, workspaceManifestKeys, validateManifest)
+    }
     const retained = new Set(ids)
     for (const workspace of previousWorkspaces) {
       if (!retained.has(workspace.id))
-        await rm(this.workspacePath(workspace.id))
+        await this.userConfig.remove(this.workspaceRelativePath(workspace.id))
     }
     const replacedGroupIds = new Set(currentCatalog.groups.filter(group => groupOwnerScopeId(group) === ownerScopeId).map(group => group.id))
     const scopedGroups = snapshot.groups.map(group => ({ ...group, ownerScopeId: portableOwnerScopeId(ownerScopeId) }))
@@ -462,7 +464,7 @@ export class WorkspaceService {
     const groupIds = new Set(snapshot.groups.map(group => group.id))
     try {
       for (const workspaceId of workspaceIds)
-        await rm(this.workspacePath(workspaceId))
+        await this.userConfig.remove(this.workspaceRelativePath(workspaceId))
       await this.saveCatalog({
         ...catalog,
         workspaceOrder: catalog.workspaceOrder.filter(id => !workspaceIds.has(id)),
@@ -622,9 +624,7 @@ export class WorkspaceService {
   }
 
   private async readFile(path: string): Promise<WorkspaceRecord> {
-    const content = await readFile(path, 'utf8')
-    const manifest = parse(content) as WorkspaceManifest
-    validateManifest(manifest)
+    const { content, value: manifest } = await this.userConfig.readSource(path, validateManifest)
     const bindings = await this.bindings()
     const projects = await this.projects.list()
     const members: ResolvedWorkspaceMember[] = manifest.members.map((member) => {
@@ -641,12 +641,7 @@ export class WorkspaceService {
   }
 
   private async catalog(): Promise<WorkspaceCatalog> {
-    const content = await readOptional(join(this.configDir, 'config.yaml'))
-    if (!content)
-      return emptyCatalog()
-    const value = parse(content) as WorkspaceCatalog
-    if (value.schemaVersion !== 1 || !Array.isArray(value.workspaceOrder))
-      throw new Error('Unsupported Craft Hub config schema')
+    const value = await this.userConfig.read(userConfigCatalogFileName, validateCatalog, emptyCatalog)
     return {
       ...value,
       groups: Array.isArray(value.groups) ? value.groups.map(group => ({ ...group, ownerScopeId: portableOwnerScopeId(groupOwnerScopeId(group)) })) : [],
@@ -655,7 +650,7 @@ export class WorkspaceService {
   }
 
   private async saveCatalog(catalog: WorkspaceCatalog): Promise<void> {
-    await writeAtomic(join(this.configDir, 'config.yaml'), stringify(catalog, { lineWidth: 0 }))
+    await this.userConfig.write(userConfigCatalogFileName, catalog, userConfigCatalogSchemaUrl, workspaceCatalogKeys, validateCatalog)
   }
 
   private async bindings(): Promise<WorkspaceBindings> {
@@ -702,9 +697,20 @@ export class WorkspaceService {
     return this.get(id)
   }
 
-  private workspacePath(id: string): string {
+  private workspaceRelativePath(id: string): string {
     assertWorkspaceId(id)
-    return join(this.configDir, 'workspaces', `${id}.yaml`)
+    return `workspaces/${id}${workspaceFileExtension}`
+  }
+
+  private async workspaceSource(id: string): Promise<UserConfigDocument<WorkspaceManifest> | undefined> {
+    try {
+      return await this.userConfig.readSource(this.workspaceRelativePath(id), validateManifest)
+    }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT')
+        return undefined
+      throw error
+    }
   }
 }
 
@@ -730,7 +736,8 @@ function portableManifest(record: WorkspaceRecord): WorkspaceManifest {
   }
 }
 
-function validateManifest(value: WorkspaceManifest): void {
+function validateManifest(input: unknown): WorkspaceManifest {
+  const value = configRecord(input, workspaceManifestKeys, 'Workspace manifest') as unknown as WorkspaceManifest
   if (value.schemaVersion !== 1)
     throw new Error('Unsupported workspace schema version')
   assertWorkspaceId(value.id)
@@ -738,16 +745,75 @@ function validateManifest(value: WorkspaceManifest): void {
     assertOwnerScopeId(value.ownerScopeId)
   if (!value.name?.trim())
     throw new Error('Workspace name is required')
+  if (value.icon !== undefined && typeof value.icon !== 'string')
+    throw new Error('Workspace icon must be a string')
   if (value.color && !projectAccentColors.includes(value.color))
     throw new Error('Workspace color is invalid')
-  if (!Array.isArray(value.members) || value.members.some(member => !member.project))
+  if (value.pinned !== undefined && typeof value.pinned !== 'boolean')
+    throw new Error('Workspace pinned state must be a boolean')
+  if (value.primaryProject !== undefined && typeof value.primaryProject !== 'string')
+    throw new Error('Workspace primary project must be a string')
+  if (!Array.isArray(value.members) || value.members.some(member => !isConfigRecord(member)))
+    throw new Error('Workspace members must contain objects')
+  if (value.members.some(member => Object.keys(member).some(key => !['project', 'label', 'pinned', 'discoveryHint'].includes(key))))
+    throw new Error('Workspace members contain unknown fields')
+  if (value.members.some(member => typeof member.project !== 'string' || !member.project.trim()))
     throw new Error('Workspace members require project keys')
   if (value.members.some(member => member.label !== undefined && (typeof member.label !== 'string' || !member.label.trim())))
     throw new Error('Workspace member labels must be non-empty strings')
+  if (value.members.some(member => member.pinned !== undefined && typeof member.pinned !== 'boolean'))
+    throw new Error('Workspace member pinned states must be booleans')
+  if (value.members.some(member => member.discoveryHint !== undefined && typeof member.discoveryHint !== 'string'))
+    throw new Error('Workspace member discovery hints must be strings')
   if (new Set(value.members.map(member => member.project)).size !== value.members.length)
     throw new Error('Workspace members must be unique')
   if (value.primaryProject && !value.members.some(member => member.project === value.primaryProject))
     throw new Error('Primary project must be a workspace member')
+  if (value.extensions !== undefined && !isConfigRecord(value.extensions))
+    throw new Error('Workspace extensions must contain an object')
+  return value
+}
+
+function validateCatalog(input: unknown): WorkspaceCatalog {
+  const value = configRecord(input, workspaceCatalogKeys, 'Craft Hub config') as unknown as WorkspaceCatalog
+  if (value.schemaVersion !== 1 || !Array.isArray(value.workspaceOrder))
+    throw new Error('Unsupported Craft Hub config schema')
+  if (new Set(value.workspaceOrder).size !== value.workspaceOrder.length || value.workspaceOrder.some(id => typeof id !== 'string'))
+    throw new Error('Craft Hub config workspace order is invalid')
+  if (value.groups !== undefined && !Array.isArray(value.groups))
+    throw new Error('Craft Hub config groups are invalid')
+  if ((value.groups ?? []).some(group => !isConfigRecord(group)
+    || Object.keys(group).some(key => !['id', 'name', 'icon', 'ownerScopeId'].includes(key))
+    || typeof group.id !== 'string'
+    || !group.id
+    || typeof group.name !== 'string'
+    || !group.name.trim()
+    || (group.icon !== undefined && typeof group.icon !== 'string')
+    || (group.ownerScopeId !== undefined && typeof group.ownerScopeId !== 'string'))) {
+    throw new Error('Craft Hub config groups contain invalid entries')
+  }
+  if (value.workspaceGroups !== undefined && (!value.workspaceGroups || typeof value.workspaceGroups !== 'object' || Array.isArray(value.workspaceGroups)))
+    throw new Error('Craft Hub config workspace groups are invalid')
+  if (Object.values(value.workspaceGroups ?? {}).some(groupId => typeof groupId !== 'string'))
+    throw new Error('Craft Hub config workspace group assignments are invalid')
+  if (value.extensions !== undefined && !isConfigRecord(value.extensions))
+    throw new Error('Craft Hub config extensions must contain an object')
+  return value
+}
+
+function isConfigRecord(input: unknown): input is Record<string, unknown> {
+  return Boolean(input) && typeof input === 'object' && !Array.isArray(input)
+}
+
+function configRecord(input: unknown, knownKeys: string[], label: string): Record<string, unknown> {
+  if (!input || typeof input !== 'object' || Array.isArray(input))
+    throw new Error(`${label} must contain an object`)
+  const record = input as Record<string, unknown>
+  const unknown = Object.keys(record).filter(key => key !== '$schema' && !knownKeys.includes(key))
+  if (unknown.length)
+    throw new Error(`${label} contains unknown fields: ${unknown.join(', ')}`)
+  const { $schema: _schema, ...value } = record
+  return value
 }
 
 function assertOwnerScopeId(id: string): void {
@@ -807,17 +873,6 @@ function slug(value: string): string {
 
 function revision(content: string): string {
   return createHash('sha256').update(content).digest('hex')
-}
-
-async function readOptional(path: string): Promise<string | undefined> {
-  try {
-    return await readFile(path, 'utf8')
-  }
-  catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT')
-      return undefined
-    throw error
-  }
 }
 
 async function writeAtomic(path: string, content: string): Promise<void> {

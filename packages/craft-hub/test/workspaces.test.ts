@@ -84,8 +84,8 @@ describe('portable workspaces', () => {
     await expect(fixture.workspaces.assignProjectGroup(fixture.project.id, group.id)).resolves.toEqual({ [fixture.project.id]: group.id })
     await expect(fixture.workspaces.setGroupIcon(group.id, 'emoji:🧧')).resolves.toEqual({ id: group.id, name: 'Cover', icon: 'emoji:🧧' })
     await expect(fixture.workspaces.renameGroup(group.id, 'Cover Hub')).resolves.toEqual({ id: group.id, name: 'Cover Hub', icon: 'emoji:🧧' })
-    expect(await readFile(join(fixture.configDir, 'config.yaml'), 'utf8')).toContain('icon: emoji:🧧')
-    expect(await readFile(join(fixture.configDir, 'workspaces', 'grouped.yaml'), 'utf8')).not.toContain(group.id)
+    expect(await readFile(join(fixture.configDir, 'config.jsonc'), 'utf8')).toContain('"icon": "emoji:🧧"')
+    expect(await readFile(join(fixture.configDir, 'workspaces', 'grouped.jsonc'), 'utf8')).not.toContain(group.id)
 
     await fixture.workspaces.deleteGroup(group.id)
     await expect(fixture.workspaces.list()).resolves.toEqual([expect.objectContaining({ id: workspace.id, groupId: undefined })])
@@ -99,8 +99,8 @@ describe('portable workspaces', () => {
 
     expect(workspace.primaryProject).toBe('project')
     expect(workspace.members).toEqual([{ project: 'project', projectId: fixture.project.id, resolved: true }])
-    const manifest = await readFile(join(fixture.configDir, 'workspaces', 'my-workspace.yaml'), 'utf8')
-    expect(manifest).toContain('project: project')
+    const manifest = await readFile(join(fixture.configDir, 'workspaces', 'my-workspace.jsonc'), 'utf8')
+    expect(manifest).toContain('"project": "project"')
     expect(manifest).not.toContain(fixture.project.path)
     expect(manifest).not.toContain(fixture.project.id)
   })
@@ -131,9 +131,9 @@ describe('portable workspaces', () => {
     })
 
     expect(saved).toMatchObject({ icon: 'emoji:🎨', color: 'purple' })
-    const manifest = await readFile(join(fixture.configDir, 'workspaces', 'visual.yaml'), 'utf8')
-    expect(manifest).toContain('icon: emoji:🎨')
-    expect(manifest).toContain('color: purple')
+    const manifest = await readFile(join(fixture.configDir, 'workspaces', 'visual.jsonc'), 'utf8')
+    expect(manifest).toContain('"icon": "emoji:🎨"')
+    expect(manifest).toContain('"color": "purple"')
   })
 
   it('stores a workspace-scoped project label without changing the project name', async () => {
@@ -189,7 +189,7 @@ describe('portable workspaces', () => {
       selectedWorkspaceId: workspace.id,
       selectedProjectId: undefined,
     })
-    expect(await readFile(join(fixture.configDir, 'workspaces', 'navigation.yaml'), 'utf8')).not.toContain('selectedWorkspace')
+    expect(await readFile(join(fixture.configDir, 'workspaces', 'navigation.jsonc'), 'utf8')).not.toContain('selectedWorkspace')
   })
 
   it('exports portable state without paths, bindings, trust, or UI state', async () => {

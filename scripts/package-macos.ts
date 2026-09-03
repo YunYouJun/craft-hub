@@ -37,7 +37,21 @@ interface PackageMetadata {
 }
 
 const supportedArchitectures = ['arm64', 'x64'] as const
-type MacArchitecture = typeof supportedArchitectures[number]
+export type MacArchitecture = typeof supportedArchitectures[number]
+
+export interface MacosPackageOptions {
+  architectures?: MacArchitecture[]
+  createArtifacts?: boolean
+}
+
+export interface MacosPackageResult {
+  applications: Array<{
+    applicationPath: string
+    architecture: MacArchitecture
+  }>
+  outputDirectory: string
+  productName: string
+}
 
 function getArchitectures(): MacArchitecture[] {
   const configuredArchitectures = process.env.MACOS_ARCHES?.split(',')
@@ -264,7 +278,8 @@ async function copyDistributionAsset(
   await cp(source, target)
 }
 
-async function main(): Promise<void> {
+/** Package the macOS application bundle and optionally create release artifacts. */
+export async function packageMacos(options: MacosPackageOptions = {}): Promise<MacosPackageResult> {
   if (process.platform !== 'darwin')
     throw new Error('macOS packages must be built on macOS')
 
@@ -311,7 +326,7 @@ async function main(): Promise<void> {
       main: 'apps/desktop/dist/main.mjs',
     }, null, 2)}\n`)
 
-    const architectures = getArchitectures()
+    const architectures = options.architectures ?? getArchitectures()
     const signingIdentity = process.env.MACOS_SIGNING_ENABLED === 'true'
       ? await resolveSigningIdentity()
       : undefined
@@ -352,16 +367,24 @@ async function main(): Promise<void> {
       console.log(`Packaged macOS app: ${appPath}`)
     }
 
-    for (const architecture of architectures) {
+    const applications = architectures.map((architecture) => {
       const appPath = appPaths.find(path => path.endsWith(`darwin-${architecture}`))
       if (!appPath)
         throw new Error(`Packager did not return an app for ${architecture}`)
-      await createDistributionArtifacts(join(appPath, `${productName}.app`), architecture, signingIdentity)
+      return {
+        applicationPath: join(appPath, `${productName}.app`),
+        architecture,
+      }
+    })
+
+    if (options.createArtifacts !== false) {
+      for (const application of applications)
+        await createDistributionArtifacts(application.applicationPath, application.architecture, signingIdentity)
     }
+
+    return { applications, outputDirectory, productName }
   }
   finally {
     await rm(stagingDirectory, { force: true, recursive: true })
   }
 }
-
-await main()

@@ -116,6 +116,8 @@ export interface WorkspaceManifest {
   pinned?: boolean
   primaryProject?: string
   members: WorkspaceMember[]
+  /** Third-party declarative data isolated from the core schema. */
+  extensions?: Record<string, unknown>
 }
 
 /** Workspace member resolved against this machine's bindings. */
@@ -149,6 +151,8 @@ export interface WorkspaceCatalog {
   workspaceOrder: string[]
   groups: WorkspaceGroup[]
   workspaceGroups: Record<string, string>
+  /** Third-party declarative data isolated from the core schema. */
+  extensions?: Record<string, unknown>
 }
 
 /** Portable workspace state that intentionally excludes machine-local bindings and UI state. */

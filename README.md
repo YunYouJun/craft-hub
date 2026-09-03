@@ -57,9 +57,18 @@ Configure the required Developer ID certificate and App Store Connect API key on
 To make unsigned packages locally for testing:
 
 ```bash
-pnpm build
-pnpm run package:mac
+pnpm run build:mac
 ```
+
+To rebuild only the current Mac architecture, replace the installed app in `/Applications`, and open it:
+
+```bash
+pnpm run reinstall:mac
+```
+
+Set `CRAFT_HUB_DESKTOP_INSTALL_DIR` to install into a different application directory.
+
+The lower-level `package:mac` script packages existing build output and is used by the release workflow.
 
 ## CLI
 
@@ -172,6 +181,7 @@ Marketplace plugins are declarative packages listed by a Plugin Catalog. Craft H
 ## Roadmap
 
 - Next: add real “Use with Agent” adapters and richer streamed run controls.
+- Re-evaluate migrating desktop packaging to Electron Forge after Forge 8 reaches a stable release. Adopt it only if it works with the repository's pnpm supply-chain policy without exotic dependency exceptions and preserves the existing signed/notarized macOS app, architecture-specific DMG and update ZIP names, and packaged startup smoke tests.
 - Later: add VS Code integration and automatic desktop updates.
 - Future: bring the reusable parts of [Stardew](https://github.com/YunYouJun/stardew) into Craft Hub as a Workflow Studio for visually composing project capabilities and local resource-processing workflows.
   - Extract a data-only workflow definition, validation, and execution model instead of merging the legacy Electron runtime directly.

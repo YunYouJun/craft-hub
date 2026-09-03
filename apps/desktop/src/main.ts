@@ -23,6 +23,7 @@ import { DeviceVault } from './device-vault.ts'
 import { communityDesktopAboutBranding, communityDesktopDevelopmentProtocol, communityDesktopProtocol, communityDesktopUpdateBaseUrl, loadDesktopDistributionManifest, resolveDesktopDistributionAsset } from './distribution.ts'
 import { selectedDirectoryPath, selectedDirectoryPaths } from './folder-picker.ts'
 import { codexThreadUrl, editorTargetPaths, externalHttpUrl, focusCodexApplication, gitRemoteHttpUrl, macTerminalApplications, openCodexProject, openCursorEditor, openCustomEditor, openMacTerminalProject, projectContainsPath, vscodeUrl } from './open-targets.ts'
+import { createDeferredOnceTask } from './shutdown-task.ts'
 import { DesktopUpdater } from './updater.ts'
 import { resolveWorkspaceLaunchTarget } from './workspace-launch-target.ts'
 
@@ -48,7 +49,6 @@ const desktopUpdateBaseUrl = desktopBuildInfo.updatesEnabled && configuredDeskto
 let mainWindow: BrowserWindowType | undefined
 let aboutWindow: BrowserWindowType | undefined
 let craftHubServer: CraftHubServer | undefined
-let shutdown: Promise<void> | undefined
 let readyToQuit = false
 let personalCloud: PersonalCloudController | undefined
 let desktopUpdater: DesktopUpdater | undefined
@@ -413,6 +413,15 @@ ipcMain.handle('craft-hub:open-project-in-terminal', async (_event, projectId: s
   await openMacTerminalProject(await projectPath(projectId), application)
 })
 
+ipcMain.handle('craft-hub:open-dotfiles-in-terminal', async () => {
+  if (!craftHubServer)
+    throw new Error('Craft Hub is still starting')
+  const status = await craftHubServer.runtime.dotfilesManager.status()
+  if (!status.repositoryPath)
+    throw new Error('Dotfiles manager is not configured')
+  await openMacTerminalProject(status.repositoryPath)
+})
+
 ipcMain.handle('craft-hub:open-external-url', async (_event, url: string) => {
   await shell.openExternal(externalHttpUrl(url))
 })
@@ -677,35 +686,46 @@ else {
   })
 }
 
+const requestShutdown = createDeferredOnceTask(async () => {
+  try {
+    writeApplicationLog('info', 'Shutdown requested')
+    for (const window of BrowserWindow.getAllWindows())
+      window.destroy()
+    personalCloud?.close()
+    desktopUpdater?.dispose()
+    await codexActivityMonitor?.close()
+    await craftHubServer?.close({ processExiting: !installUpdateAfterShutdown })
+  }
+  catch (error) {
+    writeApplicationLog('error', `Craft Hub failed to shut down cleanly: ${error instanceof Error ? error.message : String(error)}`)
+  }
+  finally {
+    writeApplicationLog('info', 'Shutdown complete')
+    craftHubServer = undefined
+    personalCloud = undefined
+    codexActivityMonitor = undefined
+    readyToQuit = true
+    if (installUpdateAfterShutdown) {
+      desktopUpdater?.installDownloadedUpdate()
+    }
+    else {
+      // Chokidar's macOS FSEvents handles can block Electron teardown for many
+      // seconds. All stateful resources are closed above; remaining watchers
+      // are read-only and can be released safely by the operating system.
+      const immediateProcess = process as typeof process & { reallyExit?: (code: number) => never }
+      if (immediateProcess.reallyExit) {
+        immediateProcess.reallyExit(0)
+      }
+      process.kill(process.pid, 'SIGKILL')
+    }
+  }
+})
+
 app.on('before-quit', (event) => {
   if (readyToQuit)
     return
   event.preventDefault()
-  shutdown ??= (async () => {
-    try {
-      writeApplicationLog('info', 'Shutdown requested')
-      for (const window of BrowserWindow.getAllWindows())
-        window.destroy()
-      personalCloud?.close()
-      desktopUpdater?.dispose()
-      await codexActivityMonitor?.close()
-      await craftHubServer?.close()
-    }
-    catch (error) {
-      writeApplicationLog('error', `Craft Hub failed to shut down cleanly: ${error instanceof Error ? error.message : String(error)}`)
-    }
-    finally {
-      writeApplicationLog('info', 'Shutdown complete')
-      craftHubServer = undefined
-      personalCloud = undefined
-      codexActivityMonitor = undefined
-      readyToQuit = true
-      if (installUpdateAfterShutdown)
-        desktopUpdater?.installDownloadedUpdate()
-      else
-        app.quit()
-    }
-  })()
+  void requestShutdown()
 })
 
 app.on('window-all-closed', () => {

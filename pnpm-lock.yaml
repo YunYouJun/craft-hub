@@ -476,6 +476,8 @@ importers:
         specifier: 'catalog:'
         version: 3.5.41(typescript@6.0.3)
 
+  examples/marketplace-plugin: {}
+
   examples/sample-project: {}
 
   packages/craft-hub:
