@@ -67,6 +67,27 @@ The file must contain an explicit `version`. Adding optional fields does not cha
 
 Project configuration is normally committed to Git. Never store tokens, passwords, credentials, machine paths, or other secrets in it; declare required environment-variable names or provider references instead.
 
+## Marketplace Skill activation
+
+Marketplace plugin Skills are installed once in Craft Hub and activated per project. The default mode is `manual`, so an installed Skill is unavailable until the project or the current machine enables it. A repository may opt into bounded automatic matching:
+
+```jsonc
+{
+  "version": 1,
+  "capabilities": {
+    "skills": {
+      "mode": "auto",
+      "enabledPlugins": ["@example/craft-hub-plugin-tools"],
+      "disabled": [
+        { "id": "plugin:@example/craft-hub-plugin-tools:skill:legacy", "scopes": ["apps/legacy"] }
+      ]
+    }
+  }
+}
+```
+
+Settings support `enabledPlugins`, `disabledPlugins`, and per-Skill `enabled` or `disabled` rules. A rule without `scopes` targets the project root; package scopes use project-relative pnpm package paths. Machine-local choices made in **Manage project Skills** override repository defaults without changing this file. The effective order is automatic matching, repository defaults, then machine-local overrides. Per-Skill rules are exceptions to a plugin-level choice.
+
 ## Invalid configuration
 
 An invalid or unreadable project configuration does not remove the registered project or block other projects from loading. Craft Hub keeps the project's existing machine-local name, trust, and ordering, then shows a project-scoped diagnostic with the file location and validation message. The desktop action opens `.craft-hub/project.jsonc` at the reported line in the configured editor.
@@ -213,6 +234,10 @@ Cross-project relationships belong to the user rather than to any member reposit
 
 Craft Hub-owned, user-editable declarations use JSONC consistently: `config.jsonc`, `owner-scopes.jsonc`, and `workspaces/<id>.jsonc`. On first use, legacy global YAML is converted once and moved to a timestamped `migration-backups/global-config-yaml-*` directory in the operating-system data directory. Runtime reads do not maintain a YAML compatibility path.
 
+`~/.craft-hub` is the local source of truth. Personal configuration sync does not move or replace that directory: it writes an allowlisted semantic copy to `.craft-hub/personal.snapshot.json` inside one selected local Git checkout, or applies that snapshot back to local configuration after explicit confirmation. Machine paths, credentials, execution trust, run history, extension settings, and other machine-local state are excluded. Craft Hub never commits or pushes the repository.
+
+The selected checkout is shared by Personal configuration features. Configuration sync uses `personal.snapshot.json`; Dotfiles tools independently detect `dotfiles.jsonc` in the same repository. A repository without a Dotfiles manifest can still be used for configuration sync.
+
 Every workspace and workspace group has exactly one Owner Scope. Legacy manifests without `ownerScopeId` belong to the fixed `Personal` scope. A Team manifest records its stable Team id, for example `ownerScopeId: acme`. The Team identity is independent from its Git checkout so the repository can move without changing ownership.
 
 The workbench switches Owner Scopes as navigation state: each scope has an isolated workspace tree, project-reference bindings, standalone-project grouping, and remembered workspace selection. Registered project directories, trust, runs, and credentials remain machine-local. Team views show only projects referenced by that Team; unassigned local projects remain in Personal. The command palette can search across scopes and jumps to the selected scope before opening its workspace.
@@ -237,9 +262,9 @@ Renaming a Team keeps its stable id and Git target, then marks the local snapsho
 
 The member keys, order, pins, and primary project are portable and suitable for a private dotfiles repository. Absolute paths, Craft Hub execution authorizations, local bindings, active selection, run history, credentials, and Codex thread IDs remain in the operating-system data directory and must not be synced. On a new device unresolved members stay visible until they are bound to a local registered project; binding never transfers execution authorization.
 
-## Dotfiles Manager
+## Dotfiles tools
 
-The experimental Dotfiles Manager is a read-only control surface for an explicit local Git checkout. It never scans the home directory, clones or updates Git repositories, installs tools, or applies changes. A repository opts in with `.craft-hub/dotfiles.jsonc` and declares shell-free `check`, `status`, and `diff` commands as separate `command` and `args` values. Craft Hub fixes the working directory to the repository root and requires the exact current manifest to be trusted before any declared command runs. Editing the manifest invalidates that trust.
+The experimental Dotfiles tools are a read-only control surface automatically detected in the selected Personal configuration repository. They never scan the home directory, clone or update Git repositories, install tools, or apply changes. A repository opts in with `.craft-hub/dotfiles.jsonc` and declares shell-free `check`, `status`, and `diff` commands as separate `command` and `args` values. Craft Hub fixes the working directory to the repository root and requires the exact current manifest to be trusted before any declared command runs. Editing the manifest invalidates that trust.
 
 ```jsonc
 {

@@ -1,7 +1,7 @@
 import type { CommandCapability, CommandInvocation } from 'craft-hub'
 import { isAbsolute } from 'node:path'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
-import { craftHubProjectDesktopUrl, CraftHubRuntime, openCraftHubDesktop } from 'craft-hub'
+import { craftHubCelebrationDesktopUrl, craftHubProjectDesktopUrl, CraftHubRuntime, openCraftHubDesktop } from 'craft-hub'
 import { z } from 'zod/v3'
 
 export interface CraftHubMcpServerOptions {
@@ -40,6 +40,21 @@ export function createCraftHubMcpServer(runtime = new CraftHubRuntime(), options
       const url = await craftHubDesktopUrl(runtime, target)
       await (options.openDesktopLink ?? openCraftHubDesktop)(url)
       return result({ target, url }, `Opened Craft Hub ${target.view}.`)
+    },
+  )
+
+  server.registerTool(
+    'celebrate',
+    {
+      title: 'Celebrate in Craft Hub',
+      description: 'Ask the Craft Hub desktop app to play one confetti celebration. Use only when the user explicitly asks, or when saved user instructions request it after a verified milestone. The effect respects reduced-motion preferences and is not evidence that work completed.',
+      inputSchema: {},
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    },
+    async () => {
+      const url = craftHubCelebrationDesktopUrl()
+      await (options.openDesktopLink ?? openCraftHubDesktop)(url)
+      return result({ url }, 'Requested one celebration in Craft Hub.')
     },
   )
 

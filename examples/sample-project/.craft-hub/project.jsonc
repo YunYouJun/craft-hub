@@ -11,6 +11,9 @@
   },
   "capabilities": {
     "hidden": [],
+    "skills": {
+      "mode": "auto"
+    },
     "descriptions": {
       "package.json:hello": {
         "default": "Print a greeting from the sample project.",

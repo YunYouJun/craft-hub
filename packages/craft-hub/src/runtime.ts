@@ -1,17 +1,19 @@
 import type { Buffer } from 'node:buffer'
+import type { WorkbenchDiagnosticSnapshot } from './diagnostics'
 import type { RunHandle } from './executor'
 import type { CapabilityProvider, CraftHubOptions, DistributionConfig } from './extensions'
 import type { ApplyGitIntegrationRequest, GitIntegrationPlan, GitIntegrationRequest, GitIntegrationResult } from './git-integration'
-import type { IntegrationDiagnostic, ResolvedIntegrationContribution } from './integrations'
+import type { IntegrationActionResult, IntegrationDiagnostic, ResolvedIntegrationContribution } from './integrations'
 import type { CraftHubPlugin, PluginDiagnostic } from './plugins'
-import type { Capability, CapabilityDiscoveryDiagnostic, CapabilityDiscoveryResult, CapabilityPins, CapabilityReference, CommandCapability, CommandInputValues, CommandInvocation, CommandPackage, ProjectConfigInitializationMode, ProjectConfigInitializationResult, ProjectOverview, ProjectRecord, ProjectRunSummary, ReleasePlan, RunCleanupOptions, RunCleanupResult, RunOutputEvent, RunRecord } from './types'
+import type { Capability, CapabilityDiscoveryDiagnostic, CapabilityDiscoveryResult, CapabilityPins, CapabilityReference, CommandCapability, CommandInputValues, CommandInvocation, CommandPackage, LocalSkillActivationSettings, ProjectConfigInitializationMode, ProjectConfigInitializationResult, ProjectOverview, ProjectRecord, ProjectRunSummary, ProjectSkillsState, ReleasePlan, RunCleanupOptions, RunCleanupResult, RunOutputEvent, RunRecord } from './types'
 import { resolve } from 'node:path'
 import process from 'node:process'
 import { AgentActionService } from './agent-actions'
 import { AgentTaskManager } from './agent-tasks'
 import { resolveCommandContributions } from './command-contributions'
 import { resolveCommandInvocation, resolvePersistedCommandInvocation } from './command-inputs'
-import { applyProjectConfigInitialization, previewProjectConfigInitialization } from './config'
+import { applyProjectConfigInitialization, loadProjectConfig, previewProjectConfigInitialization } from './config'
+import { collectWorkbenchDiagnostics } from './diagnostics'
 import { DotfilesManager } from './dotfiles-manager'
 import { executeCommand } from './executor'
 import { builtinCapabilityProvider, communityDistribution } from './extensions'
@@ -20,12 +22,14 @@ import { IntegrationRegistry } from './integrations'
 import { PluginManager } from './marketplace'
 import { OwnerScopeService } from './owner-scopes'
 import { assertCommandWorkingDirectory } from './path-security'
+import { PersonalConfigRepository } from './personal-config-repository'
 import { PersonalGitSyncService } from './personal-git-sync'
 import { getCraftHubConfigDir, getCraftHubDataDir } from './platform'
 import { readProjectOverviewAsset, readProjectReadme } from './project-overview'
 import { ProjectRegistry } from './projects'
 import { ReleasePlanner } from './release-planner'
 import { CraftHubSettingsService } from './settings'
+import { localSkillActivationSettingsSchema, resolveSkillActivations } from './skill-activation'
 import { CraftHubStore } from './store'
 import { TeamGitSyncService } from './team-git-sync'
 import { TeamManager } from './teams'
@@ -38,6 +42,7 @@ export class CraftHubRuntime {
   readonly projects: ProjectRegistry
   readonly settings: CraftHubSettingsService
   readonly userConfig: UserConfigService
+  readonly personalConfigRepository: PersonalConfigRepository
   readonly dotfilesManager: DotfilesManager
   readonly workspaces: WorkspaceService
   readonly workspaceImports: WorkspaceImportService
@@ -53,6 +58,7 @@ export class CraftHubRuntime {
   readonly gitIntegration = new GitIntegration()
   readonly distribution: DistributionConfig
   private readonly capabilityProviders: Array<{ pluginId?: string, provider: CapabilityProvider }>
+  private readonly hostPluginDiagnostics: readonly PluginDiagnostic[]
   private readonly activeRuns = new Map<string, RunHandle>()
   private readonly capabilityDiscoveryRequests = new Map<string, Promise<CapabilityDiscoveryResult>>()
   private readonly lastRuns = new Map<string, Pick<ProjectRunSummary, 'lastFinishedAt' | 'lastStatus'>>()
@@ -64,6 +70,7 @@ export class CraftHubRuntime {
     this.distribution = normalizedOptions.distribution ?? communityDistribution
     const plugins = normalizedOptions.plugins ?? []
     assertUniquePluginIds(plugins)
+    this.hostPluginDiagnostics = structuredClone(normalizedOptions.pluginDiagnostics ?? [])
     this.store = new CraftHubStore(normalizedOptions.dataDir ?? getCraftHubDataDir(process.env, this.distribution.dataDirectoryName ?? this.distribution.name))
     this.pluginManager = new PluginManager(
       this.store.dataDir,
@@ -82,7 +89,8 @@ export class CraftHubRuntime {
     ]
     this.projects = new ProjectRegistry(this.store)
     this.settings = new CraftHubSettingsService(this.store.dataDir)
-    this.dotfilesManager = new DotfilesManager(this.store.dataDir)
+    this.personalConfigRepository = new PersonalConfigRepository(this.store.dataDir)
+    this.dotfilesManager = new DotfilesManager(this.store.dataDir, this.personalConfigRepository)
     const configDir = normalizedOptions.configDir ?? getCraftHubConfigDir(process.env)
     this.userConfig = new UserConfigService(configDir, this.store.dataDir)
     this.workspaces = new WorkspaceService(configDir, this.store.dataDir, this.projects, this.userConfig)
@@ -90,7 +98,7 @@ export class CraftHubRuntime {
     this.teamGitSync = new TeamGitSyncService(this.store.dataDir, this.ownerScopes, this.workspaces)
     this.teams = new TeamManager(this.ownerScopes, this.teamGitSync, this.workspaces)
     this.workspaceImports = new WorkspaceImportService(this.projects, this.workspaces)
-    this.personalGitSync = new PersonalGitSyncService(this.store.dataDir, this.settings, this.workspaces)
+    this.personalGitSync = new PersonalGitSyncService(this.store.dataDir, this.settings, this.workspaces, this.personalConfigRepository)
     this.agentTasks = new AgentTaskManager(this.store, this.projects, normalizedOptions.agentTaskProvider)
     this.agentActions = new AgentActionService(this.agentTasks, this.projects, (projectId, locale) => this.capabilityDiscovery(projectId, locale))
   }
@@ -152,6 +160,50 @@ export class CraftHubRuntime {
     return this.integrationRegistry.resolve(await this.pluginManager.integrationContributions())
   }
 
+  /** Collect current host, extension, and configuration failures for client presentation. */
+  async diagnosticSnapshot(): Promise<WorkbenchDiagnosticSnapshot> {
+    await Promise.allSettled([this.ownerScopes.list(), this.workspaces.list()])
+    const [projects, settings, userConfig, plugins, marketplaceSources, integrations] = await Promise.all([
+      this.projects.snapshot(),
+      this.settings.get(),
+      this.userConfig.status(),
+      this.pluginManager.listInstalled(),
+      this.pluginManager.listSources(),
+      this.integrationContributions(),
+    ])
+    return collectWorkbenchDiagnostics({
+      hostPlugins: this.getPluginDiagnostics(),
+      integrations: integrations.diagnostics,
+      marketplaceSources,
+      plugins,
+      projects,
+      settings,
+      userConfig,
+    })
+  }
+
+  /** Invoke one enabled declarative integration through a trusted host adapter. */
+  async invokeIntegrationAction(options: {
+    integrationId: string
+    actionId: string
+    projectId?: string
+    input?: Record<string, unknown>
+    confirmed?: boolean
+  }): Promise<IntegrationActionResult> {
+    const { integrations } = await this.integrationContributions()
+    const contribution = integrations.find(candidate => candidate.id === options.integrationId)
+    if (!contribution)
+      throw new Error(`Integration contribution is unavailable: ${options.integrationId}`)
+    const project = options.projectId ? await this.projects.get(options.projectId) : undefined
+    return this.integrationRegistry.invoke({
+      contribution,
+      actionId: options.actionId,
+      context: project ? { projectId: project.id, projectPath: project.path } : {},
+      input: options.input,
+      confirmed: options.confirmed,
+    })
+  }
+
   /** Discover capabilities and non-fatal diagnostics for one registered project. */
   async capabilityDiscovery(projectId: string, requestedLocale?: 'en' | 'zh-CN'): Promise<CapabilityDiscoveryResult> {
     const locale = requestedLocale ?? (await this.settings.get()).settings['workbench.locale']
@@ -171,9 +223,14 @@ export class CraftHubRuntime {
   }
 
   private async discoverCapabilities(projectId: string, locale: 'en' | 'zh-CN'): Promise<CapabilityDiscoveryResult> {
-    const [project, extensionSettings] = await Promise.all([
+    const [project, extensionSettings, contributions] = await Promise.all([
       this.projects.get(projectId),
       this.settings.extensionValues(),
+      this.pluginManager.skillContributions(),
+    ])
+    const [projectConfig, localSkillActivation] = await Promise.all([
+      loadProjectConfig(project.path),
+      this.store.getSkillActivation(projectId),
     ])
     this.diagnostics = []
     const capabilities: Capability[] = []
@@ -214,9 +271,56 @@ export class CraftHubRuntime {
       userSettings: extensionSettings,
     })
     diagnostics.push(...commandContributions.diagnostics)
+    const skillActivations = await resolveSkillActivations({
+      projectPath: project.path,
+      packages: commandContributions.packages,
+      contributions,
+      project: projectConfig?.capabilities?.skills,
+      local: localSkillActivation,
+    })
+    diagnostics.push(...skillActivations.diagnostics)
+    const resolvedCapabilities = [...commandContributions.capabilities, ...skillActivations.capabilities]
     const resolvedIds = new Set<string>()
-    await validateCapabilities(commandContributions.capabilities, resolvedIds, project.path)
-    return { capabilities: commandContributions.capabilities, diagnostics, packages: commandContributions.packages }
+    await validateCapabilities(resolvedCapabilities, resolvedIds, project.path)
+    return {
+      capabilities: resolvedCapabilities,
+      diagnostics,
+      packages: commandContributions.packages,
+      skills: skillActivations.skills,
+      skillActivation: {
+        mode: skillActivations.mode,
+        modeSource: skillActivations.modeSource,
+        missingPluginIds: skillActivations.missingPluginIds,
+      },
+      skillWatchPatterns: skillActivations.watchPatterns,
+    }
+  }
+
+  /** Return effective repository and machine-local Skill activation state. */
+  async projectSkills(projectId: string): Promise<ProjectSkillsState> {
+    const project = await this.projects.get(projectId)
+    const [config, local, discovery] = await Promise.all([
+      loadProjectConfig(project.path),
+      this.store.getSkillActivation(projectId),
+      this.capabilityDiscovery(projectId),
+    ])
+    return {
+      projectId,
+      mode: discovery.skillActivation?.mode ?? 'manual',
+      modeSource: discovery.skillActivation?.modeSource ?? 'default',
+      project: config?.capabilities?.skills ?? {},
+      local,
+      skills: discovery.skills ?? [],
+      missingPluginIds: discovery.skillActivation?.missingPluginIds ?? [],
+    }
+  }
+
+  /** Replace machine-local Skill preferences after validating their bounded shape. */
+  async updateProjectSkills(projectId: string, input: LocalSkillActivationSettings): Promise<ProjectSkillsState> {
+    await this.projects.get(projectId)
+    const settings = localSkillActivationSettingsSchema.parse(input)
+    await this.store.saveSkillActivation(projectId, settings)
+    return this.projectSkills(projectId)
   }
 
   /** Resolve one contextual project or package overview and its bounded README. */
@@ -273,7 +377,7 @@ export class CraftHubRuntime {
 
   /** Diagnostics from the most recent plugin discovery pass. */
   getPluginDiagnostics(): readonly PluginDiagnostic[] {
-    return this.diagnostics
+    return [...this.hostPluginDiagnostics, ...this.diagnostics]
   }
 
   /** Resolve and validate one command invocation without executing it. */

@@ -9,6 +9,7 @@ import process from 'node:process'
 import { promisify } from 'node:util'
 import { describe, expect, it, vi } from 'vitest'
 import { projectConfigSchemaRevision } from '../src/config'
+import { defineCraftHubPlugin } from '../src/plugins'
 import { CraftHubRuntime } from '../src/runtime'
 import { startCraftHubServer } from '../src/server'
 import { ProjectWatcher } from '../src/watcher'
@@ -16,6 +17,95 @@ import { ProjectWatcher } from '../src/watcher'
 const execFileAsync = promisify(execFile)
 
 describe('craft hub server lifecycle', () => {
+  it('exposes installed integrations and dispatches their actions through host plugins', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'craft-hub-server-integrations-'))
+    const pluginPath = join(root, 'plugin')
+    await mkdir(pluginPath)
+    await writeFile(join(root, 'package.json'), '{}')
+    await writeFile(join(pluginPath, 'package.json'), JSON.stringify({
+      name: '@acme/craft-hub-plugin-issues',
+      version: '1.0.0',
+      craftHub: {
+        schemaVersion: 1,
+        id: '@acme/craft-hub-plugin-issues',
+        displayName: 'Acme Issues',
+        permissionReasons: { 'remote-read': 'Reads issues requested by the user.' },
+        permissions: ['remote-read'],
+        contributes: {
+          integrations: [{
+            id: 'acme-issues',
+            provider: { id: 'acme', requires: '^1.0.0' },
+            actions: [{ id: 'list', title: 'List issues', operation: 'issues.list', effect: 'remote-read', confirmation: 'never' }],
+            views: [{
+              id: 'overview',
+              title: 'Acme Issues',
+              icon: 'builtin:list',
+              placement: 'primary-sidebar',
+              scope: 'project',
+              blocks: [{ id: 'items', type: 'entity-list', actionId: 'list', input: { limit: 30 } }],
+            }],
+          }],
+          workbenches: [{
+            id: 'acme-engineering',
+            title: { 'default': 'Acme Engineering', 'zh-CN': 'Acme 研发工作台' },
+            icon: 'builtin:briefcase',
+            views: [{
+              type: 'integration',
+              plugin: '@acme/craft-hub-plugin-issues',
+              integration: 'acme-issues',
+              view: 'overview',
+            }],
+          }],
+        },
+      },
+    }))
+    const calls: Array<{ projectId?: string, projectPath?: string, limit?: unknown }> = []
+    const runtime = new CraftHubRuntime({
+      dataDir: join(root, 'data'),
+      configDir: join(root, 'config'),
+      plugins: [defineCraftHubPlugin({
+        id: '@acme/craft-hub-host-plugin',
+        integrationProviders: [{
+          id: 'acme',
+          apiVersion: '1.0.0',
+          connectionStatus: async () => ({ connected: true }),
+          issues: {
+            list: async (context, query) => {
+              calls.push({ ...context, limit: query.limit })
+              return { items: [{ id: '1', title: 'Example issue' }] }
+            },
+          },
+        }],
+      })],
+    })
+    const project = await runtime.addProject(root)
+    await runtime.pluginManager.linkLocal(pluginPath)
+    const app = await startCraftHubServer({ port: 0, runtime })
+    try {
+      await expect(fetch(`${app.url}/api/integrations`).then(response => response.json())).resolves.toMatchObject({
+        integrations: [{ id: 'acme-issues', views: [{ id: 'overview', blocks: [{ input: { limit: 30 } }] }] }],
+        diagnostics: [],
+      })
+      await expect(fetch(`${app.url}/api/workbenches?locale=zh-CN`).then(response => response.json())).resolves.toMatchObject([{
+        id: 'acme-engineering',
+        pluginId: '@acme/craft-hub-plugin-issues',
+        title: 'Acme 研发工作台',
+        views: [{ type: 'integration', integration: 'acme-issues', view: 'overview' }],
+      }])
+      const response = await fetch(`${app.url}/api/projects/${project.id}/integrations/acme-issues/actions/list`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ input: { limit: 30 } }),
+      })
+      expect(response.status).toBe(200)
+      await expect(response.json()).resolves.toEqual({ items: [{ id: '1', title: 'Example issue' }] })
+      expect(calls).toEqual([{ projectId: project.id, projectPath: project.path, confirmed: false, limit: 30 }])
+    }
+    finally {
+      await app.close()
+    }
+  })
+
   it('skips expensive project watcher teardown when the host process is exiting', async () => {
     const root = await mkdtemp(join(tmpdir(), 'craft-hub-server-process-exit-'))
     const closeWatcher = vi.spyOn(ProjectWatcher.prototype, 'close').mockResolvedValue()
@@ -81,6 +171,70 @@ describe('craft hub server lifecycle', () => {
         projectConfigSchemaRevision,
         status: 'ok',
       })
+    }
+    finally {
+      await app.close()
+    }
+  })
+
+  it('exposes one normalized diagnostic snapshot for host and client failures', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'craft-hub-server-diagnostics-'))
+    const runtime = new CraftHubRuntime({
+      dataDir: join(root, 'data'),
+      configDir: join(root, 'config'),
+      distribution: {
+        id: 'test',
+        name: 'Test',
+        marketplaceSources: [{
+          id: 'remote',
+          name: 'Remote catalog',
+          kind: 'managed',
+          enabled: true,
+          error: 'Catalog unavailable',
+        }],
+      },
+      pluginDiagnostics: [{ pluginId: './broken-host.mjs', phase: 'load', message: 'Missing plugin export' }],
+    })
+    const app = await startCraftHubServer({ port: 0, runtime })
+    try {
+      const response = await fetch(`${app.url}/api/diagnostics`)
+      expect(response.status).toBe(200)
+      await expect(response.json()).resolves.toMatchObject({
+        diagnostics: [
+          { kind: 'host-plugin', subject: './broken-host.mjs', message: 'Missing plugin export' },
+          { kind: 'marketplace-source', subject: 'Remote catalog', message: 'Catalog unavailable' },
+        ],
+        summary: { errors: 2, warnings: 0 },
+      })
+    }
+    finally {
+      await app.close()
+    }
+  })
+
+  it('reads and updates machine-local project Skill settings', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'craft-hub-server-skills-'))
+    await writeFile(join(root, 'package.json'), '{}')
+    const runtime = new CraftHubRuntime({ dataDir: join(root, 'data'), configDir: join(root, 'config') })
+    const project = await runtime.addProject(root)
+    const app = await startCraftHubServer({ port: 0, runtime })
+    try {
+      const update = await fetch(`${app.url}/api/projects/${project.id}/skills`, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ settings: { mode: 'auto', enabledPlugins: ['@example/craft-hub-plugin-tools'] } }),
+      })
+      expect(update.status).toBe(200)
+      await expect(update.json()).resolves.toMatchObject({
+        mode: 'auto',
+        modeSource: 'local',
+        local: { mode: 'auto', enabledPlugins: ['@example/craft-hub-plugin-tools'] },
+        missingPluginIds: ['@example/craft-hub-plugin-tools'],
+      })
+
+      const response = await fetch(`${app.url}/api/projects/${project.id}/skills`)
+      expect(response.status).toBe(200)
+      await expect(response.json()).resolves.toMatchObject({ mode: 'auto', modeSource: 'local' })
     }
     finally {
       await app.close()
@@ -238,6 +392,44 @@ describe('craft hub server lifecycle', () => {
     }
   })
 
+  it('revokes project trust and clears it when a project is unregistered', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'craft-hub-server-project-trust-'))
+    const runtime = new CraftHubRuntime({ dataDir: join(root, 'data'), configDir: join(root, 'config') })
+    const projectPath = join(root, 'project')
+    await mkdir(projectPath)
+    const project = await runtime.addProject(projectPath)
+    const app = await startCraftHubServer({ port: 0, runtime })
+    try {
+      const trusted = await fetch(`${app.url}/api/projects/${project.id}/trust`, { method: 'POST' })
+      await expect(trusted.json()).resolves.toMatchObject({ trust: 'trusted' })
+
+      const revoked = await fetch(`${app.url}/api/projects/${project.id}/trust`, { method: 'DELETE' })
+      await expect(revoked.json()).resolves.toMatchObject({ trust: 'untrusted' })
+
+      const rejectedAppearance = await fetch(`${app.url}/api/projects/${project.id}`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ icon: 'emoji:🔒' }),
+      })
+      expect(rejectedAppearance.status).toBe(403)
+
+      await fetch(`${app.url}/api/projects/${project.id}/trust`, { method: 'POST' })
+      const updatedAppearance = await fetch(`${app.url}/api/projects/${project.id}`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ icon: 'emoji:🔒' }),
+      })
+      expect(updatedAppearance.status).toBe(200)
+
+      const removed = await fetch(`${app.url}/api/projects/${project.id}`, { method: 'DELETE' })
+      expect(removed.status).toBe(200)
+      await expect(runtime.addProject(projectPath)).resolves.toMatchObject({ trust: 'untrusted' })
+    }
+    finally {
+      await app.close()
+    }
+  })
+
   it('previews and runs parameterized commands with validated input values', async () => {
     const root = await mkdtemp(join(tmpdir(), 'craft-hub-server-inputs-'))
     await mkdir(join(root, '.craft-hub'))
@@ -308,6 +500,10 @@ describe('craft hub server lifecycle', () => {
         body: JSON.stringify({ repositoryPath, directory: 'cover/hub' }),
       }).then(response => response.json())
       expect(configured).toMatchObject({ state: 'local-ahead', target: { repositoryPath: canonicalRepositoryPath, directory: 'cover/hub' } })
+      await expect(fetch(`${app.url}/api/dotfiles-manager`).then(response => response.json())).resolves.toMatchObject({
+        repositoryPath: canonicalRepositoryPath,
+        state: 'manifest-missing',
+      })
 
       const synchronized = await fetch(`${app.url}/api/personal-git-sync/synchronize`, {
         method: 'POST',

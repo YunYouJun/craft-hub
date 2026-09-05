@@ -90,12 +90,61 @@ A Marketplace Plugin publishes a version-one declaration under `package.json#cra
     "commandTemplates": [],
     "packageQuickActions": [],
     "packageLinks": [],
+    "navigationPanels": [],
+    "workbenches": [],
     "skills": [],
     "projectTemplates": [],
     "integrations": []
   }
 }
 ```
+
+`navigationPanels` adds project-independent HTTPS destinations to the Navigation Workbench. Panels and links support localized titles and descriptions. They require no permission because Craft Hub neither reads project data nor contacts a destination until the user opens it. URLs must use HTTPS and cannot contain credentials.
+
+```json
+{
+  "id": "developer-resources",
+  "title": { "default": "Developer resources", "zh-CN": "研发资源" },
+  "icon": "builtin:code",
+  "links": [
+    {
+      "id": "engineering-handbook",
+      "title": { "default": "Engineering handbook", "zh-CN": "研发手册" },
+      "description": { "default": "Standards and workflows", "zh-CN": "规范与流程" },
+      "url": "https://example.com/engineering",
+      "icon": "builtin:docs",
+      "keywords": ["handbook", "手册"]
+    }
+  ]
+}
+```
+
+`workbenches` composes existing integration views and navigation panels into one product-level entry in the project rail. It only stores references: provider calls, permissions, lifecycle, and ownership stay with the contributing child plugins.
+
+```json
+{
+  "id": "company-tools",
+  "title": { "default": "Company tools", "zh-CN": "公司工具" },
+  "description": { "default": "Work items, code, and internal links." },
+  "icon": "builtin:briefcase",
+  "order": 20,
+  "views": [
+    {
+      "type": "integration",
+      "plugin": "@acme/craft-hub-plugin-work-items",
+      "integration": "work-items",
+      "view": "assigned-to-me"
+    },
+    {
+      "type": "navigation",
+      "plugin": "@acme/craft-hub-plugin-company",
+      "panel": "company-links"
+    }
+  ]
+}
+```
+
+A workbench may reference its own contributions and contributions from packages declared in `includesPlugins` or `requiresPlugins`. The host validates local references at authoring time and resolves child references after installation. A disabled, missing, or incompatible child appears as unavailable instead of breaking the workbench; child plugins remain independently manageable. Integration views claimed by a workbench are hidden as separate rail entries to avoid duplicate icons.
 
 `slug`, `links`, `icon`, `maintainers`, `permissionReasons`, and `localizations` are additive discovery metadata. A maintainer may use a stable Distribution-defined `handle`, an HTTPS profile URL, or both. Permission-reason keys must name declared permissions.
 
@@ -104,6 +153,24 @@ A Marketplace Plugin publishes a version-one declaration under `package.json#cra
 `requiresPlugins` declares hard plugin dependencies from the same source. Each relation uses a package name and SemVer range. A package cannot be self-referenced, duplicated, or present in both lists; npm `dependencies` remain forbidden.
 
 `packageQuickActions` lets a declarative plugin recognize workspace packages by bounded file markers and place discovered capabilities in that package's overview. A selector may be a capability ID, an unambiguous capability name, or `source:name`. This makes cross-plugin composition possible: if the referenced skill or command is not discovered, the action is omitted and the package keeps its normal command shortcuts. Package matching requires the `read-project-files` permission.
+
+Integration view blocks may declare a flat `input` object of string, number, boolean, or null values. The host forwards this inert data only when the user opens or operates that block. It lets one provider operation serve distinct views, such as all items and items assigned to the current account, without executable Marketplace code.
+
+`skills` installs Agent Skill content once with the plugin and uses a stable `id` for project references. New plugins should declare it explicitly; legacy v1 entries without an ID retain their path-derived identifier. Skills are not globally exposed to every project. A missing `activation` expression makes the Skill manual-only. An expression may use `file`, `dependency`, `packageManager`, `all`, `any`, and `not`; expressions are depth- and size-bounded and require `read-project-files`. Craft Hub evaluates them only in the project root and already discovered pnpm package roots. Project detection is read-only, while invoking a background agent task remains protected by Project Trust.
+
+```json
+{
+  "id": "widget-assistant",
+  "path": "skills/widget-assistant/SKILL.md",
+  "activation": {
+    "all": [
+      { "dependency": "@example/widget" },
+      { "file": "widget.config.*" },
+      { "not": { "file": "legacy-widget.config.js" } }
+    ]
+  }
+}
+```
 
 ```json
 {
@@ -183,7 +250,7 @@ Catalog maintainers should retain blocked version entries so clients can enforce
 
 ## Local plugins
 
-Craft Hub can load the same declarative package format directly from an absolute local directory in both development and production builds. Use the **Installed → Load local plugin** form, or run `craft-hub plugin:link /absolute/path/to/plugin`. A linked plugin is marked **Local**, persists across restarts, and overrides a same-name Marketplace installation without modifying it. Manifest edits are picked up when the plugin list or capabilities refresh; `craft-hub plugin:refresh <package>` forces a refresh. Use `craft-hub plugin:unlink <package>` to remove the override and restore any installed Marketplace version.
+Craft Hub can load the same declarative package format directly from an absolute local directory in both development and production builds. Use the folder picker in **Installed → Load local plugin** in the desktop app; in a browser, enter the absolute directory path. The form links to the [plugin format and authoring guide](./plugin-authoring.md). You can also run `craft-hub plugin:link /absolute/path/to/plugin`. A linked plugin is marked **Local**, persists across restarts, and overrides a same-name Marketplace installation without modifying it. Manifest edits are picked up when the plugin list or capabilities refresh; `craft-hub plugin:refresh <package>` forces a refresh. Use `craft-hub plugin:unlink <package>` to remove the override and restore any installed Marketplace version.
 
 Local linking is an explicit trust action and does not provide Catalog integrity or publisher verification. Package identity, manifest schema, minimum Craft Hub version, file containment, lifecycle-script, and runtime-dependency restrictions are still validated. Invalid local changes keep the plugin visible with an error and prevent its contributions from activating until repaired.
 

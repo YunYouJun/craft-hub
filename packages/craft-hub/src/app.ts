@@ -72,6 +72,13 @@ export async function openCraftHubDesktop(url: string): Promise<void> {
   await execFileAsync(invocation.command, invocation.args, { windowsHide: true })
 }
 
+/** Build one Desktop Link that requests a single in-app celebration. */
+export function craftHubCelebrationDesktopUrl(): string {
+  const url = new URL('craft-hub://celebrate')
+  url.searchParams.set('v', '1')
+  return url.href
+}
+
 /** Build one normalized, navigation-only Desktop Link for a Project Reference. */
 export function craftHubProjectDesktopUrl(reference: ProjectReference, capabilityId?: string): string {
   const normalized = normalizeProjectReference(reference)

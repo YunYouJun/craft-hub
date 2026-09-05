@@ -374,6 +374,12 @@ export interface CapabilityDiscoveryResult {
   diagnostics: CapabilityDiscoveryDiagnostic[]
   /** Package boundaries found in a workspace, including packages without commands. */
   packages?: CommandPackage[]
+  /** Installed Marketplace Skills, including entries hidden by project activation. */
+  skills?: ProjectSkillStatus[]
+  /** Effective discovery mode and unresolved plugin references for project Skills. */
+  skillActivation?: Pick<ProjectSkillsState, 'missingPluginIds' | 'mode' | 'modeSource'>
+  /** Project-relative activation patterns used to refresh automatic Skill discovery. */
+  skillWatchPatterns?: string[]
 }
 
 /** Structured command invocation discovered from a project. */
@@ -530,6 +536,75 @@ export interface SkillCapability {
   contentHash: string
   content: string
   inputs?: SkillInputDefinition[]
+  /** Why this installed Marketplace Skill is available in the selected project. */
+  activation?: SkillCapabilityActivation
+}
+
+/** One project or package scope where a Marketplace Skill is available. */
+export interface SkillActivationScope {
+  /** Project-relative directory. The project root is represented by '.'. */
+  relativePath: string
+  packageName?: string
+  evidence: SkillActivationEvidence[]
+}
+
+/** One bounded fact inspected while resolving a Skill activation expression. */
+export interface SkillActivationEvidence {
+  kind: 'dependency' | 'file' | 'package-manager'
+  expected: string
+  matched: boolean
+  /** Project-relative regular file that supplied the fact, when available. */
+  path?: string
+}
+
+/** Effective source and package scopes for an available Marketplace Skill. */
+export interface SkillCapabilityActivation {
+  source: 'automatic' | 'local' | 'project'
+  scopes: SkillActivationScope[]
+}
+
+/** Stable project-level reference to one installed Marketplace Skill. */
+export interface SkillActivationRule {
+  id: string
+  /** Project-relative package scopes. Omission applies to every scope. */
+  scopes?: string[]
+}
+
+/** Repository-owned or machine-local defaults for Marketplace Skill activation. */
+export interface SkillActivationSettings {
+  mode?: 'auto' | 'manual'
+  enabledPlugins?: string[]
+  disabledPlugins?: string[]
+  enabled?: SkillActivationRule[]
+  disabled?: SkillActivationRule[]
+}
+
+/** Machine-local project Skill preferences and the last invocation scope. */
+export interface LocalSkillActivationSettings extends SkillActivationSettings {
+  selectedScopes?: Record<string, string>
+}
+
+/** Installed Marketplace Skill shown in project-level management surfaces. */
+export interface ProjectSkillStatus {
+  id: string
+  pluginId: string
+  name: string
+  description?: string
+  source: CapabilitySource
+  status: 'disabled' | 'enabled' | 'manual-only' | 'unmatched'
+  activationSource?: SkillCapabilityActivation['source']
+  scopes: SkillActivationScope[]
+}
+
+/** Effective project Skill settings and every installed Skill decision. */
+export interface ProjectSkillsState {
+  projectId: string
+  mode: 'auto' | 'manual'
+  modeSource: 'default' | 'local' | 'project'
+  project: SkillActivationSettings
+  local: LocalSkillActivationSettings
+  skills: ProjectSkillStatus[]
+  missingPluginIds: string[]
 }
 
 /** Capability discovered for a project. */
@@ -602,6 +677,8 @@ export interface AgentTaskRecord {
   workspaceId?: string
   projectIds: string[]
   primaryProjectId: string
+  /** Project-relative package selected as the task working directory. */
+  primaryProjectRelativePath?: string
   prompt: string
   externalThreadId?: string
   parentTaskId?: string

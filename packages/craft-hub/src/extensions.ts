@@ -1,7 +1,7 @@
 import type { AgentTaskProvider } from './agent-tasks'
 import type { MarketplaceSource, PluginPackageInstaller } from './marketplace'
 import type { MarketplaceTrustPolicy } from './marketplace-trust'
-import type { CraftHubPlugin } from './plugins'
+import type { CraftHubPlugin, PluginDiagnostic } from './plugins'
 import type { WorkbenchLocale } from './settings'
 import type { Capability, CapabilityDiscoveryResult, ProjectRecord } from './types'
 import { discoverCapabilitiesWithDiagnostics } from './discovery'
@@ -36,6 +36,8 @@ export interface CraftHubOptions {
   pluginPackageInstaller?: PluginPackageInstaller
   /** Plugins installed by the host distribution or application. */
   plugins?: CraftHubPlugin[]
+  /** Non-fatal failures encountered while loading configured host plugins. */
+  pluginDiagnostics?: PluginDiagnostic[]
   /** External agent adapter supplied by an embedding host. */
   agentTaskProvider?: AgentTaskProvider
   /** @deprecated Wrap providers in a Craft Hub plugin instead. */

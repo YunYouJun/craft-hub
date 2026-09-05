@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp } from 'node:fs/promises'
+import { mkdir, mkdtemp, realpath } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
@@ -86,5 +86,46 @@ describe('agent tasks', () => {
     await expect(manager.get(task.id)).resolves.toMatchObject({ status: 'running', output: 'Tests running\n' })
     finish()
     await vi.waitFor(async () => expect((await store.getAgentTask(task.id))?.status).toBe('completed'))
+  })
+
+  it('runs a scoped Skill task from its selected package directory', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'craft-hub-agent-task-'))
+    const projectPath = join(root, 'project')
+    const packagePath = join(projectPath, 'apps', 'web')
+    await mkdir(packagePath, { recursive: true })
+    const store = new CraftHubStore(join(root, '.data'))
+    const projects = new ProjectRegistry(store)
+    const project = await projects.add(projectPath)
+    await projects.setTrust(project.id, 'trusted')
+    const run = vi.fn(async () => ({ finalResponse: 'Done' }))
+    const manager = new AgentTaskManager(store, projects, { id: 'codex', run })
+
+    const task = await manager.start({
+      prompt: 'Use the Skill',
+      projectIds: [project.id],
+      primaryProjectId: project.id,
+      primaryProjectRelativePath: 'apps/web',
+    })
+
+    expect(task.primaryProjectRelativePath).toBe('apps/web')
+    expect(run).toHaveBeenCalledWith(expect.objectContaining({ primaryWorkingDirectory: await realpath(packagePath) }))
+  })
+
+  it('rejects a scoped Skill task outside the project', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'craft-hub-agent-task-'))
+    const projectPath = join(root, 'project')
+    await mkdir(projectPath)
+    const store = new CraftHubStore(join(root, '.data'))
+    const projects = new ProjectRegistry(store)
+    const project = await projects.add(projectPath)
+    await projects.setTrust(project.id, 'trusted')
+    const manager = new AgentTaskManager(store, projects, { id: 'codex', run: vi.fn() })
+
+    await expect(manager.start({
+      prompt: 'Escape',
+      projectIds: [project.id],
+      primaryProjectId: project.id,
+      primaryProjectRelativePath: '..',
+    })).rejects.toThrow('inside its project')
   })
 })

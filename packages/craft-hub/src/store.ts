@@ -1,4 +1,4 @@
-import type { AgentTaskRecord, CapabilityReference, ProjectRecord, RunCleanupOptions, RunCleanupResult, RunRecord } from './types'
+import type { AgentTaskRecord, CapabilityReference, LocalSkillActivationSettings, ProjectRecord, RunCleanupOptions, RunCleanupResult, RunRecord } from './types'
 import { randomUUID } from 'node:crypto'
 import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
@@ -149,13 +149,35 @@ export class CraftHubStore {
 
   /** Atomically replace one project's machine-local semantic pin order. */
   async saveCapabilityPins(projectId: string, pins: CapabilityReference[]): Promise<void> {
+    return this.updateWorkspaceState(state => ({
+      ...state,
+      capabilityPins: { ...state.capabilityPins, [projectId]: pins },
+    }))
+  }
+
+  /** Read one project's machine-local Skill activation preferences. */
+  async getSkillActivation(projectId: string): Promise<LocalSkillActivationSettings> {
+    const state = await readJson<WorkspaceState>(join(this.dataDir, 'workspace-state.json'), emptyWorkspaceState())
+    return structuredClone(state.skillActivation?.[projectId] ?? {})
+  }
+
+  /** Atomically replace one project's machine-local Skill activation preferences. */
+  async saveSkillActivation(projectId: string, settings: LocalSkillActivationSettings): Promise<void> {
+    return this.updateWorkspaceState(state => ({
+      ...state,
+      skillActivation: { ...state.skillActivation, [projectId]: structuredClone(settings) },
+    }))
+  }
+
+  private async updateWorkspaceState(update: (state: WorkspaceState) => WorkspaceState): Promise<void> {
     const operation = this.workspaceStateTail.then(async () => {
       const path = join(this.dataDir, 'workspace-state.json')
       const state = await readJson<WorkspaceState>(path, emptyWorkspaceState())
-      await writeJsonAtomic(path, {
+      await writeJsonAtomic(path, update({
         version: 1,
-        capabilityPins: { ...state.capabilityPins, [projectId]: pins },
-      } satisfies WorkspaceState)
+        capabilityPins: state.capabilityPins ?? {},
+        skillActivation: state.skillActivation ?? {},
+      }))
     })
     this.workspaceStateTail = operation.catch(() => {})
     return operation
@@ -176,8 +198,9 @@ async function fileSize(path: string): Promise<number> {
 interface WorkspaceState {
   version: 1
   capabilityPins: Record<string, CapabilityReference[]>
+  skillActivation?: Record<string, LocalSkillActivationSettings>
 }
 
 function emptyWorkspaceState(): WorkspaceState {
-  return { version: 1, capabilityPins: {} }
+  return { version: 1, capabilityPins: {}, skillActivation: {} }
 }

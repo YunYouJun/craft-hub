@@ -4,7 +4,10 @@ import type { PluginCommandContributions } from './command-contributions'
 import type { CapabilityProvider } from './extensions'
 import type { InstalledIntegrationContribution } from './integrations'
 import type { MarketplaceSourceVerification, MarketplaceTrustPolicy } from './marketplace-trust'
+import type { InstalledNavigationPanel } from './navigation-contributions'
+import type { InstalledSkillContribution } from './skill-activation'
 import type { Capability, ProjectReadme, ProjectRecord } from './types'
+import type { InstalledPluginWorkbench } from './workbench-contributions'
 import { spawn } from 'node:child_process'
 import { createHash, randomUUID } from 'node:crypto'
 import { existsSync, realpathSync } from 'node:fs'
@@ -17,8 +20,11 @@ import { z } from 'zod'
 import { commandPresetContributionSchema, commandTemplateContributionSchema, packageLinkContributionSchema, packageQuickActionContributionSchema, packageToolGroupContributionSchema } from './command-contributions'
 import { integrationContributionSchema } from './integrations'
 import { MarketplaceCatalogTrust } from './marketplace-trust'
+import { localizeNavigationPanel, navigationPanelContributionSchema } from './navigation-contributions'
 import { readPackageDocument, readPackageDocumentAsset } from './project-overview'
+import { skillActivationConditionSchema } from './skill-activation'
 import { craftHubVersion } from './version'
+import { localizeWorkbench, workbenchContributionSchema } from './workbench-contributions'
 
 const packageNamePattern = /^@[a-z0-9][a-z0-9._-]*\/(?:craft-hub-plugin-[a-z0-9][a-z0-9._-]*|plugin-[a-z0-9][a-z0-9._-]*)$/
 const lifecycleScripts = new Set(['preinstall', 'install', 'postinstall'])
@@ -63,7 +69,16 @@ const commandContributionSchema = z.object({
   args: z.array(z.string()).default([]),
   requiredEnv: z.array(z.string()).default([]),
 })
-const skillContributionSchema = z.object({ path: safeRelativePath })
+const skillContributionSchema = z.strictObject({
+  id: z.string().regex(/^[a-z0-9][a-z0-9._-]*$/).optional(),
+  path: safeRelativePath,
+  activation: skillActivationConditionSchema.optional(),
+}).transform(skill => ({
+  ...skill,
+  // Schema v1 originally identified skills by path. Preserve those manifests
+  // with an order-independent ID that is stable across reloads and upgrades.
+  id: skill.id ?? createHash('sha256').update(skill.path).digest('hex').slice(0, 12),
+}))
 const pluginDependencyV1Schema = z.object({
   package: z.string().regex(packageNamePattern),
   version: z.string().refine(value => validRange(value) !== null, 'Plugin dependency must use a valid SemVer range'),
@@ -90,11 +105,58 @@ export const pluginManifestV1Schema = z.object({
     packageQuickActions: z.array(packageQuickActionContributionSchema).default([]),
     packageLinks: z.array(packageLinkContributionSchema).default([]),
     packageToolGroups: z.array(packageToolGroupContributionSchema).default([]),
+    navigationPanels: z.array(navigationPanelContributionSchema).default([]),
+    workbenches: z.array(workbenchContributionSchema).default([]),
     skills: z.array(skillContributionSchema).default([]),
     projectTemplates: z.array(z.object({ id: z.string().min(1), path: safeRelativePath })).default([]),
     integrations: z.array(integrationContributionSchema).default([]),
   }),
 }).superRefine((manifest, context) => {
+  const navigationPanelIds = new Set<string>()
+  for (const [index, panel] of manifest.contributes.navigationPanels.entries()) {
+    if (navigationPanelIds.has(panel.id))
+      context.addIssue({ code: 'custom', message: `Navigation panel id must be unique: ${panel.id}`, path: ['contributes', 'navigationPanels', index, 'id'] })
+    navigationPanelIds.add(panel.id)
+  }
+  const relatedPluginIds = new Set([
+    manifest.id,
+    ...manifest.includesPlugins.map(plugin => plugin.package),
+    ...manifest.requiresPlugins.map(plugin => plugin.package),
+  ])
+  const workbenchIds = new Set<string>()
+  for (const [workbenchIndex, workbench] of manifest.contributes.workbenches.entries()) {
+    if (workbenchIds.has(workbench.id))
+      context.addIssue({ code: 'custom', message: `Workbench id must be unique: ${workbench.id}`, path: ['contributes', 'workbenches', workbenchIndex, 'id'] })
+    workbenchIds.add(workbench.id)
+    for (const [viewIndex, view] of workbench.views.entries()) {
+      if (!relatedPluginIds.has(view.plugin)) {
+        context.addIssue({
+          code: 'custom',
+          message: `Workbench view must reference this plugin or one of its included or required plugins: ${view.plugin}`,
+          path: ['contributes', 'workbenches', workbenchIndex, 'views', viewIndex, 'plugin'],
+        })
+        continue
+      }
+      if (view.plugin !== manifest.id)
+        continue
+      const targetExists = view.type === 'integration'
+        ? manifest.contributes.integrations.some(integration => integration.id === view.integration && integration.views.some(candidate => candidate.id === view.view))
+        : manifest.contributes.navigationPanels.some(panel => panel.id === view.panel)
+      if (!targetExists) {
+        context.addIssue({
+          code: 'custom',
+          message: `Workbench references an unknown local ${view.type} view`,
+          path: ['contributes', 'workbenches', workbenchIndex, 'views', viewIndex],
+        })
+      }
+    }
+  }
+  const skillIds = new Set<string>()
+  for (const [index, skill] of manifest.contributes.skills.entries()) {
+    if (skillIds.has(skill.id))
+      context.addIssue({ code: 'custom', message: `Skill contribution id must be unique: ${skill.id}`, path: ['contributes', 'skills', index, 'id'] })
+    skillIds.add(skill.id)
+  }
   validatePluginDependencies(manifest.id, manifest.includesPlugins, 'includesPlugins', context)
   validatePluginDependencies(manifest.id, manifest.requiresPlugins, 'requiresPlugins', context)
   validateDistinctPluginRelations(manifest.includesPlugins, manifest.requiresPlugins, context)
@@ -119,6 +181,8 @@ export const pluginManifestV1Schema = z.object({
   }
   if (manifest.projectFiles.length && !manifest.permissions.includes('read-project-files'))
     context.addIssue({ code: 'custom', message: 'Project detection requires the read-project-files permission', path: ['permissions'] })
+  if (manifest.contributes.skills.some(skill => skill.activation) && !manifest.permissions.includes('read-project-files'))
+    context.addIssue({ code: 'custom', message: 'Skill activation requires the read-project-files permission', path: ['permissions'] })
   for (const [index, integration] of manifest.contributes.integrations.entries()) {
     if (integration.actions.some(action => action.effect === 'remote-read') && !manifest.permissions.includes('remote-read'))
       context.addIssue({ code: 'custom', message: 'Remote read integration actions require the remote-read permission', path: ['contributes', 'integrations', index] })
@@ -432,6 +496,7 @@ export class PluginManager {
   private operationTail: Promise<void> = Promise.resolve()
   private readonly listeners = new Set<() => void>()
   private readonly documentPackageRequests = new Map<string, Promise<{ packagePath: string, manifest: PluginManifestV1 }>>()
+  private shadowedUserSources: MarketplaceSource[] = []
   private state: MarketplaceState
 
   constructor(
@@ -461,13 +526,22 @@ export class PluginManager {
     let migrated = false
     try {
       const persisted = JSON.parse(await readFile(this.statePath, 'utf8')) as MarketplaceState
+      const persistedSources = persisted.sources ?? []
+      const sources = mergeManagedSources(this.state.sources, persistedSources)
+      const activeSourceIds = new Set(sources.map(source => source.id))
+      this.shadowedUserSources = persistedSources.filter(source => source.kind === 'user' && !activeSourceIds.has(source.id))
       const installed = Array.isArray(persisted.installed)
         ? persisted.installed.map((plugin) => {
             const result = pluginManifestV1Schema.safeParse(plugin.manifest)
             if (result.success) {
+              const normalized = { ...plugin, manifest: result.data }
+              if (plugin.error !== undefined) {
+                migrated = true
+                delete normalized.error
+              }
               if (JSON.stringify(result.data) !== JSON.stringify(plugin.manifest))
                 migrated = true
-              return { ...plugin, manifest: result.data }
+              return normalized
             }
             migrated = true
             const issue = result.error.issues[0]
@@ -484,7 +558,7 @@ export class PluginManager {
         : []
       this.state = {
         schemaVersion: 1,
-        sources: mergeManagedSources(this.state.sources, persisted.sources ?? []).map(source => this.catalogTrust.retains(source.catalogUrl, source.verification)
+        sources: sources.map(source => this.catalogTrust.retains(source.catalogUrl, source.verification)
           ? source
           : withoutVerification(source)),
         installed,
@@ -603,6 +677,7 @@ export class PluginManager {
       throw new Error(`Marketplace source already exists: ${preview.catalogUrl}`)
     await this.mutate(() => {
       this.state.sources.push(source)
+      this.shadowedUserSources = this.shadowedUserSources.filter(item => item.id !== source.id)
     })
     return structuredClone(source)
   }
@@ -631,6 +706,7 @@ export class PluginManager {
       throw new Error('Uninstall plugins from this source before removing it')
     await this.mutate(() => {
       this.state.sources = this.state.sources.filter(item => item.id !== id)
+      this.shadowedUserSources = this.shadowedUserSources.filter(item => item.id !== id)
     })
   }
 
@@ -893,6 +969,22 @@ export class PluginManager {
       }))
   }
 
+  /** Return active data-only Skill declarations for project-level activation. */
+  async skillContributions(): Promise<InstalledSkillContribution[]> {
+    await this.initialize()
+    await this.refreshLocalPlugins()
+    return this.activePluginSnapshot()
+      .filter(plugin => this.pluginActive(plugin))
+      .flatMap(plugin => plugin.manifest.contributes.skills.map(skill => ({
+        pluginId: plugin.package,
+        version: plugin.version,
+        source: `plugin:${plugin.package}@${plugin.version}`,
+        packagePath: plugin.packagePath,
+        projectFiles: [...plugin.manifest.projectFiles],
+        skill: structuredClone(skill),
+      })))
+  }
+
   /** Return active declarative integrations without executing plugin code. */
   async integrationContributions(): Promise<InstalledIntegrationContribution[]> {
     await this.initialize()
@@ -904,6 +996,35 @@ export class PluginManager {
         pluginId: plugin.package,
         source: `plugin:${plugin.package}@${plugin.version}`,
       })))
+  }
+
+  /** Return localized, project-independent navigation panels from active declarative plugins. */
+  async navigationPanels(locale: string): Promise<InstalledNavigationPanel[]> {
+    await this.initialize()
+    await this.refreshLocalPlugins()
+    return this.activePluginSnapshot()
+      .filter(plugin => this.pluginActive(plugin))
+      .flatMap(plugin => plugin.manifest.contributes.navigationPanels.map(panel => ({
+        ...localizeNavigationPanel(panel, locale),
+        pluginId: plugin.package,
+        pluginName: plugin.manifest.localizations?.[locale]?.displayName ?? plugin.manifest.displayName,
+        pluginVersion: plugin.version,
+      })))
+  }
+
+  /** Return localized product workbenches contributed by active declarative plugins. */
+  async workbenches(locale: string): Promise<InstalledPluginWorkbench[]> {
+    await this.initialize()
+    await this.refreshLocalPlugins()
+    return this.activePluginSnapshot()
+      .filter(plugin => this.pluginActive(plugin))
+      .flatMap(plugin => plugin.manifest.contributes.workbenches.map(workbench => ({
+        ...localizeWorkbench(workbench, locale),
+        pluginId: plugin.package,
+        pluginName: plugin.manifest.localizations?.[locale]?.displayName ?? plugin.manifest.displayName,
+        pluginVersion: plugin.version,
+      })))
+      .sort((left, right) => (left.order ?? 100) - (right.order ?? 100) || left.title.localeCompare(right.title))
   }
 
   private async discover(project: Readonly<ProjectRecord>): Promise<Capability[]> {
@@ -923,19 +1044,6 @@ export class PluginManager {
           description: command.description,
           source,
           invocation: { command: command.command, args: command.args, cwd: project.path, requiredEnv: command.requiredEnv },
-        })
-      }
-      for (const skill of plugin.manifest.contributes.skills) {
-        const path = safePackagePath(plugin.packagePath, skill.path)
-        const content = await readFile(path, 'utf8')
-        capabilities.push({
-          id: `plugin:${plugin.package}:skill:${createHash('sha256').update(skill.path).digest('hex').slice(0, 12)}`,
-          kind: 'skill',
-          name: skillName(content, skill.path),
-          source,
-          path,
-          content,
-          contentHash: createHash('sha256').update(content).digest('hex'),
         })
       }
     }
@@ -1177,7 +1285,15 @@ export class PluginManager {
   private async persistState(): Promise<void> {
     await mkdir(this.dataDir, { recursive: true })
     const temporaryPath = `${this.statePath}.${randomUUID()}.tmp`
-    await writeFile(temporaryPath, `${JSON.stringify(this.state, null, 2)}\n`, 'utf8')
+    const activeSourceIds = new Set(this.state.sources.map(source => source.id))
+    const state = {
+      ...this.state,
+      sources: [
+        ...this.state.sources,
+        ...this.shadowedUserSources.filter(source => !activeSourceIds.has(source.id)),
+      ],
+    }
+    await writeFile(temporaryPath, `${JSON.stringify(state, null, 2)}\n`, 'utf8')
     await rename(temporaryPath, this.statePath)
   }
 }
@@ -1354,18 +1470,6 @@ function safePackagePath(root: string, path: string): string {
   if (relativePath === '..' || relativePath.startsWith(`..${sep}`) || isAbsolute(relativePath))
     throw new Error(`Path escapes its root: ${path}`)
   return resolved
-}
-
-function skillName(content: string, path: string): string {
-  const lines = content.split(/\r?\n/)
-  if (lines[0]?.trim() === '---') {
-    const boundary = lines.indexOf('---', 1)
-    const nameLine = lines.slice(1, boundary < 0 ? 1 : boundary).find(line => line.trimStart().startsWith('name:'))
-    const name = nameLine?.slice(nameLine.indexOf(':') + 1).trim().replace(/^['"]|['"]$/g, '')
-    if (name)
-      return name
-  }
-  return path.split(/[\\/]/).at(-2) || path
 }
 
 function sameStringSet(left: string[], right: string[]): boolean {

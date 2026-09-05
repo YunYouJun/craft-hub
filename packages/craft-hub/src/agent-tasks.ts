@@ -3,12 +3,16 @@ import type { CraftHubStore } from './store'
 import type { AgentActionId, AgentActionResult, AgentTaskRecord } from './types'
 import { Buffer } from 'node:buffer'
 import { randomUUID } from 'node:crypto'
+import { resolve } from 'node:path'
+import { assertCommandWorkingDirectory } from './path-security'
 
 /** Input accepted by a host-provided agent task adapter. */
 export interface StartAgentTaskInput {
   prompt: string
   projectIds: string[]
   primaryProjectId: string
+  /** Project-relative package selected as the task working directory. */
+  primaryProjectRelativePath?: string
   capabilityId?: string
   actionId?: AgentActionId
   workspaceId?: string
@@ -27,6 +31,7 @@ export interface AgentTaskProviderInput extends StartAgentTaskInput {
   taskId: string
   projectPaths: string[]
   primaryProjectPath: string
+  primaryWorkingDirectory: string
   signal: AbortSignal
   onThread: (threadId: string) => Promise<void>
   /** Persist one human-readable progress chunk for the local task UI. */
@@ -103,6 +108,8 @@ export class AgentTaskManager {
     if (untrusted.length)
       throw new Error(`Trust every selected project before starting ${this.provider.id}: ${untrusted.map(project => project.name).join(', ')}`)
     const primary = projects.find(project => project.id === input.primaryProjectId)!
+    const primaryWorkingDirectory = resolve(primary.path, input.primaryProjectRelativePath ?? '.')
+    await assertCommandWorkingDirectory(primary.path, primaryWorkingDirectory)
     const task: AgentTaskRecord = {
       id: randomUUID(),
       provider: this.provider.id,
@@ -111,6 +118,7 @@ export class AgentTaskManager {
       workspaceId: input.workspaceId,
       projectIds: [...input.projectIds],
       primaryProjectId: input.primaryProjectId,
+      primaryProjectRelativePath: input.primaryProjectRelativePath,
       prompt: input.prompt,
       parentTaskId: input.parentTaskId,
       startedAt: new Date().toISOString(),
@@ -131,6 +139,7 @@ export class AgentTaskManager {
       taskId: task.id,
       projectPaths: projects.map(project => project.path),
       primaryProjectPath: primary.path,
+      primaryWorkingDirectory,
       signal: controller.signal,
       onThread: async (threadId) => {
         task.externalThreadId = threadId

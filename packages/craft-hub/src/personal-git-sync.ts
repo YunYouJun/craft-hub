@@ -4,8 +4,9 @@ import type { WorkspaceService } from './workspaces'
 import { execFile } from 'node:child_process'
 import { createHash, randomUUID } from 'node:crypto'
 import { mkdir, readFile, realpath, rename, writeFile } from 'node:fs/promises'
-import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { dirname, isAbsolute, join, relative, sep } from 'node:path'
 import { promisify } from 'node:util'
+import { PersonalConfigRepository } from './personal-config-repository'
 import { settingsExportFormatVersion } from './settings'
 
 const execFileAsync = promisify(execFile)
@@ -29,8 +30,10 @@ export interface PersonalGitSyncStatus {
 export type PersonalGitSyncResolution = 'auto' | 'use-local' | 'use-repository'
 
 interface PersonalGitSyncConfiguration {
-  schemaVersion: 1
+  directory?: string
+  /** Removed after migrating early-alpha state to PersonalConfigRepository. */
   target?: PersonalGitSyncTarget
+  schemaVersion: 1
   lastRevision?: string
 }
 
@@ -43,28 +46,33 @@ interface PersonalPortableSnapshot {
 /** Synchronize allowlisted Personal configuration through a user-selected local Git checkout. */
 export class PersonalGitSyncService {
   private readonly configurationPath: string
+  private readonly repository: PersonalConfigRepository
 
   constructor(
     dataDir: string,
     private readonly settings: CraftHubSettingsService,
     private readonly workspaces: WorkspaceService,
+    repository?: PersonalConfigRepository,
   ) {
     this.configurationPath = join(dataDir, 'personal-git-sync.json')
+    this.repository = repository ?? new PersonalConfigRepository(dataDir)
   }
 
   /** Select a local Git checkout without copying credentials or repository metadata. */
   async configure(input: { repositoryPath: string, directory?: string }): Promise<PersonalGitSyncStatus> {
     if (!input.repositoryPath.trim())
       throw new Error('Git repository path is required')
-    const repositoryPath = await gitRoot(resolve(input.repositoryPath))
     const directory = normalizeDirectory(input.directory ?? '.craft-hub')
+    const current = await this.configuration()
+    const previousRepository = await this.repository.status()
+    const selectedRepository = await this.repository.configure(input.repositoryPath)
+    const repositoryPath = selectedRepository.repositoryPath
     const target = { repositoryPath, directory }
     await this.safeSnapshotPath(target)
-    const current = await this.configuration()
     await this.saveConfiguration({
       schemaVersion: 1,
-      target,
-      lastRevision: current.target?.repositoryPath === repositoryPath && current.target.directory === directory
+      directory,
+      lastRevision: previousRepository.repositoryPath === repositoryPath && current.directory === directory
         ? current.lastRevision
         : undefined,
     })
@@ -74,28 +82,32 @@ export class PersonalGitSyncService {
   /** Inspect semantic divergence without changing files or running network Git operations. */
   async status(): Promise<PersonalGitSyncStatus> {
     const configuration = await this.configuration()
-    if (!configuration.target)
+    const repository = await this.repository.status()
+    if (!configuration.directory || !repository.repositoryPath)
       return { state: 'unconfigured' }
+    const target = { repositoryPath: repository.repositoryPath, directory: configuration.directory }
     const local = await this.localSnapshot()
     const localRevision = snapshotRevision(local)
-    const snapshotPath = await this.safeSnapshotPath(configuration.target)
-    const repository = await readSnapshot(snapshotPath)
-    const repositoryRevision = repository ? snapshotRevision(repository) : undefined
+    const snapshotPath = await this.safeSnapshotPath(target)
+    const repositorySnapshot = await readSnapshot(snapshotPath)
+    const repositoryRevision = repositorySnapshot ? snapshotRevision(repositorySnapshot) : undefined
     return {
       state: syncState(localRevision, repositoryRevision, configuration.lastRevision),
-      target: configuration.target,
+      target,
       snapshotPath,
       localRevision,
       repositoryRevision,
-      workingTreeChanged: await gitPathChanged(configuration.target, snapshotPath),
+      workingTreeChanged: await gitPathChanged(target, snapshotPath),
     }
   }
 
   /** Synchronize automatically when one side changed, or resolve a divergence explicitly. */
   async synchronize(resolution: PersonalGitSyncResolution = 'auto'): Promise<PersonalGitSyncStatus> {
     const configuration = await this.configuration()
-    if (!configuration.target)
+    const repository = await this.repository.status()
+    if (!configuration.directory || !repository.repositoryPath)
       throw new Error('Personal Git sync is not configured')
+    const target = { repositoryPath: repository.repositoryPath, directory: configuration.directory }
     const status = await this.status()
     if (status.state === 'conflict' && resolution === 'auto')
       throw new Error('Personal Git sync has diverged. Choose local or repository configuration.')
@@ -105,7 +117,7 @@ export class PersonalGitSyncService {
     const useRepository = resolution === 'use-repository' || (resolution === 'auto' && status.state === 'repository-ahead')
     let revision: string
     if (useRepository) {
-      const snapshot = await readSnapshot(await this.safeSnapshotPath(configuration.target))
+      const snapshot = await readSnapshot(await this.safeSnapshotPath(target))
       if (!snapshot)
         throw new Error('The selected Git repository does not contain a Personal snapshot')
       await this.applySnapshot(snapshot)
@@ -113,7 +125,7 @@ export class PersonalGitSyncService {
     }
     else {
       const snapshot = await this.localSnapshot()
-      const snapshotPath = await this.safeSnapshotPath(configuration.target, true)
+      const snapshotPath = await this.safeSnapshotPath(target, true)
       await writeJsonAtomic(snapshotPath, snapshot)
       revision = snapshotRevision(snapshot)
     }
@@ -155,8 +167,22 @@ export class PersonalGitSyncService {
   private async configuration(): Promise<PersonalGitSyncConfiguration> {
     try {
       const value = JSON.parse(await readFile(this.configurationPath, 'utf8')) as PersonalGitSyncConfiguration
-      if (value.schemaVersion !== 1)
+      if (value.schemaVersion !== 1 || (value.directory !== undefined && typeof value.directory !== 'string'))
         throw new Error('Unsupported Personal Git sync schema')
+      if (value.target) {
+        const currentRepository = await this.repository.status()
+        if (!currentRepository.repositoryPath)
+          await this.repository.configure(value.target.repositoryPath)
+        const migrated = {
+          schemaVersion: 1 as const,
+          directory: normalizeDirectory(value.target.directory),
+          lastRevision: currentRepository.repositoryPath && currentRepository.repositoryPath !== value.target.repositoryPath
+            ? undefined
+            : value.lastRevision,
+        }
+        await this.saveConfiguration(migrated)
+        return migrated
+      }
       return value
     }
     catch (error) {
@@ -186,16 +212,6 @@ function normalizeDirectory(value: string): string {
   if (!directory || isAbsolute(directory) || directory.split('/').some(part => part === '..' || part === '.git' || !part))
     throw new Error('Git sync directory must be a non-empty relative path without parent traversal')
   return directory
-}
-
-async function gitRoot(path: string): Promise<string> {
-  try {
-    const { stdout } = await execFileAsync('git', ['-C', path, 'rev-parse', '--show-toplevel'], { encoding: 'utf8' })
-    return stdout.trim()
-  }
-  catch {
-    throw new Error(`Not a Git repository: ${path}`)
-  }
 }
 
 async function gitPathChanged(target: PersonalGitSyncTarget, snapshotPath: string): Promise<boolean> {
