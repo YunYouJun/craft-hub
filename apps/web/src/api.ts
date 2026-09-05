@@ -1,4 +1,4 @@
-import type { AgentActionId, AgentActionSummary, AgentTaskRecord, ApplyGitIntegrationRequest, Capability, CapabilityDiscoveryResult, CapabilityPins, CatalogPluginV1, CommandInputValues, CommandInvocation, DotfilesManagerStatus, DotfilesOperation, DotfilesOperationResult, GitIntegrationPlan, GitIntegrationRequest, GitIntegrationResult, InstalledPlugin, LocalPlugin, ManagedPlugin, MarketplaceSource, MarketplaceSourcePreview, OwnerScope, OwnerScopeUiState, PersonalGitSyncResolution, PersonalGitSyncStatus, PluginDocumentPreview, PluginInstallPlan, PluginUpdatePlanItem, PluginUpdateResult, ProjectCatalogSnapshot, ProjectChangeEvent, ProjectConfigInitializationResult, ProjectDescriptionApplication, ProjectDescriptionAudit, ProjectDescriptionChange, ProjectOverview, ProjectRecord, ProjectRunSummary, ProjectVisualInput, ReleasePlan, RunCleanupOptions, RunCleanupResult, RunRecord, RunStreamEvent, RuntimeHealth, SettingsExportEnvelope, SettingsExportMode, SettingsImportPreview, SettingsImportStrategy, SettingsSnapshot, TeamDeletionResult, TeamGitSyncStatus, UserConfigStatus, WorkbenchLocale, WorkspaceCatalog, WorkspaceGroup, WorkspaceImportPreview, WorkspaceImportResult, WorkspaceManifest, WorkspaceRecord, WorkspaceUiState } from 'craft-hub'
+import type { AgentActionId, AgentActionSummary, AgentTaskRecord, ApplyGitIntegrationRequest, Capability, CapabilityDiscoveryResult, CapabilityPins, CatalogPluginV1, CommandInputValues, CommandInvocation, DotfilesManagerStatus, DotfilesOperation, DotfilesOperationResult, GitIntegrationPlan, GitIntegrationRequest, GitIntegrationResult, InstalledNavigationPanel, InstalledPlugin, InstalledPluginWorkbench, IntegrationActionResult, IntegrationDiagnostic, LocalPlugin, LocalSkillActivationSettings, ManagedPlugin, MarketplaceSource, MarketplaceSourcePreview, OwnerScope, OwnerScopeUiState, PersonalGitSyncResolution, PersonalGitSyncStatus, PluginDocumentPreview, PluginInstallPlan, PluginUpdatePlanItem, PluginUpdateResult, ProjectCatalogSnapshot, ProjectChangeEvent, ProjectConfigInitializationResult, ProjectDescriptionApplication, ProjectDescriptionAudit, ProjectDescriptionChange, ProjectOverview, ProjectRecord, ProjectRunSummary, ProjectSkillsState, ProjectVisualInput, ReleasePlan, ResolvedIntegrationContribution, RunCleanupOptions, RunCleanupResult, RunRecord, RunStreamEvent, RuntimeHealth, SettingsExportEnvelope, SettingsExportMode, SettingsImportPreview, SettingsImportStrategy, SettingsSnapshot, TeamDeletionResult, TeamGitSyncStatus, UserConfigStatus, WorkbenchDiagnosticSnapshot, WorkbenchLocale, WorkspaceCatalog, WorkspaceGroup, WorkspaceImportPreview, WorkspaceImportResult, WorkspaceManifest, WorkspaceRecord, WorkspaceUiState } from 'craft-hub'
 
 export class ApiRequestError extends Error {
   constructor(message: string, readonly status: number) {
@@ -120,6 +120,16 @@ export const api = {
   removeMarketplaceSource: (sourceId: string) => request<{ deleted: true }>(`/api/marketplace/sources/${encodeURIComponent(sourceId)}`, { method: 'DELETE' }),
   refreshMarketplaceSource: (sourceId: string) => request<MarketplaceSource>(`/api/marketplace/sources/${encodeURIComponent(sourceId)}/refresh`, { method: 'POST' }),
   installedPlugins: () => request<ManagedPlugin[]>('/api/plugins'),
+  navigationPanels: (locale: WorkbenchLocale) => request<InstalledNavigationPanel[]>(`/api/navigation-panels?locale=${encodeURIComponent(locale)}`),
+  pluginWorkbenches: (locale: WorkbenchLocale) => request<InstalledPluginWorkbench[]>(`/api/workbenches?locale=${encodeURIComponent(locale)}`),
+  integrations: () => request<{ integrations: ResolvedIntegrationContribution[], diagnostics: IntegrationDiagnostic[] }>('/api/integrations'),
+  diagnostics: () => request<WorkbenchDiagnosticSnapshot>('/api/diagnostics'),
+  invokeIntegrationAction: <T extends IntegrationActionResult = IntegrationActionResult>(integrationId: string, actionId: string, input: Record<string, unknown> = {}, projectId?: string, confirmed = false) => request<T>(projectId
+    ? `/api/projects/${encodeURIComponent(projectId)}/integrations/${encodeURIComponent(integrationId)}/actions/${encodeURIComponent(actionId)}`
+    : `/api/integrations/${encodeURIComponent(integrationId)}/actions/${encodeURIComponent(actionId)}`, {
+    method: 'POST',
+    body: JSON.stringify({ input, confirmed }),
+  }),
   pluginDocument: (sourceId: string, packageName: string, version?: string, path?: string) => request<PluginDocumentPreview>(`/api/plugins/document?${new URLSearchParams({ sourceId, package: packageName, ...(version ? { version } : {}), ...(path ? { path } : {}) })}`),
   pluginDocumentAssetUrl: (sourceId: string, packageName: string, version: string, path: string) => `/api/plugins/document-asset?${new URLSearchParams({ sourceId, package: packageName, version, path })}`,
   linkLocalPlugin: (path: string) => request<LocalPlugin>('/api/plugins/local', { method: 'POST', body: JSON.stringify({ path }) }),
@@ -185,6 +195,8 @@ export const api = {
   removeWorkspaceProject: (workspaceId: string, projectIdOrKey: string, ownerScopeId = 'personal') => request<WorkspaceRecord>(scopedPath(`/api/workspaces/${workspaceId}/members/${encodeURIComponent(projectIdOrKey)}`, ownerScopeId), { method: 'DELETE' }),
   capabilities: (projectId: string) => request<Capability[]>(`/api/projects/${projectId}/capabilities`),
   capabilityDiscovery,
+  projectSkills: (projectId: string) => request<ProjectSkillsState>(`/api/projects/${projectId}/skills`),
+  updateProjectSkills: (projectId: string, settings: LocalSkillActivationSettings) => request<ProjectSkillsState>(`/api/projects/${projectId}/skills`, { method: 'PUT', body: JSON.stringify({ settings }) }),
   projectOverview: (projectId: string, packagePath: string, locale: WorkbenchLocale) => request<ProjectOverview>(`/api/projects/${projectId}/overview?package=${encodeURIComponent(packagePath)}&locale=${encodeURIComponent(locale)}`),
   gitIntegrationPlan: (projectId: string, input: GitIntegrationRequest = {}) => request<GitIntegrationPlan>(`/api/projects/${projectId}/git-integration/plan`, {
     method: 'POST',
@@ -219,9 +231,10 @@ export const api = {
   cleanupRuns: (options: RunCleanupOptions) => request<RunCleanupResult>('/api/runs/cleanup', { method: 'POST', body: JSON.stringify(options) }),
   pinRun: (runId: string, pinned: boolean) => request<RunRecord>(`/api/runs/${runId}/pin`, { method: 'PUT', body: JSON.stringify({ pinned }) }),
   agentTasks: () => request<AgentTaskRecord[]>('/api/agent-tasks'),
-  startAgentTask: (input: { prompt: string, projectIds: string[], primaryProjectId: string, capabilityId?: string, workspaceId?: string }) => request<AgentTaskRecord>('/api/agent-tasks', { method: 'POST', body: JSON.stringify(input) }),
+  startAgentTask: (input: { prompt: string, projectIds: string[], primaryProjectId: string, primaryProjectRelativePath?: string, capabilityId?: string, workspaceId?: string }) => request<AgentTaskRecord>('/api/agent-tasks', { method: 'POST', body: JSON.stringify(input) }),
   cancelAgentTask: (id: string) => request<AgentTaskRecord>(`/api/agent-tasks/${id}`, { method: 'DELETE' }),
   trust: (projectId: string) => request<ProjectRecord>(`/api/projects/${projectId}/trust`, { method: 'POST' }),
+  revokeTrust: (projectId: string) => request<ProjectRecord>(`/api/projects/${projectId}/trust`, { method: 'DELETE' }),
   initializeProjectConfig: (projectId: string, mode: 'preview' | 'apply', expectedRevision?: string) => request<ProjectConfigInitializationResult>(`/api/projects/${projectId}/config/initialize`, {
     method: 'POST',
     body: JSON.stringify({ mode, expectedRevision }),

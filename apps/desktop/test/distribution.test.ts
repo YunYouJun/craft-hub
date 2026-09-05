@@ -4,6 +4,7 @@ import { communityDesktopUpdateBaseUrl, parseDesktopDistributionManifest, resolv
 
 const downstreamManifest = {
   schemaVersion: 1,
+  hostPlugins: ['@acme/craft-hub-host-plugin', './plugins/host-plugin.mjs'],
   distribution: {
     id: 'acme',
     name: 'Acme Workbench',
@@ -72,6 +73,9 @@ describe('desktop distribution manifest', () => {
     [{ ...downstreamManifest, distribution: { ...downstreamManifest.distribution, marketplaceTrustPolicies: [{ ...downstreamManifest.distribution.marketplaceTrustPolicies[0], algorithm: 'rsa' }] } }, 'must be ed25519'],
     [{ ...downstreamManifest, distribution: { ...downstreamManifest.distribution, marketplaceTrustPolicies: [{ ...downstreamManifest.distribution.marketplaceTrustPolicies[0], catalogUrl: 'http://developer.acme.example/catalog.json' }] } }, 'credential-free HTTPS'],
     [{ ...downstreamManifest, distribution: { ...downstreamManifest.distribution, marketplaceTrustPolicies: [{ ...downstreamManifest.distribution.marketplaceTrustPolicies[0], publicKeySpki: 'not base64' }] } }, 'base64url'],
+    [{ ...downstreamManifest, hostPlugins: ['./../outside.mjs'] }, 'stay inside'],
+    [{ ...downstreamManifest, hostPlugins: ['https://example.com/plugin.mjs'] }, 'package name or safe relative'],
+    [{ ...downstreamManifest, hostPlugins: ['@acme/plugin', '@acme/plugin'] }, 'duplicate'],
   ])('rejects an unsafe manifest', (manifest, message) => {
     expect(() => parseDesktopDistributionManifest(manifest)).toThrow(message)
   })

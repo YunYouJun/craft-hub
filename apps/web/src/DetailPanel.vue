@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { AgentTaskRecord, CommandInputConditions, CommandInputDefinition, CommandInputValues, CommandInvocation, ReleasePlan, SkillCapability, SkillInputDefinition } from 'craft-hub'
+import type { AgentTaskRecord, CommandInputConditions, CommandInputDefinition, CommandInputValues, CommandInvocation, ProjectSkillsState, ReleasePlan, SkillCapability, SkillInputDefinition } from 'craft-hub'
 import { commandInvocationSequence } from 'craft-hub/command-inputs'
 import { resolveSkillInputSelections } from 'craft-hub/skill-inputs'
 import { buildSkillInvocationPrompt } from 'craft-hub/skill-prompts'
@@ -8,6 +8,7 @@ import AgentTaskOutput from './AgentTaskOutput.vue'
 import AsyncTerminalOutput from './AsyncTerminalOutput.vue'
 import { api } from './api'
 import { Button as UiButton } from './components/ui/button'
+import { DialogShell } from './components/ui/dialog'
 import { FormSelect } from './components/ui/select'
 import { commandInputInitialValues, rememberCommandInputValues } from './command-input-history'
 import { Icon } from './icons'
@@ -58,6 +59,7 @@ const skillInputValues = ref<CommandInputValues>({})
 const resolvedInvocation = ref<CommandInvocation>()
 const previewError = ref('')
 const trustRunOpen = ref(false)
+const backgroundSkillTrustOpen = ref(false)
 const releasePlan = ref<ReleasePlan>()
 const releasePlanLoading = ref(false)
 const releasePlanError = ref('')
@@ -68,6 +70,14 @@ const skillTaskStarting = ref(false)
 const skillNotice = ref('')
 const skillInvocation = ref<'codex-app' | 'background'>('codex-app')
 const skillContentExpanded = ref(false)
+const skillSettings = ref<ProjectSkillsState>()
+const selectedSkillScope = ref('.')
+const skillScopeOptions = computed(() => {
+  const skill = store.activeCapability
+  return skill?.kind === 'skill'
+    ? (skill.activation?.scopes ?? []).map(scope => ({ value: scope.relativePath, label: scope.relativePath === '.' ? t('projectRoot') : scope.packageName ? `${scope.packageName} · ${scope.relativePath}` : scope.relativePath, icon: 'folder' }))
+    : []
+})
 const skillInputError = computed(() => {
   const skill = store.activeCapability
   if (skill?.kind !== 'skill')
@@ -187,7 +197,41 @@ watch([() => store.activeProject?.id, () => store.activeCapability?.id], () => {
   skillNotice.value = ''
   skillInvocation.value = 'codex-app'
   skillContentExpanded.value = false
+  backgroundSkillTrustOpen.value = false
 }, { immediate: true })
+watch([() => store.activeProject?.id, () => store.activeCapability?.id], async ([projectId, capabilityId]) => {
+  const skill = store.activeCapability
+  skillSettings.value = undefined
+  selectedSkillScope.value = skillScopeOptions.value[0]?.value ?? '.'
+  if (!projectId || skill?.kind !== 'skill' || skill.id !== capabilityId || skillScopeOptions.value.length <= 1)
+    return
+  try {
+    const settings = await api.projectSkills(projectId)
+    if (store.activeProject?.id !== projectId || store.activeCapability?.id !== capabilityId)
+      return
+    skillSettings.value = settings
+    const remembered = settings.local.selectedScopes?.[skill.id]
+    selectedSkillScope.value = skillScopeOptions.value.some(option => option.value === remembered)
+      ? remembered!
+      : skillScopeOptions.value[0]?.value ?? '.'
+  }
+  catch {
+    // Keep the first declared scope when local preferences are unavailable.
+  }
+}, { immediate: true })
+
+async function rememberSkillScope(relativePath: string): Promise<void> {
+  selectedSkillScope.value = relativePath
+  const project = store.activeProject
+  const skill = store.activeCapability
+  if (!project || skill?.kind !== 'skill' || !skillSettings.value)
+    return
+  const local = {
+    ...skillSettings.value.local,
+    selectedScopes: { ...skillSettings.value.local.selectedScopes, [skill.id]: relativePath },
+  }
+  skillSettings.value = await api.updateProjectSkills(project.id, local)
+}
 watch(
   [() => store.activeProject?.id, () => store.activeCapability?.id, () => ({ ...inputValues.value })],
   async () => {
@@ -305,6 +349,10 @@ async function invokeSkill(invocation: 'codex-app' | 'background' = 'codex-app')
   const supplementalRequest = skillSupplementalRequest.value.trim()
   if (!project || skill?.kind !== 'skill' || !skillCanSubmit.value)
     return
+  if (invocation === 'background' && project.trust !== 'trusted') {
+    backgroundSkillTrustOpen.value = true
+    return
+  }
   skillInvocation.value = invocation
   skillTaskStarting.value = true
   skillNotice.value = ''
@@ -319,11 +367,11 @@ async function invokeSkill(invocation: 'codex-app' | 'background' = 'codex-app')
     if (skillInvocation.value === 'codex-app') {
       if (!desktopActions.value?.startProjectInCodex)
         throw new Error(t('codexAppUnavailable'))
-      await desktopActions.value.startProjectInCodex(project.id, prompt)
+      await desktopActions.value.startProjectInCodex(project.id, prompt, selectedSkillScope.value)
       skillNotice.value = t('codexPromptCopied')
     }
     else {
-      const task: AgentTaskRecord = await store.startAgentTask(prompt, [project.id], project.id, undefined, skill.id)
+      const task: AgentTaskRecord = await store.startAgentTask(prompt, [project.id], project.id, undefined, skill.id, selectedSkillScope.value)
       skillTaskId.value = task.id
       skillNotice.value = t('skillAgentStarted')
     }
@@ -334,6 +382,14 @@ async function invokeSkill(invocation: 'codex-app' | 'background' = 'codex-app')
   finally {
     skillTaskStarting.value = false
   }
+}
+
+async function trustAndInvokeBackgroundSkill(): Promise<void> {
+  const project = store.activeProject
+  if (!project || !await store.trustProjectById(project.id))
+    return
+  backgroundSkillTrustOpen.value = false
+  await invokeSkill('background')
 }
 
 function openSkillThread(): Promise<void> {
@@ -508,6 +564,10 @@ function openSkillThread(): Promise<void> {
           </div>
         </section>
         <form class="skill-agent-form" data-testid="skill-agent-form" @submit.prevent="invokeSkill('codex-app')">
+          <div v-if="skillScopeOptions.length > 1" class="skill-scope-field">
+            <label for="skill-scope">{{ t('skillScope') }}</label>
+            <FormSelect id="skill-scope" :model-value="selectedSkillScope" :options="skillScopeOptions" test-id="skill-scope" @update:model-value="rememberSkillScope" />
+          </div>
           <div v-if="skillInputs.length" class="skill-input-fields" data-testid="skill-input-fields">
             <div v-for="input in skillInputs" v-show="skillInputVisible(input)" :key="input.id" class="skill-input-field">
               <label :for="`skill-input-${input.id}`">{{ input.label ?? input.id }}<small v-if="skillInputRequired(input)"> *</small></label>
@@ -543,7 +603,7 @@ function openSkillThread(): Promise<void> {
               type="button"
               data-testid="run-skill-in-background"
               :title="t('skillInvocationBackgroundDescription')"
-              :disabled="!desktopActions || skillTaskStarting || !skillCanSubmit || store.activeProject?.trust !== 'trusted'"
+              :disabled="!desktopActions || skillTaskStarting || !skillCanSubmit"
               @click="invokeSkill('background')"
             >
               <Icon name="hub" />
@@ -579,5 +639,19 @@ function openSkillThread(): Promise<void> {
       </template>
     </template>
     <TrustRunDialog v-model:open="trustRunOpen" :invocation="displayedInvocation" :inputs="inputValues" :source="sourceLocation" />
+    <DialogShell v-model:open="backgroundSkillTrustOpen" content-class="trust-run-dialog" data-testid="background-skill-trust-dialog">
+      <template #title>{{ t('trustAndStartSkillTitle') }}</template>
+      <template #description>{{ t('trustAndStartSkillDescription', { project: store.activeProject?.name ?? '' }) }}</template>
+      <dl class="trust-run-summary">
+        <div><dt>{{ t('projectPath') }}</dt><dd>{{ store.activeProject?.path }}</dd></div>
+        <div><dt>{{ t('actionLabel') }}</dt><dd>{{ t('runSkillInBackgroundAction', { skill: store.activeCapability?.name ?? '' }) }}</dd></div>
+      </dl>
+      <p class="trust-scope-note"><Icon name="untrusted" /> <span><strong>{{ t('projectTrustScope') }}</strong>{{ t('projectTrustScopeDescription') }}</span></p>
+      <p v-if="store.error" class="error-message" role="alert">{{ store.error }}</p>
+      <footer>
+        <UiButton :disabled="store.busy" @click="backgroundSkillTrustOpen = false">{{ t('cancel') }}</UiButton>
+        <UiButton data-testid="trust-and-run-background-skill" variant="warning" :disabled="store.busy" @click="trustAndInvokeBackgroundSkill"><Icon name="trusted" /> {{ store.busy ? t('allowingExecution') : t('trustAndStart') }}</UiButton>
+      </footer>
+    </DialogShell>
   </main>
 </template>

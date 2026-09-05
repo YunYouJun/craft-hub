@@ -55,7 +55,7 @@ const installedPlugin: InstalledPlugin = {
     requiresPlugins: [],
     projectFiles: [],
     permissions: [],
-    contributes: { commands: [], commandPresets: [], commandTemplates: [], packageQuickActions: [], packageLinks: [], packageToolGroups: [], skills: [], projectTemplates: [], integrations: [] },
+    contributes: { commands: [], commandPresets: [], commandTemplates: [], packageQuickActions: [], packageLinks: [], packageToolGroups: [], navigationPanels: [], workbenches: [], skills: [], projectTemplates: [], integrations: [] },
   },
 }
 
@@ -81,6 +81,7 @@ async function mountMarketplace(props: { open: boolean, importCatalogUrl?: strin
 
 describe('marketplace dialog', () => {
   afterEach(() => {
+    window.craftHubDesktop = undefined
     vi.restoreAllMocks()
     vi.unstubAllGlobals()
   })
@@ -96,6 +97,79 @@ describe('marketplace dialog', () => {
     expect(wrapper.get('[data-testid="plugin-icon"]').attributes('src')).toBe(icon)
     await wrapper.get('.marketplace-tabs button:nth-child(2)').trigger('click')
     expect(wrapper.get('[data-testid="installed-plugin-icon"]').attributes('src')).toBe(icon)
+    await wrapper.get('[data-testid="installed-plugin-icon"]').trigger('error')
+    expect(wrapper.find('[data-testid="installed-plugin-icon"]').exists()).toBe(false)
+    expect(wrapper.find('.plugin-mark .plugins-icon').exists()).toBe(true)
+  })
+
+  it('keeps installed plugin failures compact and leaves the full message to diagnostics', async () => {
+    vi.spyOn(api, 'marketplaceCatalog').mockResolvedValue([])
+    vi.spyOn(api, 'installedPlugins').mockResolvedValue([{ ...installedPlugin, error: 'Manifest is incompatible with this host.' }])
+    vi.spyOn(api, 'marketplaceSources').mockResolvedValue([])
+
+    const wrapper = await mountMarketplace()
+    await flushPromises()
+    await wrapper.get('.marketplace-tabs button:nth-child(2)').trigger('click')
+
+    expect(wrapper.get('.plugin-error-badge').text()).toBe('Needs attention')
+    expect(wrapper.get('.installed-plugin-row').text()).not.toContain('Manifest is incompatible with this host.')
+  })
+
+  it('shows one compact catalog row per plugin and keeps permissions in details', async () => {
+    const installedOlder: InstalledPlugin = {
+      ...installedPlugin,
+      version: '0.0.9',
+      manifest: { ...installedPlugin.manifest, permissions: ['remote-write'] },
+    }
+    const current: typeof catalogPlugin = {
+      ...catalogPlugin,
+      permissions: ['remote-write'],
+      permissionReasons: { 'remote-write': 'Writes only after confirmation.' },
+    }
+    const deprecated = { ...catalogPlugin, version: '0.0.9', status: 'deprecated' as const, statusReason: 'Upgrade to 0.1.0.' }
+    vi.spyOn(api, 'marketplaceCatalog').mockResolvedValue([current, deprecated])
+    vi.spyOn(api, 'installedPlugins').mockResolvedValue([installedOlder])
+    vi.spyOn(api, 'marketplaceSources').mockResolvedValue([])
+    vi.spyOn(api, 'pluginDocument').mockResolvedValue({
+      package: packageName,
+      version: current.version,
+      sourceId: 'acme',
+      origin: 'marketplace',
+      manifest: { ...installedPlugin.manifest, permissions: ['remote-write'] },
+      document: { status: 'missing' },
+    })
+
+    const wrapper = await mountMarketplace()
+    await flushPromises()
+
+    expect(wrapper.findAll('.plugin-row')).toHaveLength(1)
+    expect(wrapper.get('.plugin-version-update').text()).toContain('0.0.9')
+    expect(wrapper.get('.plugin-version-update').text()).toContain('0.1.0')
+    expect(wrapper.get('.plugin-row').text()).not.toContain('remote-write')
+
+    await wrapper.get('.plugin-summary-link').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-testid="plugin-detail"]').text()).toContain('remote-write')
+    expect(wrapper.get('[data-testid="plugin-detail"]').text()).toContain('Writes only after confirmation.')
+  })
+
+  it('groups extension-pack members by default while keeping them searchable', async () => {
+    const childPackage = '@acme/craft-hub-plugin-child'
+    const pack = { ...catalogPlugin, includesPlugins: [{ package: childPackage, version: '^1.0.0' }] }
+    const child = { ...catalogPlugin, package: childPackage, displayName: 'Acme Child', description: 'Specialized child module.' }
+    vi.spyOn(api, 'marketplaceCatalog').mockResolvedValue([pack, child])
+    vi.spyOn(api, 'installedPlugins').mockResolvedValue([])
+    vi.spyOn(api, 'marketplaceSources').mockResolvedValue([])
+
+    const wrapper = await mountMarketplace()
+    await flushPromises()
+
+    expect(wrapper.findAll('.plugin-row')).toHaveLength(1)
+    expect(wrapper.get('.plugin-row').text()).toContain('Acme Suite')
+
+    await wrapper.get('.marketplace-search input').setValue('child')
+    expect(wrapper.findAll('.plugin-row')).toHaveLength(1)
+    expect(wrapper.get('.plugin-row').text()).toContain('Acme Child')
   })
 
   it('opens a versioned plugin detail route from the catalog summary', async () => {
@@ -158,6 +232,7 @@ describe('marketplace dialog', () => {
     expect(wrapper.get('.plugin-row .plugin-pack-count').text()).toBe('1')
     expect(wrapper.get('.plugin-row .plugin-pack-badge').text()).toBe('Extension Pack')
     await wrapper.get('.marketplace-tabs button:nth-child(2)').trigger('click')
+    expect(wrapper.findAll('.installed-plugin-row')).toHaveLength(1)
     const packRow = wrapper.findAll('.installed-plugin-row').find(row => row.text().includes('Acme Suite'))!
     expect(packRow.text()).toContain('1/1 available')
     expect(packRow.text()).toContain('Remove pack')
@@ -212,6 +287,38 @@ describe('marketplace dialog', () => {
     await wrapper.get('[data-testid="local-plugin-form"]').trigger('submit')
     await flushPromises()
     expect(link).toHaveBeenCalledWith('/workspace/next-plugin')
+  })
+
+  it('lets the desktop user choose a local plugin folder before loading it', async () => {
+    vi.spyOn(api, 'marketplaceCatalog').mockResolvedValue([])
+    vi.spyOn(api, 'installedPlugins').mockResolvedValue([])
+    vi.spyOn(api, 'marketplaceSources').mockResolvedValue([])
+    const selectProjectDirectory = vi.fn().mockResolvedValue('/workspace/chosen-plugin')
+    window.craftHubDesktop = { platform: 'darwin', selectProjectDirectory }
+
+    const wrapper = await mountMarketplace()
+    await flushPromises()
+    await wrapper.get('.marketplace-tabs button:nth-child(2)').trigger('click')
+    await wrapper.get('[data-testid="local-plugin-form"] .ui-button--secondary').trigger('click')
+    await flushPromises()
+
+    expect(selectProjectDirectory).toHaveBeenCalledWith(undefined)
+    expect((wrapper.get('[data-testid="local-plugin-form"] input').element as HTMLInputElement).value).toBe('/workspace/chosen-plugin')
+  })
+
+  it('opens the plugin format and authoring guide outside the desktop app', async () => {
+    vi.spyOn(api, 'marketplaceCatalog').mockResolvedValue([])
+    vi.spyOn(api, 'installedPlugins').mockResolvedValue([])
+    vi.spyOn(api, 'marketplaceSources').mockResolvedValue([])
+    const openExternalUrl = vi.fn().mockResolvedValue(undefined)
+    window.craftHubDesktop = { platform: 'darwin', openExternalUrl }
+
+    const wrapper = await mountMarketplace()
+    await flushPromises()
+    await wrapper.get('.marketplace-tabs button:nth-child(2)').trigger('click')
+    await wrapper.get('.local-plugin-format-help button').trigger('click')
+
+    expect(openExternalUrl).toHaveBeenCalledWith('https://github.com/YunYouJun/craft-hub/blob/main/docs/guide/plugin-authoring.md')
   })
 
   it('offers a reviewed manual update when the Catalog has a newer version', async () => {

@@ -5,12 +5,12 @@ import type { WorkspaceLaunchTarget } from './workspace-launch-target.ts'
 import { execFile } from 'node:child_process'
 import { appendFileSync, existsSync } from 'node:fs'
 import { realpath } from 'node:fs/promises'
-import { isAbsolute, relative, resolve } from 'node:path'
+import { dirname, isAbsolute, relative, resolve } from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 import { PersonalCloudController } from '@craft-hub/personal-cloud'
-import { communityDistribution, CraftHubRuntime, startCraftHubServer } from 'craft-hub'
+import { communityDistribution, CraftHubRuntime, loadCraftHubPlugins, startCraftHubServer } from 'craft-hub'
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, nativeTheme, safeStorage, shell } from 'electron'
 import { aboutDocument, aboutPanelOptions } from './about.ts'
 import { loadDesktopBuildInfo } from './build-info.ts'
@@ -130,6 +130,11 @@ async function replayOnboarding(): Promise<void> {
   mainWindow?.webContents.send('craft-hub:replay-onboarding')
 }
 
+async function openHelp(): Promise<void> {
+  await showMainWindow()
+  mainWindow?.webContents.send('craft-hub:open-help')
+}
+
 function installApplicationMenu(): void {
   if (process.platform !== 'darwin')
     return
@@ -156,6 +161,11 @@ function installApplicationMenu(): void {
     {
       role: 'help',
       submenu: [
+        {
+          label: `${productName} Help`,
+          click: () => void openHelp(),
+        },
+        { type: 'separator' },
         {
           label: 'Replay Getting Started',
           click: () => void replayOnboarding(),
@@ -354,12 +364,14 @@ ipcMain.handle('craft-hub:open-workspace-in-editor', async (_event, workspaceId:
   await openConfiguredEditor((await workspaceLaunchTarget(workspaceId)).editorPath)
 })
 
-ipcMain.handle('craft-hub:start-project-in-codex', async (_event, projectId: string, prompt: string) => {
+ipcMain.handle('craft-hub:start-project-in-codex', async (_event, projectId: string, prompt: string, packageRelativePath = '.') => {
   const normalizedPrompt = prompt.trim()
   if (!normalizedPrompt)
     throw new Error('Codex prompt is required')
   clipboard.writeText(normalizedPrompt)
-  await openCodexProject(await projectPath(projectId))
+  const projectRoot = await projectPath(projectId)
+  const { target } = await projectOwnedTarget(projectId, resolve(projectRoot, packageRelativePath))
+  await openCodexProject(target)
 })
 
 ipcMain.handle('craft-hub:start-workspace-in-codex', async (
@@ -458,6 +470,7 @@ ipcMain.handle('craft-hub:cloud-status', () => personalCloud?.status() ?? { stat
 ipcMain.handle('craft-hub:cloud-connect', () => personalCloud?.connect())
 ipcMain.handle('craft-hub:cloud-disconnect', () => personalCloud?.disconnect())
 ipcMain.handle('craft-hub:cloud-synchronize', () => personalCloud?.synchronize())
+ipcMain.handle('craft-hub:consume-celebration', () => desktopLinks.consumeCelebration())
 ipcMain.handle('craft-hub:consume-marketplace-source-import', () => desktopLinks.consumeMarketplaceImport())
 ipcMain.handle('craft-hub:consume-desktop-navigation', async () => {
   const navigation = desktopLinks.consumeNavigation()
@@ -489,9 +502,13 @@ async function handleProtocolUrl(url: string): Promise<void> {
       return
     }
     await showMainWindow()
-    mainWindow?.webContents.send(link.kind === 'marketplace-import'
-      ? 'craft-hub:marketplace-source-import-available'
-      : 'craft-hub:desktop-navigation-available')
+    mainWindow?.webContents.send(
+      link.kind === 'celebration'
+        ? 'craft-hub:celebration-requested'
+        : link.kind === 'marketplace-import'
+          ? 'craft-hub:marketplace-source-import-available'
+          : 'craft-hub:desktop-navigation-available',
+    )
   }
   catch (error) {
     const reason = error instanceof DesktopLinkError ? error.code : 'unexpected-error'
@@ -570,7 +587,18 @@ async function createWindow(): Promise<void> {
   if (!craftHubServer) {
     let runtime!: CraftHubRuntime
     const agentTaskProvider = new CodexAgentTaskProvider(async () => (await runtime.settings.get()).settings['workbench.codex'])
-    runtime = new CraftHubRuntime({ agentTaskProvider, dataDir: desktopDataDirectories.runtimeDataDir, distribution: runtimeDistribution })
+    const hostPlugins = desktopDistribution?.hostPlugins?.length
+      ? await loadCraftHubPlugins(desktopDistribution.hostPlugins, { baseDir: dirname(desktopDistributionManifestPath) })
+      : { plugins: [], diagnostics: [] }
+    for (const diagnostic of hostPlugins.diagnostics)
+      writeApplicationLog('error', `Host Plugin ${diagnostic.pluginId} failed to load: ${diagnostic.message}`)
+    runtime = new CraftHubRuntime({
+      agentTaskProvider,
+      dataDir: desktopDataDirectories.runtimeDataDir,
+      distribution: runtimeDistribution,
+      pluginDiagnostics: hostPlugins.diagnostics,
+      plugins: hostPlugins.plugins,
+    })
     craftHubServer = await startCraftHubServer({ port: developmentUrl ? 4318 : 0, runtime, staticDir })
     writeApplicationLog('info', `Local server started at ${craftHubServer.url}`)
     await initializePersonalCloud()
@@ -606,6 +634,8 @@ async function createWindow(): Promise<void> {
   })
   await loadUrlWithRetry(mainWindow, developmentUrl ?? craftHubServer.url)
   mainWindow.setTitle(windowTitle)
+  if (desktopLinks.hasCelebration())
+    mainWindow.webContents.send('craft-hub:celebration-requested')
   if (desktopLinks.hasMarketplaceImport())
     mainWindow.webContents.send('craft-hub:marketplace-source-import-available')
   if (desktopLinks.hasNavigation())
@@ -674,6 +704,8 @@ async function startDesktopApp(): Promise<void> {
 }
 
 if (!hasSingleInstanceLock) {
+  if (developmentUrl)
+    process.stderr.write(`${productName} Dev is already running; activated the existing window instead.\n`)
   process.exit(0)
 }
 else {
@@ -713,8 +745,9 @@ const requestShutdown = createDeferredOnceTask(async () => {
       // seconds. All stateful resources are closed above; remaining watchers
       // are read-only and can be released safely by the operating system.
       const immediateProcess = process as typeof process & { reallyExit?: (code: number) => never }
+      const exitCode = typeof process.exitCode === 'number' ? process.exitCode : 0
       if (immediateProcess.reallyExit) {
-        immediateProcess.reallyExit(0)
+        immediateProcess.reallyExit(exitCode)
       }
       process.kill(process.pid, 'SIGKILL')
     }

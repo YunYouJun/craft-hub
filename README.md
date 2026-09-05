@@ -14,6 +14,7 @@ Craft Hub is a local, cross-project developer workbench. Its Project Palette dis
 - Preview command, arguments, working directory, and required environment
 - Trust a project explicitly before running anything
 - Capture stdout, stderr, exit status, and run records
+- Review host, configuration, Marketplace, plugin, and integration problems in one diagnostics workbench
 - Use the same runtime from the CLI, web workbench, and Electron shell
 
 ## Develop
@@ -78,12 +79,12 @@ pnpm dlx craft-hub@next app .
 craft-hub app .
 craft-hub app . --browser
 craft-hub app /absolute/path/to/project --no-open
-pnpm --filter craft-hub start -- project:add /absolute/path/to/project
-pnpm --filter craft-hub start -- project:list
-pnpm --filter craft-hub start -- workspace:import /absolute/path/to/workspaces
-pnpm --filter craft-hub start -- list <project-id>
-pnpm --filter craft-hub start -- project:trust <project-id>
-pnpm --filter craft-hub start -- run <project-id> <capability-id> --yes
+pnpm --filter craft-hub start project:add /absolute/path/to/project
+pnpm --filter craft-hub start project:list
+pnpm --filter craft-hub start workspace:import /absolute/path/to/workspaces
+pnpm --filter craft-hub start list <project-id>
+pnpm --filter craft-hub start project:trust <project-id>
+pnpm --filter craft-hub start run <project-id> <capability-id> --yes
 ```
 
 `craft-hub app [path]` opens the matching Project in the installed desktop client. The path defaults to the current directory. When the path cannot be represented by a Git Project Reference or the desktop protocol handler is unavailable, it falls back to a standalone browser workbench. Pass `--browser` to force that browser workbench, `--no-open` to start it without opening a browser, or `--port <port>` to choose a fixed port.
@@ -173,6 +174,8 @@ const runtime = createCraftHub({ plugins: [issuePlugin] })
 ```
 
 Hosts that accept package names from configuration can call `loadCraftHubPlugins(specifiers, { baseDir })`. A plugin package exports its plugin object as `default` or `plugin`. Loading executes package code, so only explicitly configured, trusted dependencies should be accepted. Broken plugins are returned as diagnostics and do not prevent healthy plugins from loading; discovery failures are available through `runtime.getPluginDiagnostics()`.
+
+Desktop distributions may list those reviewed modules in the top-level `hostPlugins` array of their distribution manifest. Package names and safe paths relative to the manifest are supported; network URLs and paths outside the distribution directory are rejected. The Community desktop loads these adapters into the same runtime and UI, so downstream products do not need to fork the workbench shell.
 
 ### Marketplace plugins
 

@@ -15,6 +15,8 @@ export interface DesktopAboutBranding {
 export interface DesktopDistributionManifest {
   schemaVersion: 1
   distribution: DistributionConfig
+  /** Explicit trusted code modules loaded by this desktop distribution. */
+  hostPlugins?: string[]
   desktop: {
     about?: DesktopAboutBranding
     artifactName: string
@@ -71,6 +73,7 @@ export function parseDesktopDistributionManifest(input: unknown): DesktopDistrib
     distribution.marketplaceTrustPolicies = rawDistribution.marketplaceTrustPolicies.map((policy, index) => parseMarketplaceTrustPolicy(policy, index))
   }
 
+  const hostPlugins = root.hostPlugins === undefined ? undefined : hostPluginSpecifiers(root.hostPlugins)
   const rawDesktop = objectValue(root.desktop, 'desktop')
   const protocol = protocolValue(rawDesktop.protocol, 'desktop.protocol')
   const developmentProtocol = rawDesktop.developmentProtocol === undefined
@@ -91,7 +94,7 @@ export function parseDesktopDistributionManifest(input: unknown): DesktopDistrib
   if (rawDesktop.icons !== undefined)
     desktop.icons = parseDesktopIcons(rawDesktop.icons)
 
-  return { schemaVersion: 1, distribution, desktop }
+  return { schemaVersion: 1, distribution, ...(hostPlugins ? { hostPlugins } : {}), desktop }
 }
 
 /** Load an optional downstream manifest; a missing file selects the community distribution. */
@@ -228,6 +231,28 @@ function distributionAssetPath(value: unknown, name: string, expectedExtension: 
   if (extname(assetPath).toLowerCase() !== expectedExtension)
     throw new Error(`${name} must reference a ${expectedExtension} file`)
   return assetPath
+}
+
+function hostPluginSpecifiers(value: unknown): string[] {
+  if (!Array.isArray(value) || !value.every(specifier => typeof specifier === 'string'))
+    throw new Error('hostPlugins must be an array of module specifiers')
+  const specifiers = value.map((specifier, index) => hostPluginSpecifier(specifier, `hostPlugins[${index}]`))
+  if (new Set(specifiers).size !== specifiers.length)
+    throw new Error('hostPlugins must not contain duplicate module specifiers')
+  return specifiers
+}
+
+function hostPluginSpecifier(value: string, name: string): string {
+  const specifier = requiredString(value, name)
+  if (specifier.startsWith('./')) {
+    const segments = specifier.slice(2).split('/')
+    if (specifier.includes('\\') || specifier.includes('\0') || segments.some(segment => !segment || segment === '.' || segment === '..'))
+      throw new Error(`${name} must stay inside the distribution directory`)
+    return specifier
+  }
+  if (!/^(?:@[\w.-]+\/)?[\w.-]+(?:\/[\w.-]+)*$/.test(specifier))
+    throw new Error(`${name} must be a package name or safe relative module path`)
+  return specifier
 }
 
 function safeFileName(value: unknown, name: string): string {

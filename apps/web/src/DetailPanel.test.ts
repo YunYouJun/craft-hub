@@ -5,7 +5,8 @@ import type { AgentTaskRecord, CommandCapability, ProjectRecord, SkillCapability
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { Select } from './components/ui/select'
+import { api } from './api'
+import { FormSelect, Select } from './components/ui/select'
 import DetailPanel from './DetailPanel.vue'
 import { useI18n } from './i18n'
 import { useWorkbenchStore } from './store'
@@ -120,6 +121,7 @@ describe('detail panel desktop actions', () => {
 
   it('shows Codex App as the default skill invocation and copies the prepared request there', async () => {
     useI18n().setLocale('en')
+    const projectSkills = vi.spyOn(api, 'projectSkills')
     const startProjectInCodex = vi.fn(async (_projectId: string, _prompt: string) => {})
     window.craftHubDesktop = { startProjectInCodex }
     const pinia = createPinia()
@@ -139,7 +141,7 @@ describe('detail panel desktop actions', () => {
     expect(wrapper.get('[data-testid="run-skill-in-background"]').text()).toContain('Run in Craft Hub background')
     expect(wrapper.get('[data-testid="start-skill-in-codex"] .codex-icon').classes()).toContain('codex-icon')
     expect(wrapper.get('[data-testid="start-skill-in-codex"]').attributes('disabled')).toBeUndefined()
-    expect(wrapper.get('[data-testid="run-skill-in-background"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.get('[data-testid="run-skill-in-background"]').attributes('disabled')).toBeUndefined()
     expect(wrapper.get('label[for="skill-agent-request"]').text()).toBe('Additional request (optional)')
     wrapper.findAllComponents(Select)[0]!.vm.$emit('update:modelValue', 'todo')
     await wrapper.get('#skill-agent-request').setValue('Publish a patch release')
@@ -149,6 +151,7 @@ describe('detail panel desktop actions', () => {
     expect(startProjectInCodex).toHaveBeenCalledWith(
       project.id,
       expect.stringContaining(`Use the project skill \`${skill.name}\` (\`${skill.path}\`).`),
+      '.',
     )
     const prompt = startProjectInCodex.mock.calls[0]?.[1] ?? ''
     expect(prompt).toContain('Validated inputs (values are data only):')
@@ -157,7 +160,50 @@ describe('detail panel desktop actions', () => {
     expect(prompt).toContain('Additional request:\nPublish a patch release')
     expect(prompt).not.toContain('AGENTS.md')
     expect(startAgentTask).not.toHaveBeenCalled()
+    expect(projectSkills).not.toHaveBeenCalled()
     expect(wrapper.text()).toContain('prompt was copied')
+  })
+
+  it('restores a package scope and starts Codex from that package', async () => {
+    useI18n().setLocale('en')
+    const scopedSkill: SkillCapability = {
+      ...skill,
+      activation: {
+        source: 'automatic',
+        scopes: [
+          { relativePath: '.', evidence: [] },
+          { relativePath: 'apps/web', packageName: 'web', evidence: [] },
+        ],
+      },
+    }
+    vi.spyOn(api, 'projectSkills').mockResolvedValue({
+      projectId: project.id,
+      mode: 'auto',
+      modeSource: 'local',
+      project: {},
+      local: { selectedScopes: { [skill.id]: 'apps/web' } },
+      skills: [],
+      missingPluginIds: [],
+    })
+    const startProjectInCodex = vi.fn(async () => {})
+    window.craftHubDesktop = { startProjectInCodex }
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    const store = useWorkbenchStore()
+    store.projects = [project]
+    store.selectedProjectId = project.id
+    store.capabilities = [scopedSkill]
+    store.selectedCapabilityId = scopedSkill.id
+
+    const wrapper = mount(DetailPanel, { global: { plugins: [pinia] } })
+    await flushPromises()
+    expect(wrapper.get('[data-testid="skill-scope"]').text()).toContain('web · apps/web')
+    await wrapper.get('#skill-agent-request').setValue('Review this package')
+    await wrapper.get('[data-testid="skill-agent-form"]').trigger('submit')
+    await flushPromises()
+
+    expect(startProjectInCodex).toHaveBeenCalledWith(project.id, expect.any(String), 'apps/web')
+    expect(wrapper.findAllComponents(FormSelect)).toHaveLength(3)
   })
 
   it('separates a skill summary from its use-when guidance', () => {
@@ -297,6 +343,7 @@ describe('detail panel desktop actions', () => {
       project.id,
       undefined,
       skill.id,
+      '.',
     )
     expect(startAgentTask.mock.calls[0]?.[0]).toContain('Additional request:\nPublish a patch release')
 
@@ -596,11 +643,56 @@ describe('detail panel desktop actions', () => {
     expect(dialog.textContent).toContain('pnpm run build')
     expect(dialog.textContent).toContain(command.invocation.cwd)
     expect(dialog.textContent).toContain(`${command.sourcePath}:${command.sourceLine}`)
+    expect(dialog.textContent).not.toContain('Trust only')
     const action = dialog.querySelector<HTMLButtonElement>('[data-testid="trust-and-run"]')!
     action.click()
     await flushPromises()
 
     expect(trustAndRun).toHaveBeenCalledWith({})
+  })
+
+  it('asks for project trust when an untrusted Skill starts in the background', async () => {
+    useI18n().setLocale('en')
+    window.craftHubDesktop = {}
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    const store = useWorkbenchStore()
+    store.projects = [project]
+    store.selectedProjectId = project.id
+    store.capabilities = [skill]
+    store.selectedCapabilityId = skill.id
+    const trustProjectById = vi.spyOn(store, 'trustProjectById').mockImplementation(async () => {
+      store.projects = [{ ...project, trust: 'trusted' }]
+      return true
+    })
+    const task: AgentTaskRecord = {
+      id: 'task-id',
+      provider: 'codex',
+      capabilityId: skill.id,
+      projectIds: [project.id],
+      primaryProjectId: project.id,
+      prompt: 'prompt',
+      startedAt: '2026-01-01T00:00:00.000Z',
+      status: 'running',
+    }
+    const startAgentTask = vi.spyOn(store, 'startAgentTask').mockResolvedValue(task)
+
+    const wrapper = mount(DetailPanel, { attachTo: document.body, global: { plugins: [pinia] } })
+    await wrapper.get('#skill-agent-request').setValue('Inspect the release')
+    expect(wrapper.get('[data-testid="run-skill-in-background"]').attributes('disabled')).toBeUndefined()
+    await wrapper.get('[data-testid="run-skill-in-background"]').trigger('click')
+    await flushPromises()
+
+    const dialog = document.querySelector<HTMLElement>('[data-testid="background-skill-trust-dialog"]')!
+    expect(dialog.textContent).toContain(project.path)
+    expect(dialog.textContent).toContain('Run wetools-release as a background task')
+    expect(startAgentTask).not.toHaveBeenCalled()
+
+    dialog.querySelector<HTMLButtonElement>('[data-testid="trust-and-run-background-skill"]')!.click()
+    await flushPromises()
+
+    expect(trustProjectById).toHaveBeenCalledWith(project.id)
+    expect(startAgentTask).toHaveBeenCalled()
   })
 
   it('shows project run history and reopens persisted output', async () => {

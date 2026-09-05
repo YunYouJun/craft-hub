@@ -33,6 +33,96 @@ describe('project rail', () => {
     expect(document.body.querySelector('input[name="project-path"]')).not.toBeNull()
   })
 
+  it('renders resolved integration views in the activity rail', async () => {
+    const store = useWorkbenchStore()
+    store.integrationContributions = [{
+      id: 'acme-issues',
+      pluginId: '@acme/craft-hub-plugin-issues',
+      source: 'plugin:@acme/craft-hub-plugin-issues@1.0.0',
+      provider: { id: 'acme', requires: '^1.0.0' },
+      providerVersion: '1.0.0',
+      actions: [],
+      views: [{
+        id: 'overview',
+        title: 'Acme Issues',
+        icon: 'builtin:list',
+        placement: 'primary-sidebar',
+        scope: 'global',
+        blocks: [],
+      }],
+    }]
+    const wrapper = mount(ProjectRail, {
+      attachTo: document.body,
+      props: { activeView: 'integration', activeIntegrationId: 'acme-issues', activeIntegrationViewId: 'overview' },
+    })
+
+    const button = wrapper.get('[data-testid="open-integration-acme-issues-overview"]')
+    expect(button.classes()).toContain('active')
+    expect(button.find('.i-ri-list-check-3').exists()).toBe(true)
+    expect(button.find('.plugins-icon').exists()).toBe(false)
+    await button.trigger('click')
+
+    expect(wrapper.emitted('openIntegration')).toEqual([['acme-issues', 'overview']])
+  })
+
+  it('groups claimed integration views under one contributed workbench button', async () => {
+    const store = useWorkbenchStore()
+    store.integrationContributions = [{
+      id: 'acme-issues',
+      pluginId: '@acme/craft-hub-plugin-issues',
+      source: 'plugin:@acme/craft-hub-plugin-issues@1.0.0',
+      provider: { id: 'acme', requires: '^1.0.0' },
+      providerVersion: '1.0.0',
+      actions: [],
+      views: [{ id: 'overview', title: 'Acme Issues', icon: 'builtin:list', placement: 'primary-sidebar', scope: 'global', blocks: [] }],
+    }]
+    store.pluginWorkbenches = [{
+      id: 'engineering',
+      pluginId: '@acme/craft-hub-plugin-suite',
+      pluginName: 'Acme Suite',
+      pluginVersion: '1.0.0',
+      title: 'Engineering',
+      icon: 'builtin:briefcase',
+      views: [{ type: 'integration', plugin: '@acme/craft-hub-plugin-issues', integration: 'acme-issues', view: 'overview' }],
+    }]
+    const wrapper = mount(ProjectRail, {
+      attachTo: document.body,
+      props: {
+        activeView: 'plugin-workbench',
+        activePluginWorkbenchId: 'engineering',
+        activePluginWorkbenchPluginId: '@acme/craft-hub-plugin-suite',
+      },
+    })
+
+    expect(wrapper.find('[data-testid="open-integration-acme-issues-overview"]').exists()).toBe(false)
+    const button = wrapper.get('[data-testid="open-plugin-workbench-engineering"]')
+    expect(button.classes()).toContain('active')
+    expect(button.find('.i-ri-briefcase-4-line').exists()).toBe(true)
+    await button.trigger('click')
+
+    expect(wrapper.emitted('openPluginWorkbench')).toEqual([['@acme/craft-hub-plugin-suite', 'engineering']])
+  })
+
+  it('shows the diagnostic count and opens the diagnostic workbench', async () => {
+    const store = useWorkbenchStore()
+    store.workbenchDiagnostics = {
+      checkedAt: '2026-09-04T10:00:00.000Z',
+      diagnostics: [
+        { id: 'broken-plugin', kind: 'marketplace-plugin', severity: 'error', message: 'Manifest is incompatible' },
+        { id: 'stale-source', kind: 'marketplace-source', severity: 'warning', message: 'Using cached catalog' },
+      ],
+      summary: { errors: 1, warnings: 1 },
+    }
+    const wrapper = mount(ProjectRail, { attachTo: document.body, props: { activeView: 'diagnostics' } })
+
+    const button = wrapper.get('[data-testid="open-diagnostics"]')
+    expect(button.classes()).toEqual(expect.arrayContaining(['active', 'attention']))
+    expect(button.get('.activity-badge').text()).toBe('2')
+    await button.trigger('click')
+
+    expect(wrapper.emitted('openDiagnostics')).toHaveLength(1)
+  })
+
   it('creates a Git-backed Team from the owner scope switcher', async () => {
     const store = useWorkbenchStore()
     store.ownerScopes = [{ id: 'personal', kind: 'personal', name: 'Personal' }]
@@ -99,7 +189,7 @@ describe('project rail', () => {
     await wrapper.vm.$nextTick()
     expect(wrapper.element.querySelector('[data-testid="owner-scope-trigger"] .i-ri-team-line')).not.toBeNull()
     expect(wrapper.get('[data-testid="owner-scope-trigger"]').text()).toBe('Acme')
-    expect(styles).toContain('.owner-scope-trigger { width: 100%; height: 30px;')
+    expect(styles).toContain('.owner-scope-trigger { --select-content-gap: 6px; --select-padding-start: 7px; --select-arrow-inset: 7px; width: 100%; height: 30px;')
     expect(styles).toContain('font-size: var(--font-size-body); font-weight: 600;')
 
     wrapper.getComponent(Select).vm.$emit('update:modelValue', 'acme')
@@ -547,7 +637,7 @@ describe('project rail', () => {
     expect(document.body.querySelector('.appearance-color-choice')).toBeNull()
     expect(document.body.querySelector('[role="dialog"]')?.textContent).toContain('Choose an icon or emoji for quick visual recognition.')
     expect(document.body.querySelector('.appearance-icon-choice[aria-label="Default"] .i-ri-stack-line')).not.toBeNull()
-    expect(document.body.querySelectorAll('.appearance-icon-choice')).toHaveLength(33)
+    expect(document.body.querySelectorAll('.appearance-icon-choice')).toHaveLength(35)
     expect(document.body.querySelectorAll('.appearance-emoji-choice')).toHaveLength(12)
     document.body.querySelector<HTMLButtonElement>('.appearance-icon-choice[aria-label="Emoji 📦"]')!.click()
     document.body.querySelector<HTMLButtonElement>('[data-testid="save-appearance"]')!.click()
@@ -733,6 +823,36 @@ describe('project rail', () => {
     expect(setWorkspaceProjectLabel).toHaveBeenCalledWith(expect.objectContaining({ id: 'client' }), 'docs', '中文文档')
   })
 
+  it('asks for trust only when saving appearance metadata for an untrusted project', async () => {
+    const store = useWorkbenchStore()
+    store.projects = [{ id: 'docs', name: 'Docs', path: '/docs', trust: 'untrusted', addedAt: '2026-01-01T00:00:00.000Z' }]
+    const setProjectVisual = vi.fn(async () => {})
+    store.setProjectVisual = setProjectVisual
+    const trustProjectById = vi.spyOn(store, 'trustProjectById').mockImplementation(async () => {
+      store.projects = store.projects.map(project => ({ ...project, trust: 'trusted' }))
+      return true
+    })
+    const wrapper = mount(ProjectRail, { attachTo: document.body })
+
+    await wrapper.get('.unassigned-group .project-row').trigger('contextmenu', { clientX: 120, clientY: 180 })
+    const appearance = [...document.body.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
+      .find(button => button.textContent?.includes('Appearance'))
+    await appearance!.click()
+    await wrapper.vm.$nextTick()
+    document.body.querySelector<HTMLButtonElement>('.appearance-color-choice.purple')!.click()
+    document.body.querySelector<HTMLButtonElement>('[data-testid="save-appearance"]')!.click()
+    await flushPromises()
+
+    const dialog = document.body.querySelector<HTMLElement>('[data-testid="project-appearance-trust-dialog"]')!
+    expect(dialog.textContent).toContain('/docs')
+    expect(setProjectVisual).not.toHaveBeenCalled()
+    dialog.querySelector<HTMLButtonElement>('[data-testid="trust-and-save-project-appearance"]')!.click()
+    await flushPromises()
+
+    expect(trustProjectById).toHaveBeenCalledWith('docs')
+    expect(setProjectVisual).toHaveBeenCalledWith('docs', undefined, 'purple')
+  })
+
   it('exposes a visible settings entry', async () => {
     const wrapper = mount(ProjectRail, { attachTo: document.body })
     const settings = wrapper.get('[data-testid="open-settings"]')
@@ -744,7 +864,7 @@ describe('project rail', () => {
     expect(wrapper.emitted('openSettings')).toHaveLength(1)
   })
 
-  it('separates persistent trust from transient project run status', async () => {
+  it('shows transient run status without exposing persistent trust in the project list', async () => {
     const store = useWorkbenchStore()
     store.projects = [{
       id: 'docs',
@@ -757,8 +877,7 @@ describe('project rail', () => {
 
     const wrapper = mount(ProjectRail, { attachTo: document.body })
 
-    expect(wrapper.get('.project-trust').attributes('aria-label')).toBe('Craft Hub execution allowed')
-    expect(wrapper.get('.project-trust .app-icon').classes()).toContain('i-ri-shield-check-line')
+    expect(wrapper.find('.project-trust').exists()).toBe(false)
     const runState = wrapper.get('[data-testid="project-run-state-docs"]')
     expect(runState.classes()).toContain('running')
     expect(runState.attributes('aria-label')).toBe('2 command(s) running')
@@ -775,7 +894,7 @@ describe('project rail', () => {
     expect(wrapper.get('[data-testid="project-run-state-docs"]').attributes('aria-label')).toBe('Command failed')
   })
 
-  it('uses a keyhole shield for projects that still require trust', () => {
+  it('keeps untrusted projects visually quiet until a protected action starts', () => {
     const store = useWorkbenchStore()
     store.projects = [{
       id: 'untrusted-project',
@@ -787,8 +906,8 @@ describe('project rail', () => {
 
     const wrapper = mount(ProjectRail, { attachTo: document.body })
 
-    expect(wrapper.get('.project-trust').attributes('aria-label')).toBe('Craft Hub execution not authorized')
-    expect(wrapper.get('.project-trust .app-icon').classes()).toContain('i-ri-shield-keyhole-line')
+    expect(wrapper.find('.project-trust').exists()).toBe(false)
+    expect(wrapper.text()).toContain('Untrusted project')
   })
 
   it('renders a project emoji and constrained accent color', () => {

@@ -434,6 +434,71 @@ describe('app startup', () => {
     wrapper.unmount()
   })
 
+  it('opens diagnostics directly and returns to the project workbench through the activity rail', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const path = typeof input === 'string' ? input : input.toString()
+      const body = path === '/api/settings'
+        ? { explicitKeys: [], path: '/settings.json', revision: 'initial', settings: { 'workbench.locale': 'en', 'workbench.shortcuts': {}, 'workbench.theme': 'system' } }
+        : path === '/api/workspaces/state'
+          ? { expandedWorkspaceIds: [] }
+          : path === '/api/diagnostics'
+            ? {
+                checkedAt: '2026-09-04T10:00:00.000Z',
+                diagnostics: [{ id: 'settings', kind: 'settings', severity: 'error', subject: '/settings.json', message: 'Invalid settings', target: { type: 'settings' } }],
+                summary: { errors: 1, warnings: 0 },
+              }
+            : []
+      return new Response(JSON.stringify(body), { status: 200 })
+    }))
+    vi.stubGlobal('EventSource', FakeEventSource)
+    const pinia = createPinia()
+    setActivePinia(pinia)
+
+    const { router, wrapper } = await mountApp(pinia, '/diagnostics')
+    await flushPromises()
+
+    expect(router.currentRoute.value.path).toBe('/diagnostics')
+    expect(wrapper.get('.diagnostics-workbench h1').text()).toBe('Diagnostics')
+    expect(wrapper.get('[data-testid="open-diagnostics"]').classes()).toContain('active')
+    expect(wrapper.get('[data-testid="open-diagnostics"] .activity-badge').text()).toBe('1')
+
+    await wrapper.get('[data-testid="open-workbench"]').trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.path).toBe('/')
+    expect(wrapper.find('.diagnostics-workbench').exists()).toBe(false)
+
+    wrapper.unmount()
+  })
+
+  it('switches from navigation to marketplace without mounting the project workbench behind it', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const path = typeof input === 'string' ? input : input.toString()
+      const body = path === '/api/settings'
+        ? { explicitKeys: [], path: '/settings.json', revision: 'initial', settings: { 'workbench.locale': 'en', 'workbench.shortcuts': {}, 'workbench.theme': 'system' } }
+        : path === '/api/workspaces/state'
+          ? { expandedWorkspaceIds: [] }
+          : []
+      return new Response(JSON.stringify(body), { status: 200 })
+    }))
+    vi.stubGlobal('EventSource', FakeEventSource)
+    const pinia = createPinia()
+    setActivePinia(pinia)
+
+    const { router, wrapper } = await mountApp(pinia, '/navigation')
+    await flushPromises()
+
+    expect(wrapper.find('.navigation-view-shell').exists()).toBe(true)
+
+    await wrapper.get('[data-testid="open-marketplace"]').trigger('click')
+    await flushPromises()
+
+    expect(router.currentRoute.value.path).toBe('/marketplace')
+    expect(wrapper.find('.marketplace-page').exists()).toBe(true)
+    expect(wrapper.find('.workbench-splitter').exists()).toBe(false)
+
+    wrapper.unmount()
+  })
+
   it('handles desktop links for workspace, marketplace, and settings views', async () => {
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
       const path = typeof input === 'string' ? input : input.toString()
@@ -448,9 +513,14 @@ describe('app startup', () => {
     }))
     vi.stubGlobal('EventSource', FakeEventSource)
     let navigate: ((navigation: DesktopNavigation) => void) | undefined
+    let openHelp: (() => void) | undefined
     window.craftHubDesktop = {
       onDesktopNavigation: vi.fn((callback) => {
         navigate = callback
+        return () => {}
+      }),
+      onOpenHelp: vi.fn((callback) => {
+        openHelp = callback
         return () => {}
       }),
     }
@@ -471,6 +541,12 @@ describe('app startup', () => {
     await flushPromises()
     expect(router.currentRoute.value.path).toBe('/')
     expect(document.body.querySelector('.settings-dialog')).not.toBeNull()
+
+    openHelp?.()
+    await flushPromises()
+    const helpTab = [...document.body.querySelectorAll<HTMLElement>('[role="tab"]')].find(tab => tab.textContent === 'Help')
+    expect(helpTab?.getAttribute('data-state')).toBe('active')
+    expect(document.body.textContent).toContain('Confetti is visual only')
     wrapper.unmount()
   })
 

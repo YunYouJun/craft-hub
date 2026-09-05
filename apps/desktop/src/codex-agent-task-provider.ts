@@ -51,7 +51,7 @@ export class CodexAgentTaskProvider implements AgentTaskProvider {
     const setting = await this.resolveSetting()
     const thread = new Codex().startThread({
       threadSource: 'craft-hub',
-      workingDirectory: input.primaryProjectPath,
+      workingDirectory: input.primaryWorkingDirectory,
       additionalDirectories: input.projectPaths.filter(path => path !== input.primaryProjectPath),
       sandboxMode: input.sandboxMode ?? 'workspace-write',
       approvalPolicy: 'on-request',

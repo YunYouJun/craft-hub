@@ -90,7 +90,7 @@ describe('project toolbar', () => {
     expect(openProjectInCodex).toHaveBeenCalledWith(project.id)
   })
 
-  it('distinguishes trusted and untrusted projects by icon shape', async () => {
+  it('does not expose trust state or an advance-trust action in the toolbar', async () => {
     const pinia = createPinia()
     setActivePinia(pinia)
     const store = useWorkbenchStore()
@@ -99,27 +99,13 @@ describe('project toolbar', () => {
 
     const wrapper = mount(ProjectToolbar, { global: { plugins: [pinia] } })
 
-    expect(wrapper.get('.trust-state .app-icon').classes()).toContain('i-ri-shield-keyhole-line')
-    expect(wrapper.get('.trust-state').text()).toBe('')
-    expect(wrapper.get('.trust-state').attributes('data-tooltip')).toBe('Allow Craft Hub execution')
-
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(project), {
-      headers: { 'content-type': 'application/json' },
-      status: 200,
-    })))
-    await wrapper.get('.trust-state').trigger('click')
-    expect(document.querySelector<HTMLElement>('[data-testid="project-trust-dialog"]')?.textContent).toContain('Allow Craft Hub to execute this project?')
-    document.querySelector<HTMLButtonElement>('[data-testid="trust-project-confirm"]')?.click()
-    await flushPromises()
-
-    expect(store.selectedProject?.trust).toBe('trusted')
+    expect(wrapper.find('.trust-state').exists()).toBe(false)
     expect(document.querySelector('[data-testid="project-trust-dialog"]')).toBeNull()
 
     store.projects = [project]
     await wrapper.vm.$nextTick()
 
-    expect(wrapper.get('.trust-state .app-icon').classes()).toContain('i-ri-shield-check-line')
-    expect(wrapper.get('.trust-state').attributes('data-tooltip')).toBe('Craft Hub execution allowed')
+    expect(wrapper.find('.trust-state').exists()).toBe(false)
   })
 
   it('keeps open-in-Codex as the primary action and exposes project configuration from its menu', async () => {

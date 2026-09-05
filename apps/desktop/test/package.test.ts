@@ -175,7 +175,9 @@ describe('desktop package scripts', () => {
     const desktopMain = (await readFile(new URL('../src/main.ts', import.meta.url), 'utf8')).replaceAll('\r\n', '\n')
 
     expect(desktopMain).toContain('app.requestSingleInstanceLock()')
-    expect(desktopMain).toContain('if (!hasSingleInstanceLock) {\n  process.exit(0)\n}')
+    expect(desktopMain).toContain('Dev is already running; activated the existing window instead.')
+    expect(desktopMain).toContain('if (!hasSingleInstanceLock) {')
+    expect(desktopMain).toContain('process.exit(0)')
     expect(desktopMain).toContain('resolveDesktopDataDirectories({')
     expect(desktopMain).toContain('app.setPath(\'userData\', desktopDataDirectories.developmentUserDataDir)')
     expect(desktopMain).toContain('dataDir: desktopDataDirectories.runtimeDataDir')
@@ -193,7 +195,8 @@ describe('desktop package scripts', () => {
     expect(desktopMain).toContain('app.on(\'before-quit\'')
     expect(desktopMain).toContain('window.destroy()')
     expect(desktopMain).toContain('await craftHubServer?.close({ processExiting: !installUpdateAfterShutdown })')
-    expect(desktopMain).toContain('immediateProcess.reallyExit(0)')
+    expect(desktopMain).toContain('const exitCode = typeof process.exitCode === \'number\' ? process.exitCode : 0')
+    expect(desktopMain).toContain('immediateProcess.reallyExit(exitCode)')
     expect(desktopMain).toContain('process.platform !== \'darwin\' || developmentUrl')
   })
 

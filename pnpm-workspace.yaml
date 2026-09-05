@@ -43,6 +43,7 @@ catalog:
   '@modelcontextprotocol/sdk': ^1.30.0
   '@openai/codex-sdk': ^0.149.1
   '@shikijs/vitepress-twoslash': ^4.4.3
+  '@types/canvas-confetti': ^1.9.0
   '@types/node': ^26.3.0
   '@types/pacote': ^11.1.8
   '@types/semver': ^7.8.0
@@ -59,6 +60,7 @@ catalog:
   '@yunyoujun/docs': ^0.1.14
   bumpp: ^12.2.1
   cac: ^7.0.0
+  canvas-confetti: ^1.9.4
   chokidar: ^5.0.0
   cross-spawn: ^7.0.6
   dompurify: ^3.4.14

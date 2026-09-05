@@ -1,4 +1,4 @@
-import type { AgentActionId, AgentActionSummary, AgentTaskRecord, Capability, CapabilityDiscoveryDiagnostic, CommandInputValues, CommandInvocation, CommandPackage, OwnerScope, ProjectAccentColor, ProjectCatalogDiagnostic, ProjectChangeEvent, ProjectConfigInitializationResult, ProjectDescriptionApplication, ProjectDescriptionChange, ProjectOverview, ProjectRecord, ProjectRunSummary, RunRecord, SettingsSnapshot, TeamDeletionResult, TeamGitSyncStatus, UserConfigStatus, WorkbenchCodexSetting, WorkbenchEditorSetting, WorkbenchLocale, WorkbenchTheme, WorkspaceGroup, WorkspaceManifest, WorkspaceRecord } from 'craft-hub'
+import type { AgentActionId, AgentActionSummary, AgentTaskRecord, Capability, CapabilityDiscoveryDiagnostic, CommandInputValues, CommandInvocation, CommandPackage, InstalledPluginWorkbench, IntegrationDiagnostic, OwnerScope, ProjectAccentColor, ProjectCatalogDiagnostic, ProjectChangeEvent, ProjectConfigInitializationResult, ProjectDescriptionApplication, ProjectDescriptionChange, ProjectOverview, ProjectRecord, ProjectRunSummary, ResolvedIntegrationContribution, RunRecord, SettingsSnapshot, TeamDeletionResult, TeamGitSyncStatus, UserConfigStatus, WorkbenchCodexSetting, WorkbenchDiagnosticSnapshot, WorkbenchEditorSetting, WorkbenchLocale, WorkbenchTheme, WorkspaceGroup, WorkspaceManifest, WorkspaceRecord } from 'craft-hub'
 import { projectConfigSchemaRevision } from 'craft-hub/project-config-schema-revision'
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
@@ -8,6 +8,13 @@ import { applyWorkbenchTheme } from './theme'
 
 export type FirstRunStage = 'add-project' | 'select-project' | 'no-capabilities' | 'select-command' | 'trust' | 'run' | 'complete'
 export type ProjectsLoadState = 'idle' | 'loading' | 'ready' | 'error'
+export type WorkbenchIntegrationView = ResolvedIntegrationContribution['views'][number] & {
+  integrationId: string
+  pluginId: string
+  providerId: string
+  providerVersion: string
+  source: string
+}
 
 const recentProjectsStorageKey = 'craft-hub-recent-projects'
 
@@ -70,6 +77,16 @@ export const useWorkbenchStore = defineStore('workbench', () => {
   const recentlyUpdated = ref(false)
   const error = ref('')
   const projectConfigInitialization = ref<ProjectConfigInitializationResult>()
+  const integrationContributions = ref<ResolvedIntegrationContribution[]>([])
+  const integrationDiagnostics = ref<IntegrationDiagnostic[]>([])
+  const pluginWorkbenches = ref<InstalledPluginWorkbench[]>([])
+  const workbenchDiagnostics = ref<WorkbenchDiagnosticSnapshot>({
+    checkedAt: '',
+    diagnostics: [],
+    summary: { errors: 0, warnings: 0 },
+  })
+  const workbenchDiagnosticsLoading = ref(false)
+  const workbenchDiagnosticsError = ref('')
   const settings = ref<SettingsSnapshot>()
   const userConfigStatus = ref<UserConfigStatus>()
   let snapshot = ''
@@ -106,6 +123,22 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     .map(id => capabilities.value.find(capability => capability.id === id))
     .filter((capability): capability is Capability => Boolean(capability)))
   const projectRuns = computed(() => runs.value.filter(item => item.projectId === selectedProjectId.value))
+  const integrationViews = computed<WorkbenchIntegrationView[]>(() => integrationContributions.value
+    .flatMap(contribution => contribution.views
+      .filter(view => view.placement === 'primary-sidebar')
+      .map(view => ({
+        ...view,
+        integrationId: contribution.id,
+        pluginId: contribution.pluginId,
+        providerId: contribution.provider.id,
+        providerVersion: contribution.providerVersion,
+        source: contribution.source,
+      })))
+    .sort((left, right) => (left.order ?? 100) - (right.order ?? 100) || left.title.localeCompare(right.title)))
+  const composedIntegrationViewKeys = computed(() => new Set(pluginWorkbenches.value.flatMap(workbench => workbench.views
+    .filter(view => view.type === 'integration')
+    .map(view => `${view.plugin}:${view.integration}:${view.view}`))))
+  const standaloneIntegrationViews = computed(() => integrationViews.value.filter(view => !composedIntegrationViewKeys.value.has(`${view.pluginId}:${view.integrationId}:${view.id}`)))
   const firstRunStage = computed<FirstRunStage>(() => {
     if (!projects.value.length)
       return 'add-project'
@@ -147,6 +180,44 @@ export const useWorkbenchStore = defineStore('workbench', () => {
 
   async function loadUserConfigStatus(): Promise<void> {
     userConfigStatus.value = await api.userConfigStatus()
+  }
+
+  async function loadIntegrations(): Promise<void> {
+    try {
+      const result = await api.integrations()
+      integrationContributions.value = Array.isArray(result.integrations) ? result.integrations : []
+      integrationDiagnostics.value = Array.isArray(result.diagnostics) ? result.diagnostics : []
+    }
+    catch {
+      integrationContributions.value = []
+      integrationDiagnostics.value = []
+    }
+  }
+
+  async function loadPluginWorkbenches(): Promise<void> {
+    try {
+      pluginWorkbenches.value = await api.pluginWorkbenches(useI18n().locale.value)
+    }
+    catch {
+      pluginWorkbenches.value = []
+    }
+  }
+
+  async function loadWorkbenchDiagnostics(): Promise<void> {
+    workbenchDiagnosticsLoading.value = true
+    workbenchDiagnosticsError.value = ''
+    try {
+      const snapshot = await api.diagnostics()
+      workbenchDiagnostics.value = snapshot && Array.isArray(snapshot.diagnostics)
+        ? snapshot
+        : { checkedAt: '', diagnostics: [], summary: { errors: 0, warnings: 0 } }
+    }
+    catch (caught) {
+      workbenchDiagnosticsError.value = caught instanceof Error ? caught.message : String(caught)
+    }
+    finally {
+      workbenchDiagnosticsLoading.value = false
+    }
   }
 
   function applyUserConfigStatus(status: UserConfigStatus): void {
@@ -694,8 +765,8 @@ export const useWorkbenchStore = defineStore('workbench', () => {
       void loadAgentActions().catch(() => {})
   }
 
-  async function startAgentTask(prompt: string, projectIds: string[], primaryProjectId: string, workspaceId?: string, capabilityId?: string): Promise<AgentTaskRecord> {
-    const task = await api.startAgentTask({ prompt, projectIds, primaryProjectId, workspaceId, capabilityId })
+  async function startAgentTask(prompt: string, projectIds: string[], primaryProjectId: string, workspaceId?: string, capabilityId?: string, primaryProjectRelativePath?: string): Promise<AgentTaskRecord> {
+    const task = await api.startAgentTask({ prompt, projectIds, primaryProjectId, primaryProjectRelativePath, workspaceId, capabilityId })
     applyAgentTask(task)
     return task
   }
@@ -1080,6 +1151,47 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     }
   }
 
+  async function trustProjectsById(projectIds: string[]): Promise<boolean> {
+    const ids = [...new Set(projectIds)].filter(projectId => projects.value.some(project => project.id === projectId))
+    if (!ids.length)
+      return true
+    busy.value = true
+    error.value = ''
+    try {
+      for (const projectId of ids) {
+        const updated = await api.trust(projectId)
+        projects.value = projects.value.map(project => project.id === updated.id ? updated : project)
+      }
+      return true
+    }
+    catch (caught) {
+      error.value = caught instanceof Error ? caught.message : String(caught)
+      return false
+    }
+    finally {
+      busy.value = false
+    }
+  }
+
+  async function revokeProjectTrustById(projectId: string): Promise<boolean> {
+    if (!projects.value.some(project => project.id === projectId))
+      return false
+    busy.value = true
+    error.value = ''
+    try {
+      const updated = await api.revokeTrust(projectId)
+      projects.value = projects.value.map(project => project.id === updated.id ? updated : project)
+      return true
+    }
+    catch (caught) {
+      error.value = caught instanceof Error ? caught.message : String(caught)
+      return false
+    }
+    finally {
+      busy.value = false
+    }
+  }
+
   async function trustProject(): Promise<boolean> {
     return activeProject.value ? trustProjectById(activeProject.value.id) : false
   }
@@ -1287,12 +1399,23 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     recentlyUpdated,
     error,
     projectConfigInitialization,
+    integrationContributions,
+    integrationDiagnostics,
+    integrationViews,
+    pluginWorkbenches,
+    standaloneIntegrationViews,
+    workbenchDiagnostics,
+    workbenchDiagnosticsLoading,
+    workbenchDiagnosticsError,
     settings,
     userConfigStatus,
     repositoriesRoot,
     applySettings,
     loadSettings,
     loadUserConfigStatus,
+    loadIntegrations,
+    loadPluginWorkbenches,
+    loadWorkbenchDiagnostics,
     applyUserConfigStatus,
     updateLocale,
     updateRepositoriesRoot,
@@ -1367,6 +1490,8 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     previewProjectConfigInitialization,
     applyProjectConfigInitialization,
     trustProjectById,
+    trustProjectsById,
+    revokeProjectTrustById,
     trustProject,
     trustAndRunSelected,
     isCapabilityPinned,

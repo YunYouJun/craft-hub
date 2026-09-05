@@ -43,14 +43,13 @@ const rows = computed<WorkspaceProjectRow[]>(() => {
     .sort((left, right) => Number(right.primary) - Number(left.primary) || left.index - right.index)
 })
 
-function status(project: ProjectRecord): { icon: 'error' | 'refresh' | 'untrusted', label: string, extra: number } | undefined {
+function status(project: ProjectRecord): { icon: 'error' | 'refresh', label: string, extra: number } | undefined {
   const summary = store.projectRunSummary(project.id)
   const running = store.isProjectStarting(project.id) || Boolean(summary?.running)
   const failed = summary?.lastStatus === 'failed'
   const cancelled = summary?.lastStatus === 'cancelled'
   const diagnostics = store.capabilityDiagnosticsByProject[project.id]?.length ?? 0
-  const untrusted = project.trust !== 'trusted'
-  const issueCount = Number(failed || cancelled) + Number(diagnostics > 0) + Number(untrusted)
+  const issueCount = Number(failed || cancelled) + Number(diagnostics > 0)
   if (running) {
     return {
       icon: 'refresh',
@@ -64,8 +63,6 @@ function status(project: ProjectRecord): { icon: 'error' | 'refresh' | 'untruste
     return { icon: 'error', label: t('commandCancelled'), extra: issueCount - 1 }
   if (diagnostics)
     return { icon: 'error', label: t('configurationIssues', { count: String(diagnostics) }), extra: issueCount - 1 }
-  if (untrusted)
-    return { icon: 'untrusted', label: t('untrusted'), extra: 0 }
   return undefined
 }
 

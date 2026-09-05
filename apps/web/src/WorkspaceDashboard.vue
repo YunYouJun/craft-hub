@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { ProjectRecord, WorkspaceRecord } from 'craft-hub'
+import type { WorkspaceRecord } from 'craft-hub'
 import { computed, ref, watch } from 'vue'
 import AgentTaskOutput from './AgentTaskOutput.vue'
 import { Button as UiButton } from './components/ui/button'
@@ -24,31 +24,25 @@ const error = ref('')
 const notice = ref('')
 const taskForm = ref<HTMLFormElement>()
 const promptInput = ref<HTMLTextAreaElement>()
-const pendingTrustProject = ref<ProjectRecord>()
+const pendingTrustedStart = ref<'codex' | 'background'>()
 
 const workspace = computed(() => store.selectedWorkspace)
 const projects = computed(() => workspace.value ? store.workspaceProjects(workspace.value) : [])
 const tasks = computed(() => store.agentTasks.filter(task => task.workspaceId === workspace.value?.id))
 const selectedProjects = computed(() => projects.value.filter(project => selectedProjectIds.value.includes(project.id)))
-const untrustedProjects = computed(() => projects.value.filter(project => project.trust !== 'trusted'))
+const selectedUntrustedProjects = computed(() => selectedProjects.value.filter(project => project.trust !== 'trusted'))
 
 watch(workspace, (value) => {
-  const trusted = value
-    ? store.workspaceProjects(value).filter(project => project.trust === 'trusted').map(project => project.id)
-    : []
-  selectedProjectIds.value = trusted
+  const projectIds = value ? store.workspaceProjects(value).map(project => project.id) : []
+  selectedProjectIds.value = projectIds
   primaryProjectId.value = value?.members.find(member => member.project === value.primaryProject)?.projectId
-    ?? trusted[0]
+    ?? projectIds[0]
     ?? ''
 }, { immediate: true })
 
-async function startInCodex(): Promise<void> {
-  if (!workspace.value || !primaryProjectId.value || !prompt.value.trim())
+async function performStartInCodex(): Promise<void> {
+  if (!workspace.value || !primaryProjectId.value || !selectedProjectIds.value.includes(primaryProjectId.value) || !prompt.value.trim())
     return
-  if (window.craftHubDesktop?.startWorkspaceInCodex && !selectedProjectIds.value.includes(primaryProjectId.value)) {
-    error.value = t('codexWorkspaceTrustRequired', { count: String(untrustedProjects.value.length) })
-    return
-  }
   openingCodex.value = true
   error.value = ''
   notice.value = ''
@@ -88,10 +82,9 @@ async function startInCodex(): Promise<void> {
   }
 }
 
-async function startInBackground(): Promise<void> {
+async function performStartInBackground(): Promise<void> {
   if (!workspace.value || !primaryProjectId.value || !selectedProjectIds.value.includes(primaryProjectId.value) || !prompt.value.trim())
     return
-  taskMenuOpen.value = false
   startingInBackground.value = true
   error.value = ''
   notice.value = ''
@@ -106,6 +99,27 @@ async function startInBackground(): Promise<void> {
   finally {
     startingInBackground.value = false
   }
+}
+
+async function startInCodex(): Promise<void> {
+  if (!workspace.value || !primaryProjectId.value || !selectedProjectIds.value.includes(primaryProjectId.value) || !prompt.value.trim())
+    return
+  if (selectedUntrustedProjects.value.length) {
+    pendingTrustedStart.value = 'codex'
+    return
+  }
+  await performStartInCodex()
+}
+
+async function startInBackground(): Promise<void> {
+  taskMenuOpen.value = false
+  if (!workspace.value || !primaryProjectId.value || !selectedProjectIds.value.includes(primaryProjectId.value) || !prompt.value.trim())
+    return
+  if (selectedUntrustedProjects.value.length) {
+    pendingTrustedStart.value = 'background'
+    return
+  }
+  await performStartInBackground()
 }
 
 async function savePrimary(): Promise<void> {
@@ -139,30 +153,26 @@ async function registerMember(member: WorkspaceRecord['members'][number]): Promi
 
 function prepareWorkspaceCodexTask(): void {
   error.value = ''
-  notice.value = untrustedProjects.value.length
-    ? t('codexWorkspaceTrustRequired', { count: String(untrustedProjects.value.length) })
-    : t('codexWorkspaceReady', { count: String(selectedProjectIds.value.length) })
+  notice.value = t('codexWorkspaceReady', { count: String(selectedProjectIds.value.length) })
   taskForm.value?.scrollIntoView?.({ behavior: 'smooth', block: 'center' })
   promptInput.value?.focus()
 }
 
-function reviewProjectTrust(project: ProjectRecord): void {
-  pendingTrustProject.value = project
-}
-
 function updateTrustDialog(open: boolean): void {
   if (!open)
-    pendingTrustProject.value = undefined
+    pendingTrustedStart.value = undefined
 }
 
-async function trustWorkspaceProject(): Promise<void> {
-  const project = pendingTrustProject.value
-  if (!project || !await store.trustProjectById(project.id))
+async function trustWorkspaceProjectsAndStart(): Promise<void> {
+  const action = pendingTrustedStart.value
+  const projectIds = selectedUntrustedProjects.value.map(project => project.id)
+  if (!action || !await store.trustProjectsById(projectIds))
     return
-  if (!selectedProjectIds.value.includes(project.id))
-    selectedProjectIds.value = [...selectedProjectIds.value, project.id]
-  pendingTrustProject.value = undefined
-  notice.value = t('codexWorkspaceReady', { count: String(selectedProjectIds.value.length) })
+  pendingTrustedStart.value = undefined
+  if (action === 'codex')
+    await performStartInCodex()
+  else
+    await performStartInBackground()
 }
 
 async function openWorkspaceInEditor(): Promise<void> {
@@ -222,11 +232,9 @@ async function openThread(threadId: string): Promise<void> {
       <div v-for="project in projects" :key="project.id" class="workspace-member-card">
         <div class="workspace-member-selection">
           <label>
-            <input v-model="selectedProjectIds" type="checkbox" :value="project.id" :disabled="project.trust !== 'trusted'">
+            <input v-model="selectedProjectIds" type="checkbox" :value="project.id">
             <strong :title="workspace.members.find(member => member.projectId === project.id)?.label ? project.name : undefined">{{ workspace.members.find(member => member.projectId === project.id)?.label || project.name }}</strong>
           </label>
-          <button v-if="project.trust !== 'trusted'" type="button" class="project-trust trust-action untrusted" :aria-label="t('trustProject')" :title="t('trustProject')" @click="reviewProjectTrust(project)"><Icon name="untrusted" /></button>
-          <span v-else class="project-trust trusted" :aria-label="t('trusted')" :title="t('trusted')"><Icon name="trusted" /></span>
         </div>
         <label class="primary-choice">
           <input v-model="primaryProjectId" type="radio" name="primary-project" :value="project.id" @change="savePrimary">
@@ -257,7 +265,6 @@ async function openThread(threadId: string): Promise<void> {
       <ul class="codex-root-list" data-testid="codex-root-list">
         <li v-for="project in selectedProjects" :key="project.id"><code>{{ project.path }}</code><span v-if="project.id === primaryProjectId">{{ t('primary') }}</span></li>
       </ul>
-      <p v-if="untrustedProjects.length" class="trust-scope-note codex-trust-warning"><Icon name="untrusted" /> <span>{{ t('codexWorkspaceTrustRequired', { count: String(untrustedProjects.length) }) }}</span></p>
       <p v-if="error" class="error-message">{{ error }}</p>
       <p v-if="notice" class="success-message">{{ notice }}</p>
       <div class="agent-task-split-action">
@@ -290,14 +297,20 @@ async function openThread(threadId: string): Promise<void> {
       <p v-if="!tasks.length" class="empty">{{ t('noCodexTasks') }}</p>
     </section>
 
-    <DialogShell :open="Boolean(pendingTrustProject)" content-class="workspace-trust-dialog" data-testid="workspace-trust-dialog" @update:open="updateTrustDialog">
-      <template #title>{{ t('trustProjectTitle') }}</template>
-      <template #description>{{ t('trustProjectDescription', { project: pendingTrustProject?.name ?? '' }) }}</template>
+    <DialogShell :open="Boolean(pendingTrustedStart)" content-class="workspace-trust-dialog" data-testid="workspace-trust-dialog" @update:open="updateTrustDialog">
+      <template #title>{{ t('trustWorkspaceProjectsTitle') }}</template>
+      <template #description>{{ t('trustWorkspaceProjectsDescription', { count: String(selectedUntrustedProjects.length) }) }}</template>
+      <ul class="workspace-trust-projects" data-testid="workspace-trust-projects">
+        <li v-for="project in selectedUntrustedProjects" :key="project.id">
+          <strong>{{ project.name }}</strong>
+          <code>{{ project.path }}</code>
+        </li>
+      </ul>
       <p class="trust-scope-note"><Icon name="untrusted" /> <span><strong>{{ t('projectTrustScope') }}</strong>{{ t('projectTrustScopeDescription') }}</span></p>
       <p v-if="store.error" class="error-message" role="alert">{{ store.error }}</p>
       <footer>
-        <UiButton :disabled="store.busy" @click="pendingTrustProject = undefined">{{ t('cancel') }}</UiButton>
-        <UiButton data-testid="trust-workspace-project-confirm" variant="warning" :disabled="store.busy" @click="trustWorkspaceProject"><Icon name="trusted" /> {{ store.busy ? t('allowingExecution') : t('trustProject') }}</UiButton>
+        <UiButton :disabled="store.busy" @click="pendingTrustedStart = undefined">{{ t('cancel') }}</UiButton>
+        <UiButton data-testid="trust-workspace-projects-confirm" variant="warning" :disabled="store.busy" @click="trustWorkspaceProjectsAndStart"><Icon name="trusted" /> {{ store.busy ? t('allowingExecution') : t('trustAndStart') }}</UiButton>
       </footer>
     </DialogShell>
   </main>

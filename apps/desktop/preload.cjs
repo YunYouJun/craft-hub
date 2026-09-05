@@ -16,7 +16,7 @@ contextBridge.exposeInMainWorld('craftHubDesktop', {
   openProjectInCodex: projectId => ipcRenderer.invoke('craft-hub:open-project-in-codex', projectId),
   openWorkspaceInCodex: workspaceId => ipcRenderer.invoke('craft-hub:open-workspace-in-codex', workspaceId),
   openWorkspaceInEditor: workspaceId => ipcRenderer.invoke('craft-hub:open-workspace-in-editor', workspaceId),
-  startProjectInCodex: (projectId, prompt) => ipcRenderer.invoke('craft-hub:start-project-in-codex', projectId, prompt),
+  startProjectInCodex: (projectId, prompt, packageRelativePath) => ipcRenderer.invoke('craft-hub:start-project-in-codex', projectId, prompt, packageRelativePath),
   startWorkspaceInCodex: (workspaceId, projectIds, primaryProjectId, prompt) => ipcRenderer.invoke('craft-hub:start-workspace-in-codex', workspaceId, projectIds, primaryProjectId, prompt),
   openCodexThread: threadId => ipcRenderer.invoke('craft-hub:open-codex-thread', threadId),
   focusCodexApplication: () => ipcRenderer.invoke('craft-hub:focus-codex-application'),
@@ -27,6 +27,15 @@ contextBridge.exposeInMainWorld('craftHubDesktop', {
     const listener = (_event, status) => callback(status)
     ipcRenderer.on('craft-hub:codex-activity-status-changed', listener)
     return () => ipcRenderer.removeListener('craft-hub:codex-activity-status-changed', listener)
+  },
+  consumeCelebration: () => ipcRenderer.invoke('craft-hub:consume-celebration'),
+  onCelebrationRequested: (callback) => {
+    const listener = async () => {
+      if (await ipcRenderer.invoke('craft-hub:consume-celebration'))
+        callback()
+    }
+    ipcRenderer.on('craft-hub:celebration-requested', listener)
+    return () => ipcRenderer.removeListener('craft-hub:celebration-requested', listener)
   },
   listTerminalApplications: () => ipcRenderer.invoke('craft-hub:list-terminal-applications'),
   openProjectInTerminal: (projectId, application) => ipcRenderer.invoke('craft-hub:open-project-in-terminal', projectId, application),
@@ -46,6 +55,11 @@ contextBridge.exposeInMainWorld('craftHubDesktop', {
     const listener = () => callback()
     ipcRenderer.on('craft-hub:replay-onboarding', listener)
     return () => ipcRenderer.removeListener('craft-hub:replay-onboarding', listener)
+  },
+  onOpenHelp: (callback) => {
+    const listener = () => callback()
+    ipcRenderer.on('craft-hub:open-help', listener)
+    return () => ipcRenderer.removeListener('craft-hub:open-help', listener)
   },
   cloudStatus: () => ipcRenderer.invoke('craft-hub:cloud-status'),
   cloudConnect: () => ipcRenderer.invoke('craft-hub:cloud-connect'),

@@ -4,18 +4,30 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { celebration } from './celebration'
 import { useI18n } from './i18n'
 import SettingsDialog from './SettingsDialog.vue'
 import { isMacPlatform } from './shortcuts'
 import { useWorkbenchStore } from './store'
 
+vi.mock('./celebration', () => ({
+  celebration: {
+    fire: vi.fn(() => true),
+    reset: vi.fn(),
+  },
+}))
+
 describe('settings dialog', () => {
+  let personalRepositoryPath: string | undefined
+
   beforeEach(() => {
     document.body.innerHTML = ''
     window.localStorage.clear()
     delete window.craftHubDesktop
+    personalRepositoryPath = undefined
     setActivePinia(createPinia())
     useI18n().setLocale('en')
+    vi.mocked(celebration.fire).mockClear()
     useWorkbenchStore().settings = {
       explicitKeys: [],
       path: '/settings.json',
@@ -27,21 +39,23 @@ describe('settings dialog', () => {
       if (path === '/api/personal-git-sync') {
         if (init?.method === 'PUT') {
           const target = JSON.parse(String(init.body)) as { repositoryPath: string, directory: string }
+          personalRepositoryPath = target.repositoryPath
           return new Response(JSON.stringify({ state: 'local-ahead', target, snapshotPath: `${target.repositoryPath}/${target.directory}/personal.snapshot.json` }), { status: 200 })
         }
-        return new Response(JSON.stringify({ state: 'unconfigured' }), { status: 200 })
+        return new Response(JSON.stringify(personalRepositoryPath
+          ? { state: 'local-ahead', target: { repositoryPath: personalRepositoryPath, directory: '.craft-hub' }, snapshotPath: `${personalRepositoryPath}/.craft-hub/personal.snapshot.json` }
+          : { state: 'unconfigured' }), { status: 200 })
       }
       if (path === '/api/personal-git-sync/synchronize')
         return new Response(JSON.stringify({ state: 'clean' }), { status: 200 })
       if (path === '/api/user-config')
         return new Response(JSON.stringify({ configDir: '/Users/me/.craft-hub', diagnostics: [], files: ['config.jsonc'], format: 'jsonc' }), { status: 200 })
       if (path === '/api/dotfiles-manager') {
-        if (init?.method === 'PUT') {
-          const { repositoryPath } = JSON.parse(String(init.body)) as { repositoryPath: string }
+        if (personalRepositoryPath) {
           return new Response(JSON.stringify({
             state: 'untrusted',
-            repositoryPath,
-            manifestPath: `${repositoryPath}/.craft-hub/dotfiles.jsonc`,
+            repositoryPath: personalRepositoryPath,
+            manifestPath: `${personalRepositoryPath}/.craft-hub/dotfiles.jsonc`,
             manifestRevision: 'manifest',
             manifest: { version: 1, adapter: 'command', operations: { check: { command: 'pnpm', args: ['doctor'] } } },
           }), { status: 200 })
@@ -173,7 +187,7 @@ describe('settings dialog', () => {
     await flushPromises()
 
     const tabs = [...document.body.querySelectorAll<HTMLElement>('[role="tab"]')]
-    expect(tabs.map(tab => tab.textContent)).toEqual(['General', 'Keyboard shortcuts', 'Personal cloud', 'Configuration', 'Run history', 'Import and export'])
+    expect(tabs.map(tab => tab.textContent)).toEqual(['General', 'Keyboard shortcuts', 'Personal cloud', 'Configuration', 'Run history', 'Import and export', 'Help'])
     expect(document.body.textContent).not.toContain('Export changed settings')
 
     tabs[5]!.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0 }))
@@ -182,6 +196,29 @@ describe('settings dialog', () => {
     expect(tabs[5]!.getAttribute('data-state')).toBe('active')
     expect(document.body.textContent).toContain('Export changed settings')
     expect(document.body.textContent).not.toContain('Choose the language used throughout Craft Hub.')
+  })
+
+  it('offers a confetti test in general settings', async () => {
+    mount(SettingsDialog, { props: { open: true }, attachTo: document.body })
+    await flushPromises()
+
+    expect(document.body.textContent).toContain('Preview confetti in this window.')
+    document.body.querySelector<HTMLButtonElement>('[data-testid="test-celebration-settings"]')!.click()
+
+    expect(celebration.fire).toHaveBeenCalledOnce()
+  })
+
+  it('opens directly to help with a safe celebration explanation and test', async () => {
+    mount(SettingsDialog, { props: { initialTab: 'help', open: true }, attachTo: document.body })
+    await flushPromises()
+
+    const helpTab = [...document.body.querySelectorAll<HTMLElement>('[role="tab"]')].find(tab => tab.textContent === 'Help')
+    expect(helpTab?.getAttribute('data-state')).toBe('active')
+    expect(document.body.textContent).toContain('Confetti is visual only: it does not confirm, change, or complete a task.')
+    expect(document.body.textContent).toContain('Celebrate this milestone in Craft Hub.')
+
+    document.body.querySelector<HTMLButtonElement>('[data-testid="test-celebration-help"]')!.click()
+    expect(celebration.fire).toHaveBeenCalledOnce()
   })
 
   it('records and persists a custom command palette shortcut', async () => {
@@ -266,7 +303,9 @@ describe('settings dialog', () => {
     await flushPromises()
 
     expect(setAutomaticUpdates).toHaveBeenCalledWith(false)
-    document.body.querySelector<HTMLButtonElement>('[data-testid="check-for-updates"]')!.click()
+    const checkButton = document.body.querySelector<HTMLButtonElement>('[data-testid="check-for-updates"]')!
+    expect(checkButton.classList).toContain('ui-button--secondary')
+    checkButton.click()
     await flushPromises()
     expect(checkForUpdates).toHaveBeenCalledOnce()
   })
@@ -285,7 +324,9 @@ describe('settings dialog', () => {
 
     mount(SettingsDialog, { props: { open: true }, attachTo: document.body })
     await flushPromises()
-    document.body.querySelector<HTMLButtonElement>('[data-testid="toggle-codex-activity"]')!.click()
+    const activityButton = document.body.querySelector<HTMLButtonElement>('[data-testid="toggle-codex-activity"]')!
+    expect(activityButton.classList).toContain('ui-button--secondary')
+    activityButton.click()
     await flushPromises()
 
     expect(installCodexActivityHooks).toHaveBeenCalledOnce()
@@ -311,7 +352,10 @@ describe('settings dialog', () => {
       body: JSON.stringify({ repositoryPath: '/Users/me/dotfiles', directory: '.craft-hub' }),
       method: 'PUT',
     }))
+    expect(document.body.querySelectorAll('input[name="git-repository-path"]')).toHaveLength(1)
+    expect(document.body.querySelector('input[name="dotfiles-repository-path"]')).toBeNull()
     expect(document.body.textContent).toContain('Local configuration has changes to export')
+    expect(document.body.textContent).toContain('pnpm doctor')
   })
 
   it('reviews, trusts, and runs a read-only dotfiles operation', async () => {
@@ -321,10 +365,10 @@ describe('settings dialog', () => {
     configurationTab.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0 }))
     await flushPromises()
 
-    const repository = document.body.querySelector<HTMLInputElement>('input[name="dotfiles-repository-path"]')!
+    const repository = document.body.querySelector<HTMLInputElement>('input[name="git-repository-path"]')!
     repository.value = '/Users/me/dotfiles'
     repository.dispatchEvent(new Event('input', { bubbles: true }))
-    document.body.querySelector<HTMLFormElement>('[data-testid="dotfiles-manager-form"]')!
+    document.body.querySelector<HTMLFormElement>('[data-testid="personal-git-sync-form"]')!
       .dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
     await flushPromises()
     expect(document.body.textContent).toContain('pnpm doctor')
