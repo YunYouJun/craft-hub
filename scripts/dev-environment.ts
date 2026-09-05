@@ -1,4 +1,5 @@
 import type { ChildProcess } from 'node:child_process'
+import type { DevelopmentProcessExit } from './dev-environment-lifecycle.ts'
 import type { WebDevServer } from './dev-vite.ts'
 import { spawn } from 'node:child_process'
 import { watch } from 'node:fs'
@@ -7,6 +8,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
+import { waitForDevelopmentEnvironmentExit } from './dev-environment-lifecycle.ts'
 import { waitForRuntimeReady } from './dev-runtime-readiness.ts'
 import { DevRuntimeSupervisor } from './dev-runtime-supervisor.ts'
 import { acquireDevelopmentSessionLock } from './dev-session-lock.ts'
@@ -26,13 +28,8 @@ const developmentSession = await acquireDevelopmentSessionLock().catch((error) =
 const devStateDirectory = await mkdtemp(join(tmpdir(), 'craft-hub-dev-'))
 const buildSignalPath = join(devStateDirectory, 'runtime-build')
 const runtimeHealthUrl = 'http://127.0.0.1:4318/api/health'
+const runtimeProcessName = mode === 'desktop' ? 'Desktop application' : 'Web Runtime'
 const children: ChildProcess[] = []
-interface DevelopmentProcessExit {
-  code: number | null
-  name: string
-  signal: NodeJS.Signals | null
-}
-
 const childExits: Array<Promise<DevelopmentProcessExit>> = []
 let webServer: WebDevServer | undefined
 let runtimeSupervisor: DevRuntimeSupervisor | undefined
@@ -40,6 +37,10 @@ let stopping: Promise<void> | undefined
 let rejectRuntimeFailure!: (error: Error) => void
 const runtimeFailure = new Promise<never>((_resolve, reject) => {
   rejectRuntimeFailure = reject
+})
+let resolveRuntimeCleanExit!: (exit: DevelopmentProcessExit) => void
+const runtimeCleanExit = new Promise<DevelopmentProcessExit>((resolveExit) => {
+  resolveRuntimeCleanExit = resolveExit
 })
 
 function spawnWorkspace(name: string, args: string[], environment = process.env): ChildProcess {
@@ -63,6 +64,7 @@ function failRuntime(error: Error): void {
 }
 
 let pendingBuildRevision = ''
+let appliedBuildRevision = ''
 let initialBuildResolved = false
 let resolveInitialBuild!: (revision: string) => void
 const initialBuild = new Promise<string>((resolveBuild) => {
@@ -72,7 +74,10 @@ const initialBuild = new Promise<string>((resolveBuild) => {
 async function restartRuntime(revision: string): Promise<void> {
   if (!runtimeSupervisor)
     return
+  if (appliedBuildRevision && revision !== appliedBuildRevision)
+    process.stdout.write(`Runtime rebuilt; restarting ${runtimeProcessName}.\n`)
   await runtimeSupervisor.applyBuild(revision)
+  appliedBuildRevision = revision
   await Promise.race([waitForRuntimeReady(runtimeHealthUrl), runtimeFailure])
 }
 
@@ -136,21 +141,31 @@ try {
           })
         }
         return spawnWorkspace('Web Runtime', ['--filter', 'craft-hub', 'exec', 'tsx', 'src/cli.ts', 'ui'])
-      }, failRuntime)
+      }, failRuntime, {
+        ...(mode === 'desktop'
+          ? { onCleanExit: (exit: { code: 0, signal: null }) => resolveRuntimeCleanExit({ ...exit, name: runtimeProcessName }) }
+          : {}),
+        processName: runtimeProcessName,
+      })
       await restartRuntime(pendingBuildRevision)
     },
     startWeb: () => startWebDevServer(),
   })
   process.stdout.write(`Craft Hub web: ${webServer.url}\n`)
 
-  const result = await Promise.race([
-    webServer.closed.then(exit => ({ ...exit, name: 'Vite dev server' })),
+  const result = await waitForDevelopmentEnvironmentExit({
+    buildWatcherExit,
+    runtimeCleanExit,
     runtimeFailure,
-    ...childExits,
-  ])
+    webServerClosed: webServer.closed,
+  })
 
-  if (!stopping)
-    throw new Error(`${result.name} exited unexpectedly with code ${String(result.code)} and signal ${String(result.signal)}`)
+  if (!stopping) {
+    if (result.name === 'Desktop application' && result.code === 0 && result.signal === null)
+      process.stdout.write('Desktop application closed; stopping the development environment.\n')
+    else
+      throw new Error(`${result.name} exited unexpectedly with code ${String(result.code)} and signal ${String(result.signal)}`)
+  }
 }
 finally {
   try {

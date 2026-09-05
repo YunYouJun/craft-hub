@@ -5,6 +5,16 @@ export interface DevRuntimeProcess {
     & ((event: 'exit', listener: (code: number | null, signal: NodeJS.Signals | null) => void) => this)
 }
 
+export interface DevRuntimeCleanExit {
+  code: 0
+  signal: null
+}
+
+export interface DevRuntimeSupervisorOptions {
+  onCleanExit?: (exit: DevRuntimeCleanExit) => void
+  processName?: string
+}
+
 interface RunningRuntime {
   expectedExit: boolean
   exit: Promise<void>
@@ -21,6 +31,7 @@ export class DevRuntimeSupervisor {
   constructor(
     private readonly launch: () => DevRuntimeProcess,
     private readonly onUnexpectedExit: (error: Error) => void,
+    private readonly options: DevRuntimeSupervisorOptions = {},
   ) {}
 
   /** Start or replace the Runtime after a successful build, ignoring duplicate build notifications. */
@@ -54,16 +65,26 @@ export class DevRuntimeSupervisor {
     }
     running.exit = new Promise<void>((resolve) => {
       let settled = false
-      const finish = (error?: Error): void => {
+      const finish = (error: Error, cleanExit?: DevRuntimeCleanExit): void => {
         if (settled)
           return
         settled = true
-        if (!running.expectedExit)
-          this.onUnexpectedExit(error ?? new Error('Development Runtime exited unexpectedly'))
+        if (!running.expectedExit) {
+          if (cleanExit && this.options.onCleanExit)
+            this.options.onCleanExit(cleanExit)
+          else
+            this.onUnexpectedExit(error)
+        }
         resolve()
       }
+      const processName = this.options.processName ?? 'Development Runtime'
       process.once('error', error => finish(error))
-      process.once('exit', (code, signal) => finish(new Error(`Development Runtime exited with code ${String(code)} and signal ${String(signal)}`)))
+      process.once('exit', (code, signal) => {
+        const cleanExit: DevRuntimeCleanExit | undefined = code === 0 && signal === null
+          ? { code: 0, signal: null }
+          : undefined
+        finish(new Error(`${processName} exited with code ${String(code)} and signal ${String(signal)}`), cleanExit)
+      })
     })
     return running
   }
