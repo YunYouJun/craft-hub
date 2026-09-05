@@ -14,6 +14,7 @@ import { assertCommandWorkingDirectory } from './path-security'
 interface ParsedCommand {
   args: string[]
   command: string
+  options?: { windowsVerbatimArguments?: boolean }
 }
 
 type ParseCommand = (command: string, args: string[], options: { cwd: string, env: NodeJS.ProcessEnv, shell: false }) => ParsedCommand
@@ -91,7 +92,7 @@ export async function executeCommand(
     const invocation = invocations[index]!
     if (invocations.length > 1)
       appendOutput(`\r\n[Craft Hub ${index + 1}/${invocations.length}] ${invocation.label ?? invocation.command}\r\n`)
-    const parsed = process.platform === 'win32'
+    const parsed: ParsedCommand = process.platform === 'win32'
       ? parseCommand(invocation.command, invocation.args, {
           cwd: invocation.cwd,
           env,
@@ -99,7 +100,7 @@ export async function executeCommand(
         })
       : invocation
     try {
-      terminal = spawn(parsed.command, process.platform === 'win32' ? parsed.args.join(' ') : parsed.args, {
+      terminal = spawn(parsed.command, parsed.options?.windowsVerbatimArguments ? parsed.args.join(' ') : parsed.args, {
         cwd: invocation.cwd,
         cols: terminalColumns,
         env,

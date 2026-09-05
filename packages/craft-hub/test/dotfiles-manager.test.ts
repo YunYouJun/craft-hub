@@ -88,8 +88,9 @@ describe('dotfiles manager', () => {
 
     const connection = await readFile(join(paths.dataDir, 'personal-config-repository.json'), 'utf8')
     const state = await readFile(join(paths.dataDir, 'dotfiles-manager.json'), 'utf8')
-    expect(connection).toContain(paths.repositoryPath)
-    expect(state).toContain(paths.repositoryPath)
-    expect(state).not.toContain(process.execPath)
+    const canonicalRepositoryPath = await realpath(paths.repositoryPath)
+    expect(JSON.parse(connection).repositoryPath).toBe(canonicalRepositoryPath)
+    expect(JSON.parse(state).trustedRepositoryPath).toBe(canonicalRepositoryPath)
+    expect(JSON.stringify(JSON.parse(state))).not.toContain(JSON.stringify(process.execPath).slice(1, -1))
   })
 })
