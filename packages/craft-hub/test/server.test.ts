@@ -490,7 +490,7 @@ describe('craft hub server lifecycle', () => {
     const root = await mkdtemp(join(tmpdir(), 'craft-hub-server-git-sync-'))
     const repositoryPath = join(root, 'dotfiles')
     await execFileAsync('git', ['init', repositoryPath])
-    const canonicalRepositoryPath = (await realpath(repositoryPath)).replaceAll('\\', '/')
+    const canonicalRepositoryPath = await realpath(repositoryPath)
     const runtime = new CraftHubRuntime({ dataDir: join(root, 'data'), configDir: join(root, 'config') })
     const app = await startCraftHubServer({ port: 0, runtime })
     try {
@@ -625,6 +625,7 @@ describe('craft hub server lifecycle', () => {
         body: JSON.stringify({ sourceDirectory: join(sourcePath, 'workspaces'), expectedRevision: preview.revision }),
       })
       const imported = await importResponse.json() as { group: { id: string }, workspaces: Array<{ id: string, groupId: string, members: Array<{ project: string, path: string }> }> }
+      expect(importResponse.status, JSON.stringify(imported)).toBe(201)
       const workspace = imported.workspaces[0]!
       expect(workspace).toMatchObject({ groupId: imported.group.id })
       expect(workspace.members[0]).toMatchObject({ path: await realpath(memberPath) })
