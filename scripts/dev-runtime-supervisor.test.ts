@@ -31,4 +31,33 @@ describe('development runtime supervisor', () => {
     await supervisor.stop()
     expect(processes[1]!.kill).toHaveBeenCalledWith('SIGTERM')
   })
+
+  it('distinguishes an unplanned clean exit from a Runtime failure', async () => {
+    const process = new FakeRuntimeProcess()
+    const unexpectedExit = vi.fn()
+    const cleanExit = vi.fn()
+    const supervisor = new DevRuntimeSupervisor(() => process, unexpectedExit, {
+      onCleanExit: cleanExit,
+      processName: 'Desktop application',
+    })
+
+    await supervisor.applyBuild('revision-a')
+    process.emit('exit', 0, null)
+
+    expect(cleanExit).toHaveBeenCalledWith({ code: 0, signal: null })
+    expect(unexpectedExit).not.toHaveBeenCalled()
+  })
+
+  it('includes the managed process name in unexpected exit errors', async () => {
+    const process = new FakeRuntimeProcess()
+    const unexpectedExit = vi.fn()
+    const supervisor = new DevRuntimeSupervisor(() => process, unexpectedExit, {
+      processName: 'Desktop application',
+    })
+
+    await supervisor.applyBuild('revision-a')
+    process.emit('exit', 1, null)
+
+    expect(unexpectedExit).toHaveBeenCalledWith(new Error('Desktop application exited with code 1 and signal null'))
+  })
 })
