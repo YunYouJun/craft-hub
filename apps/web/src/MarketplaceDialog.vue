@@ -11,7 +11,7 @@ import { useI18n } from './i18n'
 import PluginDetail from './PluginDetail.vue'
 
 const props = defineProps<{ open: boolean, importCatalogUrl?: string }>()
-const { t } = useI18n()
+const { locale, t } = useI18n()
 const route = useRoute()
 const router = useRouter()
 type CatalogItem = CatalogPluginV1 & { sourceId: string, sourceName: string, sourceKind: MarketplaceSource['kind'] }
@@ -38,19 +38,45 @@ const detailSourceId = computed(() => String(route.params.sourceId ?? ''))
 const detailPackageName = computed(() => String(route.params.packageName ?? ''))
 const detailVersion = computed(() => typeof route.query.version === 'string' ? route.query.version : undefined)
 const detailParentName = computed(() => typeof route.query.parentName === 'string' ? route.query.parentName : undefined)
+const canChooseLocalPluginDirectory = Boolean(window.craftHubDesktop?.selectProjectDirectory)
+
+const preferredCatalog = computed(() => {
+  const grouped = new Map<string, CatalogItem[]>()
+  for (const plugin of catalog.value) {
+    const key = `${plugin.sourceId}:${plugin.package}`
+    grouped.set(key, [...(grouped.get(key) ?? []), plugin])
+  }
+  return [...grouped.values()].map((versions) => {
+    const activeVersions = versions.filter(plugin => plugin.status === 'active')
+    const candidates = activeVersions.length ? activeVersions : versions
+    const version = maxSatisfying(candidates.map(plugin => plugin.version), '*', { includePrerelease: true })
+    return candidates.find(plugin => plugin.version === version) ?? candidates[0]!
+  })
+})
+const includedCatalogPackages = computed(() => new Set(preferredCatalog.value
+  .filter(plugin => plugin.status === 'active' && plugin.includesPlugins.length)
+  .flatMap(plugin => plugin.includesPlugins.map(included => `${plugin.sourceId}:${included.package}`))))
+const rootCatalog = computed(() => preferredCatalog.value.filter(plugin => !includedCatalogPackages.value.has(`${plugin.sourceId}:${plugin.package}`)))
 
 const filteredCatalog = computed(() => {
   const normalized = query.value.trim().toLowerCase()
-  return catalog.value.filter(plugin => !normalized
+  const candidates = normalized ? preferredCatalog.value : rootCatalog.value
+  return candidates.filter(plugin => !normalized
     || plugin.displayName.toLowerCase().includes(normalized)
     || plugin.package.toLowerCase().includes(normalized)
     || plugin.description?.toLowerCase().includes(normalized))
 })
 const installedPackages = computed(() => new Set(installed.value.map(plugin => plugin.package)))
 const installedByPackage = computed(() => new Map(installed.value.map(plugin => [plugin.package, plugin])))
+const installedPackMembers = computed(() => new Set(installed.value.flatMap(plugin => plugin.manifest.includesPlugins.map(included => included.package))))
+const rootInstalled = computed(() => installed.value.filter(plugin => !installedPackMembers.value.has(plugin.package)))
 
 function catalogPluginInstalled(plugin: CatalogItem): boolean {
   return installedByPackage.value.get(plugin.package)?.version === plugin.version
+}
+
+function installedVersion(plugin: CatalogItem): string | undefined {
+  return installedByPackage.value.get(plugin.package)?.version
 }
 
 function isPluginPack(plugin: ManagedPlugin): boolean {
@@ -182,6 +208,34 @@ async function linkLocalPlugin(): Promise<void> {
     await api.linkLocalPlugin(path)
     localPluginPath.value = ''
   })
+}
+
+async function chooseLocalPluginDirectory(): Promise<void> {
+  const selectDirectory = window.craftHubDesktop?.selectProjectDirectory
+  if (!selectDirectory)
+    return
+  busy.value = 'select-local'
+  error.value = ''
+  try {
+    const selectedPath = await selectDirectory(localPluginPath.value.trim() || undefined)
+    if (selectedPath)
+      localPluginPath.value = selectedPath
+  }
+  catch (caught) {
+    error.value = caught instanceof Error ? caught.message : String(caught)
+  }
+  finally {
+    busy.value = ''
+  }
+}
+
+async function openPluginAuthoringGuide(): Promise<void> {
+  const path = locale.value === 'zh-CN' ? 'docs/zh/guide/plugin-authoring.md' : 'docs/guide/plugin-authoring.md'
+  const url = `https://github.com/YunYouJun/craft-hub/blob/main/${path}`
+  if (window.craftHubDesktop?.openExternalUrl)
+    await window.craftHubDesktop.openExternalUrl(url)
+  else
+    window.open(url, '_blank', 'noopener,noreferrer')
 }
 
 async function refreshLocalPlugin(plugin: ManagedPlugin): Promise<void> {
@@ -392,7 +446,7 @@ function openIncludedPlugin(parent: ManagedPlugin, packageName: string, range: s
 
         <nav class="marketplace-tabs" :aria-label="t('pluginMarketplace')">
           <button :class="{ active: activeTab === 'discover' }" @click="activeTab = 'discover'">{{ t('discoverPlugins') }}</button>
-          <button :class="{ active: activeTab === 'installed' }" @click="activeTab = 'installed'">{{ t('installedPlugins') }} <small>{{ installed.length }}</small></button>
+          <button :class="{ active: activeTab === 'installed' }" @click="activeTab = 'installed'">{{ t('installedPlugins') }} <small>{{ rootInstalled.length }}</small></button>
           <button :class="{ active: activeTab === 'sources' }" @click="activeTab = 'sources'">{{ t('marketplaceSources') }}</button>
         </nav>
 
@@ -411,8 +465,7 @@ function openIncludedPlugin(parent: ManagedPlugin, packageName: string, range: s
                 <div class="plugin-copy">
                   <div class="plugin-title"><strong>{{ plugin.displayName }}</strong><span v-if="plugin.includesPlugins.length" class="plugin-pack-badge">{{ t('pluginPackBadge') }}</span><code>{{ plugin.package }}</code><span class="view-plugin-detail">{{ t('viewPluginDetailsAction') }}</span></div>
                   <p>{{ plugin.description }}</p>
-                  <dl><div><dt>{{ t('pluginPublisher') }}</dt><dd>{{ plugin.publisher }}</dd></div><div><dt>{{ t('pluginVersion') }}</dt><dd>{{ plugin.version }}</dd></div><div><dt>{{ t('pluginSource') }}</dt><dd>{{ plugin.sourceName }}</dd></div></dl>
-                  <p class="permission-copy">{{ t('pluginPermissions') }} · {{ plugin.permissions.join(', ') || t('none') }}</p>
+                  <dl><div><dt>{{ t('pluginPublisher') }}</dt><dd>{{ plugin.publisher }}</dd></div><div><dt>{{ t('pluginVersion') }}</dt><dd><span v-if="installedVersion(plugin) && installedVersion(plugin) !== plugin.version" class="plugin-version-update"><span>{{ installedVersion(plugin) }}</span><Icon name="arrowRight" /><strong>{{ plugin.version }}</strong></span><span v-else>{{ plugin.version }}</span></dd></div><div><dt>{{ t('pluginSource') }}</dt><dd>{{ plugin.sourceName }}</dd></div></dl>
                 </div>
               </button>
               <UiButton size="compact" variant="primary" :disabled="busy !== '' || (catalogPluginInstalled(plugin) && !plugin.requiresPlugins.length && !plugin.includesPlugins.length)" @click="install(plugin)">
@@ -428,16 +481,23 @@ function openIncludedPlugin(parent: ManagedPlugin, packageName: string, range: s
             <div>
               <h3>{{ t('loadLocalPlugin') }} <span class="local-plugin-badge">{{ t('localPluginBadge') }}</span></h3>
               <p>{{ t('loadLocalPluginDescription') }}</p>
+              <p class="local-plugin-format-help">
+                {{ t('localPluginFormatHint') }}
+                <button type="button" @click="openPluginAuthoringGuide">{{ t('pluginAuthoringGuide') }} <Icon name="externalLink" /></button>
+              </p>
             </div>
             <div class="local-plugin-controls">
-              <input v-model="localPluginPath" :placeholder="t('localPluginPathPlaceholder')" aria-label="Local plugin path" required>
+              <input v-model="localPluginPath" :placeholder="t('localPluginPathPlaceholder')" :aria-label="t('localPluginPath')" required>
+              <UiButton v-if="canChooseLocalPluginDirectory" size="compact" :disabled="busy !== ''" @click="chooseLocalPluginDirectory">
+                <Icon name="folder" /> {{ t('choosePluginFolder') }}
+              </UiButton>
               <UiButton variant="primary" type="submit" :disabled="busy !== '' || !localPluginPath.trim()">
                 {{ busy === 'link-local' ? t('loadingLocalPlugin') : t('loadLocalPluginAction') }}
               </UiButton>
             </div>
           </form>
-          <div v-if="installed.length" class="plugin-list">
-            <article v-for="plugin in installed" :key="plugin.package" class="plugin-row installed-plugin-row" :class="{ 'plugin-pack-row': isPluginPack(plugin) }">
+          <div v-if="rootInstalled.length" class="plugin-list">
+            <article v-for="plugin in rootInstalled" :key="plugin.package" class="plugin-row installed-plugin-row" :class="{ 'plugin-pack-row': isPluginPack(plugin) }">
               <button class="plugin-summary-link" :aria-label="t('viewPluginDetails', { name: plugin.manifest.displayName })" @click="openPluginDetail(plugin.sourceId, plugin.package, plugin.version)">
                 <div class="plugin-mark" :class="{ disabled: !plugin.enabled, 'has-pack-count': isPluginPack(plugin) }">
                   <img v-if="visibleIcon(installedIconKey(plugin), installedIcon(plugin))" data-testid="installed-plugin-icon" :src="visibleIcon(installedIconKey(plugin), installedIcon(plugin))" alt="" referrerpolicy="no-referrer" @error="markIconFailed(installedIconKey(plugin))">
@@ -445,10 +505,9 @@ function openIncludedPlugin(parent: ManagedPlugin, packageName: string, range: s
                   <span v-if="isPluginPack(plugin)" class="plugin-pack-count" :aria-label="t('pluginPackCount', { count: String(plugin.manifest.includesPlugins.length) })">{{ plugin.manifest.includesPlugins.length }}</span>
                 </div>
                 <div class="plugin-copy">
-                  <div class="plugin-title"><strong>{{ plugin.manifest.displayName }}</strong><span v-if="isPluginPack(plugin)" class="plugin-pack-badge">{{ t('pluginPackBadge') }}</span><span v-if="plugin.origin === 'local'" class="local-plugin-badge">{{ t('localPluginBadge') }}</span><code>{{ plugin.package }}</code><span class="view-plugin-detail">{{ t('viewPluginDetailsAction') }}</span></div>
+                  <div class="plugin-title"><strong>{{ plugin.manifest.displayName }}</strong><span v-if="isPluginPack(plugin)" class="plugin-pack-badge">{{ t('pluginPackBadge') }}</span><span v-if="plugin.origin === 'local'" class="local-plugin-badge">{{ t('localPluginBadge') }}</span><span v-if="plugin.error" class="plugin-error-badge">{{ t('pluginPackError') }}</span><code>{{ plugin.package }}</code><span class="view-plugin-detail">{{ t('viewPluginDetailsAction') }}</span></div>
                   <p>{{ plugin.manifest.description }}</p>
-                  <dl><div><dt>{{ t('pluginVersion') }}</dt><dd>{{ plugin.version }}</dd></div><div v-if="isPluginPack(plugin)"><dt>{{ t('pluginPackContents') }}</dt><dd>{{ t('pluginPackAvailability', { installed: String(installedPackCount(plugin)), total: String(plugin.manifest.includesPlugins.length) }) }}</dd></div><div><dt>{{ t(plugin.origin === 'local' ? 'localPluginPath' : 'pluginSource') }}</dt><dd>{{ plugin.origin === 'local' ? plugin.packagePath : plugin.sourceId }}</dd></div><div><dt>{{ t('pluginPermissions') }}</dt><dd>{{ plugin.manifest.permissions.join(', ') || t('none') }}</dd></div></dl>
-                  <p v-if="plugin.error" class="local-plugin-error" role="alert">{{ plugin.error }}</p>
+                  <dl><div><dt>{{ t('pluginVersion') }}</dt><dd>{{ plugin.version }}</dd></div><div v-if="isPluginPack(plugin)"><dt>{{ t('pluginPackContents') }}</dt><dd>{{ t('pluginPackAvailability', { installed: String(installedPackCount(plugin)), total: String(plugin.manifest.includesPlugins.length) }) }}</dd></div><div><dt>{{ t(plugin.origin === 'local' ? 'localPluginPath' : 'pluginSource') }}</dt><dd>{{ plugin.origin === 'local' ? plugin.packagePath : plugin.sourceId }}</dd></div></dl>
                 </div>
               </button>
               <div class="plugin-actions">

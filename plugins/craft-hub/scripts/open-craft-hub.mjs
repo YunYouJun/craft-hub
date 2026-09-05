@@ -27,6 +27,12 @@ export function parseArguments(argv) {
 }
 
 export async function buildCraftHubUrl(options, runGit = git) {
+  if (options.view === 'celebrate') {
+    const url = new URL('craft-hub://celebrate')
+    url.searchParams.set('v', '1')
+    return url.href
+  }
+
   if (options.view === 'home' || options.view === 'marketplace' || options.view === 'settings') {
     const url = new URL('craft-hub://open')
     url.searchParams.set('v', '1')

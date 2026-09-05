@@ -2,6 +2,15 @@
   --control-height-compact: 30px;
   --control-height-default: 36px;
   --control-radius: 7px;
+  --select-arrow-size: 16px;
+  --select-arrow-inset: 12px;
+  --select-content-gap: 8px;
+  --select-padding-start: 10px;
+  --select-padding-end: calc(var(--select-arrow-inset) + var(--select-arrow-size) + var(--select-content-gap));
+  --select-option-indicator-size: 16px;
+  --select-option-indicator-inset: 8px;
+  --select-option-padding-end: calc(var(--select-option-indicator-inset) + var(--select-option-indicator-size) + 6px);
+  --select-chevron-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23687184' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
   --dialog-radius: 12px;
   --font-size-tiny: 8px;
   --font-size-micro: 9px;
@@ -66,6 +75,7 @@
 }
 
 :root[data-theme='dark'] {
+  --select-chevron-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%239da7b5' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
   --accent: #6ea8fe;
   --accent-hover: #8bb9ff;
   --accent-soft: #19375f;

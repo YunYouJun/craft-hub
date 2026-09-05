@@ -13,8 +13,14 @@ import { projectAccentStyle } from './project-visuals'
 import { useWorkbenchStore } from './store'
 import VisualIcon from './VisualIcon.vue'
 
-withDefaults(defineProps<{ activeView?: 'marketplace' | 'workbench' }>(), { activeView: 'workbench' })
-const emit = defineEmits<{ openMarketplace: [], openSettings: [], openWorkbench: [] }>()
+withDefaults(defineProps<{
+  activeView?: 'diagnostics' | 'integration' | 'marketplace' | 'navigation' | 'plugin-workbench' | 'workbench'
+  activeIntegrationId?: string
+  activeIntegrationViewId?: string
+  activePluginWorkbenchId?: string
+  activePluginWorkbenchPluginId?: string
+}>(), { activeView: 'workbench', activeIntegrationId: '', activeIntegrationViewId: '', activePluginWorkbenchId: '', activePluginWorkbenchPluginId: '' })
+const emit = defineEmits<{ openDiagnostics: [], openIntegration: [integrationId: string, viewId: string], openMarketplace: [], openNavigation: [], openPluginWorkbench: [pluginId: string, workbenchId: string], openSettings: [], openWorkbench: [] }>()
 const store = useWorkbenchStore()
 const { t } = useI18n()
 const canChooseWorkspaceFolders = Boolean(window.craftHubDesktop?.selectProjectDirectories)
@@ -58,6 +64,7 @@ const normalizedSearch = computed(() => searchQuery.value.trim().toLocaleLowerCa
 const contextMenu = ref<{ kind: 'workspace-group' | 'workspace' | 'workspace-member' | 'project', id: string, workspaceId?: string, x: number, y: number }>()
 const appearanceOpen = ref(false)
 const appearanceTarget = ref<{ kind: 'workspace-group' | 'workspace' | 'project', id: string, workspaceId?: string, title: string, note?: string, icon?: string, color?: ProjectAccentColor }>()
+const pendingProjectAppearance = ref<{ target: NonNullable<typeof appearanceTarget.value>, appearance: { name?: string, note?: string, icon?: string, color?: ProjectAccentColor } }>()
 const addExistingOpen = ref(false)
 const addExistingWorkspaceId = ref('')
 const selectedExistingProjectIds = ref<string[]>([])
@@ -102,6 +109,7 @@ const filteredUngroupedProjects = computed(() => groupFilter.value === 'all' || 
 const hasSearchResults = computed(() => filteredWorkspaces.value.length > 0 || visibleStandaloneProjects.value.length > 0)
 const teamSyncNeedsAttention = computed(() => Boolean(store.activeTeamSyncStatus
   && (store.activeTeamSyncStatus.state !== 'clean' || store.activeTeamSyncStatus.workingTreeChanged)))
+const diagnosticCount = computed(() => store.workbenchDiagnostics.summary.errors + store.workbenchDiagnostics.summary.warnings)
 
 async function switchOwnerScope(value: unknown): Promise<void> {
   if (typeof value !== 'string')
@@ -474,10 +482,7 @@ function openAppearance(kind: 'workspace-group' | 'workspace' | 'project', id: s
   closeContextMenu()
 }
 
-async function saveAppearance(appearance: { name?: string, note?: string, icon?: string, color?: ProjectAccentColor }): Promise<void> {
-  const target = appearanceTarget.value
-  if (!target)
-    return
+async function persistAppearance(target: NonNullable<typeof appearanceTarget.value>, appearance: { name?: string, note?: string, icon?: string, color?: ProjectAccentColor }): Promise<void> {
   if (target.kind === 'workspace-group') {
     await store.setWorkspaceGroupAppearance(target.id, appearance.icon)
   }
@@ -495,6 +500,27 @@ async function saveAppearance(appearance: { name?: string, note?: string, icon?:
     }
   }
   appearanceOpen.value = false
+}
+
+async function saveAppearance(appearance: { name?: string, note?: string, icon?: string, color?: ProjectAccentColor }): Promise<void> {
+  const target = appearanceTarget.value
+  if (!target)
+    return
+  const project = target.kind === 'project' ? store.projects.find(item => item.id === target.id) : undefined
+  if (project && project.trust !== 'trusted') {
+    pendingProjectAppearance.value = { target, appearance }
+    appearanceOpen.value = false
+    return
+  }
+  await persistAppearance(target, appearance)
+}
+
+async function trustAndSaveProjectAppearance(): Promise<void> {
+  const pending = pendingProjectAppearance.value
+  if (!pending || !await store.trustProjectById(pending.target.id))
+    return
+  pendingProjectAppearance.value = undefined
+  await persistAppearance(pending.target, pending.appearance)
 }
 
 function openAddExisting(workspaceId: string): void {
@@ -759,6 +785,40 @@ async function addProjectPath(projectPath: string): Promise<void> {
         @click="emit('openWorkbench')"
       ><Icon name="hub" /></button>
       <button
+        class="activity-button navigation-button"
+        :class="{ active: activeView === 'navigation' }"
+        data-testid="open-navigation"
+        :aria-label="t('navigationWorkbench')"
+        :title="t('navigationWorkbench')"
+        @click="emit('openNavigation')"
+      >
+        <Icon name="compass" />
+      </button>
+      <button
+        v-for="workbench in store.pluginWorkbenches"
+        :key="`${workbench.pluginId}:${workbench.id}`"
+        class="activity-button plugin-workbench-button"
+        :class="{ active: activeView === 'plugin-workbench' && activePluginWorkbenchPluginId === workbench.pluginId && activePluginWorkbenchId === workbench.id }"
+        :data-testid="`open-plugin-workbench-${workbench.id}`"
+        :aria-label="workbench.title"
+        :title="workbench.title"
+        @click="emit('openPluginWorkbench', workbench.pluginId, workbench.id)"
+      >
+        <VisualIcon :icon="workbench.icon" fallback="workspace" />
+      </button>
+      <button
+        v-for="view in store.standaloneIntegrationViews"
+        :key="`${view.integrationId}:${view.id}`"
+        class="activity-button integration-button"
+        :class="{ active: activeView === 'integration' && activeIntegrationId === view.integrationId && activeIntegrationViewId === view.id }"
+        :data-testid="`open-integration-${view.integrationId}-${view.id}`"
+        :aria-label="view.title"
+        :title="view.title"
+        @click="emit('openIntegration', view.integrationId, view.id)"
+      >
+        <VisualIcon :icon="view.icon" fallback="plugins" />
+      </button>
+      <button
         class="activity-button marketplace-button"
         :class="{ active: activeView === 'marketplace' }"
         data-testid="open-marketplace"
@@ -767,6 +827,17 @@ async function addProjectPath(projectPath: string): Promise<void> {
         @click="emit('openMarketplace')"
       >
         <Icon name="plugins" />
+      </button>
+      <button
+        class="activity-button diagnostics-button"
+        :class="{ active: activeView === 'diagnostics', attention: diagnosticCount > 0 }"
+        data-testid="open-diagnostics"
+        :aria-label="t('diagnostics')"
+        :title="t('diagnostics')"
+        @click="emit('openDiagnostics')"
+      >
+        <Icon :name="diagnosticCount ? 'error' : 'check'" />
+        <small v-if="diagnosticCount" class="activity-badge">{{ diagnosticCount > 99 ? '99+' : diagnosticCount }}</small>
       </button>
       <button
         class="activity-button settings-button"
@@ -778,7 +849,7 @@ async function addProjectPath(projectPath: string): Promise<void> {
         <Icon name="settings" />
       </button>
     </div>
-    <div class="rail-content" :class="{ 'search-active': normalizedSearch }" :inert="activeView === 'marketplace'" :aria-hidden="activeView === 'marketplace'">
+    <div class="rail-content" :class="{ 'search-active': normalizedSearch }" :inert="activeView !== 'workbench'" :aria-hidden="activeView !== 'workbench'">
       <div class="rail-controls">
         <div class="owner-scope-switcher">
           <div class="owner-scope-select">
@@ -883,7 +954,6 @@ async function addProjectPath(projectPath: string): Promise<void> {
           @contextmenu.stop.prevent="openProjectContextMenu($event, project)"
         >
           <ProjectIcon class="rail-item-icon" :project="project" /><span class="project-name">{{ project.name }}</span>
-          <span class="project-trust" :class="project.trust" :aria-label="t(project.trust === 'trusted' ? 'trusted' : 'untrusted')"><Icon :name="project.trust" /></span>
           <span v-if="projectHasConfigurationIssue(project.id)" class="project-config-warning" :aria-label="t('projectConfigInvalid')" :title="t('projectConfigInvalid')"><Icon name="error" /></span>
         </button>
       </template>
@@ -917,7 +987,6 @@ async function addProjectPath(projectPath: string): Promise<void> {
           @contextmenu.stop.prevent="openProjectContextMenu($event, project)"
         >
           <ProjectIcon class="rail-item-icon" :project="project" /><span class="project-name">{{ project.name }}</span>
-          <span class="project-trust" :class="project.trust" :aria-label="t(project.trust === 'trusted' ? 'trusted' : 'untrusted')"><Icon :name="project.trust" /></span>
           <span v-if="projectHasConfigurationIssue(project.id)" class="project-config-warning" :aria-label="t('projectConfigInvalid')" :title="t('projectConfigInvalid')"><Icon name="error" /></span>
         </button>
         <div
@@ -967,11 +1036,6 @@ async function addProjectPath(projectPath: string): Promise<void> {
                 <ProjectIcon class="rail-item-icon" :project="store.projects.find(project => project.id === member.projectId)!" />
                 <span class="project-name" :title="member.label ? store.projects.find(project => project.id === member.projectId)!.name : undefined">{{ member.label || store.projects.find(project => project.id === member.projectId)!.name }}</span>
                 <small v-if="workspace.primaryProject === member.project" class="primary-badge">{{ t('primary') }}</small>
-                <span
-                  class="project-trust"
-                  :class="store.projects.find(project => project.id === member.projectId)!.trust"
-                  :title="t(store.projects.find(project => project.id === member.projectId)!.trust === 'trusted' ? 'trusted' : 'untrusted')"
-                ><Icon :name="store.projects.find(project => project.id === member.projectId)!.trust" /></span>
                 <span v-if="projectHasConfigurationIssue(member.projectId)" class="project-config-warning" :aria-label="t('projectConfigInvalid')" :title="t('projectConfigInvalid')"><Icon name="error" /></span>
               </button>
             </template>
@@ -1009,7 +1073,6 @@ async function addProjectPath(projectPath: string): Promise<void> {
           @contextmenu.stop.prevent="openProjectContextMenu($event, project)"
         >
           <ProjectIcon class="rail-item-icon" :project="project" /><span class="project-name">{{ project.name }}</span>
-          <span class="project-trust" :class="project.trust" :aria-label="t(project.trust === 'trusted' ? 'trusted' : 'untrusted')"><Icon :name="project.trust" /></span>
           <span v-if="projectHasConfigurationIssue(project.id)" class="project-config-warning" :aria-label="t('projectConfigInvalid')" :title="t('projectConfigInvalid')"><Icon name="error" /></span>
           <span v-if="runState(project.id)" class="project-run-state" :class="runState(project.id)" :aria-label="runStateTitle(project.id)" :title="runStateTitle(project.id)" :data-testid="`project-run-state-${project.id}`">
             <Icon v-if="runState(project.id) === 'starting'" name="refresh" />
@@ -1296,4 +1359,18 @@ async function addProjectPath(projectPath: string): Promise<void> {
     @update:open="appearanceOpen = $event"
     @save="saveAppearance"
   />
+  <DialogShell :open="Boolean(pendingProjectAppearance)" content-class="trust-run-dialog" data-testid="project-appearance-trust-dialog" @update:open="$event || (pendingProjectAppearance = undefined)">
+    <template #title>{{ t('trustAndChangeAppearanceTitle') }}</template>
+    <template #description>{{ t('trustAndChangeAppearanceDescription', { project: pendingProjectAppearance?.target.title ?? '' }) }}</template>
+    <dl class="trust-run-summary">
+      <div><dt>{{ t('projectPath') }}</dt><dd>{{ store.projects.find(project => project.id === pendingProjectAppearance?.target.id)?.path }}</dd></div>
+      <div><dt>{{ t('actionLabel') }}</dt><dd>{{ t('changeProjectAppearance') }}</dd></div>
+    </dl>
+    <p class="trust-scope-note"><Icon name="untrusted" /> <span><strong>{{ t('projectTrustScope') }}</strong>{{ t('projectTrustScopeDescription') }}</span></p>
+    <p v-if="store.error" class="error-message" role="alert">{{ store.error }}</p>
+    <footer>
+      <UiButton :disabled="store.busy" @click="pendingProjectAppearance = undefined">{{ t('cancel') }}</UiButton>
+      <UiButton data-testid="trust-and-save-project-appearance" variant="warning" :disabled="store.busy" @click="trustAndSaveProjectAppearance"><Icon name="trusted" /> {{ store.busy ? t('allowingExecution') : t('trustAndSave') }}</UiButton>
+    </footer>
+  </DialogShell>
 </template>

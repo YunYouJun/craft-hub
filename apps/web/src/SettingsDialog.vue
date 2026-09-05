@@ -3,13 +3,19 @@ import type { DotfilesManagerStatus, DotfilesOperation, DotfilesOperationResult,
 import { TabsContent, TabsList, TabsRoot, TabsTrigger } from 'reka-ui'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { api } from './api'
+import CelebrationSettings from './CelebrationSettings.vue'
+import { Button as UiButton } from './components/ui/button'
 import { DialogShell } from './components/ui/dialog'
 import { Icon } from './icons'
 import { useI18n } from './i18n'
 import { applicationShortcutReferences, capabilityShortcutId, commandPaletteShortcutId, defaultCommandPaletteShortcut, formatShortcut, shortcutFromKeyboardEvent } from './shortcuts'
 import { useWorkbenchStore } from './store'
 
-const props = defineProps<{ open: boolean }>()
+type SettingsTab = 'cloud' | 'configuration' | 'general' | 'help' | 'history' | 'shortcuts' | 'transfer'
+
+const props = withDefaults(defineProps<{ initialTab?: SettingsTab, open: boolean }>(), {
+  initialTab: 'general',
+})
 const emit = defineEmits<{ 'update:open': [value: boolean] }>()
 const { locale, t } = useI18n()
 const store = useWorkbenchStore()
@@ -45,11 +51,9 @@ const cloudStatus = ref<CloudStatus>({ state: 'disabled' })
 const cloudBusy = ref(false)
 const gitSyncStatus = ref<PersonalGitSyncStatus>({ state: 'unconfigured' })
 const gitRepositoryPath = ref('')
-const gitDirectory = ref('.craft-hub')
 const gitSyncBusy = ref(false)
 const userConfigStatus = computed(() => store.userConfigStatus)
 const dotfilesStatus = ref<DotfilesManagerStatus>({ state: 'unconfigured' })
-const dotfilesRepositoryPath = ref('')
 const dotfilesBusy = ref(false)
 const dotfilesResult = ref<DotfilesOperationResult>()
 const readonlyDotfilesOperations: DotfilesOperation[] = ['check', 'status', 'diff']
@@ -57,6 +61,7 @@ const updateStatus = ref<DesktopUpdateStatus>()
 const updateBusy = ref(false)
 const codexActivityStatus = ref<CodexActivityStatus>()
 const codexActivityBusy = ref(false)
+const activeTab = ref<SettingsTab>(props.initialTab)
 let removeUpdateListener: (() => void) | undefined
 let removeCodexActivityListener: (() => void) | undefined
 
@@ -152,8 +157,9 @@ function onShortcutKeydown(event: KeyboardEvent, id: string): void {
     void saveShortcut(id, shortcut)
 }
 
-watch(() => props.open, (open) => {
+watch([() => props.open, () => props.initialTab], ([open]) => {
   if (open) {
+    activeTab.value = props.initialTab
     shortcutQuery.value = ''
     recordingShortcutId.value = ''
     shortcutError.value = ''
@@ -242,7 +248,6 @@ function updateStatusLabel(): string {
 async function refreshGitSyncStatus(): Promise<void> {
   gitSyncStatus.value = await api.personalGitSyncStatus()
   gitRepositoryPath.value = gitSyncStatus.value.target?.repositoryPath ?? gitRepositoryPath.value
-  gitDirectory.value = gitSyncStatus.value.target?.directory ?? gitDirectory.value
 }
 
 async function refreshUserConfigStatus(): Promise<void> {
@@ -251,28 +256,7 @@ async function refreshUserConfigStatus(): Promise<void> {
 
 async function refreshDotfilesStatus(): Promise<void> {
   dotfilesStatus.value = await api.dotfilesManagerStatus()
-  dotfilesRepositoryPath.value = dotfilesStatus.value.repositoryPath ?? dotfilesRepositoryPath.value
-}
-
-async function configureDotfiles(): Promise<void> {
-  dotfilesBusy.value = true
-  transferError.value = ''
-  dotfilesResult.value = undefined
-  try {
-    dotfilesStatus.value = await api.configureDotfilesManager(dotfilesRepositoryPath.value.trim())
-  }
-  catch (error) {
-    transferError.value = error instanceof Error ? error.message : String(error)
-  }
-  finally {
-    dotfilesBusy.value = false
-  }
-}
-
-async function chooseDotfilesRepository(): Promise<void> {
-  const selected = await window.craftHubDesktop?.selectProjectDirectory?.(store.repositoriesRoot)
-  if (selected)
-    dotfilesRepositoryPath.value = selected
+  gitRepositoryPath.value = dotfilesStatus.value.repositoryPath ?? gitRepositoryPath.value
 }
 
 async function trustDotfiles(): Promise<void> {
@@ -310,6 +294,8 @@ function dotfilesStateLabel(): string {
     return t('dotfilesManagerState_untrusted')
   if (dotfilesStatus.value.state === 'unsupported-platform')
     return t('dotfilesManagerState_unsupportedPlatform')
+  if (dotfilesStatus.value.state === 'manifest-missing')
+    return t('dotfilesManagerState_manifestMissing')
   return t('dotfilesManagerState_unconfigured')
 }
 
@@ -334,7 +320,9 @@ async function configureGitSync(): Promise<void> {
   gitSyncBusy.value = true
   transferError.value = ''
   try {
-    gitSyncStatus.value = await api.configurePersonalGitSync(gitRepositoryPath.value.trim(), gitDirectory.value.trim())
+    gitSyncStatus.value = await api.configurePersonalGitSync(gitRepositoryPath.value.trim(), '.craft-hub')
+    dotfilesResult.value = undefined
+    await refreshDotfilesStatus()
   }
   catch (error) {
     transferError.value = error instanceof Error ? error.message : String(error)
@@ -589,7 +577,7 @@ async function cleanupRuns(includeAllUnpinned: boolean): Promise<void> {
             <p v-if="transferError" role="alert">{{ transferError }}</p>
           </div>
 
-          <TabsRoot class="settings-tabs" default-value="general" orientation="vertical">
+          <TabsRoot v-model="activeTab" class="settings-tabs" orientation="vertical">
             <TabsList class="settings-tab-list" :aria-label="t('settings')">
               <TabsTrigger value="general">{{ t('settingsGeneral') }}</TabsTrigger>
               <TabsTrigger value="shortcuts">{{ t('keyboardShortcuts') }}</TabsTrigger>
@@ -597,6 +585,7 @@ async function cleanupRuns(includeAllUnpinned: boolean): Promise<void> {
               <TabsTrigger value="configuration">{{ t('configurationFiles') }}</TabsTrigger>
               <TabsTrigger value="history">{{ t('runHistory') }}</TabsTrigger>
               <TabsTrigger value="transfer">{{ t('settingsTransfer') }}</TabsTrigger>
+              <TabsTrigger value="help">{{ t('help') }}</TabsTrigger>
             </TabsList>
 
             <div class="settings-tab-panels">
@@ -643,6 +632,7 @@ async function cleanupRuns(includeAllUnpinned: boolean): Promise<void> {
                   </button>
                 </div>
               </section>
+              <CelebrationSettings context="settings" />
               <section class="settings-section editor-settings repository-root-settings">
                 <h3>{{ t('localRepositoriesRoot') }}</h3>
                 <p>{{ t('localRepositoriesRootDescription') }}</p>
@@ -718,14 +708,13 @@ async function cleanupRuns(includeAllUnpinned: boolean): Promise<void> {
                     <strong>{{ t(codexActivityStatus?.installed ? 'codexActivityEnabled' : 'codexActivityDisabled') }}</strong>
                     <small>{{ t('codexActivityRunning', { count: String(codexActivityStatus?.runningSessionIds.length ?? 0) }) }}</small>
                   </span>
-                  <button
-                    type="button"
+                  <UiButton
                     :disabled="codexActivityBusy || !codexActivityStatus?.supported"
                     data-testid="toggle-codex-activity"
                     @click="setCodexActivityHooks(!codexActivityStatus?.installed)"
                   >
                     {{ t(codexActivityStatus?.installed ? 'disable' : 'enable') }}
-                  </button>
+                  </UiButton>
                 </div>
                 <p v-if="codexActivityStatus?.requiresTrustReview" class="settings-note">{{ t('codexActivityTrustReview') }}</p>
                 <p v-if="codexActivityStatus?.diagnostic" class="error-message" role="alert">{{ codexActivityStatus.diagnostic }}</p>
@@ -745,9 +734,9 @@ async function cleanupRuns(includeAllUnpinned: boolean): Promise<void> {
                 </label>
                 <div class="desktop-update-status">
                   <span><strong>{{ updateStatusLabel() }}</strong><small>{{ t('currentVersion', { version: updateStatus?.currentVersion ?? '—' }) }}</small></span>
-                  <button type="button" :disabled="updateBusy || updateStatus?.phase === 'checking' || updateStatus?.phase === 'downloaded'" data-testid="check-for-updates" @click="checkForUpdates">
+                  <UiButton :disabled="updateBusy || updateStatus?.phase === 'checking' || updateStatus?.phase === 'downloaded'" data-testid="check-for-updates" @click="checkForUpdates">
                     {{ t('checkNow') }}
-                  </button>
+                  </UiButton>
                 </div>
                 <p v-if="updateStatus?.message" class="error-message" role="alert">{{ updateStatus.message }}</p>
               </section>
@@ -831,9 +820,9 @@ async function cleanupRuns(includeAllUnpinned: boolean): Promise<void> {
               </section>
 
               <section class="settings-section">
-                <h3>{{ t('personalGitSync') }}</h3>
-                <p>{{ t('personalGitSyncDescription') }}</p>
-                <form class="git-sync-form" data-testid="personal-git-sync-form" @submit.prevent="configureGitSync">
+                <h3>{{ t('personalConfigurationRepository') }}</h3>
+                <p>{{ t('personalConfigurationRepositoryDescription') }}</p>
+                <form class="git-sync-form personal-repository-form" data-testid="personal-git-sync-form" @submit.prevent="configureGitSync">
                   <label>
                     <span>{{ t('gitRepositoryPath') }}</span>
                     <span class="git-repository-entry">
@@ -841,12 +830,13 @@ async function cleanupRuns(includeAllUnpinned: boolean): Promise<void> {
                       <button v-if="canChooseGitRepository" type="button" @click="chooseGitRepository">{{ t('chooseGitRepository') }}</button>
                     </span>
                   </label>
-                  <label>
-                    <span>{{ t('gitSyncDirectory') }}</span>
-                    <input v-model="gitDirectory" name="git-sync-directory" placeholder=".craft-hub">
-                  </label>
-                  <button type="submit" :disabled="gitSyncBusy || !gitRepositoryPath.trim() || !gitDirectory.trim()">{{ t('saveGitSyncTarget') }}</button>
+                  <button type="submit" :disabled="gitSyncBusy || !gitRepositoryPath.trim()">{{ t('saveGitSyncTarget') }}</button>
                 </form>
+              </section>
+
+              <section class="settings-section">
+                <h3>{{ t('personalGitSync') }}</h3>
+                <p>{{ t('personalGitSyncDescription') }}</p>
                 <div class="git-sync-status" :data-state="gitSyncStatus.state">
                   <div>
                     <strong>{{ gitSyncStateLabel() }}</strong>
@@ -866,16 +856,6 @@ async function cleanupRuns(includeAllUnpinned: boolean): Promise<void> {
               <section class="settings-section">
                 <h3>{{ t('dotfilesManager') }}</h3>
                 <p>{{ t('dotfilesManagerDescription') }}</p>
-                <form class="git-sync-form dotfiles-form" data-testid="dotfiles-manager-form" @submit.prevent="configureDotfiles">
-                  <label>
-                    <span>{{ t('gitRepositoryPath') }}</span>
-                    <span class="git-repository-entry">
-                      <input v-model="dotfilesRepositoryPath" name="dotfiles-repository-path" :placeholder="t('gitRepositoryPathPlaceholder')">
-                      <button v-if="canChooseGitRepository" type="button" @click="chooseDotfilesRepository">{{ t('chooseGitRepository') }}</button>
-                    </span>
-                  </label>
-                  <button type="submit" :disabled="dotfilesBusy || !dotfilesRepositoryPath.trim()">{{ t('useDotfilesRepository') }}</button>
-                </form>
                 <div class="git-sync-status" :data-state="dotfilesStatus.state === 'ready' ? 'clean' : dotfilesStatus.state === 'untrusted' ? 'conflict' : ''">
                   <div>
                     <strong>{{ dotfilesStateLabel() }}</strong>
@@ -883,15 +863,15 @@ async function cleanupRuns(includeAllUnpinned: boolean): Promise<void> {
                     <small v-if="dotfilesStatus.manifest?.name">{{ dotfilesStatus.manifest.name }}</small>
                     <small v-for="(command, operation) in dotfilesStatus.manifest?.operations ?? {}" :key="operation" class="dotfiles-command">
                       <code>{{ operation }}</code>
-                      <span>· {{ command.command }} {{ command.args.join(' ') }}</span>
+                      <span>· {{ command?.command }} {{ command?.args.join(' ') }}</span>
                     </small>
                   </div>
                   <div class="settings-transfer-actions">
                     <button v-if="dotfilesStatus.state === 'untrusted'" type="button" :disabled="dotfilesBusy" data-testid="trust-dotfiles" @click="trustDotfiles">{{ t('trustDotfilesSource') }}</button>
                     <template v-if="dotfilesStatus.state === 'ready'">
                       <button v-for="operation in readonlyDotfilesOperations" v-show="dotfilesStatus.manifest?.operations[operation]" :key="operation" type="button" :disabled="dotfilesBusy" :data-testid="`run-dotfiles-${operation}`" @click="runDotfilesOperation(operation)">{{ dotfilesOperationLabel(operation) }}</button>
-                      <button v-if="canOpenDotfilesInTerminal" type="button" :disabled="dotfilesBusy" @click="openDotfilesInTerminal">{{ t('openInTerminal') }}</button>
                     </template>
+                    <button v-if="canOpenDotfilesInTerminal && dotfilesStatus.repositoryPath" type="button" :disabled="dotfilesBusy" @click="openDotfilesInTerminal">{{ t('openInTerminal') }}</button>
                   </div>
                 </div>
                 <pre v-if="dotfilesResult" class="dotfiles-output" :data-succeeded="dotfilesResult.succeeded"><code>{{ dotfilesResult.stdout }}{{ dotfilesResult.stderr }}{{ dotfilesResult.error && !dotfilesResult.stderr ? dotfilesResult.error : '' }}</code></pre>
@@ -928,6 +908,10 @@ async function cleanupRuns(includeAllUnpinned: boolean): Promise<void> {
                   {{ t('replaceSettingsOnImport') }}
                 </label>
               </section>
+            </TabsContent>
+
+            <TabsContent value="help" class="settings-tab-content">
+              <CelebrationSettings context="help" />
             </TabsContent>
             </div>
           </TabsRoot>

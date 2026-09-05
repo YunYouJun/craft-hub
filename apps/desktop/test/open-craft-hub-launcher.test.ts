@@ -19,6 +19,10 @@ describe('craft Hub Codex launcher', () => {
     await expect(launch('settings')).resolves.toBe('craft-hub://open?v=1&view=settings')
   })
 
+  it('requests one in-app celebration', async () => {
+    await expect(launch('celebrate')).resolves.toBe('craft-hub://celebrate?v=1')
+  })
+
   it('opens an exact workspace and owner scope', async () => {
     await expect(
       launch('workspace', '--id', 'workspace-1', '--scope', 'team-1'),

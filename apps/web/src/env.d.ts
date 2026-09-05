@@ -22,7 +22,7 @@ interface Window {
     openProjectInCodex?: (projectId: string) => Promise<void>
     openWorkspaceInCodex?: (workspaceId: string) => Promise<void>
     openWorkspaceInEditor?: (workspaceId: string) => Promise<void>
-    startProjectInCodex?: (projectId: string, prompt: string) => Promise<void>
+    startProjectInCodex?: (projectId: string, prompt: string, packageRelativePath?: string) => Promise<void>
     startWorkspaceInCodex?: (workspaceId: string, projectIds: string[], primaryProjectId: string, prompt: string) => Promise<{ taskId: string, threadId: string }>
     openCodexThread?: (threadId: string) => Promise<void>
     focusCodexApplication?: () => Promise<void>
@@ -30,6 +30,8 @@ interface Window {
     installCodexActivityHooks?: () => Promise<CodexActivityStatus | undefined>
     uninstallCodexActivityHooks?: () => Promise<CodexActivityStatus | undefined>
     onCodexActivityStatus?: (callback: (status: CodexActivityStatus) => void) => () => void
+    consumeCelebration?: () => Promise<boolean>
+    onCelebrationRequested?: (callback: () => void) => () => void
     listTerminalApplications?: () => Promise<string[]>
     openProjectInTerminal?: (projectId: string, application?: string) => Promise<void>
     openDotfilesInTerminal?: () => Promise<void>
@@ -41,6 +43,7 @@ interface Window {
     checkForUpdates?: () => Promise<DesktopUpdateStatus>
     onUpdateStatus?: (callback: (status: DesktopUpdateStatus) => void) => () => void
     onReplayOnboarding?: (callback: () => void) => () => void
+    onOpenHelp?: (callback: () => void) => () => void
     cloudStatus?: () => Promise<{
       state: 'disabled' | 'disconnected' | 'connecting' | 'connected' | 'error'
       deviceId?: string

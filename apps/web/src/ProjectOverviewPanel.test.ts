@@ -42,6 +42,7 @@ const assistant: SkillCapability = {
 
 afterEach(() => {
   delete window.craftHubDesktop
+  document.body.innerHTML = ''
 })
 
 describe('project overview panel', () => {
@@ -184,5 +185,35 @@ describe('project overview panel', () => {
     await toolGroup.get('button').trigger('click')
     expect(store.selectedCapabilityId).toBe(toolCommand.id)
     expect(store.packageCapabilityDrawerOpen).toBe(true)
+  })
+
+  it('shows trust only in project details and revokes it without another confirmation', async () => {
+    useI18n().setLocale('en')
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    const store = useWorkbenchStore()
+    store.projects = [project]
+    store.selectedProjectId = project.id
+    store.commandPackagesByProject = { [project.id]: [{ name: 'example', relativePath: '.', root: true }] }
+    store.projectOverview = {
+      projectId: project.id,
+      package: store.commandPackages[0]!,
+      readme: { status: 'missing' },
+    }
+    const revokeProjectTrustById = vi.spyOn(store, 'revokeProjectTrustById').mockImplementation(async () => {
+      store.projects = [{ ...project, trust: 'untrusted' }]
+      return true
+    })
+    const wrapper = mount(ProjectOverviewPanel, { global: { plugins: [pinia] } })
+
+    const trustSettings = wrapper.get('[data-testid="project-trust-settings"]')
+    expect(trustSettings.text()).toContain('Trusted project')
+    expect(trustSettings.text()).toContain(project.path)
+    await trustSettings.get('[data-testid="revoke-project-trust"]').trigger('click')
+
+    expect(revokeProjectTrustById).toHaveBeenCalledWith(project.id)
+    expect(wrapper.text()).toContain('Project trust revoked')
+    expect(wrapper.find('[data-testid="revoke-project-trust"]').exists()).toBe(false)
+    expect(document.body.querySelector('[role="dialog"]')).toBeNull()
   })
 })

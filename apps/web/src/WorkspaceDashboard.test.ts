@@ -89,7 +89,7 @@ describe('workspace Codex tasks', () => {
     expect(wrapper.text()).not.toContain('could not be cloned')
   })
 
-  it('requires explicit project authorization before a multi-root Codex task can start', async () => {
+  it('keeps untrusted projects selectable and asks for trust only when the task starts', async () => {
     const startWorkspaceInCodex = vi.fn(async () => ({ taskId: 'task-id', threadId: 'thread-id' }))
     window.craftHubDesktop = { startWorkspaceInCodex }
     const store = useWorkbenchStore()
@@ -101,36 +101,58 @@ describe('workspace Codex tasks', () => {
 
     await wrapper.get('textarea').setValue('Inspect the project')
 
-    expect(wrapper.get('[data-testid="start-in-codex"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.get('[data-testid="start-in-codex"]').attributes('disabled')).toBeUndefined()
+    const checkbox = wrapper.get('input[type="checkbox"]')
+    expect((checkbox.element as HTMLInputElement).checked).toBe(true)
+    expect(checkbox.attributes('disabled')).toBeUndefined()
+    expect(wrapper.find('.project-trust').exists()).toBe(false)
     await wrapper.get('.agent-task-action-menu [data-slot="dropdown-menu-trigger"]').trigger('click')
     await flushPromises()
-    expect(document.body.querySelector<HTMLElement>('[data-testid="start-in-background"]')?.getAttribute('data-disabled')).not.toBeNull()
-    expect(wrapper.text()).toContain('1 project(s) are excluded')
+    expect(document.body.querySelector<HTMLElement>('[data-testid="start-in-background"]')?.getAttribute('data-disabled')).toBeNull()
+    expect(wrapper.text()).not.toContain('excluded')
 
     await wrapper.get('form').trigger('submit')
     await flushPromises()
 
     expect(startWorkspaceInCodex).not.toHaveBeenCalled()
+    expect(document.querySelector('[data-testid="workspace-trust-dialog"]')).not.toBeNull()
+    expect(document.querySelector('[data-testid="workspace-trust-projects"]')?.textContent).toContain(project.path)
   })
 
-  it('lets the user review workspace authorization and selects the project after approval', async () => {
-    window.craftHubDesktop = { startWorkspaceInCodex: vi.fn(async () => ({ taskId: 'task-id', threadId: 'thread-id' })) }
+  it('reviews every selected untrusted root once and continues the requested task', async () => {
+    const second = { ...project, id: 'api', name: 'API', path: '/workspace/api' }
+    const startWorkspaceInCodex = vi.fn(async () => ({ taskId: 'task-id', threadId: 'thread-id' }))
+    window.craftHubDesktop = { startWorkspaceInCodex }
     const store = useWorkbenchStore()
-    store.projects = [{ ...project, trust: 'untrusted' }]
-    store.workspaces = [workspace]
+    store.projects = [{ ...project, trust: 'untrusted' }, { ...second, trust: 'untrusted' }]
+    store.workspaces = [{
+      ...workspace,
+      members: [
+        ...workspace.members,
+        { project: 'api', projectId: second.id, resolved: true },
+      ],
+    }]
     store.selectedWorkspaceId = workspace.id
-    const trustProjectById = vi.spyOn(store, 'trustProjectById').mockResolvedValue(true)
+    const trustProjectsById = vi.spyOn(store, 'trustProjectsById').mockImplementation(async (projectIds) => {
+      store.projects = store.projects.map(item => projectIds.includes(item.id) ? { ...item, trust: 'trusted' } : item)
+      return true
+    })
     const wrapper = mountDashboard()
     await flushPromises()
 
-    await wrapper.get('.project-trust.trust-action').trigger('click')
+    await wrapper.get('textarea').setValue('Inspect both projects')
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
     expect(document.querySelector('[data-testid="workspace-trust-dialog"]')).not.toBeNull()
-    const confirm = document.querySelector('[data-testid="trust-workspace-project-confirm"]') as HTMLButtonElement
+    expect(document.querySelector('[data-testid="workspace-trust-projects"]')?.textContent).toContain(project.path)
+    expect(document.querySelector('[data-testid="workspace-trust-projects"]')?.textContent).toContain(second.path)
+    const confirm = document.querySelector('[data-testid="trust-workspace-projects-confirm"]') as HTMLButtonElement
     confirm.click()
     await flushPromises()
 
-    expect(trustProjectById).toHaveBeenCalledWith(project.id)
-    expect((wrapper.get('input[type="checkbox"]').element as HTMLInputElement).checked).toBe(true)
+    expect(trustProjectsById).toHaveBeenCalledWith([project.id, second.id])
+    expect(startWorkspaceInCodex).toHaveBeenCalledWith(workspace.id, [project.id, second.id], project.id, 'Use Craft Hub workspace workspace-id.\n\nInspect both projects')
+    expect(document.querySelector('[data-testid="workspace-trust-dialog"]')).toBeNull()
   })
 
   it('keeps unattended SDK execution in the secondary menu', async () => {
@@ -223,6 +245,6 @@ describe('workspace Codex tasks', () => {
     expect(wrapper.text()).not.toContain('missing')
     expect(wrapper.get('.member-source-status.available').attributes('title')).toBe('Available to add')
     expect(wrapper.findAll('.member-source-status')[1]!.attributes('title')).toBe('Not found on this device')
-    expect(wrapper.get('.workspace-member-card .project-trust').attributes('title')).toBe('Craft Hub execution allowed')
+    expect(wrapper.find('.workspace-member-card .project-trust').exists()).toBe(false)
   })
 })

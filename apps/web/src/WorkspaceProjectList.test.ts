@@ -81,6 +81,21 @@ describe('workspace project list', () => {
     expect(selectProject).toHaveBeenCalledWith('docs')
   })
 
+  it('does not treat project trust as a static list status', () => {
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    const store = useWorkbenchStore()
+    store.projects = projects
+    store.workspaces = [workspace]
+    store.selectedWorkspaceId = workspace.id
+
+    const wrapper = mount(WorkspaceProjectList, { global: { plugins: [pinia] } })
+    const untrustedRow = wrapper.findAll('.workspace-project-summary')[0]!
+
+    expect(untrustedRow.get('.workspace-project-open strong').text()).toBe('wetools')
+    expect(untrustedRow.find('.workspace-project-status').exists()).toBe(false)
+  })
+
   it('renders an actionable empty state for a workspace with no members', () => {
     const pinia = createPinia()
     setActivePinia(pinia)

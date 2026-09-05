@@ -1,7 +1,7 @@
 {
   "name": "craft-hub",
   "version": "0.1.0+codex.20260901073528",
-  "description": "Open the local Craft Hub app and navigate directly to a specific workspace, project, command, skill, or settings view.",
+  "description": "Open and manage the local Craft Hub app, navigate to exact developer views, and celebrate verified milestones.",
   "author": {
     "name": "YunYouJun",
     "url": "https://github.com/YunYouJun"
@@ -17,8 +17,8 @@
   "skills": "./skills/",
   "interface": {
     "displayName": "Craft Hub",
-    "shortDescription": "Open Craft Hub at an exact local developer view.",
-    "longDescription": "Open Craft Hub from Codex and navigate directly to its home, marketplace, settings, an exact workspace, the current Git project, or a specific project command or skill. The launcher is navigation-only and never changes trust or runs project commands.",
+    "shortDescription": "Open, manage, and celebrate in Craft Hub.",
+    "longDescription": "Open Craft Hub from Codex and navigate directly to its home, marketplace, settings, an exact workspace, the current Git project, or a specific project command or skill. Manage local project and workspace organization without silently granting execution trust, and play a reduced-motion-aware celebration when explicitly requested.",
     "developerName": "YunYouJun",
     "category": "Productivity",
     "capabilities": [
@@ -29,7 +29,8 @@
     "defaultPrompt": [
       "Open the Craft Hub marketplace.",
       "Open this project in Craft Hub.",
-      "Open this project's dev command in Craft Hub."
+      "Open this project's dev command in Craft Hub.",
+      "Celebrate this milestone in Craft Hub."
     ],
     "brandColor": "#F26A3D",
     "composerIcon": "./assets/icon.svg",

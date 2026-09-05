@@ -66,7 +66,7 @@ describe('project agent action dialog', () => {
     expect(document.body.textContent).toContain('.craft-hub/project.jsonc')
     expect(document.body.textContent).toContain('命令3')
     expect(document.body.querySelector('.agent-action-trust')?.textContent).toContain('只读')
-    expect(document.body.querySelector('[data-testid="start-agent-action"]')?.textContent).toContain('授权并启动')
+    expect(document.body.querySelector('[data-testid="start-agent-action"]')?.textContent).toContain('信任并启动')
 
     document.body.querySelector<HTMLButtonElement>('[data-testid="start-agent-action"]')!.click()
     await flushPromises()

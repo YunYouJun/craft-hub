@@ -820,3 +820,34 @@ describe('owned workspace groups', () => {
     expect(store.workspaceGroups).toEqual([{ id: 'product-group', name: 'Product group', icon: 'emoji:📦' }])
   })
 })
+
+describe('project trust', () => {
+  beforeEach(() => setActivePinia(createPinia()))
+  afterEach(() => vi.unstubAllGlobals())
+
+  it('trusts selected projects as one user action and revokes trust independently', async () => {
+    const second = { ...project, id: 'second', name: 'Second', path: '/second' }
+    const requests: Array<{ method: string, path: string }> = []
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = typeof input === 'string' ? input : input.toString()
+      const method = init?.method ?? 'GET'
+      requests.push({ method, path })
+      const target = path.includes(second.id) ? second : project
+      return new Response(JSON.stringify({ ...target, trust: method === 'DELETE' ? 'untrusted' : 'trusted' }), { status: 200 })
+    }))
+    const store = useWorkbenchStore()
+    store.projects = [project, second]
+
+    await expect(store.trustProjectsById([project.id, second.id, project.id])).resolves.toBe(true)
+    expect(store.projects.every(item => item.trust === 'trusted')).toBe(true)
+    expect(requests).toEqual([
+      { method: 'POST', path: `/api/projects/${project.id}/trust` },
+      { method: 'POST', path: `/api/projects/${second.id}/trust` },
+    ])
+
+    await expect(store.revokeProjectTrustById(project.id)).resolves.toBe(true)
+    expect(store.projects.find(item => item.id === project.id)?.trust).toBe('untrusted')
+    expect(store.projects.find(item => item.id === second.id)?.trust).toBe('trusted')
+    expect(requests.at(-1)).toEqual({ method: 'DELETE', path: `/api/projects/${project.id}/trust` })
+  })
+})

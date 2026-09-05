@@ -25,6 +25,7 @@ const iconLabelKeys = {
   workspace: 'iconOption_workspace',
   folder: 'iconOption_folder',
   hub: 'iconOption_hub',
+  briefcase: 'iconOption_briefcase',
   code: 'iconOption_code',
   docs: 'iconOption_docs',
   design: 'iconOption_design',
@@ -42,6 +43,7 @@ const iconLabelKeys = {
   settings: 'iconOption_settings',
   calendar: 'iconOption_calendar',
   chart: 'iconOption_chart',
+  list: 'iconOption_list',
 } as const satisfies Record<typeof visualIconNames[number], string>
 const iconOptions = visualIconNames.map(name => ({ labelKey: iconLabelKeys[name], name, value: `builtin:${name}` }))
 const emojiOptions = ['🚀', '📚', '🛠️', '🎨', '📦', '💡', '🧧', '🧪', '📱', '🎮', '🔒', '☁️']

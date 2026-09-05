@@ -19,6 +19,7 @@ describe('desktop links', () => {
     ['craft-hub://open?v=1', { kind: 'navigation', navigation: { kind: 'home' } }],
     ['craft-hub://open?v=1&view=marketplace', { kind: 'navigation', navigation: { kind: 'marketplace' } }],
     ['craft-hub://open?v=1&view=settings', { kind: 'navigation', navigation: { kind: 'settings' } }],
+    ['craft-hub://celebrate?v=1', { kind: 'celebration' }],
     ['craft-hub://workspace?v=1&id=product-team', { kind: 'navigation', navigation: { kind: 'workspace', workspaceId: 'product-team' } }],
     ['craft-hub://workspace?v=1&id=release&scope=team-platform', { kind: 'navigation', navigation: { kind: 'workspace', workspaceId: 'release', ownerScopeId: 'team-platform' } }],
     ['craft-hub-dev://open?v=1', { kind: 'navigation', navigation: { kind: 'home' } }],
@@ -57,11 +58,14 @@ describe('desktop links', () => {
     expect(findDesktopLinkArgument(['craft-hub', '--flag', 'craft-hub://open?v=1'])).toBe('craft-hub://open?v=1')
     const coordinator = new DesktopLinkCoordinator()
     coordinator.accept('craft-hub://open?v=1')
+    coordinator.accept('craft-hub://celebrate?v=1')
     coordinator.accept('craft-hub://cloud/connect?code=once&challenge=expected')
     coordinator.accept('craft-hub://marketplace/sources/import?catalog=https%3A%2F%2Fexample.com%2Fcatalog.json')
     coordinator.accept('craft-hub://project?v=1&repo=https%3A%2F%2Fexample.com%2Fproject')
 
     expect(coordinator.consumeCloudConnect()).toContain('cloud/connect')
+    expect(coordinator.consumeCelebration()).toBe(true)
+    expect(coordinator.consumeCelebration()).toBe(false)
     expect(coordinator.consumeMarketplaceImport()).toBe('https://example.com/catalog.json')
     expect(coordinator.consumeNavigation()).toEqual({ kind: 'project', reference: { repository: 'https://example.com/project' } })
     expect(coordinator.consumeNavigation()).toBeUndefined()

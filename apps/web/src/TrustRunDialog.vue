@@ -14,11 +14,6 @@ const emit = defineEmits<{ 'update:open': [value: boolean] }>()
 const store = useWorkbenchStore()
 const { t } = useI18n()
 
-async function trustOnly(): Promise<void> {
-  if (await store.trustProject())
-    emit('update:open', false)
-}
-
 async function trustAndRun(): Promise<void> {
   if (await store.trustAndRunSelected({ ...props.inputs }))
     emit('update:open', false)
@@ -47,7 +42,6 @@ async function trustAndRun(): Promise<void> {
         <p v-if="store.error" class="error-message" role="alert">{{ store.error }}</p>
         <footer>
           <UiButton :disabled="store.busy" @click="emit('update:open', false)">{{ t('cancel') }}</UiButton>
-          <UiButton :disabled="store.busy" @click="trustOnly"><Icon name="trusted" /> {{ t('trustOnly') }}</UiButton>
           <UiButton data-testid="trust-and-run" variant="primary" :disabled="store.busy || !invocation" @click="trustAndRun"><Icon name="play" /> {{ store.busy ? t('allowingExecution') : t('trustAndRun') }}</UiButton>
         </footer>
   </DialogShell>

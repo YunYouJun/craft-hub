@@ -2,7 +2,6 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { ToolbarButton, ToolbarRoot, ToolbarSeparator } from 'reka-ui'
 import { Button as UiButton } from './components/ui/button'
-import { DialogShell } from './components/ui/dialog'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from './components/ui/dropdown-menu'
 import EditorLauncher from './EditorLauncher.vue'
 import GitIntegrationDialog from './GitIntegrationDialog.vue'
@@ -19,7 +18,6 @@ const applications = ref<string[]>([])
 const selectedApplication = ref(window.localStorage.getItem(terminalStorageKey) ?? '')
 const openError = ref('')
 const codexMenuOpen = ref(false)
-const trustDialogOpen = ref(false)
 const gitIntegrationOpen = ref(false)
 const desktopActions = computed(() => window.craftHubDesktop)
 const projectConfigDiagnostic = computed(() => store.selectedProjectDiagnostics[0])
@@ -76,16 +74,6 @@ function openProjectConfigDiagnostic(): Promise<void> {
     : undefined)
 }
 
-function reviewProjectTrust(): void {
-  if (store.selectedProject?.trust === 'untrusted')
-    trustDialogOpen.value = true
-}
-
-async function trustProject(): Promise<void> {
-  if (await store.trustProject())
-    trustDialogOpen.value = false
-}
-
 function openProjectGitRemote(): Promise<void> {
   const project = store.selectedProject
   return openTarget(project ? () => desktopActions.value?.openProjectGitRemote?.(project.id) ?? Promise.resolve() : undefined)
@@ -132,12 +120,6 @@ onMounted(async () => {
   <header v-if="store.selectedProject" class="project-toolbar" :style="projectAccentStyle(store.selectedProject.color)">
     <div class="project-toolbar-context">
       <ProjectSwitcher />
-      <button v-if="store.selectedProject.trust === 'untrusted'" type="button" class="trust-state is-action tooltip-action untrusted" :aria-label="t('trustProject')" :data-tooltip="t('trustProject')" :title="t('trustProject')" @click="reviewProjectTrust">
-        <Icon name="untrusted" />
-      </button>
-      <span v-else class="trust-state trusted tooltip-action" role="img" tabindex="0" :aria-label="t('trusted')" :data-tooltip="t('trusted')" :title="t('trusted')">
-        <Icon :name="store.selectedProject.trust" />
-      </span>
       <span v-if="store.selectedProject.iconWarning" class="project-visual-warning" :title="store.selectedProject.iconWarning" :aria-label="t('projectVisualWarning')">
         <Icon name="error" />
       </span>
@@ -192,16 +174,6 @@ onMounted(async () => {
     </div>
     <p v-if="openError" class="project-toolbar-error">{{ openError }}</p>
   </header>
-  <DialogShell :open="trustDialogOpen" content-class="trust-run-dialog" data-testid="project-trust-dialog" @update:open="trustDialogOpen = $event">
-    <template #title>{{ t('trustProjectTitle') }}</template>
-    <template #description>{{ t('trustProjectDescription', { project: store.selectedProject?.name ?? '' }) }}</template>
-    <p class="trust-scope-note"><Icon name="untrusted" /> <span><strong>{{ t('projectTrustScope') }}</strong>{{ t('projectTrustScopeDescription') }}</span></p>
-    <p v-if="store.error" class="error-message" role="alert">{{ store.error }}</p>
-    <footer>
-      <UiButton :disabled="store.busy" @click="trustDialogOpen = false">{{ t('cancel') }}</UiButton>
-      <UiButton data-testid="trust-project-confirm" variant="warning" :disabled="store.busy" @click="trustProject"><Icon name="trusted" /> {{ store.busy ? t('allowingExecution') : t('trustProject') }}</UiButton>
-    </footer>
-  </DialogShell>
   <GitIntegrationDialog
     v-if="store.selectedProject"
     v-model:open="gitIntegrationOpen"

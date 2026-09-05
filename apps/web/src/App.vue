@@ -1,16 +1,22 @@
 <script setup lang="ts">
+import type { WorkbenchDiagnosticTarget } from 'craft-hub'
 import { computed, onBeforeMount, onBeforeUnmount, ref } from 'vue'
 import { DialogClose, DialogContent, DialogDescription, DialogOverlay, DialogPortal, DialogRoot, DialogTitle, SplitterGroup, SplitterPanel, SplitterResizeHandle } from 'reka-ui'
 import { useRoute, useRouter } from 'vue-router'
 import { subscribeToProjectChanges } from './api'
 import CapabilityList from './CapabilityList.vue'
+import { celebration } from './celebration'
 import CommandPalette from './CommandPalette.vue'
 import { Button as UiButton } from './components/ui/button'
 import DesktopNavigationDialog from './DesktopNavigationDialog.vue'
 import DetailPanel from './DetailPanel.vue'
+import DiagnosticsWorkbench from './DiagnosticsWorkbench.vue'
 import { Icon } from './icons'
 import { useI18n } from './i18n'
+import IntegrationWorkbench from './IntegrationWorkbench.vue'
 import MarketplaceDialog from './MarketplaceDialog.vue'
+import NavigationWorkbench from './NavigationWorkbench.vue'
+import PluginWorkbench from './PluginWorkbench.vue'
 import ProjectRail from './ProjectRail.vue'
 import ProjectAgentActionDialog from './ProjectAgentActionDialog.vue'
 import ProjectToolbar from './ProjectToolbar.vue'
@@ -27,7 +33,17 @@ const route = useRoute()
 const router = useRouter()
 const paletteOpen = ref(false)
 const settingsOpen = ref(false)
+const settingsInitialTab = ref<'general' | 'help'>('general')
 const marketplaceOpen = computed(() => route.name === 'marketplace' || route.name === 'plugin-detail')
+const navigationOpen = computed(() => route.name === 'navigation')
+const diagnosticsOpen = computed(() => route.name === 'diagnostics')
+const integrationOpen = computed(() => route.name === 'integration')
+const pluginWorkbenchOpen = computed(() => route.name === 'plugin-workbench')
+const activeIntegrationId = computed(() => typeof route.params.integrationId === 'string' ? route.params.integrationId : '')
+const activeIntegrationViewId = computed(() => typeof route.params.viewId === 'string' ? route.params.viewId : '')
+const activePluginWorkbenchPluginId = computed(() => typeof route.params.pluginId === 'string' ? route.params.pluginId : '')
+const activePluginWorkbenchId = computed(() => typeof route.params.workbenchId === 'string' ? route.params.workbenchId : '')
+const navigationRevision = ref(0)
 const marketplaceImportCatalogUrl = ref('')
 const onboardingOpen = ref(false)
 const desktopNavigation = ref<Extract<DesktopNavigation, { kind: 'project' }>>()
@@ -46,7 +62,9 @@ const runningCodexTaskCount = computed(() => {
 })
 let stopProjectEvents: (() => void) | undefined
 let stopCodexActivityEvents: (() => void) | undefined
+let stopCelebrationEvents: (() => void) | undefined
 let stopOnboardingEvents: (() => void) | undefined
+let stopHelpEvents: (() => void) | undefined
 let stopMarketplaceImportEvents: (() => void) | undefined
 let stopDesktopNavigationEvents: (() => void) | undefined
 let visibilityRefreshTimer: ReturnType<typeof setTimeout> | undefined
@@ -58,13 +76,62 @@ async function openMarketplace(): Promise<void> {
 }
 
 async function openWorkbench(): Promise<void> {
-  if (marketplaceOpen.value)
+  if (marketplaceOpen.value || navigationOpen.value || diagnosticsOpen.value || integrationOpen.value || pluginWorkbenchOpen.value)
     await router.push({ name: 'workbench' })
+}
+
+async function openIntegration(integrationId: string, viewId: string): Promise<void> {
+  await router.push({ name: 'integration', params: { integrationId, viewId } })
+}
+
+async function openNavigation(): Promise<void> {
+  if (!navigationOpen.value)
+    await router.push({ name: 'navigation' })
+}
+
+async function openPluginWorkbench(pluginId: string, workbenchId: string): Promise<void> {
+  await router.push({ name: 'plugin-workbench', params: { pluginId, workbenchId } })
+}
+
+async function openDiagnostics(): Promise<void> {
+  if (!diagnosticsOpen.value)
+    await router.push({ name: 'diagnostics' })
+}
+
+async function openDiagnosticTarget(target: WorkbenchDiagnosticTarget): Promise<void> {
+  if (target.type === 'settings') {
+    openSettings()
+    return
+  }
+  if (target.type === 'marketplace') {
+    if (target.package && target.sourceId) {
+      await router.push({ name: 'plugin-detail', params: { sourceId: target.sourceId, packageName: target.package } })
+      return
+    }
+    await openMarketplace()
+    return
+  }
+  if (target.type === 'project' && target.projectId) {
+    await openWorkbench()
+    if (store.projects.some(project => project.id === target.projectId))
+      await store.selectProject(target.projectId)
+    return
+  }
+  if (target.type === 'integration' && target.integrationId) {
+    const view = store.integrationViews.find(candidate => candidate.integrationId === target.integrationId)
+    if (view)
+      await openIntegration(view.integrationId, view.id)
+  }
 }
 
 async function openMarketplaceSourceImport(catalogUrl: string): Promise<void> {
   marketplaceImportCatalogUrl.value = catalogUrl
   await openMarketplace()
+}
+
+function openSettings(tab: 'general' | 'help' = 'general'): void {
+  settingsInitialTab.value = tab
+  settingsOpen.value = true
 }
 
 async function openDesktopNavigation(navigation: DesktopNavigation): Promise<void> {
@@ -77,7 +144,7 @@ async function openDesktopNavigation(navigation: DesktopNavigation): Promise<voi
   }
   await openWorkbench()
   if (navigation.kind === 'settings') {
-    settingsOpen.value = true
+    openSettings()
     return
   }
   if (navigation.kind === 'home') {
@@ -136,6 +203,9 @@ async function refreshWorkbench(): Promise<void> {
     store.refreshProjects(),
     store.loadWorkspaces(),
     store.loadAgentTasks(),
+    store.loadIntegrations(),
+    store.loadPluginWorkbenches(),
+    store.loadWorkbenchDiagnostics(),
     refreshCodexActivity(),
   ]).then(() => {})
   workbenchRefresh = request
@@ -179,6 +249,9 @@ onBeforeMount(async () => {
   await Promise.all([
     store.loadProjects(restoredProjectId).catch(() => {}),
     store.loadAgentTasks(),
+    store.loadIntegrations(),
+    store.loadPluginWorkbenches(),
+    store.loadWorkbenchDiagnostics(),
     refreshCodexActivity(),
     store.loadRuns(),
   ])
@@ -186,13 +259,18 @@ onBeforeMount(async () => {
   stopProjectEvents = subscribeToProjectChanges({
     onChange: event => void store.refreshProject(event).catch(() => {}),
     onRunChange: summary => store.applyRunSummary(summary),
-    onSettingsChange: snapshot => void store.applySettings(snapshot).catch(() => {}),
+    onSettingsChange: snapshot => void store.applySettings(snapshot)
+      .then(() => Promise.all([store.loadPluginWorkbenches(), store.loadWorkbenchDiagnostics()]))
+      .catch(() => {}),
     onUserConfigChange: (status) => {
       store.applyUserConfigStatus(status)
-      void Promise.all([store.loadOwnerScopes(), store.loadWorkspaces()]).catch(() => {})
+      void Promise.all([store.loadOwnerScopes(), store.loadWorkspaces(), store.loadWorkbenchDiagnostics()]).catch(() => {})
     },
     onAgentTaskChange: task => store.applyAgentTask(task),
-    onPluginChange: () => void store.refreshProjects().catch(() => {}),
+    onPluginChange: () => {
+      navigationRevision.value++
+      void Promise.all([store.refreshProjects(), store.loadIntegrations(), store.loadPluginWorkbenches(), store.loadWorkbenchDiagnostics()]).catch(() => {})
+    },
     onError: () => { eventStreamConnected.value = false },
     onOpen: () => {
       eventStreamConnected.value = true
@@ -200,15 +278,19 @@ onBeforeMount(async () => {
     },
   })
   stopCodexActivityEvents = window.craftHubDesktop?.onCodexActivityStatus?.(status => codexActivityStatus.value = status)
+  stopCelebrationEvents = window.craftHubDesktop?.onCelebrationRequested?.(() => celebration.fire())
   stopOnboardingEvents = window.craftHubDesktop?.onReplayOnboarding?.(() => {
     void openWorkbench()
     onboardingOpen.value = true
   })
+  stopHelpEvents = window.craftHubDesktop?.onOpenHelp?.(() => openSettings('help'))
   stopMarketplaceImportEvents = window.craftHubDesktop?.onMarketplaceSourceImport?.(catalogUrl => void openMarketplaceSourceImport(catalogUrl))
   stopDesktopNavigationEvents = window.craftHubDesktop?.onDesktopNavigation?.(navigation => void openDesktopNavigation(navigation))
   const pendingMarketplaceImport = await window.craftHubDesktop?.consumeMarketplaceSourceImport?.()
   if (pendingMarketplaceImport)
     await openMarketplaceSourceImport(pendingMarketplaceImport)
+  if (await window.craftHubDesktop?.consumeCelebration?.())
+    celebration.fire()
   const pendingDesktopNavigation = await window.craftHubDesktop?.consumeDesktopNavigation?.()
   if (pendingDesktopNavigation)
     await openDesktopNavigation(pendingDesktopNavigation)
@@ -221,9 +303,12 @@ onBeforeUnmount(() => {
   document.removeEventListener('visibilitychange', refreshWhenVisible)
   stopProjectEvents?.()
   stopCodexActivityEvents?.()
+  stopCelebrationEvents?.()
   stopOnboardingEvents?.()
+  stopHelpEvents?.()
   stopMarketplaceImportEvents?.()
   stopDesktopNavigationEvents?.()
+  celebration.reset()
 })
 </script>
 
@@ -241,7 +326,29 @@ onBeforeUnmount(() => {
         <button type="button" @click="retryProjects">{{ t('retry') }}</button>
       </div>
     </section>
+    <section v-if="navigationOpen || marketplaceOpen || integrationOpen || pluginWorkbenchOpen || diagnosticsOpen" class="navigation-view-shell">
+      <ProjectRail
+        :active-view="pluginWorkbenchOpen ? 'plugin-workbench' : integrationOpen ? 'integration' : navigationOpen ? 'navigation' : diagnosticsOpen ? 'diagnostics' : 'marketplace'"
+        :active-integration-id="activeIntegrationId"
+        :active-integration-view-id="activeIntegrationViewId"
+        :active-plugin-workbench-id="activePluginWorkbenchId"
+        :active-plugin-workbench-plugin-id="activePluginWorkbenchPluginId"
+        @open-diagnostics="openDiagnostics"
+        @open-integration="openIntegration"
+        @open-marketplace="openMarketplace"
+        @open-navigation="openNavigation"
+        @open-plugin-workbench="openPluginWorkbench"
+        @open-settings="openSettings()"
+        @open-workbench="openWorkbench"
+      />
+      <DiagnosticsWorkbench v-if="diagnosticsOpen" @open-target="openDiagnosticTarget" />
+      <PluginWorkbench v-else-if="pluginWorkbenchOpen" :plugin-id="activePluginWorkbenchPluginId" :workbench-id="activePluginWorkbenchId" :refresh-key="navigationRevision" @manage-plugins="openMarketplace" />
+      <IntegrationWorkbench v-else-if="integrationOpen" :integration-id="activeIntegrationId" :view-id="activeIntegrationViewId" />
+      <NavigationWorkbench v-else-if="navigationOpen" :refresh-key="navigationRevision" @manage-plugins="openMarketplace" />
+      <MarketplaceDialog v-else open :import-catalog-url="marketplaceImportCatalogUrl" />
+    </section>
     <SplitterGroup
+      v-else
       id="craft-hub-workbench"
       class="workbench-splitter"
       direction="horizontal"
@@ -251,8 +358,12 @@ onBeforeUnmount(() => {
       <SplitterPanel id="projects-panel" :order="1" size-unit="px" :default-size="280" :min-size="252" :max-size="390">
         <ProjectRail
           :active-view="marketplaceOpen ? 'marketplace' : 'workbench'"
+          @open-diagnostics="openDiagnostics"
+          @open-integration="openIntegration"
           @open-marketplace="openMarketplace"
-          @open-settings="settingsOpen = true"
+          @open-navigation="openNavigation"
+          @open-plugin-workbench="openPluginWorkbench"
+          @open-settings="openSettings()"
           @open-workbench="openWorkbench"
         />
       </SplitterPanel>
@@ -316,8 +427,7 @@ onBeforeUnmount(() => {
       </div>
     </footer>
     <CommandPalette v-model:open="paletteOpen" />
-    <SettingsDialog v-model:open="settingsOpen" />
-    <MarketplaceDialog :open="marketplaceOpen" :import-catalog-url="marketplaceImportCatalogUrl" />
+    <SettingsDialog v-model:open="settingsOpen" :initial-tab="settingsInitialTab" />
     <ProjectAgentActionDialog v-model:open="store.agentActionDialogOpen" />
     <DesktopNavigationDialog
       v-if="desktopNavigation"

@@ -1,13 +1,14 @@
 import type { VNode } from 'vue'
 import { h } from 'vue'
 
-export type IconName = 'arrowDown' | 'arrowRight' | 'calendar' | 'chart' | 'check' | 'close' | 'cloud' | 'code' | 'codex' | 'collection' | 'copy' | 'cursor' | 'database' | 'design' | 'docs' | 'drag' | 'edit' | 'error' | 'experiment' | 'folder' | 'folderOpen' | 'gitMerge' | 'gitRepository' | 'hub' | 'loading' | 'mobile' | 'more' | 'package' | 'palette' | 'personal' | 'plugins' | 'plus' | 'rocket' | 'search' | 'security' | 'settings' | 'source' | 'star' | 'starFilled' | 'stop' | 'team' | 'terminal' | 'terminalApp' | 'skill' | 'play' | 'trusted' | 'untrusted' | 'refresh' | 'vscode' | 'web' | 'workspace'
+export type IconName = 'arrowDown' | 'arrowRight' | 'briefcase' | 'calendar' | 'chart' | 'check' | 'close' | 'cloud' | 'code' | 'codex' | 'collection' | 'compass' | 'copy' | 'cursor' | 'database' | 'design' | 'docs' | 'drag' | 'edit' | 'error' | 'experiment' | 'externalLink' | 'folder' | 'folderOpen' | 'gitMerge' | 'gitRepository' | 'hub' | 'list' | 'loading' | 'mobile' | 'more' | 'package' | 'palette' | 'personal' | 'plugins' | 'plus' | 'rocket' | 'search' | 'security' | 'settings' | 'source' | 'star' | 'starFilled' | 'stop' | 'team' | 'terminal' | 'terminalApp' | 'skill' | 'play' | 'trusted' | 'untrusted' | 'refresh' | 'vscode' | 'web' | 'workspace'
 
-export const visualIconNames = ['workspace', 'folder', 'hub', 'code', 'docs', 'design', 'database', 'package', 'rocket', 'team', 'experiment', 'security', 'cloud', 'mobile', 'web', 'terminal', 'skill', 'settings', 'calendar', 'chart'] as const satisfies readonly IconName[]
+export const visualIconNames = ['workspace', 'folder', 'hub', 'briefcase', 'code', 'docs', 'design', 'database', 'package', 'rocket', 'team', 'experiment', 'security', 'cloud', 'mobile', 'web', 'terminal', 'skill', 'settings', 'calendar', 'chart', 'list'] as const satisfies readonly IconName[]
 
 export const iconClasses: Record<Exclude<IconName, 'codex' | 'cursor' | 'plugins' | 'vscode'>, string> = {
   arrowDown: 'i-ri-arrow-down-s-line',
   arrowRight: 'i-ri-arrow-right-s-line',
+  briefcase: 'i-ri-briefcase-4-line',
   calendar: 'i-ri-calendar-line',
   chart: 'i-ri-bar-chart-2-line',
   check: 'i-ri-checkbox-circle-fill',
@@ -15,6 +16,7 @@ export const iconClasses: Record<Exclude<IconName, 'codex' | 'cursor' | 'plugins
   cloud: 'i-ri-cloud-line',
   code: 'i-ri-code-s-slash-line',
   collection: 'i-ri-stack-line',
+  compass: 'i-ri-compass-3-line',
   copy: 'i-ri-file-copy-line',
   database: 'i-ri-database-2-line',
   design: 'i-ri-brush-line',
@@ -23,11 +25,13 @@ export const iconClasses: Record<Exclude<IconName, 'codex' | 'cursor' | 'plugins
   edit: 'i-ri-edit-line',
   error: 'i-ri-error-warning-fill',
   experiment: 'i-ri-flask-line',
+  externalLink: 'i-ri-external-link-line',
   folder: 'i-ri-folder-3-line',
   folderOpen: 'i-ri-folder-open-line',
   gitMerge: 'i-ri-git-merge-line',
   gitRepository: 'i-ri-git-repository-line',
   hub: 'i-ri-node-tree',
+  list: 'i-ri-list-check-3',
   loading: 'i-svg-spinners-180-ring-with-bg',
   mobile: 'i-ri-smartphone-line',
   more: 'i-ri-more-2-fill',

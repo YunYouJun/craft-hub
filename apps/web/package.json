@@ -14,6 +14,7 @@
     "@xterm/addon-fit": "catalog:",
     "@xterm/addon-web-links": "catalog:",
     "@xterm/xterm": "catalog:",
+    "canvas-confetti": "catalog:",
     "craft-hub": "workspace:*",
     "dompurify": "catalog:",
     "marked": "catalog:",
@@ -27,6 +28,7 @@
   "devDependencies": {
     "@iconify-json/ri": "catalog:",
     "@iconify-json/svg-spinners": "catalog:",
+    "@types/canvas-confetti": "catalog:",
     "@types/semver": "catalog:",
     "@vitejs/plugin-vue": "catalog:",
     "@vue/test-utils": "catalog:",

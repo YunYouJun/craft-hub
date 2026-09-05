@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { Capability, CommandCapability, CommandCategory, CommandPackage, CommandPackageLink } from 'craft-hub'
 import { DialogClose, DialogContent, DialogDescription, DialogOverlay, DialogPortal, DialogRoot, DialogTitle } from 'reka-ui'
-import { computed, ref } from 'vue'
+import { computed, onBeforeUnmount, ref } from 'vue'
 import { Button as UiButton } from './components/ui/button'
 import { Icon } from './icons'
 import { useI18n } from './i18n'
@@ -21,6 +21,8 @@ const overviewDescription = computed(() => activePackage.value?.description ?? t
 const readme = computed(() => store.projectOverview?.readme)
 const readmeDrawerOpen = ref(false)
 const packageLinkError = ref('')
+const trustNotice = ref('')
+let trustNoticeTimer: ReturnType<typeof setTimeout> | undefined
 const toolGroups = computed(() => (activePackage.value?.toolGroups ?? []).map(group => ({
   ...group,
   commands: activePackage.value ? packageCommands(activePackage.value).filter(command => command.toolGroupId === group.id) : [],
@@ -92,6 +94,21 @@ async function openPackageLink(link: CommandPackageLink): Promise<void> {
     packageLinkError.value = t('openFailed', { message: caught instanceof Error ? caught.message : String(caught) })
   }
 }
+
+async function revokeProjectTrust(): Promise<void> {
+  const project = store.selectedProject
+  if (!project || project.trust !== 'trusted' || !await store.revokeProjectTrustById(project.id))
+    return
+  trustNotice.value = t('projectTrustRevoked')
+  if (trustNoticeTimer)
+    clearTimeout(trustNoticeTimer)
+  trustNoticeTimer = setTimeout(() => trustNotice.value = '', 2400)
+}
+
+onBeforeUnmount(() => {
+  if (trustNoticeTimer)
+    clearTimeout(trustNoticeTimer)
+})
 
 </script>
 
@@ -200,6 +217,23 @@ async function openPackageLink(link: CommandPackageLink): Promise<void> {
             </footer>
           </article>
         </div>
+      </section>
+
+      <section v-if="!isPackageOverview" class="overview-section project-trust-settings" data-testid="project-trust-settings">
+        <h3><Icon name="security" /> {{ t('trustAndExecution') }}</h3>
+        <div class="project-trust-settings-card">
+          <span class="project-trust-settings-icon" :class="store.selectedProject.trust"><Icon :name="store.selectedProject.trust" /></span>
+          <span class="project-trust-settings-copy">
+            <strong>{{ t(store.selectedProject.trust === 'trusted' ? 'trusted' : 'untrusted') }}</strong>
+            <small>{{ store.selectedProject.trust === 'trusted' ? t('trustedProjectDescription') : t('untrustedProjectDescription') }}</small>
+            <code>{{ store.selectedProject.path }}</code>
+          </span>
+          <UiButton v-if="store.selectedProject.trust === 'trusted'" data-testid="revoke-project-trust" variant="danger-secondary" :disabled="store.busy" @click="revokeProjectTrust">
+            {{ t('revokeProjectTrust') }}
+          </UiButton>
+        </div>
+        <p v-if="trustNotice" class="success-message" role="status">{{ trustNotice }}</p>
+        <p v-if="store.error" class="error-message" role="alert">{{ store.error }}</p>
       </section>
 
     </template>

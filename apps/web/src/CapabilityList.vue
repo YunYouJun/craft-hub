@@ -6,6 +6,7 @@ import { Button as UiButton } from './components/ui/button'
 import { Icon } from './icons'
 import { useI18n } from './i18n'
 import ProjectConfigInitDialog from './ProjectConfigInitDialog.vue'
+import ProjectSkillsDialog from './ProjectSkillsDialog.vue'
 import { packageOverviewRows, packageSection } from './package-overview'
 import { commandPaletteShortcutId, defaultCommandPaletteShortcut, formatShortcut } from './shortcuts'
 import { useWorkbenchStore } from './store'
@@ -25,6 +26,7 @@ const draggingId = ref('')
 const recoveryBusy = ref(false)
 const recoveryError = ref('')
 const projectConfigOpen = ref(false)
+const projectSkillsOpen = ref(false)
 const filtered = computed(() => store.capabilities.filter(matchesFilter))
 const pinned = computed(() => store.pinnedCapabilities.filter(matchesFilter))
 const pinnedIds = computed(() => new Set(store.pinnedCapabilityIds))
@@ -208,7 +210,9 @@ async function openConfigurationGuide(): Promise<void> {
   <section class="capability-panel">
     <div class="panel-heading">
       <h2>{{ t('projectPalette') }}</h2><kbd>{{ paletteShortcut }}</kbd>
+      <UiButton size="compact" variant="ghost" :title="t('manageProjectSkills')" @click="projectSkillsOpen = true"><Icon name="skill" /> {{ t('manageSkills') }}</UiButton>
     </div>
+    <ProjectSkillsDialog v-model:open="projectSkillsOpen" />
     <label class="search-box">
       <Icon name="search" />
       <input v-model="query" :placeholder="t('searchCapabilities')">
