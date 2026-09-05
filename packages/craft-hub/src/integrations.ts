@@ -5,8 +5,12 @@ export const integrationEffectSchema = z.enum(['remote-read', 'remote-write'])
 export const integrationConfirmationSchema = z.enum(['never', 'risk-based', 'always'])
 export const integrationOperationSchema = z.enum([
   'connection.status',
+  'work-items.get',
   'work-items.search',
   'work-items.list',
+  'work-items.transitions',
+  'work-items.update-status',
+  'workspaces.get',
   'repositories.search',
   'merge-requests.list',
   'merge-requests.create',
@@ -16,12 +20,18 @@ export const integrationOperationSchema = z.enum([
 ])
 
 const integrationIdSchema = z.string().regex(/^[a-z0-9][a-z0-9._-]*$/)
+const remoteWriteOperations = new Set<IntegrationOperation>([
+  'merge-requests.add-reviewer',
+  'merge-requests.create',
+  'work-items.update-status',
+])
 const integrationViewBlockSchema = z.object({
   id: integrationIdSchema,
   type: z.enum(['connection-status', 'entity-search', 'entity-list']),
   title: z.string().min(1).optional(),
   description: z.string().min(1).optional(),
   actionId: integrationIdSchema,
+  input: z.record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.null()])).optional(),
 })
 
 export const integrationContributionSchema = z.object({
@@ -52,6 +62,8 @@ export const integrationContributionSchema = z.object({
   for (const [index, action] of integration.actions.entries()) {
     if (actionIds.has(action.id))
       context.addIssue({ code: 'custom', message: `Duplicate integration action id: ${action.id}`, path: ['actions', index, 'id'] })
+    if (remoteWriteOperations.has(action.operation) && action.effect !== 'remote-write')
+      context.addIssue({ code: 'custom', message: `${action.operation} must declare the remote-write effect`, path: ['actions', index, 'effect'] })
     actionIds.add(action.id)
   }
   const viewIds = new Set<string>()
@@ -72,6 +84,8 @@ export type IntegrationOperation = z.infer<typeof integrationOperationSchema>
 export type IntegrationContribution = z.infer<typeof integrationContributionSchema>
 
 export interface IntegrationProviderContext {
+  /** Whether the host reviewed and confirmed the current action invocation. */
+  confirmed?: boolean
   projectId?: string
   projectPath?: string
 }
@@ -84,6 +98,8 @@ export interface IntegrationConnectionStatus {
 
 export interface IntegrationEntity {
   id: string
+  /** Provider availability hint for this entity and request context; writes still require server authorization. */
+  statusUpdateAvailable?: boolean
   title: string
   url?: string
   status?: string
@@ -95,6 +111,8 @@ export interface IntegrationEntityQuery {
   keyword?: string
   limit?: number
   cursor?: string
+  /** Declarative provider-specific filters forwarded as inert data. */
+  [key: string]: unknown
 }
 
 export interface IntegrationEntityPage {
@@ -103,8 +121,28 @@ export interface IntegrationEntityPage {
 }
 
 export interface WorkItemIntegrationAdapter {
+  get?: (context: IntegrationProviderContext, input: Record<string, unknown>) => Promise<IntegrationEntity>
   search: (context: IntegrationProviderContext, query: IntegrationEntityQuery) => Promise<IntegrationEntityPage>
   list: (context: IntegrationProviderContext, query: IntegrationEntityQuery) => Promise<IntegrationEntityPage>
+  transitions?: (context: IntegrationProviderContext, input: Record<string, unknown>) => Promise<IntegrationStatusTransitionPage>
+  updateStatus?: (context: IntegrationProviderContext, input: Record<string, unknown>) => Promise<IntegrationEntity>
+}
+
+export interface IntegrationStatusTransition {
+  id: string
+  title: string
+  fromStatus: string
+  toStatus: string
+  requiredFields: string[]
+}
+
+export interface IntegrationStatusTransitionPage {
+  currentStatus: string
+  transitions: IntegrationStatusTransition[]
+}
+
+export interface WorkspaceIntegrationAdapter {
+  get: (context: IntegrationProviderContext, input: Record<string, unknown>) => Promise<IntegrationEntity>
 }
 
 export interface RepositoryIntegrationAdapter {
@@ -131,6 +169,7 @@ export interface IntegrationProvider {
   apiVersion: string
   connectionStatus: (context: IntegrationProviderContext) => Promise<IntegrationConnectionStatus>
   workItems?: WorkItemIntegrationAdapter
+  workspaces?: WorkspaceIntegrationAdapter
   repositories?: RepositoryIntegrationAdapter
   mergeRequests?: MergeRequestIntegrationAdapter
   issues?: IssueIntegrationAdapter
@@ -146,6 +185,12 @@ export type ResolvedIntegrationAction = IntegrationContribution['actions'][numbe
   effectiveConfirmation: IntegrationConfirmation
 }
 
+export type IntegrationActionResult
+  = IntegrationConnectionStatus
+    | IntegrationEntity
+    | IntegrationEntityPage
+    | IntegrationStatusTransitionPage
+
 export interface ResolvedIntegrationContribution extends Omit<InstalledIntegrationContribution, 'actions'> {
   actions: ResolvedIntegrationAction[]
   providerVersion: string
@@ -157,10 +202,22 @@ export interface IntegrationDiagnostic {
   message: string
 }
 
+/** Raised before an integration performs a remote write that has not been reviewed. */
+export class IntegrationConfirmationRequiredError extends Error {
+  constructor(readonly integrationId: string, readonly actionId: string) {
+    super(`Integration action requires confirmation: ${integrationId}/${actionId}`)
+    this.name = 'IntegrationConfirmationRequiredError'
+  }
+}
+
 const operationSupport: Record<IntegrationOperation, (provider: IntegrationProvider) => boolean> = {
   'connection.status': () => true,
+  'work-items.get': provider => provider.workItems?.get !== undefined,
   'work-items.search': provider => provider.workItems !== undefined,
   'work-items.list': provider => provider.workItems !== undefined,
+  'work-items.transitions': provider => provider.workItems?.transitions !== undefined,
+  'work-items.update-status': provider => provider.workItems?.updateStatus !== undefined,
+  'workspaces.get': provider => provider.workspaces?.get !== undefined,
   'repositories.search': provider => provider.repositories !== undefined,
   'merge-requests.list': provider => provider.mergeRequests !== undefined,
   'merge-requests.create': provider => provider.mergeRequests?.create !== undefined,
@@ -224,9 +281,68 @@ export class IntegrationRegistry {
     return { integrations, diagnostics }
   }
 
+  /** Invoke one previously resolved action through its trusted host adapter. */
+  async invoke(options: {
+    contribution: ResolvedIntegrationContribution
+    actionId: string
+    context?: IntegrationProviderContext
+    input?: Record<string, unknown>
+    confirmed?: boolean
+  }): Promise<IntegrationActionResult> {
+    const action = options.contribution.actions.find(candidate => candidate.id === options.actionId)
+    if (!action)
+      throw new Error(`Integration action is unavailable: ${options.actionId}`)
+    if (action.effectiveConfirmation !== 'never' && options.confirmed !== true)
+      throw new IntegrationConfirmationRequiredError(options.contribution.id, action.id)
+
+    const provider = this.providers.get(options.contribution.provider.id)
+    if (!provider)
+      throw new Error(`Integration provider is unavailable: ${options.contribution.provider.id}`)
+    const context = { ...options.context, confirmed: options.confirmed === true }
+    const input = options.input ?? {}
+    const query = integrationEntityQuery(input)
+
+    switch (action.operation) {
+      case 'connection.status': return provider.connectionStatus(context)
+      case 'work-items.get': return requireMethod(provider.workItems?.get, action.operation)(context, input)
+      case 'work-items.search': return requireAdapter(provider.workItems, action.operation).search(context, query)
+      case 'work-items.list': return requireAdapter(provider.workItems, action.operation).list(context, query)
+      case 'work-items.transitions': return requireMethod(provider.workItems?.transitions, action.operation)(context, input)
+      case 'work-items.update-status': return requireMethod(provider.workItems?.updateStatus, action.operation)(context, input)
+      case 'workspaces.get': return requireMethod(provider.workspaces?.get, action.operation)(context, input)
+      case 'repositories.search': return requireAdapter(provider.repositories, action.operation).search(context, query)
+      case 'merge-requests.list': return requireAdapter(provider.mergeRequests, action.operation).list(context, query)
+      case 'merge-requests.create': return requireMethod(provider.mergeRequests?.create, action.operation)(context, input)
+      case 'merge-requests.add-reviewer': return requireMethod(provider.mergeRequests?.addReviewer, action.operation)(context, input)
+      case 'issues.list': return requireAdapter(provider.issues, action.operation).list(context, query)
+      case 'ci.status': return requireAdapter(provider.ci, action.operation).status(context, input)
+    }
+  }
+
   private diagnostic(contribution: InstalledIntegrationContribution, message: string): IntegrationDiagnostic {
     return { integrationId: contribution.id, pluginId: contribution.pluginId, message }
   }
+}
+
+function integrationEntityQuery(input: Record<string, unknown>): IntegrationEntityQuery {
+  return {
+    ...structuredClone(input),
+    keyword: typeof input.keyword === 'string' ? input.keyword : undefined,
+    limit: typeof input.limit === 'number' ? input.limit : undefined,
+    cursor: typeof input.cursor === 'string' ? input.cursor : undefined,
+  }
+}
+
+function requireAdapter<T>(adapter: T | undefined, operation: IntegrationOperation): T {
+  if (!adapter)
+    throw new Error(`Integration provider does not support ${operation}`)
+  return adapter
+}
+
+function requireMethod<T>(method: T | undefined, operation: IntegrationOperation): T {
+  if (!method)
+    throw new Error(`Integration provider does not support ${operation}`)
+  return method
 }
 
 function effectiveConfirmation(effect: IntegrationEffect, requested: IntegrationConfirmation): IntegrationConfirmation {

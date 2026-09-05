@@ -35,10 +35,35 @@ The target directory must be absent or empty. Initialization never overwrites ex
 The first authoring workflow scaffolds three contribution types:
 
 - `commands`: structured `command` plus `args`; shell interpolation is unavailable and Project Trust is still required before execution.
-- `skills`: package-relative Agent Skill files.
+- `skills`: package-relative Agent Skill files with a stable `id`. New plugins should declare it explicitly; legacy v1 entries without an ID retain their path-derived identifier. They are installed once and activated per project; an optional bounded `activation` expression enables automatic matching.
 - `projectTemplates`: package-relative template directories.
 
 Edit the generated placeholders before publishing. Add advanced contribution types directly against the Marketplace contract until they gain dedicated scaffolds.
+
+### Declare Skill activation
+
+A Skill without `activation` is manual-only. This is the recommended default for general-purpose Skills. For a framework- or tool-specific Skill, declare the project facts that make it relevant:
+
+```json
+{
+  "id": "widget-assistant",
+  "path": "skills/widget-assistant/SKILL.md",
+  "activation": {
+    "all": [
+      { "dependency": "@example/widget" },
+      { "any": [{ "file": "widget.config.ts" }, { "file": "widget.config.js" }] }
+    ]
+  }
+}
+```
+
+Matchers support `file`, `dependency`, `packageManager`, `all`, `any`, and `not`. They are evaluated only at the project root and pnpm packages already discovered by Craft Hub. Automatic matching requires the plugin's `read-project-files` permission. It remains read-only and never executes plugin or project code.
+
+### Add native work-item status transitions
+
+A Host Plugin may implement `workItems.transitions` and `workItems.updateStatus`, while a Marketplace Plugin declares matching `work-items.transitions` and `work-items.update-status` actions. When the same integration renders entities from `work-items.get`, `work-items.search`, or `work-items.list`, Craft Hub adds the generic status control automatically.
+
+The renderer sends the entity's scalar `metadata` back with its `itemId`, title, and current status. The transition result supplies the provider-native target statuses and any required field names. Every update remains a `remote-write`: Craft Hub shows a confirmation dialog, rejects an unconfirmed invocation, and exposes the reviewed decision to the trusted Provider as `context.confirmed`.
 
 ## Validate
 

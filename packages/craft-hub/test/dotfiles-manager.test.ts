@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { mkdir, mkdtemp, readFile, symlink, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, realpath, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import process from 'node:process'
@@ -12,10 +12,11 @@ const execFileAsync = promisify(execFile)
 async function fixture() {
   const root = await mkdtemp(join(tmpdir(), 'craft-hub-dotfiles-'))
   const repositoryPath = join(root, 'dotfiles')
+  const dataDir = join(root, 'data')
   await execFileAsync('git', ['init', repositoryPath])
   await mkdir(join(repositoryPath, '.craft-hub'), { recursive: true })
-  const manager = new DotfilesManager(join(root, 'data'))
-  return { manager, repositoryPath, root }
+  const manager = new DotfilesManager(dataDir)
+  return { dataDir, manager, repositoryPath, root }
 }
 
 async function writeManifest(repositoryPath: string, output = 'clean'): Promise<void> {
@@ -34,6 +35,19 @@ async function writeManifest(repositoryPath: string, output = 'clean'): Promise<
 }
 
 describe('dotfiles manager', () => {
+  it('automatically detects a manifest after the shared repository is selected', async () => {
+    const paths = await fixture()
+    const canonicalRepositoryPath = await realpath(paths.repositoryPath)
+
+    await expect(paths.manager.configure(paths.repositoryPath)).resolves.toMatchObject({
+      repositoryPath: canonicalRepositoryPath,
+      state: 'manifest-missing',
+    })
+    await writeManifest(paths.repositoryPath)
+
+    await expect(paths.manager.status()).resolves.toMatchObject({ state: 'untrusted', manifest: { name: 'Workstation' } })
+  })
+
   it('requires trust for the exact manifest before running shell-free read-only operations', async () => {
     const paths = await fixture()
     await writeManifest(paths.repositoryPath)
@@ -66,13 +80,15 @@ describe('dotfiles manager', () => {
     await expect(paths.manager.configure(paths.repositoryPath)).rejects.toThrow('inside the selected repository')
   })
 
-  it('stores only the selected path and trusted manifest revision in machine-local state', async () => {
+  it('stores the selected repository once and keeps only trust identity in dotfiles state', async () => {
     const paths = await fixture()
     await writeManifest(paths.repositoryPath)
     await paths.manager.configure(paths.repositoryPath)
     await paths.manager.trust()
 
-    const state = await readFile(join(paths.root, 'data', 'dotfiles-manager.json'), 'utf8')
+    const connection = await readFile(join(paths.dataDir, 'personal-config-repository.json'), 'utf8')
+    const state = await readFile(join(paths.dataDir, 'dotfiles-manager.json'), 'utf8')
+    expect(connection).toContain(paths.repositoryPath)
     expect(state).toContain(paths.repositoryPath)
     expect(state).not.toContain(process.execPath)
   })

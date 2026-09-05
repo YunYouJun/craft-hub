@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { skillActivationSettingsSchema } from './skill-activation'
 import { projectAccentColors } from './types'
 
 /** Stable public identity for the version 1 project configuration schema. */
@@ -160,6 +161,7 @@ export const projectConfigSchema = z.strictObject({
     descriptions: z.record(z.string(), localizedTextSchema).optional(),
     inputs: z.record(z.string(), z.record(z.string(), projectCommandInputSchema)).optional(),
     skillInputs: z.record(z.string(), z.record(z.string(), projectSkillInputSchema)).optional(),
+    skills: skillActivationSettingsSchema.optional(),
     disabledPresets: z.array(z.string().min(1)).optional(),
     operations: z.record(z.string(), projectOperationSchema).optional(),
   }).optional(),

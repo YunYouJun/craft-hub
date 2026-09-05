@@ -162,6 +162,7 @@ describe('project config initialization', () => {
         '',
       ].join('\n'))
 
+      await fixture.runtime.projects.setTrust(fixture.project.id, 'trusted')
       await fixture.runtime.projects.setVisual(fixture.project.id, { icon: 'emoji:🚀', color: 'purple' })
       const content = await readFile(fixture.configPath, 'utf8')
 

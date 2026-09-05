@@ -67,6 +67,27 @@ Zod v4 的 `projectConfigSchema` 是唯一真源。Craft Hub 直接使用它进�
 
 项目配置通常会提交到 Git。不要在其中保存 token、密码、凭证、本机路径或其他秘密；只声明所需环境变量名称或 secret provider 引用。
 
+## Marketplace 技能启用
+
+Marketplace 插件技能只在 Craft Hub 中安装一次，再按项目启用。默认模式为 `manual`，因此已安装的技能只有在项目或当前设备明确启用后才可用。仓库可以选择启用有边界的自动匹配：
+
+```jsonc
+{
+  "version": 1,
+  "capabilities": {
+    "skills": {
+      "mode": "auto",
+      "enabledPlugins": ["@example/craft-hub-plugin-tools"],
+      "disabled": [
+        { "id": "plugin:@example/craft-hub-plugin-tools:skill:legacy", "scopes": ["apps/legacy"] }
+      ]
+    }
+  }
+}
+```
+
+设置支持 `enabledPlugins`、`disabledPlugins`，以及逐技能的 `enabled`、`disabled` 规则。规则省略 `scopes` 时只针对项目根目录；包作用域使用项目相对的 pnpm 包路径。通过“管理项目技能”保存的机器本地选择会覆盖仓库默认值，但不会修改此文件。最终优先级依次为自动匹配、仓库默认值、机器本地覆盖；逐技能规则可作为插件级选择的例外。
+
 ## 无效配置
 
 某个项目配置无效或无法读取时，不会移除已注册项目，也不会阻塞其他项目加载。Craft Hub 会保留该项目已有的本机名称、信任状态和排序，同时显示包含文件位置与校验消息的项目级诊断；桌面端可以在已配置的编辑器中直接打开 `.craft-hub/project.jsonc` 并定位到错误行。
@@ -208,6 +229,10 @@ Skill 可以使用能力 ID、名称或“来源:名称”作为 key；推荐使
 
 Craft Hub 自有、由用户编辑的声明文件统一使用 JSONC：`config.jsonc`、`owner-scopes.jsonc` 和 `workspaces/<id>.jsonc`。首次使用时，旧版全局 YAML 会被转换一次，并移至操作系统数据目录下带时间戳的 `migration-backups/global-config-yaml-*` 目录；运行时不保留 YAML 双读路径。
 
+`~/.craft-hub` 是本机配置的主数据源。Personal 配置同步不会移动或替换这个目录：它会将经过白名单筛选的语义快照写入所选本地 Git 仓库的 `.craft-hub/personal.snapshot.json`，或在用户明确确认后把仓库快照应用回本机。机器路径、凭据、执行信任、运行历史、扩展设置和其他本机状态不会进入快照；Craft Hub 也不会自动 commit 或 push。
+
+Personal 配置功能共享同一个 Git 工作区。配置同步使用 `personal.snapshot.json`；Dotfiles 工具则在同一仓库中独立探测 `dotfiles.jsonc`。仓库即使没有 Dotfiles manifest，也仍然可以用于配置同步。
+
 每个工作空间和工作空间组都只属于一个 Owner Scope。旧 manifest 未声明 `ownerScopeId` 时归入固定的 `Personal`；Team manifest 会记录稳定的 Team ID，例如 `ownerScopeId: acme`。Team 身份与 Git 工作区相互独立，因此迁移仓库不会改变所有权。
 
 工作台将 Owner Scope 切换视为即时导航：每个 Scope 独立维护工作空间树、项目引用绑定、独立项目分组和上次选中的工作空间。本机注册目录、信任状态、运行记录和凭据仍只属于当前设备。Team 视图只显示该 Team 引用的项目，未分配的本机项目只显示在 Personal。命令面板可以跨 Scope 搜索，并在打开工作空间前先切换到它所属的 Scope。
@@ -232,9 +257,9 @@ Craft Hub 自有、由用户编辑的声明文件统一使用 JSONC：`config.js
 
 成员 key、顺序、置顶和主要项目可以通过私有 dotfiles 仓库同步。绝对路径、Craft Hub 执行授权、本机 binding、当前选择、运行历史、凭证和 Codex thread ID 仍保存在操作系统数据目录中，不应同步。新设备上无法解析的成员会继续显示，直到绑定本机已注册项目；binding 不会转移执行授权。
 
-## Dotfiles 管理器
+## Dotfiles 工具
 
-实验性的 Dotfiles 管理器是显式本地 Git 工作区的只读控制台。它不会扫描 HOME、克隆或更新 Git 仓库、安装工具或应用变更。仓库通过 `.craft-hub/dotfiles.jsonc` 主动接入，并以独立的 `command` 与 `args` 声明无 shell 的 `check`、`status` 和 `diff` 命令。Craft Hub 将工作目录固定为仓库根目录；任何命令运行前都必须信任当前 manifest，manifest 一旦改变，信任立即失效。
+实验性的 Dotfiles 工具会在所选个人配置仓库中自动探测，并提供只读控制台。它不会扫描 HOME、克隆或更新 Git 仓库、安装工具或应用变更。仓库通过 `.craft-hub/dotfiles.jsonc` 主动接入，并以独立的 `command` 与 `args` 声明无 shell 的 `check`、`status` 和 `diff` 命令。Craft Hub 将工作目录固定为仓库根目录；任何命令运行前都必须信任当前 manifest，manifest 一旦改变，信任立即失效。
 
 ```jsonc
 {

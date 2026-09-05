@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { ProjectWatcher } from '../src/index'
+import { isRelevantProjectPath, ProjectWatcher } from '../src/index'
 
 function nextEvent(events: ProjectChangeEvent[], startIndex: number): Promise<ProjectChangeEvent> {
   return new Promise((resolve, reject) => {
@@ -69,5 +69,11 @@ describe('project watcher', () => {
     finally {
       await watcher.close()
     }
+  })
+
+  it('includes matcher files only when auto-activation patterns are configured', () => {
+    expect(isRelevantProjectPath('widget.config.ts')).toBe(false)
+    expect(isRelevantProjectPath('widget.config.ts', ['widget.config.ts'])).toBe(true)
+    expect(isRelevantProjectPath('apps/web/widget.config.ts', ['apps/*/widget.config.*'])).toBe(true)
   })
 })

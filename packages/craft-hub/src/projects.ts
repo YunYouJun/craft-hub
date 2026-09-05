@@ -114,9 +114,11 @@ export class ProjectRegistry {
     return project
   }
 
-  /** Update portable visual metadata without changing trust or registration state. */
+  /** Update portable visual metadata for a trusted project without changing registration state. */
   async setVisual(id: string, visual: ProjectVisualInput): Promise<ProjectRecord> {
     const project = await this.get(id)
+    if (project.trust !== 'trusted')
+      throw new Error(`Project is untrusted: ${project.name}`)
     await saveProjectVisual(project.path, visual)
     return this.get(id)
   }

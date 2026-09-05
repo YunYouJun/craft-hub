@@ -421,6 +421,10 @@ describe('capability discovery', () => {
     const project = await runtime.addProject(root)
 
     await expect(runtime.projects.setVisual(project.id, { icon: 'emoji:🚀', color: 'cyan' }))
+      .rejects
+      .toThrow('Project is untrusted')
+    await runtime.projects.setTrust(project.id, 'trusted')
+    await expect(runtime.projects.setVisual(project.id, { icon: 'emoji:🚀', color: 'cyan' }))
       .resolves
       .toMatchObject({ icon: 'emoji:🚀', color: 'cyan' })
 

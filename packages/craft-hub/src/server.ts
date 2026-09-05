@@ -13,6 +13,7 @@ import { CommandInputValidationError } from './command-inputs'
 import { projectConfigSchemaRevision } from './config'
 import { dotfilesOperations, DotfilesTrustError, DotfilesValidationError } from './dotfiles-manager'
 import { GitIntegrationConflictError, GitIntegrationValidationError } from './git-integration'
+import { IntegrationConfirmationRequiredError } from './integrations'
 import { CraftHubRuntime } from './runtime'
 import { SettingsConflictError, SettingsValidationError } from './settings'
 import { TeamLifecycleValidationError } from './teams'
@@ -154,6 +155,9 @@ export async function startCraftHubServer(options: CraftHubServerOptions = {}): 
           status: 'ok',
         })
       }
+
+      if (request.method === 'GET' && url.pathname === '/api/diagnostics')
+        return sendJson(response, 200, await runtime.diagnosticSnapshot())
 
       if (request.method === 'GET' && url.pathname === '/api/events') {
         response.writeHead(200, {
@@ -378,6 +382,7 @@ export async function startCraftHubServer(options: CraftHubServerOptions = {}): 
           prompt: body.prompt,
           projectIds: body.projectIds as string[],
           primaryProjectId: body.primaryProjectId,
+          primaryProjectRelativePath: typeof body.primaryProjectRelativePath === 'string' ? body.primaryProjectRelativePath : undefined,
           capabilityId: typeof body.capabilityId === 'string' ? body.capabilityId : undefined,
           workspaceId: typeof body.workspaceId === 'string' ? body.workspaceId : undefined,
           parentTaskId: typeof body.parentTaskId === 'string' ? body.parentTaskId : undefined,
@@ -434,6 +439,28 @@ export async function startCraftHubServer(options: CraftHubServerOptions = {}): 
 
       if (request.method === 'GET' && url.pathname === '/api/plugins')
         return sendJson(response, 200, await runtime.pluginManager.listInstalled())
+
+      if (request.method === 'GET' && url.pathname === '/api/navigation-panels')
+        return sendJson(response, 200, await runtime.pluginManager.navigationPanels(url.searchParams.get('locale') ?? 'en'))
+
+      if (request.method === 'GET' && url.pathname === '/api/workbenches')
+        return sendJson(response, 200, await runtime.pluginManager.workbenches(url.searchParams.get('locale') ?? 'en'))
+
+      if (request.method === 'GET' && url.pathname === '/api/integrations')
+        return sendJson(response, 200, await runtime.integrationContributions())
+
+      if (request.method === 'POST' && parts[0] === 'api' && parts[1] === 'integrations' && parts[2] && parts[3] === 'actions' && parts[4] && parts.length === 5) {
+        const body = await jsonBody(request)
+        const input = body.input === undefined ? {} : body.input
+        if (!input || typeof input !== 'object' || Array.isArray(input))
+          return sendJson(response, 400, { error: 'input must be an object' })
+        return sendJson(response, 200, await runtime.invokeIntegrationAction({
+          integrationId: parts[2],
+          actionId: parts[4],
+          input: input as Record<string, unknown>,
+          confirmed: body.confirmed === true,
+        }))
+      }
 
       if (request.method === 'GET' && url.pathname === '/api/plugins/document') {
         const sourceId = url.searchParams.get('sourceId')
@@ -687,6 +714,19 @@ export async function startCraftHubServer(options: CraftHubServerOptions = {}): 
 
       if (parts[0] === 'api' && parts[1] === 'projects' && parts[2]) {
         const projectId = parts[2]
+        if (request.method === 'POST' && parts[3] === 'integrations' && parts[4] && parts[5] === 'actions' && parts[6] && parts.length === 7) {
+          const body = await jsonBody(request)
+          const input = body.input === undefined ? {} : body.input
+          if (!input || typeof input !== 'object' || Array.isArray(input))
+            return sendJson(response, 400, { error: 'input must be an object' })
+          return sendJson(response, 200, await runtime.invokeIntegrationAction({
+            integrationId: parts[4],
+            actionId: parts[6],
+            projectId,
+            input: input as Record<string, unknown>,
+            confirmed: body.confirmed === true,
+          }))
+        }
         if (request.method === 'PUT' && parts[3] === 'group') {
           const body = await jsonBody(request)
           if (body.groupId !== undefined && typeof body.groupId !== 'string')
@@ -699,6 +739,8 @@ export async function startCraftHubServer(options: CraftHubServerOptions = {}): 
           const color = typeof body.color === 'string' && projectAccentColors.includes(body.color as ProjectAccentColor)
             ? body.color as ProjectAccentColor
             : undefined
+          if ((await runtime.projects.get(projectId)).trust !== 'trusted')
+            return sendJson(response, 403, { error: 'Project must be trusted before changing project appearance' })
           return sendJson(response, 200, await runtime.projects.setVisual(projectId, { icon, color }))
         }
         if (request.method === 'DELETE' && parts.length === 3) {
@@ -708,8 +750,22 @@ export async function startCraftHubServer(options: CraftHubServerOptions = {}): 
         }
         if (request.method === 'GET' && parts[3] === 'capabilities')
           return sendJson(response, 200, await runtime.capabilities(projectId))
-        if (request.method === 'GET' && parts[3] === 'capability-discovery')
-          return sendJson(response, 200, await runtime.capabilityDiscovery(projectId))
+        if (request.method === 'GET' && parts[3] === 'capability-discovery') {
+          const discovery = await runtime.capabilityDiscovery(projectId)
+          watcher.setCapabilityPatterns(projectId, discovery.skillWatchPatterns ?? [])
+          return sendJson(response, 200, discovery)
+        }
+        if (request.method === 'GET' && parts[3] === 'skills')
+          return sendJson(response, 200, await runtime.projectSkills(projectId))
+        if (request.method === 'PUT' && parts[3] === 'skills') {
+          const body = await jsonBody(request)
+          if (!body.settings || typeof body.settings !== 'object' || Array.isArray(body.settings))
+            return sendJson(response, 400, { error: 'settings are required' })
+          const state = await runtime.updateProjectSkills(projectId, body.settings)
+          const discovery = await runtime.capabilityDiscovery(projectId)
+          watcher.setCapabilityPatterns(projectId, discovery.skillWatchPatterns ?? [])
+          return sendJson(response, 200, state)
+        }
         if (request.method === 'GET' && parts[3] === 'overview') {
           const packagePath = url.searchParams.get('package') ?? '.'
           const locale = url.searchParams.get('locale')
@@ -802,8 +858,10 @@ export async function startCraftHubServer(options: CraftHubServerOptions = {}): 
           createReadStream(path).pipe(response)
           return
         }
-        if (request.method === 'POST' && parts[3] === 'trust')
+        if (request.method === 'POST' && parts[3] === 'trust' && parts.length === 4)
           return sendJson(response, 200, await runtime.projects.setTrust(projectId, 'trusted'))
+        if (request.method === 'DELETE' && parts[3] === 'trust' && parts.length === 4)
+          return sendJson(response, 200, await runtime.projects.setTrust(projectId, 'untrusted'))
         if (request.method === 'POST' && parts[3] === 'config' && parts[4] === 'initialize') {
           const body = await jsonBody(request)
           if (body.mode !== 'preview' && body.mode !== 'apply')
@@ -860,6 +918,8 @@ export async function startCraftHubServer(options: CraftHubServerOptions = {}): 
         return sendJson(response, 409, { error: error.message, actualRevision: error.actualRevision })
       if (error instanceof GitIntegrationConflictError)
         return sendJson(response, 409, { error: error.message, actualRevision: error.actualRevision })
+      if (error instanceof IntegrationConfirmationRequiredError)
+        return sendJson(response, 409, { error: error.message, confirmationRequired: true })
       if (error instanceof DotfilesTrustError)
         return sendJson(response, 403, { error: error.message })
       if (error instanceof CommandInputValidationError || error instanceof DotfilesValidationError || error instanceof GitIntegrationValidationError || error instanceof SettingsValidationError || error instanceof TeamLifecycleValidationError || error instanceof ZodError || error instanceof SyntaxError)

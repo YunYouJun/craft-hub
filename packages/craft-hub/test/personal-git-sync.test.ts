@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { mkdir, mkdtemp, readFile, symlink, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, realpath, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import process from 'node:process'
@@ -28,7 +28,10 @@ describe('personal Git sync', () => {
     await fixture.runtime.workspaces.addProject(workspace.id, project.id)
 
     const configured = await fixture.runtime.personalGitSync.configure({ repositoryPath: fixture.repositoryPath })
+    const canonicalRepositoryPath = await realpath(fixture.repositoryPath)
     expect(configured).toMatchObject({ state: 'local-ahead', target: { directory: '.craft-hub' } })
+    await expect(fixture.runtime.personalConfigRepository.status()).resolves.toMatchObject({ repositoryPath: canonicalRepositoryPath, state: 'ready' })
+    await expect(fixture.runtime.dotfilesManager.status()).resolves.toMatchObject({ repositoryPath: canonicalRepositoryPath, state: 'manifest-missing' })
     const synchronized = await fixture.runtime.personalGitSync.synchronize()
     expect(synchronized).toMatchObject({ state: 'clean', workingTreeChanged: true })
 

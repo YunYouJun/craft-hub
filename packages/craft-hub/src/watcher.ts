@@ -1,7 +1,7 @@
 import type { FSWatcher } from 'chokidar'
 import type { ProjectRecord } from './types'
 import { realpath } from 'node:fs/promises'
-import { extname, relative, sep } from 'node:path'
+import { extname, matchesGlob, relative, sep } from 'node:path'
 import chokidar from 'chokidar'
 
 /** Semantic area affected by a project file change. */
@@ -44,14 +44,16 @@ function normalizedRelativePath(root: string, path: string): string {
   return relative(root, path).split(sep).join('/')
 }
 
-function isRelevantPath(path: string): boolean {
+/** Return whether a project-relative change can affect discovery or an auto-activation matcher. */
+export function isRelevantProjectPath(path: string, activationPatterns: readonly string[] = []): boolean {
   if (!path)
-    return true
+    return false
   if (rootCapabilityFiles.has(path) || path.endsWith('/package.json') || path === '.craft-hub' || projectConfigPaths.has(path))
     return true
   if (/(?:^|\/)readme(?:\.(?:md|markdown|mdown))?$/i.test(path))
     return true
   return skillRoots.some(root => path === root || path.startsWith(`${root}/`) || root.startsWith(`${path}/`))
+    || activationPatterns.some(pattern => matchesGlob(path, pattern))
 }
 
 function scopesForPath(path: string): ProjectChangeScope[] {
@@ -67,6 +69,7 @@ export class ProjectWatcher {
   private readonly watchers = new Map<string, FSWatcher>()
   private readonly pending = new Map<string, Set<ProjectChangeScope>>()
   private readonly timers = new Map<string, ReturnType<typeof setTimeout>>()
+  private readonly activationPatterns = new Map<string, string[]>()
 
   constructor(
     private readonly listener: ProjectChangeListener,
@@ -90,7 +93,7 @@ export class ProjectWatcher {
           return true
         if (stats?.isDirectory() || (!stats && !extname(relativePath)))
           return false
-        return !isRelevantPath(relativePath)
+        return !isRelevantProjectPath(relativePath, this.activationPatterns.get(project.id))
       },
     })
     this.watchers.set(project.id, watcher)
@@ -111,6 +114,7 @@ export class ProjectWatcher {
       clearTimeout(timer)
     this.timers.clear()
     this.pending.clear()
+    this.activationPatterns.clear()
     await Promise.all([...this.watchers.values()].map(watcher => watcher.close()))
     this.watchers.clear()
   }
@@ -125,12 +129,13 @@ export class ProjectWatcher {
       clearTimeout(timer)
     this.timers.delete(projectId)
     this.pending.delete(projectId)
+    this.activationPatterns.delete(projectId)
     this.watchers.delete(projectId)
     await watcher.close()
   }
 
   private queue(projectId: string, path: string): void {
-    if (!isRelevantPath(path))
+    if (!isRelevantProjectPath(path, this.activationPatterns.get(projectId)))
       return
     const scopes = this.pending.get(projectId) ?? new Set<ProjectChangeScope>()
     for (const scope of scopesForPath(path))
@@ -141,6 +146,11 @@ export class ProjectWatcher {
     if (currentTimer)
       clearTimeout(currentTimer)
     this.timers.set(projectId, setTimeout(() => this.flush(projectId), this.debounceMs))
+  }
+
+  /** Replace bounded Marketplace Skill marker patterns for one watched project. */
+  setCapabilityPatterns(projectId: string, patterns: string[]): void {
+    this.activationPatterns.set(projectId, [...new Set(patterns)])
   }
 
   private flush(projectId: string): void {

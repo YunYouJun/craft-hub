@@ -58,6 +58,8 @@ Marketplace Plugin 在 `package.json#craftHub` 发布 v1 声明。核心身份�
     "commandTemplates": [],
     "packageQuickActions": [],
     "packageLinks": [],
+    "navigationPanels": [],
+    "workbenches": [],
     "skills": [],
     "projectTemplates": [],
     "integrations": []
@@ -65,11 +67,76 @@ Marketplace Plugin 在 `package.json#craftHub` 发布 v1 声明。核心身份�
 }
 ```
 
+`navigationPanels` 会把与项目无关的 HTTPS 入口添加到“导航工作台”。面板和链接都支持本地化标题与描述。由于 Craft Hub 不读取项目数据，也不会在用户点击前访问目标地址，因此该贡献不需要申请权限。URL 必须使用 HTTPS，且不能包含凭据。
+
+```json
+{
+  "id": "developer-resources",
+  "title": { "default": "Developer resources", "zh-CN": "研发资源" },
+  "icon": "builtin:code",
+  "links": [
+    {
+      "id": "engineering-handbook",
+      "title": { "default": "Engineering handbook", "zh-CN": "研发手册" },
+      "description": { "default": "Standards and workflows", "zh-CN": "规范与流程" },
+      "url": "https://example.com/engineering",
+      "icon": "builtin:docs",
+      "keywords": ["handbook", "手册"]
+    }
+  ]
+}
+```
+
+`workbenches` 可以把已有的集成视图和导航面板组合成项目侧栏中的一个产品级入口。它只保存引用：Provider 调用、权限、生命周期和所有权仍由对应的子插件负责。
+
+```json
+{
+  "id": "company-tools",
+  "title": { "default": "Company tools", "zh-CN": "公司工具" },
+  "description": { "default": "Work items, code, and team links.", "zh-CN": "待办、代码与团队入口。" },
+  "icon": "builtin:briefcase",
+  "order": 20,
+  "views": [
+    {
+      "type": "integration",
+      "plugin": "@acme/craft-hub-plugin-work-items",
+      "integration": "work-items",
+      "view": "assigned-to-me"
+    },
+    {
+      "type": "navigation",
+      "plugin": "@acme/craft-hub-plugin-company",
+      "panel": "company-links"
+    }
+  ]
+}
+```
+
+工作台可以引用自身贡献，也可以引用 `includesPlugins` 或 `requiresPlugins` 声明的 package。宿主会在创作阶段校验自身引用，并在安装后解析子插件引用。子插件被停用、缺失或不兼容时，对应页签会显示为不可用，而不会让整个工作台失效；子插件仍然可以独立管理。已被工作台收纳的集成视图不会再作为独立侧栏入口展示，从而避免图标重复。
+
 `includesPlugins` 声明插件合集：列出的市场插件会从同一 Source 经一次审阅后一起安装，之后仍可独立管理。移除合集不会移除其中已经安装的插件。
 
 `requiresPlugins` 声明来自同一 Marketplace Source 的强依赖。每项包含包名和 SemVer range；禁止引用自身、重复声明或同时出现在两个清单中。npm `dependencies` 仍然禁止使用。
 
 `packageQuickActions` 允许声明式插件通过受限的文件标记识别工作区 package，并把已发现的 capability 放进该 package 的概览页。selector 可以是 capability ID、无歧义的 capability 名称或 `source:name`。因此它可以组合其他插件提供的技能或命令；目标 capability 未被发现时不会展示快捷项，并回退到常规命令快捷项。package 匹配需要 `read-project-files` 权限。
+
+集成视图区块可以声明一个扁平的 `input` 对象，其值仅允许字符串、数字、布尔值或 null。宿主只会在用户打开或操作该区块时转发这些惰性数据。这样同一个 Provider 操作就能支持“全部条目”和“分配给当前账号的条目”等不同视图，而无需让 Marketplace 插件执行代码。
+
+`skills` 随插件只安装一份 Agent Skill 内容，并使用稳定 `id` 作为项目引用。新插件应显式声明；旧版 v1 条目未声明 ID 时保留按路径生成的标识。技能不会全局暴露给所有项目；缺少 `activation` 时只能手动启用。表达式支持 `file`、`dependency`、`packageManager`、`all`、`any` 和 `not`，有深度与节点数限制，并要求 `read-project-files` 权限。Craft Hub 只在项目根目录和已发现的 pnpm package 根目录中求值。项目检测保持只读，后台调用技能仍受 Project Trust 保护。
+
+```json
+{
+  "id": "widget-assistant",
+  "path": "skills/widget-assistant/SKILL.md",
+  "activation": {
+    "all": [
+      { "dependency": "@example/widget" },
+      { "file": "widget.config.*" },
+      { "not": { "file": "legacy-widget.config.js" } }
+    ]
+  }
+}
+```
 
 ```json
 {
@@ -148,7 +215,7 @@ Catalog 维护者应保留被阻断的版本条目，让客户端能够实施精
 
 ## 本地插件
 
-开发版和正式版都可以直接从绝对路径加载同一种声明式插件包。可在 **已安装 → 加载本地插件** 中输入目录，或运行 `craft-hub plugin:link /插件目录的绝对路径`。本地插件会显示 **本地** 标记、跨重启保留，并覆盖同名市场版本而不修改原安装包。刷新插件列表或能力时会重新读取 Manifest，也可以使用 `craft-hub plugin:refresh <package>` 强制刷新；运行 `craft-hub plugin:unlink <package>` 后，会自动恢复同名市场版本。
+开发版和正式版都可以直接从绝对路径加载同一种声明式插件包。桌面版可在 **已安装 → 加载本地插件** 中通过选择器选取文件夹；浏览器版可输入目录的绝对路径。该入口同时提供[插件格式与创建指南](./plugin-authoring.md)链接。也可以运行 `craft-hub plugin:link /插件目录的绝对路径`。本地插件会显示 **本地** 标记、跨重启保留，并覆盖同名市场版本而不修改原安装包。刷新插件列表或能力时会重新读取 Manifest，也可以使用 `craft-hub plugin:refresh <package>` 强制刷新；运行 `craft-hub plugin:unlink <package>` 后，会自动恢复同名市场版本。
 
 关联本地目录属于用户显式信任操作，不具备 Catalog 完整性校验和发布者认证；但仍会校验包身份、Manifest Schema、Craft Hub 最低版本、文件路径边界、生命周期脚本和运行时依赖限制。本地修改不合法时，插件会保留在列表中并显示错误，其贡献会暂停启用，修复后可再次刷新恢复。
 

@@ -52,6 +52,7 @@ describe('craft hub MCP write tools', () => {
       expect(tools.tools.map(tool => tool.name)).not.toContain('render_craft_hub_panel')
       expect(tools.tools).toEqual(expect.arrayContaining([
         expect.objectContaining({ name: 'open_craft_hub', annotations: expect.objectContaining({ destructiveHint: false, idempotentHint: true }) }),
+        expect.objectContaining({ name: 'celebrate', annotations: expect.objectContaining({ destructiveHint: false, idempotentHint: false }) }),
         expect.objectContaining({ name: 'add_project', annotations: expect.objectContaining({ destructiveHint: false, idempotentHint: true }) }),
         expect.objectContaining({ name: 'init_project_config', annotations: expect.objectContaining({ destructiveHint: false, readOnlyHint: false }) }),
         expect.objectContaining({ name: 'list_workspaces', annotations: expect.objectContaining({ readOnlyHint: true }) }),
@@ -124,6 +125,11 @@ describe('craft hub MCP write tools', () => {
         .resolves
         .toMatchObject({ url: 'craft-hub://open?v=1&view=marketplace' })
       expect(openDesktopLink).toHaveBeenCalledWith('craft-hub://open?v=1&view=marketplace')
+
+      await expect(callTool(fixture.client, 'celebrate'))
+        .resolves
+        .toMatchObject({ url: 'craft-hub://celebrate?v=1' })
+      expect(openDesktopLink).toHaveBeenLastCalledWith('craft-hub://celebrate?v=1')
 
       const created = await callTool(fixture.client, 'create_workspace', { name: 'Product Team' })
       const workspace = created.workspace as { id: string }

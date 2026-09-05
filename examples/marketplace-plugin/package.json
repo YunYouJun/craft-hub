@@ -14,16 +14,18 @@
     "displayName": "Starter tools",
     "description": "Contributes a safe command, an Agent Skill, and a project template.",
     "craftHub": {
-      "minVersion": "0.0.1-alpha.8"
+      "minVersion": "0.0.1-alpha.9"
     },
     "includesPlugins": [],
     "requiresPlugins": [],
     "projectFiles": [],
     "permissions": [
-      "commands"
+      "commands",
+      "read-project-files"
     ],
     "permissionReasons": {
-      "commands": "Runs the version-check command declared by this package."
+      "commands": "Runs the version-check command declared by this package.",
+      "read-project-files": "Checks package manifests to activate the Skill only in Node.js package scopes."
     },
     "contributes": {
       "commands": [
@@ -43,9 +45,64 @@
       "packageQuickActions": [],
       "packageLinks": [],
       "packageToolGroups": [],
+      "navigationPanels": [
+        {
+          "id": "developer-resources",
+          "title": {
+            "default": "Developer resources",
+            "zh-CN": "研发资源"
+          },
+          "description": {
+            "default": "Shared engineering systems and documentation.",
+            "zh-CN": "常用研发系统与文档。"
+          },
+          "icon": "builtin:code",
+          "links": [
+            {
+              "id": "engineering-handbook",
+              "title": {
+                "default": "Engineering handbook",
+                "zh-CN": "研发手册"
+              },
+              "description": {
+                "default": "Standards, workflows, and team practices.",
+                "zh-CN": "规范、流程与团队实践。"
+              },
+              "url": "https://example.com/engineering",
+              "icon": "builtin:docs",
+              "keywords": ["handbook", "standards", "手册", "规范"]
+            }
+          ]
+        }
+      ],
+      "workbenches": [
+        {
+          "id": "starter-workbench",
+          "title": {
+            "default": "Starter workbench",
+            "zh-CN": "示例工作台"
+          },
+          "description": {
+            "default": "A composed home for the plugin's resources.",
+            "zh-CN": "集中展示插件资源的组合入口。"
+          },
+          "icon": "builtin:briefcase",
+          "views": [
+            {
+              "type": "navigation",
+              "plugin": "@example/craft-hub-plugin-starter",
+              "panel": "developer-resources"
+            }
+          ]
+        }
+      ],
       "skills": [
         {
-          "path": "skills/starter-tools/SKILL.md"
+          "id": "starter-tools",
+          "path": "skills/starter-tools/SKILL.md",
+          "activation": {
+            "file": "package.json"
+          }
         }
       ],
       "projectTemplates": [

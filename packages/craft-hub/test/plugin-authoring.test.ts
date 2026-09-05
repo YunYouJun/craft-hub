@@ -43,7 +43,7 @@ describe('marketplace Plugin authoring', () => {
         permissions: ['commands'],
         contributes: {
           commands: [expect.objectContaining({ id: 'version-check', command: 'node', args: ['--version'] })],
-          skills: [{ path: 'skills/tools/SKILL.md' }],
+          skills: [{ id: 'tools', path: 'skills/tools/SKILL.md' }],
           projectTemplates: [{ id: 'tools-starter', path: 'templates/tools-starter' }],
         },
       },
@@ -118,6 +118,7 @@ describe('marketplace Plugin authoring', () => {
       packageName: '@example/craft-hub-plugin-starter',
     })
     await runtime.pluginManager.linkLocal(examplePluginPath)
+    await runtime.updateProjectSkills(project.id, { enabledPlugins: ['@example/craft-hub-plugin-starter'] })
     const capabilities = await runtime.capabilities(project.id)
 
     expect(capabilities).toEqual(expect.arrayContaining([

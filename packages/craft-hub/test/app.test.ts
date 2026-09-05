@@ -6,7 +6,7 @@ import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 import { describe, expect, it } from 'vitest'
-import { craftHubProjectDesktopUrl, launchCraftHubApp, launchCraftHubProject } from '../src/app'
+import { craftHubCelebrationDesktopUrl, craftHubProjectDesktopUrl, launchCraftHubApp, launchCraftHubProject } from '../src/app'
 import { CraftHubRuntime } from '../src/runtime'
 
 const execFileAsync = promisify(execFile)
@@ -79,6 +79,10 @@ async function readChunk<T>(reader: ReadableStreamDefaultReader<T>, timeoutMs = 
 }
 
 describe('app launcher', () => {
+  it('builds a celebration Desktop Link', () => {
+    expect(craftHubCelebrationDesktopUrl()).toBe('craft-hub://celebrate?v=1')
+  })
+
   it('builds normalized project and capability Desktop Links', () => {
     expect(craftHubProjectDesktopUrl({
       repository: 'git@github.com:YunYouJun/craft-hub.git',

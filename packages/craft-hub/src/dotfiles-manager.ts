@@ -3,16 +3,17 @@ import { Buffer } from 'node:buffer'
 import { execFile } from 'node:child_process'
 import { createHash, randomUUID } from 'node:crypto'
 import { mkdir, readFile, realpath, rename, writeFile } from 'node:fs/promises'
-import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { dirname, isAbsolute, join, relative, sep } from 'node:path'
 import process from 'node:process'
 import { parse as parseJsonc, printParseErrorCode } from 'jsonc-parser'
+import { PersonalConfigRepository } from './personal-config-repository'
 
 export const dotfilesManifestPath = '.craft-hub/dotfiles.jsonc'
 export const dotfilesManifestSchemaUrl = 'https://raw.githubusercontent.com/YunYouJun/craft-hub/main/packages/craft-hub/schema/dotfiles-v1.schema.json'
 export const dotfilesOperations = ['check', 'status', 'diff'] as const
 
 export type DotfilesOperation = typeof dotfilesOperations[number]
-export type DotfilesManagerState = 'unconfigured' | 'untrusted' | 'ready' | 'unsupported-platform'
+export type DotfilesManagerState = 'unconfigured' | 'manifest-missing' | 'untrusted' | 'ready' | 'unsupported-platform'
 
 /** One shell-free command declared by a trusted local dotfiles source. */
 export interface DotfilesCommand {
@@ -54,9 +55,11 @@ export interface DotfilesOperationResult {
 }
 
 interface DotfilesManagerConfiguration {
+  /** Removed after migrating early-alpha state to PersonalConfigRepository. */
   repositoryPath?: string
   schemaVersion: 1
   trustedManifestRevision?: string
+  trustedRepositoryPath?: string
 }
 
 const manifestLimitBytes = 256 * 1024
@@ -66,24 +69,25 @@ const operationTimeoutMs = 30_000
 /** Configure, trust, and run read-only operations from one explicit local dotfiles checkout. */
 export class DotfilesManager {
   private readonly configurationPath: string
+  private readonly repository: PersonalConfigRepository
 
-  constructor(dataDir: string) {
+  constructor(dataDir: string, repository?: PersonalConfigRepository) {
     this.configurationPath = join(dataDir, 'dotfiles-manager.json')
+    this.repository = repository ?? new PersonalConfigRepository(dataDir)
   }
 
   /** Select a local Git checkout and invalidate trust when the source changes. */
   async configure(repositoryPath: string): Promise<DotfilesManagerStatus> {
     if (!repositoryPath.trim())
       throw new DotfilesValidationError('Dotfiles repository path is required')
-    const root = await gitRoot(resolve(repositoryPath))
-    const manifest = await readManifest(root)
     const current = await this.configuration()
+    const previousRepository = await this.repository.status()
+    const selectedRepository = await this.repository.configure(repositoryPath)
+    const unchanged = previousRepository.repositoryPath === selectedRepository.repositoryPath
     await this.saveConfiguration({
       schemaVersion: 1,
-      repositoryPath: root,
-      trustedManifestRevision: current.repositoryPath === root && current.trustedManifestRevision === manifest.revision
-        ? current.trustedManifestRevision
-        : undefined,
+      trustedManifestRevision: unchanged ? current.trustedManifestRevision : undefined,
+      trustedRepositoryPath: unchanged ? current.trustedRepositoryPath : undefined,
     })
     return this.status()
   }
@@ -91,30 +95,45 @@ export class DotfilesManager {
   /** Inspect the selected source and invalidate effective trust after manifest changes. */
   async status(): Promise<DotfilesManagerStatus> {
     const configuration = await this.configuration()
-    if (!configuration.repositoryPath)
+    const repository = await this.repository.status()
+    if (!repository.repositoryPath)
       return { state: 'unconfigured' }
-    const source = await readManifest(configuration.repositoryPath)
+    let source: Awaited<ReturnType<typeof readManifest>>
+    try {
+      source = await readManifest(repository.repositoryPath)
+    }
+    catch (error) {
+      if (error instanceof DotfilesManifestMissingError)
+        return { repositoryPath: repository.repositoryPath, state: 'manifest-missing' }
+      throw error
+    }
     const supported = !source.manifest.platforms?.length || source.manifest.platforms.includes(process.platform)
     return {
       manifest: source.manifest,
       manifestPath: source.path,
       manifestRevision: source.revision,
-      repositoryPath: configuration.repositoryPath,
+      repositoryPath: repository.repositoryPath,
       state: !supported
         ? 'unsupported-platform'
-        : configuration.trustedManifestRevision === source.revision ? 'ready' : 'untrusted',
+        : configuration.trustedRepositoryPath === repository.repositoryPath && configuration.trustedManifestRevision === source.revision ? 'ready' : 'untrusted',
     }
   }
 
   /** Trust the exact current manifest; later manifest edits require another review. */
   async trust(): Promise<DotfilesManagerStatus> {
     const configuration = await this.configuration()
-    if (!configuration.repositoryPath)
+    const repository = await this.repository.status()
+    if (!repository.repositoryPath)
       throw new DotfilesValidationError('Dotfiles manager is not configured')
-    const source = await readManifest(configuration.repositoryPath)
+    const source = await readManifest(repository.repositoryPath)
     if (source.manifest.platforms?.length && !source.manifest.platforms.includes(process.platform))
       throw new DotfilesValidationError(`Dotfiles source does not support ${process.platform}`)
-    await this.saveConfiguration({ ...configuration, trustedManifestRevision: source.revision })
+    await this.saveConfiguration({
+      ...configuration,
+      repositoryPath: undefined,
+      trustedManifestRevision: source.revision,
+      trustedRepositoryPath: repository.repositoryPath,
+    })
     return this.status()
   }
 
@@ -134,8 +153,25 @@ export class DotfilesManager {
   private async configuration(): Promise<DotfilesManagerConfiguration> {
     try {
       const value = JSON.parse(await readFile(this.configurationPath, 'utf8')) as DotfilesManagerConfiguration
-      if (value.schemaVersion !== 1 || (value.repositoryPath !== undefined && typeof value.repositoryPath !== 'string'))
+      if (value.schemaVersion !== 1
+        || (value.repositoryPath !== undefined && typeof value.repositoryPath !== 'string')
+        || (value.trustedRepositoryPath !== undefined && typeof value.trustedRepositoryPath !== 'string')) {
         throw new DotfilesValidationError('Unsupported dotfiles manager configuration')
+      }
+      if (value.repositoryPath) {
+        const currentRepository = await this.repository.status()
+        if (!currentRepository.repositoryPath)
+          await this.repository.configure(value.repositoryPath)
+        const migrated = {
+          schemaVersion: 1 as const,
+          trustedManifestRevision: value.trustedManifestRevision,
+          trustedRepositoryPath: currentRepository.repositoryPath && currentRepository.repositoryPath !== value.repositoryPath
+            ? undefined
+            : value.repositoryPath,
+        }
+        await this.saveConfiguration(migrated)
+        return migrated
+      }
       return value
     }
     catch (error) {
@@ -156,6 +192,8 @@ export class DotfilesValidationError extends Error {
     this.name = 'DotfilesValidationError'
   }
 }
+
+class DotfilesManifestMissingError extends DotfilesValidationError {}
 
 export class DotfilesTrustError extends Error {
   constructor(message: string) {
@@ -220,7 +258,7 @@ async function readManifest(repositoryPath: string): Promise<{ manifest: Dotfile
   }
   catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT')
-      throw new DotfilesValidationError(`Dotfiles manifest not found: ${path}`)
+      throw new DotfilesManifestMissingError(`Dotfiles manifest not found: ${path}`)
     throw error
   }
   const location = relative(repositoryPath, resolved)
@@ -237,13 +275,6 @@ async function readManifest(repositoryPath: string): Promise<{ manifest: Dotfile
     path,
     revision: createHash('sha256').update(content).digest('hex'),
   }
-}
-
-async function gitRoot(path: string): Promise<string> {
-  const result = await runExecFile('git', ['-C', path, 'rev-parse', '--show-toplevel'], path, 10_000, 64 * 1024)
-  if (!result.succeeded)
-    throw new DotfilesValidationError(`Not a Git repository: ${path}`)
-  return realpath(result.stdout.trim())
 }
 
 async function runCommand(repositoryPath: string, operation: DotfilesOperation, command: DotfilesCommand): Promise<DotfilesOperationResult> {

@@ -35,10 +35,35 @@ craft-hub plugin:init ./my-plugin \
 第一版作者工作流为三种贡献提供脚手架：
 
 - `commands`：结构化的 `command` 与 `args`；不支持 shell 插值，执行前仍要求 Project Trust。
-- `skills`：插件包内的 Agent Skill 文件。
+- `skills`：带稳定 `id` 的插件包内 Agent Skill 文件。新插件应显式声明；旧版 v1 条目未声明 ID 时保留按路径生成的标识。内容只安装一次，再按项目启用；可选的受限 `activation` 表达式用于自动匹配。
 - `projectTemplates`：插件包内的项目模板目录。
 
 发布前需要修改生成的占位内容。其他高级贡献类型暂时直接按照插件市场契约编辑，等出现真实需求后再增加专用脚手架。
+
+### 声明技能自动启用条件
+
+没有 `activation` 的技能只能手动启用，适合通用技能。框架或工具专用技能可以声明相关的项目事实：
+
+```json
+{
+  "id": "widget-assistant",
+  "path": "skills/widget-assistant/SKILL.md",
+  "activation": {
+    "all": [
+      { "dependency": "@example/widget" },
+      { "any": [{ "file": "widget.config.ts" }, { "file": "widget.config.js" }] }
+    ]
+  }
+}
+```
+
+匹配器支持 `file`、`dependency`、`packageManager`、`all`、`any` 和 `not`，且只在项目根目录和 Craft Hub 已发现的 pnpm package 中求值。自动匹配需要插件声明 `read-project-files` 权限；整个过程只读，不执行插件或项目代码。
+
+### 添加工作项原生状态流转
+
+Host Plugin 可以实现 `workItems.transitions` 与 `workItems.updateStatus`，Marketplace Plugin 则声明对应的 `work-items.transitions` 和 `work-items.update-status` action。当同一集成通过 `work-items.get`、`work-items.search` 或 `work-items.list` 展示实体时，Craft Hub 会自动提供通用状态流转控件。
+
+Renderer 会把实体的标量 `metadata` 连同 `itemId`、标题和当前状态传回 Provider。状态候选结果负责提供 Provider 原生目标状态及必填字段名。每次更新始终属于 `remote-write`：Craft Hub 会展示确认对话框、拒绝未经确认的调用，并通过 `context.confirmed` 把宿主确认结果传给可信 Provider。
 
 ## 校验
 

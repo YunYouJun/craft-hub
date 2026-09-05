@@ -49,7 +49,9 @@ const manifest: PluginManifestV1 = {
     packageQuickActions: [],
     packageLinks: [],
     packageToolGroups: [],
-    skills: [{ path: 'skills/hello/SKILL.md' }],
+    navigationPanels: [],
+    workbenches: [],
+    skills: [{ id: 'hello', path: 'skills/hello/SKILL.md' }],
     projectTemplates: [],
     integrations: [],
   },
@@ -216,9 +218,35 @@ describe('plugin marketplace contracts', () => {
     ])
   })
 
+  it('normalizes legacy v1 skill paths to stable IDs without changing explicit IDs', () => {
+    const parse = (skills: unknown[]) => pluginManifestV1Schema.parse({ ...manifest, contributes: { ...manifest.contributes, skills } })
+    const legacy = [{ path: 'skills/hello/SKILL.md' }, { path: 'skills/other/SKILL.md' }]
+    const normalized = parse(legacy)
+    const ids = normalized.contributes.skills.map(skill => skill.id)
+    expect(ids[0]).toMatch(/^[a-f0-9]{12}$/)
+    expect(new Set(ids).size).toBe(2)
+    expect(parse([...legacy].reverse()).contributes.skills.map(skill => skill.id)).toEqual([...ids].reverse())
+    expect(pluginManifestV1Schema.parse(normalized)).toEqual(normalized)
+    expect(parse([{ id: 'hello', path: legacy[0]!.path }]).contributes.skills[0]!.id).toBe('hello')
+    expect(() => parse([legacy[0], legacy[0]])).toThrow(/must be unique/)
+  })
+
   it('requires scoped ecosystem package names and declared permissions', () => {
     expect(() => pluginManifestV1Schema.parse({ ...manifest, id: 'hello-plugin' })).toThrow(/naming convention/)
     expect(() => pluginManifestV1Schema.parse({ ...manifest, permissions: ['read-project-files'] })).toThrow(/commands permission/)
+    expect(() => pluginManifestV1Schema.parse({
+      ...manifest,
+      permissions: ['commands'],
+      contributes: { ...manifest.contributes, skills: [{ id: 'hello', path: 'skills/hello/SKILL.md', activation: { file: 'package.json' } }] },
+    })).toThrow(/read-project-files permission/)
+    expect(() => pluginManifestV1Schema.parse({
+      ...manifest,
+      contributes: { ...manifest.contributes, skills: [{ id: 'INVALID ID', path: 'skills/hello/SKILL.md' }] },
+    })).toThrow()
+    expect(() => pluginManifestV1Schema.parse({
+      ...manifest,
+      contributes: { ...manifest.contributes, skills: [{ id: 'hello', path: 'skills/hello/SKILL.md' }, { id: 'hello', path: 'skills/other/SKILL.md' }] },
+    })).toThrow(/must be unique/)
     expect(() => pluginManifestV1Schema.parse({
       ...manifest,
       contributes: {
@@ -270,6 +298,18 @@ describe('plugin marketplace contracts', () => {
         }],
       },
     })).toThrow(/credential-free HTTPS/)
+    expect(() => pluginManifestV1Schema.parse({
+      ...manifest,
+      contributes: {
+        ...manifest.contributes,
+        navigationPanels: [{ id: 'resources', title: 'Resources', links: [{ id: 'insecure', title: 'Insecure', url: 'http://example.com' }] }],
+      },
+    })).toThrow(/must use HTTPS/)
+    const navigationPanel = { id: 'resources', title: 'Resources', links: [{ id: 'docs', title: 'Docs', url: 'https://example.com/docs' }] }
+    expect(() => pluginManifestV1Schema.parse({
+      ...manifest,
+      contributes: { ...manifest.contributes, navigationPanels: [navigationPanel, navigationPanel] },
+    })).toThrow(/Navigation panel id must be unique/)
     expect(() => pluginManifestV1Schema.parse({
       ...manifest,
       contributes: {
@@ -486,6 +526,7 @@ describe('plugin marketplace contracts', () => {
 
     expect((await runtime.capabilities(project.id)).some(item => item.name === 'Plugin hello')).toBe(false)
     await runtime.pluginManager.install({ sourceId: 'test', package: packageName })
+    await runtime.updateProjectSkills(project.id, { enabledPlugins: [packageName] })
 
     expect(await runtime.capabilities(project.id)).toEqual(expect.arrayContaining([
       expect.objectContaining({ kind: 'command', name: 'Plugin hello', source: `plugin:${packageName}@1.0.0` }),
@@ -499,6 +540,24 @@ describe('plugin marketplace contracts', () => {
       expect.objectContaining({ package: packageName, enabled: false, version: '1.0.0' }),
     ])
     expect(JSON.parse(await readFile(join(dataDir, 'plugins.json'), 'utf8'))).toMatchObject({ schemaVersion: 1 })
+  })
+
+  it('clears a stale compatibility error after the persisted manifest becomes valid', async () => {
+    const dataDir = await mkdtemp(join(tmpdir(), 'craft-hub-marketplace-recovered-state-'))
+    const manager = new PluginManager(dataDir, [source()], new FixtureInstaller())
+    await manager.install({ sourceId: 'test', package: packageName })
+    const statePath = join(dataDir, 'plugins.json')
+    const persisted = JSON.parse(await readFile(statePath, 'utf8'))
+    persisted.installed[0].enabled = false
+    persisted.installed[0].error = 'Installed plugin manifest is incompatible. Reinstall the plugin to repair it.'
+    await writeFile(statePath, `${JSON.stringify(persisted, null, 2)}\n`)
+
+    const recovered = new PluginManager(dataDir, [source()], new FixtureInstaller())
+    const [plugin] = await recovered.listInstalled()
+
+    expect(plugin).toMatchObject({ package: packageName, enabled: false })
+    expect(plugin).not.toHaveProperty('error')
+    expect(JSON.parse(await readFile(statePath, 'utf8')).installed[0]).not.toHaveProperty('error')
   })
 
   it('loads persistent local plugins as an override and restores the marketplace version when unlinked', async () => {
@@ -846,5 +905,29 @@ describe('plugin marketplace contracts', () => {
     const managedManager = new PluginManager(dataDir, [managedSource], new FixtureInstaller(), fetcher as typeof fetch)
 
     await expect(managedManager.listSources()).resolves.toEqual([managedSource])
+  })
+
+  it('restores a user source after a distribution no longer shadows the same Catalog', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'craft-hub-marketplace-shadowed-source-'))
+    const dataDir = join(root, 'data')
+    const catalogUrl = 'https://market.example/catalog.json'
+    const fetcher = async () => new Response(JSON.stringify(source().catalog), { headers: { 'content-type': 'application/json' } })
+    const userManager = new PluginManager(dataDir, [], new FixtureInstaller(), fetcher as typeof fetch)
+    const userSource = await userManager.addSource({ name: 'Imported catalog', catalogUrl })
+    const managedSource: MarketplaceSource = {
+      ...source(),
+      kind: 'managed',
+      catalogUrl,
+    }
+    const managedManager = new PluginManager(dataDir, [managedSource], new FixtureInstaller(), fetcher as typeof fetch)
+    const localPath = join(root, 'local-plugin')
+    await writeLocalPlugin(localPath, '2.0.0', 'Local hello')
+
+    await managedManager.linkLocal(localPath)
+
+    const communityManager = new PluginManager(dataDir, [], new FixtureInstaller(), fetcher as typeof fetch)
+    await expect(communityManager.listSources()).resolves.toEqual([
+      expect.objectContaining({ id: userSource.id, kind: 'user', catalogUrl }),
+    ])
   })
 })
