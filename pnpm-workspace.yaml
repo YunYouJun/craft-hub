@@ -41,7 +41,7 @@ catalog:
   '@iconify-json/ri': ^1.2.10
   '@iconify-json/svg-spinners': ^1.2.4
   '@modelcontextprotocol/sdk': ^1.30.0
-  '@openai/codex-sdk': ^0.149.1
+  '@openai/codex-sdk': ^0.152.1
   '@shikijs/vitepress-twoslash': ^4.4.3
   '@types/canvas-confetti': ^1.9.0
   '@types/node': ^26.3.0
