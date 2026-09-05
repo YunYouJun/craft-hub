@@ -35,7 +35,7 @@ catalog:
   '@antfu/eslint-config': ^9.3.0
   '@antfu/ni': ^30.5.0
   '@antfu/utils': ^9.3.0
-  '@cloudbase/js-sdk': 3.8.1
+  '@cloudbase/js-sdk': 4.0.0
   '@cloudbase/node-sdk': ^3.18.3
   '@electron/packager': ^20.3.0
   '@iconify-json/ri': ^1.2.10
