@@ -96,7 +96,7 @@ catalog:
   vitepress-plugin-group-icons: ^1.7.6
   vitest: ^4.1.11
   vue: ^3.5.41
-  vue-router: ^5.2.0
+  vue-router: ^5.3.0
   vue-tsc: ^3.3.11
   wrangler: ^4.127.1
   yaml: ^2.9.0
