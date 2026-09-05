@@ -2,7 +2,7 @@ import type { FSWatcher } from 'chokidar'
 import type { ParseError } from 'jsonc-parser'
 import { createHash, randomUUID } from 'node:crypto'
 import { once } from 'node:events'
-import { mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import { mkdir, readdir, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises'
 import { dirname, isAbsolute, join, relative, sep } from 'node:path'
 import { watch } from 'chokidar'
 import { applyEdits, modify, parse as parseJsonc, printParseErrorCode } from 'jsonc-parser'
@@ -193,14 +193,15 @@ export class UserConfigService {
     await this.initialize()
     if (this.watcher)
       return
-    this.watcher = watch(this.configDir, {
+    const watchRoot = await realpath(this.configDir)
+    this.watcher = watch(watchRoot, {
       awaitWriteFinish: { stabilityThreshold: 100, pollInterval: 20 },
       depth: 1,
       followSymlinks: false,
       ignoreInitial: true,
     })
     const changed = (path: string): void => {
-      const relativePath = relative(this.configDir, path).replaceAll('\\', '/')
+      const relativePath = relative(watchRoot, path).replaceAll('\\', '/')
       if (relativePath === userConfigCatalogFileName || relativePath === ownerScopesFileName || (/^workspaces\/[^/]+\.jsonc$/).test(relativePath))
         this.emit()
     }
