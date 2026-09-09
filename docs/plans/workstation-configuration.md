@@ -1,6 +1,6 @@
 # Workstation configuration management — execution and acceptance
 
-Status: in progress. Do not close the dotfiles sync Todo until all acceptance gates pass.
+Status: implementation and isolated acceptance complete; real-machine adoption awaits explicit item decisions. Do not close the dotfiles sync Todo before that adoption is verified.
 
 ## Isolation and dependencies
 
@@ -86,3 +86,10 @@ Local verification logs are under `/tmp` with prefixes `craft-hub-workstation-` 
 - Craft Hub: public boundary, lint, TypeScript, supplementary Vue typecheck and build passed. Full test run: 114 files, 598 tests passed (`pnpm test --run --maxWorkers=2`).
 - workstation: lint, typecheck and build passed. Full tests: 213 CLI tests plus 9 companion-package tests passed (222 total). Documentation build also passed.
 - Browser: MCP/skill/terminal apply flows, recovery, stale-plan error, separate Git commit/publish and responsive layout passed against isolated real backend fixtures. The live real-data view remains undecided.
+
+
+## Local delivery commits
+
+- Craft Hub implementation: `07cefe0` on `codex/workstation-configuration`.
+- workstation implementation: `2579076` on `codex/configuration-protocol`.
+- Both isolated worktrees are committed. No implementation branch was pushed or merged; original working-copy changes were preserved.
