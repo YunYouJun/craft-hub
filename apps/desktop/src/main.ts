@@ -9,6 +9,7 @@ import { dirname, isAbsolute, relative, resolve } from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
+import workstationPlugin from '@craft-hub/craft-hub-plugin-workstation'
 import { PersonalCloudController } from '@craft-hub/personal-cloud'
 import { communityDistribution, CraftHubRuntime, loadCraftHubPlugins, startCraftHubServer } from 'craft-hub'
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, nativeTheme, safeStorage, shell } from 'electron'
@@ -597,7 +598,7 @@ async function createWindow(): Promise<void> {
       dataDir: desktopDataDirectories.runtimeDataDir,
       distribution: runtimeDistribution,
       pluginDiagnostics: hostPlugins.diagnostics,
-      plugins: hostPlugins.plugins,
+      plugins: [...hostPlugins.plugins, ...(hostPlugins.plugins.some(plugin => plugin.id === workstationPlugin.id) ? [] : [workstationPlugin])],
     })
     craftHubServer = await startCraftHubServer({ port: developmentUrl ? 4318 : 0, runtime, staticDir })
     writeApplicationLog('info', `Local server started at ${craftHubServer.url}`)

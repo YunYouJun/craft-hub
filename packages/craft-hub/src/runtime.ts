@@ -3,7 +3,7 @@ import type { WorkbenchDiagnosticSnapshot } from './diagnostics'
 import type { RunHandle } from './executor'
 import type { CapabilityProvider, CraftHubOptions, DistributionConfig } from './extensions'
 import type { ApplyGitIntegrationRequest, GitIntegrationPlan, GitIntegrationRequest, GitIntegrationResult } from './git-integration'
-import type { IntegrationActionResult, IntegrationDiagnostic, ResolvedIntegrationContribution } from './integrations'
+import type { InstalledIntegrationContribution, IntegrationActionResult, IntegrationDiagnostic, ResolvedIntegrationContribution } from './integrations'
 import type { CraftHubPlugin, PluginDiagnostic } from './plugins'
 import type { Capability, CapabilityDiscoveryDiagnostic, CapabilityDiscoveryResult, CapabilityPins, CapabilityReference, CommandCapability, CommandInputValues, CommandInvocation, CommandPackage, LocalSkillActivationSettings, ProjectConfigInitializationMode, ProjectConfigInitializationResult, ProjectOverview, ProjectRecord, ProjectRunSummary, ProjectSkillsState, ReleasePlan, RunCleanupOptions, RunCleanupResult, RunOutputEvent, RunRecord } from './types'
 import { resolve } from 'node:path'
@@ -18,7 +18,7 @@ import { DotfilesManager } from './dotfiles-manager'
 import { executeCommand } from './executor'
 import { builtinCapabilityProvider, communityDistribution } from './extensions'
 import { GitIntegration } from './git-integration'
-import { IntegrationRegistry } from './integrations'
+import { integrationContributionSchema, IntegrationRegistry } from './integrations'
 import { PluginManager } from './marketplace'
 import { OwnerScopeService } from './owner-scopes'
 import { assertCommandWorkingDirectory } from './path-security'
@@ -57,6 +57,8 @@ export class CraftHubRuntime {
   readonly releasePlanner = new ReleasePlanner()
   readonly gitIntegration = new GitIntegration()
   readonly distribution: DistributionConfig
+  private readonly hostIntegrations: InstalledIntegrationContribution[]
+  private readonly localConfiguration: boolean
   private readonly capabilityProviders: Array<{ pluginId?: string, provider: CapabilityProvider }>
   private readonly hostPluginDiagnostics: readonly PluginDiagnostic[]
   private readonly activeRuns = new Map<string, RunHandle>()
@@ -70,6 +72,8 @@ export class CraftHubRuntime {
     this.distribution = normalizedOptions.distribution ?? communityDistribution
     const plugins = normalizedOptions.plugins ?? []
     assertUniquePluginIds(plugins)
+    this.localConfiguration = normalizedOptions.executionEnvironment !== 'hosted'
+    this.hostIntegrations = plugins.flatMap(plugin => (plugin.integrations ?? []).map(integration => ({ ...integrationContributionSchema.parse(integration), pluginId: plugin.id, source: `host:${plugin.id}` })))
     this.hostPluginDiagnostics = structuredClone(normalizedOptions.pluginDiagnostics ?? [])
     this.store = new CraftHubStore(normalizedOptions.dataDir ?? getCraftHubDataDir(process.env, this.distribution.dataDirectoryName ?? this.distribution.name))
     this.pluginManager = new PluginManager(
@@ -157,7 +161,7 @@ export class CraftHubRuntime {
 
   /** Resolve installed marketplace integration declarations against trusted host providers. */
   async integrationContributions(): Promise<{ integrations: ResolvedIntegrationContribution[], diagnostics: IntegrationDiagnostic[] }> {
-    return this.integrationRegistry.resolve(await this.pluginManager.integrationContributions())
+    return this.integrationRegistry.resolve([...await this.pluginManager.integrationContributions(), ...this.hostIntegrations])
   }
 
   /** Collect current host, extension, and configuration failures for client presentation. */
@@ -195,6 +199,13 @@ export class CraftHubRuntime {
     if (!contribution)
       throw new Error(`Integration contribution is unavailable: ${options.integrationId}`)
     const project = options.projectId ? await this.projects.get(options.projectId) : undefined
+    const action = contribution.actions.find(action => action.id === options.actionId)
+    if (action?.operation.startsWith('configuration.')) {
+      if (!this.localConfiguration)
+        throw new Error('Configuration management requires a connected local service')
+      if (action.operation !== 'configuration.read' && project && project.trust !== 'trusted')
+        throw new Error('Trust the project before changing configuration')
+    }
     return this.integrationRegistry.invoke({
       contribution,
       actionId: options.actionId,

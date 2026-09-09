@@ -29,6 +29,8 @@ export interface CapabilityProvider {
 }
 
 export interface CraftHubOptions {
+  /** Hosted runtimes cannot inspect or mutate device configuration. */
+  executionEnvironment?: 'local' | 'hosted'
   dataDir?: string
   configDir?: string
   distribution?: DistributionConfig

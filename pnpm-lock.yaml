@@ -329,6 +329,9 @@ importers:
 
   apps/desktop:
     dependencies:
+      '@craft-hub/craft-hub-plugin-workstation':
+        specifier: workspace:*
+        version: link:../../packages/craft-hub-plugin-workstation
       '@craft-hub/personal-cloud':
         specifier: workspace:*
         version: link:../../packages/craft-hub-personal-cloud
@@ -566,6 +569,15 @@ importers:
       typescript:
         specifier: 'catalog:'
         version: 6.0.3
+
+  packages/craft-hub-plugin-workstation:
+    devDependencies:
+      craft-hub:
+        specifier: workspace:*
+        version: link:../craft-hub
+      tsdown:
+        specifier: 'catalog:'
+        version: 0.22.14(@volar/typescript@2.4.28(typescript@6.0.3))(publint@0.3.24)(tsx@4.23.12)(typescript@6.0.3)(vue-tsc@3.3.11(typescript@6.0.3))
 
   vendor/lodash-set-safe:
     dependencies:

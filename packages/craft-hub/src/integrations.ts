@@ -1,9 +1,13 @@
+import type { ConfigurationManagementPage } from './configuration-management'
 import { satisfies, validRange } from 'semver'
 import { z } from 'zod'
 
-export const integrationEffectSchema = z.enum(['remote-read', 'remote-write'])
+export const integrationEffectSchema = z.enum(['remote-read', 'remote-write', 'local-read', 'local-write'])
 export const integrationConfirmationSchema = z.enum(['never', 'risk-based', 'always'])
 export const integrationOperationSchema = z.enum([
+  'configuration.read',
+  'configuration.update',
+  'configuration.execute',
   'connection.status',
   'work-items.get',
   'work-items.search',
@@ -21,13 +25,14 @@ export const integrationOperationSchema = z.enum([
 
 const integrationIdSchema = z.string().regex(/^[a-z0-9][a-z0-9._-]*$/)
 const remoteWriteOperations = new Set<IntegrationOperation>([
+  'configuration.execute',
   'merge-requests.add-reviewer',
   'merge-requests.create',
   'work-items.update-status',
 ])
 const integrationViewBlockSchema = z.object({
   id: integrationIdSchema,
-  type: z.enum(['connection-status', 'entity-search', 'entity-list']),
+  type: z.enum(['connection-status', 'entity-search', 'entity-list', 'configuration-manager']),
   title: z.string().min(1).optional(),
   description: z.string().min(1).optional(),
   actionId: integrationIdSchema,
@@ -64,6 +69,10 @@ export const integrationContributionSchema = z.object({
       context.addIssue({ code: 'custom', message: `Duplicate integration action id: ${action.id}`, path: ['actions', index, 'id'] })
     if (remoteWriteOperations.has(action.operation) && action.effect !== 'remote-write')
       context.addIssue({ code: 'custom', message: `${action.operation} must declare the remote-write effect`, path: ['actions', index, 'effect'] })
+    if (action.operation === 'configuration.read' && action.effect !== 'local-read')
+      context.addIssue({ code: 'custom', message: 'Configuration reads require local-read', path: ['actions', index, 'effect'] })
+    if (action.operation === 'configuration.update' && action.effect !== 'local-write')
+      context.addIssue({ code: 'custom', message: 'Configuration updates require local-write', path: ['actions', index, 'effect'] })
     actionIds.add(action.id)
   }
   const viewIds = new Set<string>()
@@ -173,6 +182,11 @@ export interface IntegrationProvider {
   repositories?: RepositoryIntegrationAdapter
   mergeRequests?: MergeRequestIntegrationAdapter
   issues?: IssueIntegrationAdapter
+  configuration?: {
+    read: (context: IntegrationProviderContext, input: Record<string, unknown>) => Promise<ConfigurationManagementPage>
+    update: (context: IntegrationProviderContext, input: Record<string, unknown>) => Promise<ConfigurationManagementPage>
+    execute: (context: IntegrationProviderContext, input: Record<string, unknown>) => Promise<ConfigurationManagementPage>
+  }
   ci?: CiIntegrationAdapter
 }
 
@@ -186,7 +200,8 @@ export type ResolvedIntegrationAction = IntegrationContribution['actions'][numbe
 }
 
 export type IntegrationActionResult
-  = IntegrationConnectionStatus
+  = ConfigurationManagementPage
+    | IntegrationConnectionStatus
     | IntegrationEntity
     | IntegrationEntityPage
     | IntegrationStatusTransitionPage
@@ -211,6 +226,9 @@ export class IntegrationConfirmationRequiredError extends Error {
 }
 
 const operationSupport: Record<IntegrationOperation, (provider: IntegrationProvider) => boolean> = {
+  'configuration.read': provider => provider.configuration !== undefined,
+  'configuration.update': provider => provider.configuration !== undefined,
+  'configuration.execute': provider => provider.configuration !== undefined,
   'connection.status': () => true,
   'work-items.get': provider => provider.workItems?.get !== undefined,
   'work-items.search': provider => provider.workItems !== undefined,
@@ -303,6 +321,9 @@ export class IntegrationRegistry {
     const query = integrationEntityQuery(input)
 
     switch (action.operation) {
+      case 'configuration.read': return requireAdapter(provider.configuration, action.operation).read(context, input)
+      case 'configuration.update': return requireAdapter(provider.configuration, action.operation).update(context, input)
+      case 'configuration.execute': return requireAdapter(provider.configuration, action.operation).execute(context, input)
       case 'connection.status': return provider.connectionStatus(context)
       case 'work-items.get': return requireMethod(provider.workItems?.get, action.operation)(context, input)
       case 'work-items.search': return requireAdapter(provider.workItems, action.operation).search(context, query)
@@ -346,7 +367,7 @@ function requireMethod<T>(method: T | undefined, operation: IntegrationOperation
 }
 
 function effectiveConfirmation(effect: IntegrationEffect, requested: IntegrationConfirmation): IntegrationConfirmation {
-  if (effect === 'remote-read' || requested === 'always')
+  if (effect === 'remote-read' || effect === 'local-read' || requested === 'always')
     return requested
   return requested === 'never' ? 'risk-based' : requested
 }

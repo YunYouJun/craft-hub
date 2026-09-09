@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import type { IntegrationActionResult, IntegrationConnectionStatus, IntegrationEntityPage } from 'craft-hub'
+import type { ConfigurationManagementPage, IntegrationActionResult, IntegrationConnectionStatus, IntegrationEntityPage } from 'craft-hub'
 import type { WorkbenchIntegrationView } from './store'
 import { computed, reactive, ref, watch } from 'vue'
 import { api } from './api'
+import ConfigurationManager from './ConfigurationManager.vue'
 import { Icon } from './icons'
 import { useI18n } from './i18n'
 import IntegrationEntityList from './IntegrationEntityList.vue'
@@ -41,7 +42,11 @@ function connectionStatus(result: IntegrationActionResult | undefined): Integrat
 }
 
 function entityPage(result: IntegrationActionResult | undefined): IntegrationEntityPage | undefined {
-  return result && 'items' in result ? result : undefined
+  return result && 'items' in result && !('configuration' in result) ? result : undefined
+}
+
+function configurationPage(result: IntegrationActionResult | undefined): ConfigurationManagementPage | undefined {
+  return result && 'configuration' in result ? result : undefined
 }
 
 function statusActionsFor(block: WorkbenchIntegrationView['blocks'][number]): {
@@ -114,7 +119,7 @@ watch(
     if (!currentView)
       return
     await Promise.all(currentView.blocks
-      .filter(block => block.type === 'connection-status' || block.type === 'entity-list')
+      .filter(block => block.type === 'connection-status' || block.type === 'entity-list' || block.type === 'configuration-manager')
       .map(block => invoke(block)))
   },
   { immediate: true },
@@ -178,6 +183,14 @@ watch(
               <p v-if="connectionStatus(stateFor(block.id).result)?.message">{{ connectionStatus(stateFor(block.id).result)?.message }}</p>
             </div>
           </div>
+
+          <ConfigurationManager
+            v-else-if="configurationPage(stateFor(block.id).result) && contribution"
+            :page="configurationPage(stateFor(block.id).result)!"
+            :contribution="contribution"
+            :project-id="view.scope === 'global' ? undefined : store.selectedProjectId || undefined"
+            @updated="stateFor(block.id).result = $event"
+          />
 
           <IntegrationEntityList
             v-else-if="entityPage(stateFor(block.id).result)"

@@ -35,7 +35,7 @@ const pluginDocumentTimeoutMs = 15_000
 
 const safeRelativePath = z.string().min(1).refine(value => !isAbsolute(value) && !value.split(/[\\/]/).includes('..'), 'Path must stay inside the plugin package')
 const secureHttpsUrlSchema = z.string().min(1).refine(isSecureHttpsUrl, 'URL must use HTTPS and must not contain credentials')
-const pluginPermissionSchema = z.enum(['command-presets', 'commands', 'read-project-files', 'read-user-settings', 'remote-read', 'remote-write'])
+const pluginPermissionSchema = z.enum(['command-presets', 'commands', 'read-project-files', 'read-user-settings', 'remote-read', 'remote-write', 'local-read', 'local-write'])
 const permissionReasonsSchema = z.record(z.string(), z.string().min(1))
 const pluginLinksV1Schema = z.object({
   documentation: secureHttpsUrlSchema.optional(),
@@ -186,6 +186,10 @@ export const pluginManifestV1Schema = z.object({
   for (const [index, integration] of manifest.contributes.integrations.entries()) {
     if (integration.actions.some(action => action.effect === 'remote-read') && !manifest.permissions.includes('remote-read'))
       context.addIssue({ code: 'custom', message: 'Remote read integration actions require the remote-read permission', path: ['contributes', 'integrations', index] })
+    for (const effect of ['local-read', 'local-write'] as const) {
+      if (integration.actions.some(action => action.effect === effect) && !manifest.permissions.includes(effect))
+        context.addIssue({ code: 'custom', message: `Configuration actions require the ${effect} permission`, path: ['contributes', 'integrations', index] })
+    }
     if (integration.actions.some(action => action.effect === 'remote-write') && !manifest.permissions.includes('remote-write'))
       context.addIssue({ code: 'custom', message: 'Remote write integration actions require the remote-write permission', path: ['contributes', 'integrations', index] })
   }

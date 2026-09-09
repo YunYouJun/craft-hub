@@ -1,5 +1,5 @@
 import type { CapabilityProvider } from './extensions'
-import type { IntegrationProvider } from './integrations'
+import type { IntegrationContribution, IntegrationProvider } from './integrations'
 import { createRequire } from 'node:module'
 import { isAbsolute, resolve } from 'node:path'
 import process from 'node:process'
@@ -12,6 +12,8 @@ export interface CraftHubPlugin {
   version?: string
   capabilityProviders?: CapabilityProvider[]
   integrationProviders?: IntegrationProvider[]
+  /** Validated declarative UI supplied by the explicitly installed host extension. */
+  integrations?: IntegrationContribution[]
 }
 
 export interface PluginDiagnostic {

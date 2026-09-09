@@ -1,0 +1,12 @@
+{
+  "name": "@craft-hub/craft-hub-plugin-workstation",
+  "type": "module",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Visual local configuration management backed exclusively by workstation.",
+  "exports": { ".": "./dist/index.mjs" },
+  "types": "./dist/index.d.mts",
+  "scripts": { "build": "tsdown" },
+  "peerDependencies": { "craft-hub": "*" },
+  "devDependencies": { "craft-hub": "workspace:*", "tsdown": "catalog:" }
+}

@@ -5,6 +5,7 @@
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "paths": {
+      "@craft-hub/craft-hub-plugin-workstation": ["./packages/craft-hub-plugin-workstation/src/index.ts"],
       "craft-hub": ["./packages/craft-hub/src/index.ts"],
       "craft-hub/project-config-schema-revision": ["./packages/craft-hub/src/project-config-schema-revision.ts"],
       "craft-hub/skill-inputs": ["./packages/craft-hub/src/skill-inputs.ts"],
