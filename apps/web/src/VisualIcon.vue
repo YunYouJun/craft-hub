@@ -20,7 +20,7 @@ const builtin = computed<IconName | undefined>(() => {
   if (!props.icon?.startsWith('builtin:'))
     return undefined
   const name = props.icon.slice('builtin:'.length)
-  return name === 'play' || name === 'gitRepository' || visualIconNames.includes(name as typeof visualIconNames[number]) ? name as IconName : undefined
+  return name === 'codex' || name === 'play' || name === 'gitRepository' || visualIconNames.includes(name as typeof visualIconNames[number]) ? name as IconName : undefined
 })
 </script>
 

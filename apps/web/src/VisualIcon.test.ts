@@ -16,3 +16,11 @@ it('renders packaged SVG as an image and restores the fallback after load failur
   await wrapper.setProps({ icon: 'javascript:alert(1)' })
   expect(wrapper.find('img').exists()).toBe(false)
 })
+
+it('distinguishes the Codex mark from the terminal navigation icon', () => {
+  const codex = mount(VisualIcon, { props: { icon: 'builtin:codex' } })
+  const terminal = mount(VisualIcon, { props: { icon: 'builtin:terminal' } })
+  expect(codex.find('svg').exists()).toBe(true)
+  expect(terminal.find('.i-ri-terminal-box-line').exists()).toBe(true)
+  expect(codex.html()).not.toBe(terminal.html())
+})

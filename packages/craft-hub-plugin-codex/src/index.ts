@@ -208,7 +208,7 @@ export function createCodexConfigurationPlugin(openReader: () => Promise<CodexRe
       id: 'codex-configuration',
       provider: { id: 'codex-configuration', requires: '^1.0.0' },
       actions: [{ id: 'configuration', title: 'Read plugin configuration', operation: 'configuration.list', effect: 'local-read', confirmation: 'never' }, { id: 'update-configuration', title: 'Update plugin configuration', operation: 'configuration.update', effect: 'local-write', confirmation: 'risk-based' }],
-      views: [{ id: 'plugins', title: 'Codex', icon: 'builtin:terminal', placement: 'primary-sidebar', scope: 'global-and-project', blocks: [{ id: 'plugins', title: 'Plugin configuration', description: 'Switches apply to the selected scope. Existing Codex tasks may need to be reopened.', type: 'entity-list', actionId: 'configuration', previewInput: { preview: true } }] }],
+      views: [{ id: 'plugins', title: 'Codex', icon: 'builtin:codex', placement: 'primary-sidebar', scope: 'global-and-project', blocks: [{ id: 'plugins', title: 'Plugin configuration', description: 'Switches apply to the selected scope. Existing Codex tasks may need to be reopened.', type: 'entity-list', actionId: 'configuration', previewInput: { preview: true } }] }],
     }],
   }
 }
