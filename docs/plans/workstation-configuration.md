@@ -112,3 +112,12 @@ The user authorized merging the implementation and existing working-copy code, r
 The first integration checks exposed a template end tag and accessible-label forwarding issue, both fixed. Running a package build while tests imported its output caused transient missing-package failures; the final suite was run after the completed build and passed. No dependency policy was relaxed: the offline install initially lacked cached package metadata, and a normal install succeeded.
 
 Latest temporary logs use `/tmp/craft-hub-merge-` and `/tmp/workstation-merge-`. No remote push, package publication, desktop reinstall or private configuration commit was performed. The real review page remains at `http://127.0.0.1:4328/integrations/workstation/environment`.
+
+
+## Installed desktop acceptance (2026-09-10)
+
+- Rebuilt and reinstalled `/Applications/Craft Hub.app` using `pnpm reinstall:mac` from the current working copy (base `910607e`). Three pre-existing uncommitted UI/style files were included in the build and left unchanged.
+- Verified the installed Electron application opens Development environment and loads real local configuration through the installed workstation CLI without a temporary server or environment override.
+- Selected global scope and opened one real MCP first-adoption difference. Local/source paths and redacted changed fields are visible; the decision remains Defer. No real plan was chosen or applied. The user can select a direction, preview the scope, then explicitly apply.
+- Current checks passed: public boundary/lint, root TypeScript, Vue typecheck, production build and macOS installation; Craft Hub 144 test files / 722 tests; workstation CLI 10 files / 213 tests, including isolated configuration and Git recovery tests.
+- The installed application remains open for user review. A passing reinstall does not close real-machine adoption or the dotfiles sync Todo.
