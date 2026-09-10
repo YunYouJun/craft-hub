@@ -142,7 +142,7 @@ onMounted(() => void loadPanels())
           <Icon :name="panelsLoading && activeMember?.reference.type === 'navigation' ? 'loading' : 'error'" />
           <h2>{{ t('pluginWorkbenchViewUnavailable') }}</h2>
           <p>{{ panelsError || t('pluginWorkbenchViewUnavailableDescription') }}</p>
-          <UiButton size="compact" @click="emit('managePlugins')">{{ t('managePlugins') }}</UiButton>
+          <UiButton size="compact" @click="emit('managePlugins')">{{ t('managePluginWorkbench') }}</UiButton>
         </div>
       </section>
   </WorkbenchViewFrame>
@@ -151,7 +151,7 @@ onMounted(() => void loadPanels())
       <Icon name="plugins" />
       <h1>{{ t('pluginWorkbenchUnavailable') }}</h1>
       <p>{{ t('pluginWorkbenchUnavailableDescription') }}</p>
-      <UiButton size="compact" @click="emit('managePlugins')">{{ t('managePlugins') }}</UiButton>
+      <UiButton size="compact" @click="emit('managePlugins')">{{ t('managePluginWorkbench') }}</UiButton>
     </section>
 </template>
 

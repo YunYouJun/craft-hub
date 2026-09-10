@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import type { IntegrationActionResult, IntegrationConnectionStatus, IntegrationEntityPage } from 'craft-hub'
+import type { ConfigurationManagementPage, IntegrationActionResult, IntegrationConnectionStatus, IntegrationEntityPage } from 'craft-hub'
 import type { WorkbenchIntegrationView } from './store'
 import { computed, reactive, ref, watch } from 'vue'
 import { api } from './api'
 import { Button as UiButton } from './components/ui/button'
 import Icon from './NavigationIcon.vue'
+import ConfigurationManager from './ConfigurationManager.vue'
 import { useI18n } from './i18n'
 import IntegrationResourceBrowser from './IntegrationResourceBrowser.vue'
 import IntegrationActionForm from './IntegrationActionForm.vue'
@@ -55,7 +56,11 @@ function connectionStatus(result: IntegrationActionResult | undefined): Integrat
 }
 
 function entityPage(result: IntegrationActionResult | undefined): IntegrationEntityPage | undefined {
-  return result && 'items' in result ? result : result && 'id' in result && 'title' in result ? { items: [result] } : undefined
+  return result && 'items' in result && !('configuration' in result) ? result : result && 'id' in result && 'title' in result ? { items: [result] } : undefined
+}
+
+function configurationPage(result: IntegrationActionResult | undefined): ConfigurationManagementPage | undefined {
+  return result && 'configuration' in result ? result : undefined
 }
 
 function statusActionsFor(block: WorkbenchIntegrationView['blocks'][number]): {
@@ -157,7 +162,7 @@ watch(
     if (!currentView)
       return
     await Promise.all(currentView.blocks
-      .filter(block => block.type === 'connection-status' || block.type === 'entity-list')
+      .filter(block => block.type === 'connection-status' || block.type === 'entity-list' || block.type === 'configuration-manager')
       .map(block => invoke(block)))
   },
   { immediate: true },
@@ -241,6 +246,14 @@ watch(
               <p v-if="connectionStatus(stateFor(block.id).result)?.message">{{ translate(connectionStatus(stateFor(block.id).result)?.message ?? '') }}</p>
             </div>
           </div>
+
+          <ConfigurationManager
+            v-if="configurationPage(stateFor(block.id).result) && contribution"
+            :page="configurationPage(stateFor(block.id).result)!"
+            :contribution="contribution"
+            :project-id="view.scope === 'global' ? undefined : inspectedProjectId || undefined"
+            @updated="stateFor(block.id).result = $event"
+          />
 
           <IntegrationConnectionSetup
             v-if="connectionStatus(stateFor(block.id).result)"

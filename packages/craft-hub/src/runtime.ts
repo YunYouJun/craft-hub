@@ -230,6 +230,12 @@ export class CraftHubRuntime {
       if ((project && project.trust !== 'trusted') || (!project && (operation === 'resources.execute' || options.projectId)))
         throw new Error('Trust a local project before modifying resources or executing actions')
     }
+    if (operation?.startsWith('configuration.')) {
+      if (this.hostEnvironment.kind !== 'local')
+        throw new Error('Configuration management requires a connected local service')
+      if (!['configuration.read', 'configuration.list'].includes(operation) && ((project && project.trust !== 'trusted') || (options.projectId && !project)))
+        throw new Error('Trust the project before changing configuration')
+    }
     const resourceProjects = operation?.startsWith('resources.') ? await this.projects.list() : undefined
     return this.integrationRegistry.invoke({
       contribution,
@@ -256,7 +262,7 @@ export class CraftHubRuntime {
     if (action?.operation !== 'configuration.list' || !Number.isInteger(detailIndex) || detailIndex < 0)
       throw new Error('Invalid configuration source request')
     const result = await this.invokeIntegrationAction({ integrationId, actionId, projectId })
-    const path = 'items' in result ? result.items.find(item => item.id === entityId)?.details?.[detailIndex]?.sourcePath : undefined
+    const path = 'items' in result && !('configuration' in result) ? result.items.find(item => item.id === entityId)?.details?.[detailIndex]?.sourcePath : undefined
     if (!path || !isAbsolute(path))
       throw new Error('Configuration source is unavailable')
     return path

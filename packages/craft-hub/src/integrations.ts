@@ -1,3 +1,4 @@
+import type { ConfigurationManagementPage } from './configuration-management'
 import type { ResourcePage, ResourcePageAdapter } from './resource-pages'
 import { satisfies, validRange } from 'semver'
 import { z } from 'zod'
@@ -5,6 +6,8 @@ import { z } from 'zod'
 export const integrationEffectSchema = z.enum(['local-read', 'local-write', 'remote-read', 'remote-write'])
 export const integrationConfirmationSchema = z.enum(['never', 'risk-based', 'always'])
 export const integrationOperationSchema = z.enum([
+  'configuration.read',
+  'configuration.execute',
   'resources.read',
   'resources.update',
   'resources.execute',
@@ -29,13 +32,14 @@ export const integrationOperationSchema = z.enum([
 const integrationIdSchema = z.string().regex(/^[a-z0-9][a-z0-9._-]*$/)
 const remoteWriteOperations = new Set<IntegrationOperation>([
   'resources.execute',
+  'configuration.execute',
   'merge-requests.add-reviewer',
   'merge-requests.create',
   'work-items.update-status',
 ])
 const integrationViewBlockSchema = z.object({
   id: integrationIdSchema,
-  type: z.enum(['connection-status', 'entity-search', 'entity-list', 'action-form', 'resource-browser']),
+  type: z.enum(['connection-status', 'entity-search', 'entity-list', 'action-form', 'resource-browser', 'configuration-manager']),
   title: z.string().min(1).optional(),
   description: z.string().min(1).optional(),
   actionId: integrationIdSchema,
@@ -89,9 +93,9 @@ export const integrationContributionSchema = z.object({
       context.addIssue({ code: 'custom', message: `Duplicate integration action id: ${action.id}`, path: ['actions', index, 'id'] })
     if (remoteWriteOperations.has(action.operation) && action.effect !== 'remote-write')
       context.addIssue({ code: 'custom', message: `${action.operation} must declare the remote-write effect`, path: ['actions', index, 'effect'] })
-    if (action.effect === 'local-read' && action.operation !== 'configuration.list')
-      context.addIssue({ code: 'custom', message: 'Local read is reserved for configuration.list', path: ['actions', index, 'effect'] })
-    if (action.operation === 'configuration.list' && action.effect !== 'local-read')
+    if (action.effect === 'local-read' && !['configuration.list', 'configuration.read'].includes(action.operation))
+      context.addIssue({ code: 'custom', message: 'Local read is reserved for configuration inspection', path: ['actions', index, 'effect'] })
+    if (['configuration.list', 'configuration.read'].includes(action.operation) && action.effect !== 'local-read')
       context.addIssue({ code: 'custom', message: 'configuration.list must declare local-read', path: ['actions', index, 'effect'] })
     if (['configuration.update', 'connection.update', 'resources.update'].includes(action.operation) !== (action.effect === 'local-write'))
       context.addIssue({ code: 'custom', message: 'Configuration and connection updates must declare local-write', path: ['actions', index, 'effect'] })
@@ -249,12 +253,18 @@ export interface IntegrationProvider {
     update: (context: IntegrationProviderContext, input: Record<string, unknown>) => Promise<IntegrationConnectionStatus>
     complete?: (context: IntegrationProviderContext, input: Record<string, unknown>) => Promise<IntegrationConnectionStatus>
   }
-  configuration?: { update?: (context: IntegrationProviderContext, input: Record<string, unknown>) => Promise<IntegrationEntityPage>, list: (context: IntegrationProviderContext, input?: Record<string, unknown>) => Promise<IntegrationEntityPage> }
   workItems?: WorkItemIntegrationAdapter
   workspaces?: WorkspaceIntegrationAdapter
   repositories?: RepositoryIntegrationAdapter
   mergeRequests?: MergeRequestIntegrationAdapter
   issues?: IssueIntegrationAdapter
+  configuration?: { update?: (context: IntegrationProviderContext, input: Record<string, unknown>) => Promise<IntegrationEntityPage>, list: (context: IntegrationProviderContext, input?: Record<string, unknown>) => Promise<IntegrationEntityPage> }
+  /** Workstation-backed review, apply and recovery; results contain display-safe values only. */
+  configurationManagement?: {
+    read: (context: IntegrationProviderContext, input: Record<string, unknown>) => Promise<ConfigurationManagementPage>
+    update: (context: IntegrationProviderContext, input: Record<string, unknown>) => Promise<ConfigurationManagementPage>
+    execute: (context: IntegrationProviderContext, input: Record<string, unknown>) => Promise<ConfigurationManagementPage>
+  }
   ci?: CiIntegrationAdapter
 }
 
@@ -268,7 +278,8 @@ export type ResolvedIntegrationAction = IntegrationContribution['actions'][numbe
 }
 
 export type IntegrationActionResult
-  = ResourcePage
+  = ConfigurationManagementPage
+    | ResourcePage
     | IntegrationConnectionStatus
     | IntegrationEntity
     | IntegrationEntityPage
@@ -294,13 +305,15 @@ export class IntegrationConfirmationRequiredError extends Error {
 }
 
 const operationSupport: Record<IntegrationOperation, (provider: IntegrationProvider) => boolean> = {
+  'configuration.read': provider => Boolean(provider.configurationManagement?.read),
+  'configuration.execute': provider => Boolean(provider.configurationManagement?.execute),
   'resources.read': provider => Boolean(provider.resources),
   'resources.update': provider => Boolean(provider.resources),
   'resources.execute': provider => Boolean(provider.resources),
   'connection.status': () => true,
   'connection.update': provider => provider.connection !== undefined,
-  'configuration.list': provider => provider.configuration !== undefined,
-  'configuration.update': provider => provider.configuration?.update !== undefined,
+  'configuration.list': provider => Boolean(provider.configuration?.list),
+  'configuration.update': provider => Boolean(provider.configurationManagement?.update || provider.configuration?.update),
   'work-items.get': provider => provider.workItems?.get !== undefined,
   'work-items.search': provider => provider.workItems !== undefined,
   'work-items.list': provider => provider.workItems !== undefined,
@@ -393,6 +406,8 @@ export class IntegrationRegistry {
     const query = integrationEntityQuery(input)
 
     switch (action.operation) {
+      case 'configuration.read': return requireMethod(provider.configurationManagement?.read, action.operation)(context, input)
+      case 'configuration.execute': return requireMethod(provider.configurationManagement?.execute, action.operation)(context, input)
       case 'resources.read': return requireAdapter(provider.resources, action.operation).read(context, input)
       case 'resources.update': return requireAdapter(provider.resources, action.operation).update(context, input)
       case 'resources.execute': return requireAdapter(provider.resources, action.operation).execute(context, input)
@@ -412,8 +427,8 @@ export class IntegrationRegistry {
         }
         return result
       }
-      case 'configuration.update': return requireMethod(provider.configuration?.update, action.operation)(context, input)
-      case 'configuration.list': return requireAdapter(provider.configuration, action.operation).list(context, input)
+      case 'configuration.update': return requireMethod(provider.configurationManagement?.update ?? provider.configuration?.update, action.operation)(context, input)
+      case 'configuration.list': return requireMethod(provider.configuration?.list, action.operation)(context, input)
       case 'work-items.get': return requireMethod(provider.workItems?.get, action.operation)(context, input)
       case 'work-items.search': return requireAdapter(provider.workItems, action.operation).search(context, query)
       case 'work-items.list': return requireAdapter(provider.workItems, action.operation).list(context, query)

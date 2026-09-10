@@ -10,6 +10,7 @@ import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 import codexConfigurationPlugin from '@craft-hub/craft-hub-plugin-codex'
+import workstationPlugin from '@craft-hub/craft-hub-plugin-workstation'
 import { PersonalCloudController } from '@craft-hub/personal-cloud'
 import { communityDistribution, CraftHubRuntime, loadCraftHubPlugins, startCraftHubServer } from 'craft-hub'
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, nativeTheme, safeStorage, shell } from 'electron'
@@ -605,7 +606,7 @@ async function createWindow(): Promise<void> {
       dataDir: desktopDataDirectories.runtimeDataDir,
       distribution: runtimeDistribution,
       pluginDiagnostics: hostPlugins.diagnostics,
-      plugins: [codexConfigurationPlugin, ...hostPlugins.plugins.filter(plugin => plugin.id !== codexConfigurationPlugin.id)],
+      plugins: [...hostPlugins.plugins, ...[codexConfigurationPlugin, workstationPlugin].filter(builtin => !hostPlugins.plugins.some(plugin => plugin.id === builtin.id))],
     })
     craftHubServer = await startCraftHubServer({ port: developmentUrl ? 4318 : 0, runtime, staticDir })
     writeApplicationLog('info', `Local server started at ${craftHubServer.url}`)

@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@craft-hub/craft-hub-plugin-codex": "workspace:*",
+    "@craft-hub/craft-hub-plugin-workstation": "workspace:*",
     "@craft-hub/personal-cloud": "workspace:*",
     "@openai/codex-sdk": "catalog:",
     "craft-hub": "workspace:*",

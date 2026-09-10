@@ -17,6 +17,7 @@ export interface FormSelectOption {
 const props = withDefaults(defineProps<{
   modelValue?: string
   options?: readonly FormSelectOption[]
+  ariaLabel?: string
   id?: string
   disabled?: boolean
   required?: boolean
@@ -43,7 +44,7 @@ const selectedOption = computed(() => props.options.find(option => option.value 
 
 <template>
   <Select v-model="value" :required="required" :disabled="disabled">
-    <SelectTrigger :id="id" :disabled="disabled" :aria-required="required" :data-testid="testId">
+    <SelectTrigger :id="id" :disabled="disabled" :aria-label="ariaLabel" :aria-required="required" :data-testid="testId">
       <SelectValue :placeholder="placeholder">
         <SelectOptionContent
           v-if="selectedOption"
