@@ -12,6 +12,8 @@ const execFileAsync = promisify(execFile)
 
 export interface TeamGitSyncStatus {
   ownerScopeId: string
+  /** Present when this Team follows a configuration source instead of a local Git checkout. */
+  source?: { subscriptionId: string, revision: string, autoFollow: boolean }
   state: PersonalGitSyncState
   target?: PersonalGitSyncTarget
   snapshotPath?: string

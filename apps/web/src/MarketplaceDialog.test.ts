@@ -3,9 +3,10 @@
 
 import type { CatalogPluginV1, InstalledPlugin, MarketplaceSource, MarketplaceSourcePreview } from 'craft-hub'
 import { flushPromises, mount } from '@vue/test-utils'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createMemoryHistory } from 'vue-router'
 import { api } from './api'
+import { useI18n } from './i18n'
 import MarketplaceDialog from './MarketplaceDialog.vue'
 import { createWorkbenchRouter } from './router'
 
@@ -80,6 +81,7 @@ async function mountMarketplace(props: { open: boolean, importCatalogUrl?: strin
 }
 
 describe('marketplace dialog', () => {
+  beforeEach(() => useI18n().setLocale('en'))
   afterEach(() => {
     window.craftHubDesktop = undefined
     vi.restoreAllMocks()

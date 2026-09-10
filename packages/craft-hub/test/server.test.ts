@@ -99,7 +99,7 @@ describe('craft hub server lifecycle', () => {
       })
       expect(response.status).toBe(200)
       await expect(response.json()).resolves.toEqual({ items: [{ id: '1', title: 'Example issue' }] })
-      expect(calls).toEqual([{ projectId: project.id, projectPath: project.path, confirmed: false, limit: 30 }])
+      expect(calls).toEqual([{ projectId: project.id, projectPath: project.path, confirmed: false, limit: 30, hostEnvironment: 'local' }])
     }
     finally {
       await app.close()
@@ -168,6 +168,8 @@ describe('craft hub server lifecycle', () => {
           id: 'community',
           name: 'Craft Hub',
         },
+        hostEnvironment: { kind: 'local', capabilities: { localProjectDirectories: true, localGitSync: true } },
+        agentExecution: { id: 'unavailable', available: false },
         projectConfigSchemaRevision,
         status: 'ok',
       })

@@ -9,6 +9,8 @@ import { dirname, isAbsolute, relative, resolve } from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
+import codexConfigurationPlugin from '@craft-hub/craft-hub-plugin-codex'
+import workstationPlugin from '@craft-hub/craft-hub-plugin-workstation'
 import { PersonalCloudController } from '@craft-hub/personal-cloud'
 import { communityDistribution, CraftHubRuntime, loadCraftHubPlugins, startCraftHubServer } from 'craft-hub'
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, nativeTheme, safeStorage, shell } from 'electron'
@@ -306,6 +308,13 @@ ipcMain.handle('craft-hub:open-project-in-editor', async (_event, projectId: str
   await openConfiguredEditor(await projectPath(projectId))
 })
 
+ipcMain.handle('craft-hub:open-integration-source', async (_event, integrationId: string, actionId: string, entityId: string, detailIndex: number, projectId?: string) => {
+  if (!craftHubServer)
+    throw new Error('Craft Hub is still starting')
+  const path = await craftHubServer.runtime.integrationSourcePath(integrationId, actionId, entityId, detailIndex, projectId)
+  await openConfiguredEditor(await realpath(path))
+})
+
 ipcMain.handle('craft-hub:open-project-evidence-in-editor', async (_event, projectId: string, path: unknown, line: unknown, column: unknown) => {
   if (typeof path !== 'string')
     throw new TypeError('Evidence path is required')
@@ -597,7 +606,7 @@ async function createWindow(): Promise<void> {
       dataDir: desktopDataDirectories.runtimeDataDir,
       distribution: runtimeDistribution,
       pluginDiagnostics: hostPlugins.diagnostics,
-      plugins: hostPlugins.plugins,
+      plugins: [...hostPlugins.plugins, ...[codexConfigurationPlugin, workstationPlugin].filter(builtin => !hostPlugins.plugins.some(plugin => plugin.id === builtin.id))],
     })
     craftHubServer = await startCraftHubServer({ port: developmentUrl ? 4318 : 0, runtime, staticDir })
     writeApplicationLog('info', `Local server started at ${craftHubServer.url}`)

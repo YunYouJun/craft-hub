@@ -1,4 +1,22 @@
 :root {
+  --radius-pill: 999px;
+  --status-badge-radius: 4px;
+  --control-focus-width: 2px;
+  --control-focus-offset: 2px;
+  --control-disabled-opacity: 0.5;
+  --motion-duration-fast: 150ms;
+  --motion-duration-spin: 700ms;
+  --switch-width: 38px;
+  --switch-height: 22px;
+  --switch-inset: 3px;
+  --switch-thumb-size: calc(var(--switch-height) - 2 * var(--switch-inset));
+  --switch-travel: calc(var(--switch-width) - var(--switch-thumb-size) - 2 * var(--switch-inset));
+  --switch-track: var(--border-strong);
+  --switch-thumb: var(--surface);
+  --switch-thumb-shadow: 0 1px 2px var(--shadow);
+  --switch-spinner-size: 10px;
+  --tooltip-max-width: 300px;
+  --tooltip-shadow: 0 4px 12px var(--shadow);
   --control-height-compact: 30px;
   --control-height-default: 36px;
   --control-radius: 7px;
@@ -12,6 +30,9 @@
   --select-option-padding-end: calc(var(--select-option-indicator-inset) + var(--select-option-indicator-size) + 6px);
   --select-chevron-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23687184' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
   --dialog-radius: 12px;
+  --dialog-panel-width: 640px;
+  --dialog-panel-padding: var(--space-5);
+  --dialog-title-size: var(--font-size-glyph);
   --font-size-tiny: 8px;
   --font-size-micro: 9px;
   --font-size-caption: 10px;
@@ -40,30 +61,63 @@
   --space-4: 16px;
   --space-5: 20px;
   --space-6: 24px;
+  /* Page geometry shared by every primary workbench view. */
+  --page-content-max-width: 1180px;
+  --page-padding-inline: 20px;
+  --page-padding-block: 20px;
+  --page-content-bottom: 24px;
+  --page-section-gap: 20px;
+  --page-title-size: var(--font-size-heading-sm);
+  --page-title-weight: 600;
+  --page-title-line-height: 24px;
+  --page-description-size: var(--font-size-body);
+  --page-description-line-height: 18px;
+  --page-heading-gap: 2px;
+  --page-header-gap: 10px;
+  --page-header-mark-size: 28px;
+  --page-header-icon-size: 20px;
+  --page-header-min-height: 44px;
+  --page-toolbar-height: 32px;
+  --page-section-title-size: var(--font-size-subheading);
+  --workbench-sidebar-width: 196px;
+  --workbench-sidebar-background: var(--surface-muted);
+  --workbench-sidebar-border: var(--border);
+  --workbench-sidebar-group-gap: 12px;
+  --workbench-sidebar-row-height: 30px;
+  --workbench-sidebar-font-size: var(--font-size-body);
+  --workbench-sidebar-heading-size: var(--font-size-control);
+  --workbench-sidebar-icon-size: 15px;
+  --workbench-sidebar-item-radius: 3px;
   --accent: #1463df;
   --accent-hover: #0f55c4;
   --accent-soft: #eef5ff;
-  --border: #d9dee7;
-  --border-strong: #b9c1cd;
+  --border: #e5e7eb;
+  --border-strong: #d1d5db;
   --danger: #b42318;
   --danger-hover: #921b13;
   --danger-soft: #fff3f3;
   --focus-ring: #1463df;
-  --muted: #687184;
+  --muted: #6b7280;
   --on-accent: #fff;
   --on-danger: #fff;
   --on-success: #fff;
   --on-warning: #fff;
   --overlay: rgb(18 24 33 / 28%);
-  --palette-overlay: rgb(18 24 33 / 12%);
-  --rail: #fafbfc;
-  --shadow: rgb(30 38 50 / 25%);
+  --palette-overlay: rgb(18 24 33 / 10%);
+  --rail: #fff;
+  --activity-rail: #fafbfc;
+  --palette-backdrop-blur: 4px;
+  --shadow: rgb(30 38 50 / 18%);
   --success: #238543;
+  --status-planning: #64748b;
+  --status-review: #4f46b5;
+  --status-releasing: #7c3eac;
+  --status-resolved: #0f766e;
   --surface: #fff;
-  --surface-hover: #edf1f6;
-  --surface-muted: #f5f7fa;
-  --surface-subtle: #fbfcfd;
-  --terminal-bg: #f6f8fb;
+  --surface-hover: #f3f4f6;
+  --surface-muted: #f9fafb;
+  --surface-subtle: #fcfcfd;
+  --terminal-bg: #f9fafb;
   --terminal-fg: #242a33;
   --text: #171a20;
   --text-secondary: #4f5867;
@@ -93,8 +147,13 @@
   --overlay: rgb(0 0 0 / 58%);
   --palette-overlay: rgb(0 0 0 / 36%);
   --rail: #20242b;
+  --activity-rail: #23272f;
   --shadow: rgb(0 0 0 / 48%);
   --success: #6fd5a9;
+  --status-planning: #b1bfd1;
+  --status-review: #aaa2ff;
+  --status-releasing: #d0a2f2;
+  --status-resolved: #6ed4ca;
   --surface: #1f232b;
   --surface-hover: #303641;
   --surface-muted: #292e37;
@@ -108,4 +167,15 @@
   --warning: #f1ba63;
   --warning-hover: #f5c97d;
   --warning-soft: #45351d;
+}
+
+@media (max-width: 760px) {
+  :root {
+    --dialog-panel-padding: var(--space-4);
+    --page-padding-inline: 12px;
+    --page-padding-block: 16px;
+    --page-section-gap: 16px;
+    --page-toolbar-height: 40px;
+    --workbench-sidebar-row-height: 40px;
+  }
 }

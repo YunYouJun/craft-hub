@@ -13,6 +13,7 @@ const adding = ref(false)
 const error = ref('')
 
 async function chooseProject(): Promise<void> {
+  if (!store.hostEnvironment.capabilities.localProjectDirectories) return
   if (adding.value)
     return
   error.value = ''
@@ -41,21 +42,22 @@ async function chooseProject(): Promise<void> {
     <span class="welcome-icon"><Icon name="hub" /></span>
     <p class="welcome-eyebrow">{{ t('guidedFirstRun') }}</p>
     <h1>{{ t('welcomeTitle') }}</h1>
-    <p class="welcome-description">{{ t('welcomeDescription') }}</p>
-    <ol class="welcome-steps">
+    <p class="welcome-description">{{ t(store.hostEnvironment.capabilities.localProjectDirectories ? 'welcomeDescription' : 'hostedProjectDirectoryHelp') }}</p>
+    <ol v-if="store.hostEnvironment.capabilities.localProjectDirectories" class="welcome-steps">
       <li><span>1</span>{{ t('welcomeStepDiscover') }}</li>
       <li><span>2</span>{{ t('welcomeStepPreview') }}</li>
       <li><span>3</span>{{ t('welcomeStepRun') }}</li>
     </ol>
     <div class="welcome-actions">
-      <UiButton class="welcome-action" variant="primary" :disabled="adding" @click="chooseProject">
+      <UiButton v-if="store.hostEnvironment.capabilities.localProjectDirectories" class="welcome-action" variant="primary" :disabled="adding" @click="chooseProject">
         <Icon name="folder" /> {{ adding ? t('adding') : t(props.replaying ? 'chooseAdditionalProject' : 'chooseLocalProject') }}
       </UiButton>
+      <a v-if="!store.hostEnvironment.capabilities.localProjectDirectories" href="/subscriptions/discover">{{ t('browseWorkspaceSources') }}</a>
       <UiButton v-if="props.replaying" class="welcome-close" @click="emit('close')">
         {{ t('backToWorkbench') }}
       </UiButton>
     </div>
-    <p class="permission-note">{{ t('welcomeSafetyNote') }}</p>
+    <p v-if="store.hostEnvironment.capabilities.localProjectDirectories" class="permission-note">{{ t('welcomeSafetyNote') }}</p>
     <p v-if="error" class="error-message" role="alert">{{ error }}</p>
   </main>
 </template>

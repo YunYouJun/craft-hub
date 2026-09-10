@@ -12,3 +12,5 @@ release
 temp
 cache
 .eslintcache
+
+/packages/craft-hub/web/

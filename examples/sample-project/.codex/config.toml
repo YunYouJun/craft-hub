@@ -1,0 +1,5 @@
+[plugins."build-ios-apps@openai-curated-remote"]
+enabled = true
+
+[plugins."browser@openai-bundled"]
+enabled = true

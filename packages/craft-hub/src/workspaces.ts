@@ -1,11 +1,14 @@
 import type { ProjectRegistry } from './projects'
-import type { PortableWorkspaceSnapshot, ResolvedWorkspaceMember, WorkspaceCatalog, WorkspaceGroup, WorkspaceManifest, WorkspaceRecord, WorkspaceUiState } from './types'
+import type { PortableWorkspaceSnapshot, ProjectRecord, ResolvedWorkspaceMember, WorkspaceCatalog, WorkspaceGroup, WorkspaceManifest, WorkspaceRecord, WorkspaceUiState } from './types'
 import type { UserConfigDocument } from './user-config'
+import type { SubscribedWorkspace } from './workspace-source'
 import { createHash, randomUUID } from 'node:crypto'
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
+import { identifyProjectReference, normalizeRepositoryUrl, verifyProjectReference } from './project-reference'
 import { PERSONAL_OWNER_SCOPE_ID, projectAccentColors } from './types'
 import { userConfigCatalogFileName, userConfigCatalogSchemaUrl, UserConfigService, workspaceFileExtension, workspaceSchemaUrl } from './user-config'
+import { WorkspaceSubscriptionError } from './workspace-repository'
 
 const workspaceManifestKeys = ['schemaVersion', 'id', 'ownerScopeId', 'name', 'icon', 'color', 'pinned', 'primaryProject', 'members', 'extensions']
 const workspaceCatalogKeys = ['schemaVersion', 'workspaceOrder', 'groups', 'workspaceGroups', 'extensions']
@@ -64,6 +67,7 @@ export class WorkspaceService {
     dataDir: string,
     private readonly projects: ProjectRegistry,
     userConfig?: UserConfigService,
+    private readonly subscribedWorkspaces: () => Promise<SubscribedWorkspace[]> = async () => [],
   ) {
     this.bindingsPath = join(dataDir, 'workspace-bindings.json')
     this.userConfig = userConfig ?? new UserConfigService(configDir, dataDir)
@@ -71,10 +75,13 @@ export class WorkspaceService {
 
   async list(ownerScopeId = PERSONAL_OWNER_SCOPE_ID): Promise<WorkspaceRecord[]> {
     const names = await this.userConfig.list('workspaces')
-    const records = (await Promise.all(names.map(name => this.readFile(name))))
+    const subscribed = await this.subscribedWorkspaces()
+    await this.assertSubscriptionIdsAvailable(subscribed.map(workspace => workspace.id))
+    const repositories = subscribed.length ? await this.repositoryBindings(await this.projects.list()) : undefined
+    const records = [...await Promise.all(names.map(name => this.readFile(name, repositories))), ...await Promise.all(subscribed.map(manifest => this.resolveManifest(manifest, JSON.stringify(manifest), repositories)))]
       .filter(record => workspaceOwnerScopeId(record) === ownerScopeId)
     const catalog = await this.catalog()
-    const positions = new Map(catalog.workspaceOrder.map((id, index) => [id, index]))
+    const positions = new Map([...new Set([...catalog.workspaceOrder, ...subscribed.map(workspace => workspace.id)])].map((id, index) => [id, index]))
     return records.map(record => ({ ...record, groupId: catalog.workspaceGroups[record.id] })).sort((left, right) => {
       if (Boolean(left.pinned) !== Boolean(right.pinned))
         return left.pinned ? -1 : 1
@@ -85,7 +92,10 @@ export class WorkspaceService {
 
   async get(id: string, ownerScopeId?: string): Promise<WorkspaceRecord> {
     assertWorkspaceId(id)
-    const [workspace, catalog] = await Promise.all([this.readFile(this.workspaceRelativePath(id)), this.catalog()])
+    const subscribed = (await this.subscribedWorkspaces()).find(workspace => workspace.id === id)
+    if (subscribed)
+      await this.assertSubscriptionIdsAvailable([id])
+    const [workspace, catalog] = await Promise.all([subscribed ? this.resolveManifest(subscribed, JSON.stringify(subscribed)) : this.readFile(this.workspaceRelativePath(id)), this.catalog()])
     if (ownerScopeId && workspaceOwnerScopeId(workspace) !== ownerScopeId)
       throw new Error(`Workspace ${id} does not belong to owner scope ${ownerScopeId}`)
     return { ...workspace, groupId: catalog.workspaceGroups[id] }
@@ -280,6 +290,7 @@ export class WorkspaceService {
   }
 
   async save(input: SaveWorkspaceInput): Promise<WorkspaceRecord> {
+    await this.assertEditable(input.manifest.id)
     const manifest = validateManifest(input.manifest)
     const path = this.workspaceRelativePath(manifest.id)
     const current = await this.workspaceSource(manifest.id)
@@ -298,6 +309,7 @@ export class WorkspaceService {
   }
 
   async delete(id: string, expectedRevision: string, ownerScopeId?: string): Promise<void> {
+    await this.assertEditable(id)
     const current = await this.get(id, ownerScopeId)
     if (current.revision !== expectedRevision)
       throw new WorkspaceConflictError(current.revision)
@@ -323,7 +335,7 @@ export class WorkspaceService {
 
   /** Export only user-owned workspace manifests and their portable order. */
   async portableSnapshot(ownerScopeId = PERSONAL_OWNER_SCOPE_ID): Promise<PortableWorkspaceSnapshot> {
-    const workspaces = await this.list(ownerScopeId)
+    const workspaces = (await this.list(ownerScopeId)).filter(workspace => !workspace.subscription)
     const catalog = await this.catalog()
     const groupIds = new Set(catalog.groups.filter(group => groupOwnerScopeId(group) === ownerScopeId).map(group => group.id))
     return {
@@ -403,13 +415,15 @@ export class WorkspaceService {
       throw new Error('Portable workspace group assignments are invalid')
     if (!Array.isArray(snapshot.workspaceOrder) || new Set(snapshot.workspaceOrder).size !== snapshot.workspaceOrder.length || snapshot.workspaceOrder.some(id => !ids.includes(id)))
       throw new Error('Portable workspace order is invalid')
-    for (const manifest of snapshot.workspaces)
+    for (const manifest of snapshot.workspaces) {
+      await this.assertEditable(manifest.id)
       validateManifest(manifest)
+    }
     const currentCatalog = await this.catalog()
     const foreignGroupIds = new Set(currentCatalog.groups.filter(group => groupOwnerScopeId(group) !== ownerScopeId).map(group => group.id))
     if (snapshot.groups.some(group => foreignGroupIds.has(group.id)))
       throw new Error('Workspace group id belongs to another owner scope')
-    const previousWorkspaces = await this.list(ownerScopeId)
+    const previousWorkspaces = (await this.list(ownerScopeId)).filter(workspace => !workspace.subscription)
     const previousIds = new Set(previousWorkspaces.map(workspace => workspace.id))
     for (const manifest of snapshot.workspaces) {
       const existing = await this.workspaceSource(manifest.id)
@@ -524,7 +538,9 @@ export class WorkspaceService {
   }
 
   async bind(projectKey: string, projectId: string, ownerScopeId = PERSONAL_OWNER_SCOPE_ID): Promise<void> {
-    await this.projects.get(projectId)
+    const project = await this.projects.get(projectId)
+    if (projectKey.startsWith('https://'))
+      await verifyProjectReference(project.path, { repository: projectKey })
     const bindings = await this.bindings()
     const projects = { ...scopeProjects(bindings, ownerScopeId), [projectKey]: projectId }
     await writeJsonAtomic(this.bindingsPath, {
@@ -543,6 +559,8 @@ export class WorkspaceService {
     const path = locatedPath ?? scopeProjectPaths(await this.bindings(), workspaceScopeId)[projectKey]
     if (!path)
       throw new Error(`Workspace member path is unavailable: ${projectKey}`)
+    if (workspace.subscription)
+      await verifyProjectReference(path, { repository: projectKey })
     const project = await this.projects.add(path)
     if (locatedPath)
       await this.rememberProjectPath(projectKey, project.path, workspaceScopeId)
@@ -623,12 +641,23 @@ export class WorkspaceService {
     return key
   }
 
-  private async readFile(path: string): Promise<WorkspaceRecord> {
+  private async readFile(path: string, repositories?: Map<string, string | undefined>): Promise<WorkspaceRecord> {
     const { content, value: manifest } = await this.userConfig.readSource(path, validateManifest)
+    return this.resolveManifest(manifest, content, repositories)
+  }
+
+  private async resolveManifest(manifest: WorkspaceManifest | SubscribedWorkspace, content: string, repositories?: Map<string, string | undefined>): Promise<WorkspaceRecord> {
     const bindings = await this.bindings()
     const projects = await this.projects.list()
+    const automatic = repositories ?? (manifest.members.some(member => member.project.startsWith('https://')) ? await this.repositoryBindings(projects) : new Map<string, string | undefined>())
     const members: ResolvedWorkspaceMember[] = manifest.members.map((member) => {
-      const projectId = scopeProjects(bindings, manifest.ownerScopeId ?? PERSONAL_OWNER_SCOPE_ID)[member.project]
+      let projectId: string | undefined = scopeProjects(bindings, manifest.ownerScopeId ?? PERSONAL_OWNER_SCOPE_ID)[member.project]
+      if (!projectId && member.project.startsWith('https://')) {
+        try {
+          projectId = automatic.get(normalizeRepositoryUrl(member.project))
+        }
+        catch { /* Invalid legacy references remain unresolved. */ }
+      }
       const resolved = Boolean(projectId && projects.some(project => project.id === projectId))
       return {
         ...member,
@@ -638,6 +667,19 @@ export class WorkspaceService {
       }
     })
     return { ...manifest, ownerScopeId: manifest.ownerScopeId ?? PERSONAL_OWNER_SCOPE_ID, members, revision: revision(content) }
+  }
+
+  private async repositoryBindings(projects: ProjectRecord[]): Promise<Map<string, string | undefined>> {
+    const bindings = new Map<string, string | undefined>()
+    // Discover each registered repository once per listing, with bounded Git subprocess concurrency.
+    for (let offset = 0; offset < projects.length; offset += 8) {
+      const references = await Promise.all(projects.slice(offset, offset + 8).map(async project => ({ project, reference: await identifyProjectReference(project.path).catch(() => undefined) })))
+      for (const { project, reference } of references) {
+        if (reference && !reference.subdir)
+          bindings.set(reference.repository, bindings.has(reference.repository) ? undefined : project.id)
+      }
+    }
+    return bindings
   }
 
   private async catalog(): Promise<WorkspaceCatalog> {
@@ -700,6 +742,19 @@ export class WorkspaceService {
   private workspaceRelativePath(id: string): string {
     assertWorkspaceId(id)
     return `workspaces/${id}${workspaceFileExtension}`
+  }
+
+  /** Prevent an incoming subscription from shadowing any existing local configuration file. */
+  async assertSubscriptionIdsAvailable(ids: string[]): Promise<void> {
+    for (const id of ids) {
+      if (await this.workspaceSource(id))
+        throw new WorkspaceSubscriptionError(409, 'A local workspace conflicts with a subscribed workspace id. Preserve or rename the local workspace before updating.')
+    }
+  }
+
+  private async assertEditable(id: string): Promise<void> {
+    if ((await this.subscribedWorkspaces()).some(workspace => workspace.id === id))
+      throw new WorkspaceSubscriptionError(409, 'Subscribed workspaces are read-only. Copy the workspace before editing it.')
   }
 
   private async workspaceSource(id: string): Promise<UserConfigDocument<WorkspaceManifest> | undefined> {

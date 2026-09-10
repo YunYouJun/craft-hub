@@ -4,11 +4,11 @@ import { execFile, spawn } from 'node:child_process'
 import { once } from 'node:events'
 import { resolve } from 'node:path'
 import process from 'node:process'
-import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 import { identifyProjectReference, normalizeProjectReference } from './project-reference'
 import { CraftHubRuntime } from './runtime'
 import { startCraftHubServer } from './server'
+import { resolveCraftHubWebDirectory } from './web-assets'
 
 const execFileAsync = promisify(execFile)
 
@@ -113,7 +113,7 @@ export async function launchCraftHubProject(projectPath: string, options: Launch
 export async function launchCraftHubApp(projectPath: string, options: LaunchCraftHubAppOptions = {}): Promise<CraftHubAppLaunch> {
   const runtime = options.runtime ?? new CraftHubRuntime()
   const project = await runtime.addProject(resolve(projectPath))
-  const staticDir = options.staticDir ?? resolve(fileURLToPath(new URL('.', import.meta.url)), '../../../apps/web/dist')
+  const staticDir = options.staticDir ?? resolveCraftHubWebDirectory()
   const workbench = await startCraftHubServer({ port: options.port ?? 0, runtime, staticDir })
   const url = new URL(workbench.url)
   url.searchParams.set('project', project.id)

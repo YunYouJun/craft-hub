@@ -38,6 +38,7 @@ catalog:
   '@cloudbase/js-sdk': 3.8.1
   '@cloudbase/node-sdk': ^3.18.3
   '@electron/packager': ^20.3.0
+  '@iconify-json/lucide': ^1.2.130
   '@iconify-json/ri': ^1.2.10
   '@iconify-json/svg-spinners': ^1.2.4
   '@modelcontextprotocol/sdk': ^1.30.0

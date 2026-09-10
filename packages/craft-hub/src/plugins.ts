@@ -1,17 +1,26 @@
+import type { AccountProvider } from './accounts'
 import type { CapabilityProvider } from './extensions'
-import type { IntegrationProvider } from './integrations'
+import type { IntegrationContribution, IntegrationProvider } from './integrations'
+import type { WorkspaceCatalogProvider } from './workspace-catalog'
+import type { WorkspaceRepositoryProvider } from './workspace-repository'
 import { createRequire } from 'node:module'
 import { isAbsolute, resolve } from 'node:path'
 import process from 'node:process'
 import { pathToFileURL } from 'node:url'
+import { integrationContributionSchema } from './integrations'
 
 /** A trusted, host-installed extension to the Craft Hub runtime. */
 export interface CraftHubPlugin {
   id: string
   name?: string
   version?: string
+  accountProvider?: AccountProvider
+  workspaceRepositoryProviders?: WorkspaceRepositoryProvider[]
+  workspaceCatalogProviders?: WorkspaceCatalogProvider[]
   capabilityProviders?: CapabilityProvider[]
   integrationProviders?: IntegrationProvider[]
+  /** Declarative views shipped with an explicitly loaded trusted Host Plugin. */
+  integrations?: IntegrationContribution[]
 }
 
 export interface PluginDiagnostic {
@@ -87,6 +96,11 @@ function assertPlugin(value: unknown, specifier: string): asserts value is Craft
     throw new TypeError(`Plugin ${specifier} must have a non-empty string id`)
   if (plugin.capabilityProviders !== undefined && !Array.isArray(plugin.capabilityProviders))
     throw new TypeError(`Plugin ${specifier} capabilityProviders must be an array`)
+  if (plugin.integrations !== undefined) {
+    if (!Array.isArray(plugin.integrations))
+      throw new TypeError(`Plugin ${specifier} integrations must be an array`)
+    plugin.integrations.forEach(contribution => integrationContributionSchema.parse(contribution))
+  }
   if (plugin.integrationProviders !== undefined && !Array.isArray(plugin.integrationProviders))
     throw new TypeError(`Plugin ${specifier} integrationProviders must be an array`)
 }

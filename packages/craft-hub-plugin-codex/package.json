@@ -1,0 +1,21 @@
+{
+  "name": "@craft-hub/craft-hub-plugin-codex",
+  "type": "module",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Codex plugin configuration inspector and scoped enable controls for Craft Hub.",
+  "exports": {
+    ".": "./dist/index.mjs"
+  },
+  "types": "./dist/index.d.mts",
+  "scripts": {
+    "build": "tsdown"
+  },
+  "peerDependencies": {
+    "craft-hub": "*"
+  },
+  "devDependencies": {
+    "craft-hub": "workspace:*",
+    "tsdown": "catalog:"
+  }
+}

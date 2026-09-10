@@ -63,6 +63,7 @@ describe('detail panel desktop actions', () => {
     }
     const pinia = createPinia()
     setActivePinia(pinia)
+    useI18n().setLocale('en')
     const store = useWorkbenchStore()
     store.projects = [project]
     store.selectedProjectId = project.id
@@ -96,6 +97,7 @@ describe('detail panel desktop actions', () => {
     window.craftHubDesktop = { openCapabilitySourceInEditor: vi.fn(async () => {}) }
     const pinia = createPinia()
     setActivePinia(pinia)
+    useI18n().setLocale('en')
     const store = useWorkbenchStore()
     store.settings = {
       explicitKeys: ['workbench.editor'],
@@ -126,6 +128,7 @@ describe('detail panel desktop actions', () => {
     window.craftHubDesktop = { startProjectInCodex }
     const pinia = createPinia()
     setActivePinia(pinia)
+    useI18n().setLocale('en')
     const store = useWorkbenchStore()
     store.projects = [project]
     store.selectedProjectId = project.id
@@ -189,6 +192,7 @@ describe('detail panel desktop actions', () => {
     window.craftHubDesktop = { startProjectInCodex }
     const pinia = createPinia()
     setActivePinia(pinia)
+    useI18n().setLocale('en')
     const store = useWorkbenchStore()
     store.projects = [project]
     store.selectedProjectId = project.id
@@ -210,6 +214,7 @@ describe('detail panel desktop actions', () => {
     useI18n().setLocale('en')
     const pinia = createPinia()
     setActivePinia(pinia)
+    useI18n().setLocale('en')
     const store = useWorkbenchStore()
     store.projects = [project]
     store.selectedProjectId = project.id
@@ -231,6 +236,7 @@ describe('detail panel desktop actions', () => {
     useI18n().setLocale('en')
     const pinia = createPinia()
     setActivePinia(pinia)
+    useI18n().setLocale('en')
     const store = useWorkbenchStore()
     store.projects = [project]
     store.selectedProjectId = project.id
@@ -261,6 +267,7 @@ describe('detail panel desktop actions', () => {
     window.craftHubDesktop = { startProjectInCodex }
     const pinia = createPinia()
     setActivePinia(pinia)
+    useI18n().setLocale('en')
     const store = useWorkbenchStore()
     store.projects = [project]
     store.selectedProjectId = project.id
@@ -284,6 +291,7 @@ describe('detail panel desktop actions', () => {
     window.craftHubDesktop = { startProjectInCodex }
     const pinia = createPinia()
     setActivePinia(pinia)
+    useI18n().setLocale('en')
     useI18n().setLocale('zh-CN')
     const store = useWorkbenchStore()
     store.projects = [project]
@@ -311,6 +319,7 @@ describe('detail panel desktop actions', () => {
     window.craftHubDesktop = { openCodexThread }
     const pinia = createPinia()
     setActivePinia(pinia)
+    useI18n().setLocale('en')
     const store = useWorkbenchStore()
     store.projects = [{ ...project, trust: 'trusted' }]
     store.selectedProjectId = project.id
@@ -370,6 +379,7 @@ describe('detail panel desktop actions', () => {
     useI18n().setLocale('en')
     const pinia = createPinia()
     setActivePinia(pinia)
+    useI18n().setLocale('en')
     const store = useWorkbenchStore()
     const parameterized: CommandCapability = {
       ...command,
@@ -442,6 +452,7 @@ describe('detail panel desktop actions', () => {
     useI18n().setLocale('en')
     const pinia = createPinia()
     setActivePinia(pinia)
+    useI18n().setLocale('en')
     const store = useWorkbenchStore()
     const deploy: CommandCapability = {
       ...command,
@@ -491,6 +502,7 @@ describe('detail panel desktop actions', () => {
     useI18n().setLocale('en')
     const pinia = createPinia()
     setActivePinia(pinia)
+    useI18n().setLocale('en')
     const parameterized: CommandCapability = {
       ...command,
       name: 'deploy',
@@ -524,6 +536,7 @@ describe('detail panel desktop actions', () => {
     useI18n().setLocale('en')
     const pinia = createPinia()
     setActivePinia(pinia)
+    useI18n().setLocale('en')
     const remembered: CommandCapability = {
       ...command,
       name: 'deploy',
@@ -571,6 +584,7 @@ describe('detail panel desktop actions', () => {
     useI18n().setLocale('en')
     const pinia = createPinia()
     setActivePinia(pinia)
+    useI18n().setLocale('en')
     const store = useWorkbenchStore()
     const release: CommandCapability = {
       ...command,
@@ -628,6 +642,7 @@ describe('detail panel desktop actions', () => {
     useI18n().setLocale('en')
     const pinia = createPinia()
     setActivePinia(pinia)
+    useI18n().setLocale('en')
     const store = useWorkbenchStore()
     store.projects = [project]
     store.selectedProjectId = project.id
@@ -656,6 +671,7 @@ describe('detail panel desktop actions', () => {
     window.craftHubDesktop = {}
     const pinia = createPinia()
     setActivePinia(pinia)
+    useI18n().setLocale('en')
     const store = useWorkbenchStore()
     store.projects = [project]
     store.selectedProjectId = project.id
@@ -699,6 +715,7 @@ describe('detail panel desktop actions', () => {
     useI18n().setLocale('en')
     const pinia = createPinia()
     setActivePinia(pinia)
+    useI18n().setLocale('en')
     const store = useWorkbenchStore()
     store.projects = [{ ...project, trust: 'trusted' }]
     store.selectedProjectId = project.id

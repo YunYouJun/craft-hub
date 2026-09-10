@@ -725,7 +725,7 @@ describe('plugin marketplace contracts', () => {
     expect(repaired).not.toHaveProperty('error')
   })
 
-  it('returns active declarative integrations without executing their package', async () => {
+  it('returns active integrations and workbenches with package icons without executing their package', async () => {
     const dataDir = await mkdtemp(join(tmpdir(), 'craft-hub-marketplace-integrations-'))
     const integrationManifest = pluginManifestV1Schema.parse({
       ...manifest,
@@ -737,8 +737,17 @@ describe('plugin marketplace contracts', () => {
           id: 'example',
           provider: { id: 'example', requires: '^1.0.0' },
           actions: [{ id: 'search', title: 'Search', operation: 'work-items.search', effect: 'remote-read', confirmation: 'never' }],
-          views: [],
+          views: [{ id: 'overview', title: 'Example', icon: 'assets/icon.svg', placement: 'primary-sidebar', scope: 'global', blocks: [] }],
         }],
+        workbenches: [
+          { id: 'local', title: 'Local', icon: 'assets/icon.svg', order: 30 },
+          { id: 'builtin', title: 'Builtin', icon: 'builtin:workspace', order: 10 },
+          { id: 'remote', title: 'Remote', icon: 'https://example.com/icon.svg', order: 20 },
+          { id: 'default', title: 'Default', order: 40 },
+        ].map(workbench => ({
+          ...workbench,
+          views: [{ type: 'integration', plugin: packageName, integration: 'example', view: 'overview' }],
+        })),
       },
     })
     const integrationSource = source()
@@ -748,12 +757,22 @@ describe('plugin marketplace contracts', () => {
     })
     const manager = new PluginManager(dataDir, [integrationSource], new FixtureInstaller(integrationManifest))
 
-    await manager.install({ sourceId: 'test', package: packageName })
+    const installed = await manager.install({ sourceId: 'test', package: packageName })
+    await mkdir(join(installed.packagePath, 'assets'), { recursive: true })
+    await writeFile(join(installed.packagePath, 'assets/icon.svg'), '<svg xmlns="http://www.w3.org/2000/svg"/>')
     await expect(manager.integrationContributions()).resolves.toEqual([
       expect.objectContaining({ id: 'example', pluginId: packageName, provider: { id: 'example', requires: '^1.0.0' } }),
     ])
+    expect((await manager.integrationContributions())[0]?.views[0]?.icon).toMatch(/^data:image\/svg\+xml;base64,/)
+    await expect(manager.workbenches('en')).resolves.toEqual([
+      expect.objectContaining({ id: 'builtin', pluginId: packageName, icon: 'builtin:workspace' }),
+      expect.objectContaining({ id: 'remote', icon: 'https://example.com/icon.svg' }),
+      expect.objectContaining({ id: 'local', icon: `data:image/svg+xml;base64,${Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"/>').toString('base64')}` }),
+      expect.objectContaining({ id: 'default', icon: undefined }),
+    ])
     await manager.setEnabled(packageName, false)
     await expect(manager.integrationContributions()).resolves.toEqual([])
+    await expect(manager.workbenches('en')).resolves.toEqual([])
   })
 
   it('does not switch state when package integrity differs from the catalog', async () => {
@@ -905,6 +924,75 @@ describe('plugin marketplace contracts', () => {
     const managedManager = new PluginManager(dataDir, [managedSource], new FixtureInstaller(), fetcher as typeof fetch)
 
     await expect(managedManager.listSources()).resolves.toEqual([managedSource])
+  })
+
+  it('keeps installed plugin documents available when a managed source replaces its user source', async () => {
+    const dataDir = await mkdtemp(join(tmpdir(), 'craft-hub-marketplace-source-migration-'))
+    const catalogUrl = 'https://market.example/catalog.json'
+    const fetcher = async () => new Response(JSON.stringify(source().catalog), { headers: { 'content-type': 'application/json' } })
+    const installer = new FixtureInstaller()
+    const userManager = new PluginManager(dataDir, [], installer, fetcher as typeof fetch)
+    const userSource = await userManager.addSource({ name: 'Imported catalog', catalogUrl })
+    await userManager.install({ sourceId: userSource.id, package: packageName })
+
+    const managedSource: MarketplaceSource = { ...source(), kind: 'managed', catalogUrl }
+    const managedManager = new PluginManager(dataDir, [managedSource], installer, fetcher as typeof fetch)
+    const [installed] = await managedManager.listInstalled()
+    await expect(managedManager.pluginDocument({ sourceId: installed!.sourceId, package: packageName, version: '1.0.0' })).resolves.toMatchObject({
+      document: { status: 'found', content: expect.stringContaining('Fixture plugin') },
+    })
+    expect(installed!.sourceId).toBe(managedSource.id)
+    const persisted = JSON.parse(await readFile(join(dataDir, 'plugins.json'), 'utf8'))
+    expect(persisted.installed[0].sourceId).toBe(managedSource.id)
+
+    const communityManager = new PluginManager(dataDir, [], installer, fetcher as typeof fetch)
+    const [restored] = await communityManager.listInstalled()
+    expect(restored!.sourceId).toBe(userSource.id)
+    await expect(communityManager.pluginDocument({ sourceId: restored!.sourceId, package: packageName, version: '1.0.0' })).resolves.toMatchObject({
+      document: { status: 'found' },
+    })
+    expect(installer.installs).toEqual([packageName])
+  })
+
+  it('applies the replacement catalog block policy to migrated plugin discovery', async () => {
+    const dataDir = await mkdtemp(join(tmpdir(), 'craft-hub-marketplace-migrated-policy-'))
+    const catalogUrl = 'https://market.example/catalog.json'
+    const fetcher = async () => new Response(JSON.stringify(source().catalog), { headers: { 'content-type': 'application/json' } })
+    const manager = new PluginManager(dataDir, [], new FixtureInstaller(), fetcher as typeof fetch)
+    const imported = await manager.addSource({ name: 'Imported catalog', catalogUrl })
+    await manager.install({ sourceId: imported.id, package: packageName })
+    expect(await manager.skillContributions()).toHaveLength(1)
+
+    const replacement: MarketplaceSource = { ...source(), kind: 'managed', catalogUrl }
+    replacement.catalog!.plugins[0]!.status = 'blocked'
+    replacement.catalog!.plugins[0]!.statusReason = 'Withdrawn by publisher'
+    const reloaded = new PluginManager(dataDir, [replacement], new FixtureInstaller())
+    expect(await reloaded.skillContributions()).toEqual([])
+    expect(await reloaded.listInstalled()).toEqual([
+      expect.objectContaining({ sourceId: replacement.id, enabled: true }),
+    ])
+    await expect(reloaded.install({ sourceId: replacement.id, package: packageName })).rejects.toThrow(/blocked/)
+  })
+
+  it('does not move installed plugins to a different catalog with the same package', async () => {
+    const dataDir = await mkdtemp(join(tmpdir(), 'craft-hub-marketplace-unrelated-source-'))
+    const original: MarketplaceSource = { ...source(), kind: 'managed', catalogUrl: 'https://original.example/catalog.json' }
+    const manager = new PluginManager(dataDir, [original], new FixtureInstaller())
+    await manager.install({ sourceId: original.id, package: packageName })
+    await manager.setEnabled(packageName, false)
+
+    const replacement: MarketplaceSource = {
+      ...source(),
+      id: 'other',
+      kind: 'managed',
+      catalogUrl: 'https://other.example/catalog.json',
+      catalog: { ...source().catalog!, id: 'other' },
+    }
+    const reloaded = new PluginManager(dataDir, [replacement], new FixtureInstaller())
+    expect(await reloaded.listInstalled()).toEqual([
+      expect.objectContaining({ sourceId: original.id, enabled: false }),
+    ])
+    expect(await reloaded.skillContributions()).toEqual([])
   })
 
   it('restores a user source after a distribution no longer shadows the same Catalog', async () => {

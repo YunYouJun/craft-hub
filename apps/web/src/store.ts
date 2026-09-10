@@ -1,4 +1,4 @@
-import type { AgentActionId, AgentActionSummary, AgentTaskRecord, Capability, CapabilityDiscoveryDiagnostic, CommandInputValues, CommandInvocation, CommandPackage, InstalledPluginWorkbench, IntegrationDiagnostic, OwnerScope, ProjectAccentColor, ProjectCatalogDiagnostic, ProjectChangeEvent, ProjectConfigInitializationResult, ProjectDescriptionApplication, ProjectDescriptionChange, ProjectOverview, ProjectRecord, ProjectRunSummary, ResolvedIntegrationContribution, RunRecord, SettingsSnapshot, TeamDeletionResult, TeamGitSyncStatus, UserConfigStatus, WorkbenchCodexSetting, WorkbenchDiagnosticSnapshot, WorkbenchEditorSetting, WorkbenchLocale, WorkbenchTheme, WorkspaceGroup, WorkspaceManifest, WorkspaceRecord } from 'craft-hub'
+import type { AgentActionId, AgentActionSummary, AgentTaskRecord, Capability, CapabilityDiscoveryDiagnostic, CommandInputValues, CommandInvocation, CommandPackage, HostEnvironment, InstalledPluginWorkbench, IntegrationDiagnostic, OwnerScope, ProjectAccentColor, ProjectCatalogDiagnostic, ProjectChangeEvent, ProjectConfigInitializationResult, ProjectDescriptionApplication, ProjectDescriptionChange, ProjectOverview, ProjectRecord, ProjectRunSummary, ResolvedIntegrationContribution, RunRecord, SettingsSnapshot, TeamDeletionResult, TeamGitSyncStatus, UserConfigStatus, WorkbenchCodexSetting, WorkbenchDiagnosticSnapshot, WorkbenchEditorSetting, WorkbenchLocale, WorkbenchTheme, WorkspaceGroup, WorkspaceManifest, WorkspaceRecord } from 'craft-hub'
 import { projectConfigSchemaRevision } from 'craft-hub/project-config-schema-revision'
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
@@ -35,8 +35,10 @@ export const useWorkbenchStore = defineStore('workbench', () => {
   const projectCatalogDiagnostics = ref<ProjectCatalogDiagnostic[]>([])
   const runtimeSchemaMismatch = ref<{ actual: string, expected: string }>()
   const applicationName = ref('Craft Hub')
+  const documentationUrl = ref<string>()
   const ownerScopes = ref<OwnerScope[]>([])
   const activeOwnerScopeId = ref('personal')
+  const hostEnvironment = ref<HostEnvironment>({ kind: 'local', capabilities: { localProjectDirectories: true, localGitSync: true } })
   const activeTeamSyncStatus = ref<TeamGitSyncStatus>()
   const ownerScopeError = ref('')
   const ownerScopeWorkspaceIndex = ref<Array<{ ownerScope: OwnerScope, workspace: WorkspaceRecord }>>([])
@@ -51,6 +53,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
   const workspaceCapabilityProjectId = ref('')
   const workspaceCapabilityId = ref('')
   const agentTasks = ref<AgentTaskRecord[]>([])
+  const agentExecution = ref<{ id: string, available: boolean }>()
   const agentActions = ref<AgentActionSummary[]>([])
   const agentActionDialogOpen = ref(false)
   const selectedProjectId = ref('')
@@ -128,6 +131,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
       .filter(view => view.placement === 'primary-sidebar')
       .map(view => ({
         ...view,
+        title: contribution.translations?.[useI18n().locale.value]?.[view.title] ?? view.title,
         integrationId: contribution.id,
         pluginId: contribution.pluginId,
         providerId: contribution.provider.id,
@@ -138,7 +142,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
   const composedIntegrationViewKeys = computed(() => new Set(pluginWorkbenches.value.flatMap(workbench => workbench.views
     .filter(view => view.type === 'integration')
     .map(view => `${view.plugin}:${view.integration}:${view.view}`))))
-  const standaloneIntegrationViews = computed(() => integrationViews.value.filter(view => !composedIntegrationViewKeys.value.has(`${view.pluginId}:${view.integrationId}:${view.id}`)))
+  const standaloneIntegrationViews = computed(() => integrationViews.value.filter(view => view.showInSidebar || !composedIntegrationViewKeys.value.has(`${view.pluginId}:${view.integrationId}:${view.id}`)))
   const firstRunStage = computed<FirstRunStage>(() => {
     if (!projects.value.length)
       return 'add-project'
@@ -396,6 +400,15 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     }
     activeTeamSyncStatus.value = await api.teamGitSyncStatus(activeOwnerScopeId.value)
     return activeTeamSyncStatus.value
+  }
+
+  async function configureActiveTeamSync(repositoryPath: string, directory?: string): Promise<void> {
+    const scopeId = activeOwnerScopeId.value
+    if (scopeId === 'personal')
+      return
+    const status = await api.configureTeamGit(scopeId, repositoryPath, directory)
+    if (activeOwnerScopeId.value === scopeId)
+      activeTeamSyncStatus.value = status
   }
 
   async function synchronizeActiveTeam(resolution: 'auto' | 'use-local' | 'use-repository' = 'auto'): Promise<void> {
@@ -767,7 +780,9 @@ export const useWorkbenchStore = defineStore('workbench', () => {
 
   async function startAgentTask(prompt: string, projectIds: string[], primaryProjectId: string, workspaceId?: string, capabilityId?: string, primaryProjectRelativePath?: string): Promise<AgentTaskRecord> {
     const task = await api.startAgentTask({ prompt, projectIds, primaryProjectId, primaryProjectRelativePath, workspaceId, capabilityId })
-    applyAgentTask(task)
+    // A streamed update can arrive before the creation response. Keep its newer state.
+    if (!agentTasks.value.some(item => item.id === task.id))
+      applyAgentTask(task)
     return task
   }
 
@@ -775,7 +790,9 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     if (!selectedProject.value)
       throw new Error('Select a project before starting an agent action')
     const task = await api.startAgentAction(selectedProject.value.id, actionId, locale)
-    applyAgentTask(task)
+    // A streamed update can arrive before the creation response. Keep its newer state.
+    if (!agentTasks.value.some(item => item.id === task.id))
+      applyAgentTask(task)
     return task
   }
 
@@ -866,6 +883,11 @@ export const useWorkbenchStore = defineStore('workbench', () => {
       runtimeSchemaMismatch.value = health && health.projectConfigSchemaRevision !== projectConfigSchemaRevision
         ? { actual: health.projectConfigSchemaRevision, expected: projectConfigSchemaRevision }
         : undefined
+      agentExecution.value = health?.agentExecution
+      if (health?.hostEnvironment)
+        hostEnvironment.value = health.hostEnvironment
+      const docsUrl = health?.distribution.documentationUrl
+      documentationUrl.value = docsUrl && /^https?:\/\//i.test(docsUrl) ? docsUrl : undefined
       if (health?.distribution.name) {
         applicationName.value = health.distribution.name
         document.title = applicationName.value
@@ -1340,10 +1362,12 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     selectedProjectDiagnostics,
     runtimeSchemaMismatch,
     applicationName,
+    documentationUrl,
     ownerScopes,
     activeOwnerScopeId,
     activeOwnerScope,
     activeTeamSyncStatus,
+    hostEnvironment,
     ownerScopeError,
     ownerScopeWorkspaceIndex,
     teamProjectOwnerScopes,
@@ -1364,6 +1388,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     activeCapability,
     unassignedProjects,
     agentTasks,
+    agentExecution,
     agentActions,
     agentActionDialogOpen,
     selectedProjectId,
@@ -1431,6 +1456,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     deleteTeam,
     refreshActiveTeamSyncStatus,
     synchronizeActiveTeam,
+    configureActiveTeamSync,
     loadOwnerScopeWorkspaceIndex,
     jumpToWorkspace,
     loadWorkspaces,

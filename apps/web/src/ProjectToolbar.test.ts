@@ -46,6 +46,7 @@ describe('project toolbar', () => {
     }
     const pinia = createPinia()
     setActivePinia(pinia)
+    useI18n().setLocale('en')
     const store = useWorkbenchStore()
     store.projects = [{ ...project, trust: 'untrusted' }]
     store.selectedProjectId = project.id
@@ -93,6 +94,7 @@ describe('project toolbar', () => {
   it('does not expose trust state or an advance-trust action in the toolbar', async () => {
     const pinia = createPinia()
     setActivePinia(pinia)
+    useI18n().setLocale('en')
     const store = useWorkbenchStore()
     store.projects = [{ ...project, trust: 'untrusted' }]
     store.selectedProjectId = project.id
@@ -115,6 +117,7 @@ describe('project toolbar', () => {
     }
     const pinia = createPinia()
     setActivePinia(pinia)
+    useI18n().setLocale('en')
     const store = useWorkbenchStore()
     store.projects = [project]
     store.selectedProjectId = project.id
@@ -136,6 +139,7 @@ describe('project toolbar', () => {
     }
     const pinia = createPinia()
     setActivePinia(pinia)
+    useI18n().setLocale('en')
     const store = useWorkbenchStore()
     store.projects = [project]
     store.selectedProjectId = project.id

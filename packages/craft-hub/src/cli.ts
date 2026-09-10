@@ -4,16 +4,36 @@ import { readFile, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import process from 'node:process'
 import { createInterface } from 'node:readline/promises'
-import { fileURLToPath } from 'node:url'
 import { cac } from 'cac'
+import { callAgentHost, startAgentMcp } from './agent-mcp'
 import { launchCraftHubApp, launchCraftHubProject } from './app'
 import { initializeMarketplacePlugin, packMarketplacePlugin, validateMarketplacePlugin } from './plugin-authoring'
+import { loadCraftHubPlugins } from './plugins'
 import { CraftHubRuntime } from './runtime'
 import { startCraftHubServer } from './server'
 import { craftHubVersion } from './version'
+import { resolveCraftHubWebDirectory } from './web-assets'
 
 const cli = cac('craft-hub')
 const runtime = new CraftHubRuntime()
+
+cli.command('mcp', 'Connect an agent to the running local host with read-only MCP tools')
+  .option('--url <origin>', 'Loopback URL shown in Settings > Agent connection')
+  .option('--credential-file <path>', 'Local credential file shown in the connection configuration')
+  .action(async (options: { url?: string, credentialFile?: string }) => {
+    if (!options.url || !options.credentialFile)
+      throw new Error('Connect an agent in Settings first, then supply --url and --credential-file')
+    await startAgentMcp({ url: options.url, credentialFile: options.credentialFile })
+  })
+
+cli.command('agent:check', 'Verify an existing local agent connection without invoking a model')
+  .option('--url <origin>', 'Loopback URL shown in Settings > Agent connection')
+  .option('--credential-file <path>', 'Local credential file shown in the connection configuration')
+  .action(async (options: { url?: string, credentialFile?: string }) => {
+    if (!options.url || !options.credentialFile)
+      throw new Error('--url and --credential-file are required')
+    console.log(JSON.stringify(await callAgentHost({ url: options.url, credentialFile: options.credentialFile }, 'check'), null, 2))
+  })
 
 cli.command('project:add <path>', 'Add a local project (untrusted by default)').action(async (path: string) => {
   console.log(JSON.stringify(await runtime.addProject(path), null, 2))
@@ -331,11 +351,16 @@ cli.command('app [path]', 'Start Craft Hub for a project directory')
     console.log(app.kind === 'desktop' ? `Opened Craft Hub Desktop at ${app.url}` : `Craft Hub is ready at ${app.url}`)
   })
 
-cli.command('ui', 'Start the local Craft Hub workbench').option('--port <port>', 'HTTP port', { default: 4318 }).action(async (options: { port: number }) => {
-  const staticDir = resolve(fileURLToPath(new URL('.', import.meta.url)), '../../../apps/web/dist')
-  const app = await startCraftHubServer({ port: Number(options.port), staticDir, runtime })
-  console.log(`Craft Hub is ready at ${app.url}`)
-})
+cli.command('ui', 'Start the local Craft Hub workbench')
+  .option('--port <port>', 'HTTP port', { default: 4318 })
+  .option('--host-plugin <specifier>', 'Load one explicitly trusted Host Plugin package or absolute module path')
+  .action(async (options: { port: number, hostPlugin?: string }) => {
+    const staticDir = resolveCraftHubWebDirectory()
+    const loaded = options.hostPlugin ? await loadCraftHubPlugins([options.hostPlugin]) : undefined
+    const uiRuntime = loaded ? new CraftHubRuntime({ plugins: loaded.plugins, pluginDiagnostics: loaded.diagnostics }) : runtime
+    const app = await startCraftHubServer({ port: Number(options.port), staticDir, runtime: uiRuntime })
+    console.log(`Craft Hub is ready at ${app.url}`)
+  })
 
 cli.help()
 cli.version(craftHubVersion)

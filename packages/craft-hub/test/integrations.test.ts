@@ -43,6 +43,41 @@ function contribution(overrides: Partial<InstalledIntegrationContribution> = {})
 }
 
 describe('integration contracts', () => {
+  it('accepts status filtering only on readable entity blocks', () => {
+    const declaration = contribution()
+    declaration.views[0]!.blocks = [{ id: 'items', type: 'entity-list', actionId: 'list', statusFilter: 'active' }]
+    // Use an existing read action from this fixture.
+    declaration.views[0]!.blocks[0]!.actionId = declaration.actions.find(action => action.effect === 'remote-read')!.id
+    expect(integrationContributionSchema.parse(declaration).views[0]?.blocks[0]?.statusFilter).toBe('active')
+    declaration.views[0]!.blocks[0]!.type = 'connection-status'
+    expect(() => integrationContributionSchema.parse(declaration)).toThrow(/Status filters require/)
+  })
+
+  it('accepts assignee filtering only on readable entity blocks', () => {
+    const declaration = contribution()
+    declaration.views[0]!.blocks = [{ id: 'items', type: 'entity-list', actionId: declaration.actions.find(action => action.effect === 'remote-read')!.id, assigneeFilter: 'current-user' }]
+    expect(integrationContributionSchema.parse(declaration).views[0]?.blocks[0]?.assigneeFilter).toBe('current-user')
+    declaration.views[0]!.blocks[0]!.type = 'connection-status'
+    expect(() => integrationContributionSchema.parse(declaration)).toThrow(/Assignee filters require/)
+  })
+
+  it('rejects auto-loaded write blocks while accepting an explicit review form', () => {
+    const declaration = contribution({
+      actions: [{ id: 'create', title: 'Create review', operation: 'merge-requests.create', effect: 'remote-write', confirmation: 'always' }],
+      views: [{ ...contribution().views[0]!, blocks: [{ id: 'create', type: 'entity-list', actionId: 'create' }] }],
+    })
+    expect(() => integrationContributionSchema.parse(declaration)).toThrow(/explicit action form/)
+    declaration.views[0]!.blocks = [{ id: 'create', type: 'action-form', actionId: 'create', collapsible: true, requiresProject: true, fields: [{ id: 'sourceBranch', label: 'Source branch', type: 'text', required: true }] }]
+    expect(integrationContributionSchema.parse(declaration).views[0]?.blocks[0]?.fields?.[0]?.required).toBe(true)
+    expect(integrationContributionSchema.parse(declaration).views[0]?.blocks[0]).toMatchObject({ collapsible: true, requiresProject: true })
+  })
+
+  it('limits form presentation options to explicit action forms', () => {
+    const declaration = contribution()
+    declaration.views[0]!.blocks[0]!.collapsible = true
+    expect(() => integrationContributionSchema.parse(declaration)).toThrow(/require an action form/)
+  })
+
   it('validates action references in declarative views', () => {
     expect(() => integrationContributionSchema.parse({
       ...contribution(),
@@ -189,5 +224,34 @@ describe('integration contracts', () => {
       .toMatchObject({ id: '1' })
     expect(calls).toBe(1)
     expect(confirmedContext).toBe(true)
+  })
+})
+
+describe('connection setup', () => {
+  const setup = () => contribution({ actions: [{ id: 'connect', title: 'Connect account', operation: 'connection.update', effect: 'local-write', confirmation: 'never' }], views: [] })
+
+  it('rejects connection writes declared as reads and diagnoses unsupported providers', () => {
+    expect(() => integrationContributionSchema.parse({ ...setup(), actions: [{ ...setup().actions[0], effect: 'remote-read' }] })).toThrow(/must declare local-write/)
+    expect(new IntegrationRegistry([provider()]).resolve([setup()]).diagnostics[0]?.message).toContain('connection.update')
+  })
+
+  it('requires confirmation and binds a one-time callback to the original project', async () => {
+    const completed: unknown[] = []
+    const registry = new IntegrationRegistry([provider({ connection: {
+      update: async () => ({ connected: false, authorizationUrl: 'https://example.com/oauth?state=random-state' }),
+      complete: async (context, input) => {
+        completed.push({ context, input })
+        return { connected: true }
+      },
+    } })])
+    const resolved = registry.resolve([setup()]).integrations[0]!
+    await expect(registry.invoke({ contribution: resolved, actionId: 'connect' })).rejects.toBeInstanceOf(IntegrationConfirmationRequiredError)
+    const context = { projectId: 'original', projectPath: '/project', callbackUrl: 'http://127.0.0.1:4318/api/integrations/example-tools/callback' }
+    await registry.invoke({ contribution: resolved, actionId: 'connect', context, confirmed: true })
+    await expect(registry.completeConnection(resolved, { state: 'unknown', code: 'code' })).rejects.toThrow(/invalid or expired/)
+    await expect(registry.completeConnection({ ...resolved, id: 'other' }, { state: 'random-state', code: 'code' })).rejects.toThrow(/invalid or expired/)
+    await registry.completeConnection(resolved, { state: 'random-state', code: 'code', projectId: 'attacker' })
+    expect(completed).toEqual([{ context: { ...context, confirmed: true }, input: { state: 'random-state', code: 'code', projectId: 'attacker' } }])
+    await expect(registry.completeConnection(resolved, { state: 'random-state', code: 'code' })).rejects.toThrow(/invalid or expired/)
   })
 })

@@ -107,3 +107,15 @@ _Avoid_: Plugin Manifest, installed plugin
 **Plugin Manifest**:
 The declaration shipped inside a Marketplace Plugin package that describes its identity, permissions, project matching, and contributed capabilities.
 _Avoid_: Catalog Entry, Codex plugin manifest
+
+**Workspace Source**:
+A publisher-maintained collection of portable Workspaces available from a repository location. Its author and visibility do not grant local execution trust.
+_Avoid_: Team, checkout, personal configuration
+
+**Workspace Subscription**:
+A user's selection of Workspaces from a Workspace Source, viewed at the last applied source revision. Independent copies stop following that source.
+_Avoid_: One-time import, project installation, repository authorization
+
+**Workspace Source Catalog**:
+A discoverable index of Workspace Sources available to the current audience. Inclusion in a catalog does not grant permission to read the source repository.
+_Avoid_: Plugin Catalog, repository ACL, workspace snapshot

@@ -1,9 +1,9 @@
 import { Buffer } from 'node:buffer'
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { readPackageDocument, readPackageDocumentAsset, readProjectOverviewAsset, readProjectReadme } from '../src/project-overview'
+import { readPackageDocument, readPackageDocumentAsset, readPackageIconDataUrl, readProjectOverviewAsset, readProjectReadme } from '../src/project-overview'
 
 describe('project overview files', () => {
   it('discovers a case-insensitive package README and returns bounded UTF-8 Markdown', async () => {
@@ -52,4 +52,19 @@ describe('project overview files', () => {
     await expect(readPackageDocumentAsset(root, 'docs/preview.webp')).resolves.toMatchObject({ contentType: 'image/webp' })
     await expect(readPackageDocumentAsset(root, '../preview.webp')).resolves.toBeUndefined()
   })
+})
+
+it('isolates SVG icons as images and rejects oversized or escaping assets', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'plugin-icon-'))
+  const svg = '<svg xmlns="http://www.w3.org/2000/svg"><path d="M0 0h10v10"/></svg>'
+  await writeFile(join(root, 'icon.svg'), svg)
+  expect(await readPackageIconDataUrl(root, 'icon.svg')).toBe(`data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`)
+  expect(await readPackageIconDataUrl(root, '../icon.svg')).toBeUndefined()
+  expect(await readPackageIconDataUrl(root, 'missing.svg')).toBeUndefined()
+  await writeFile(join(root, 'large.svg'), 'x'.repeat(128_001))
+  expect(await readPackageIconDataUrl(root, 'large.svg')).toBeUndefined()
+  const outside = await mkdtemp(join(tmpdir(), 'outside-icon-'))
+  await writeFile(join(outside, 'icon.svg'), svg)
+  await symlink(join(outside, 'icon.svg'), join(root, 'link.svg'))
+  expect(await readPackageIconDataUrl(root, 'link.svg')).toBeUndefined()
 })

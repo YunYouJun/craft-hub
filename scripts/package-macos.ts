@@ -9,6 +9,8 @@ import { packager } from '@electron/packager'
 import { createDesktopBuildInfo } from '../apps/desktop/src/build-info.ts'
 import { communityDesktopArtifactName, communityDesktopProtocol, loadDesktopDistributionManifest, resolveDesktopDistributionAsset } from '../apps/desktop/src/distribution.ts'
 import { macosApplicationVersion } from '../apps/desktop/src/macos-version.ts'
+import { loadCraftHubPlugins } from '../packages/craft-hub/src/plugins.ts'
+import { packageHostPlugins } from './package-host-plugins.ts'
 
 const execFileAsync = promisify(execFile)
 const staplerRetryDelayMs = 15_000
@@ -295,6 +297,11 @@ export async function packageMacos(options: MacosPackageOptions = {}): Promise<M
     if (configuredDistributionPath) {
       const targetManifestPath = join(desktopDirectory, 'distribution.json')
       await cp(configuredDistributionPath, targetManifestPath)
+      const hostPluginSpecifiers = desktopDistribution?.hostPlugins ?? []
+      await packageHostPlugins(configuredDistributionPath, desktopDirectory, hostPluginSpecifiers)
+      const hostPlugins = await loadCraftHubPlugins(hostPluginSpecifiers, { baseDir: desktopDirectory })
+      if (hostPlugins.diagnostics.length)
+        throw new Error(`Packaged host plugins failed to load: ${JSON.stringify(hostPlugins.diagnostics)}`)
       for (const assetPath of Object.values(desktopDistribution?.desktop.icons ?? {}))
         await copyDistributionAsset(configuredDistributionPath, targetManifestPath, assetPath)
     }

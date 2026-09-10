@@ -1,17 +1,23 @@
 <script setup lang="ts">
-import type { IntegrationActionResult, IntegrationConnectionStatus, IntegrationEntityPage } from 'craft-hub'
+import type { ConfigurationManagementPage, IntegrationActionResult, IntegrationConnectionStatus, IntegrationEntityPage } from 'craft-hub'
 import type { WorkbenchIntegrationView } from './store'
 import { computed, reactive, ref, watch } from 'vue'
 import { api } from './api'
-import { Icon } from './icons'
+import { FormSelect } from './components/ui/select'
+import { Button as UiButton } from './components/ui/button'
+import Icon from './NavigationIcon.vue'
+import ConfigurationManager from './ConfigurationManager.vue'
 import { useI18n } from './i18n'
+import IntegrationResourceBrowser from './IntegrationResourceBrowser.vue'
+import IntegrationActionForm from './IntegrationActionForm.vue'
+import IntegrationConnectionSetup from './IntegrationConnectionSetup.vue'
 import IntegrationEntityList from './IntegrationEntityList.vue'
 import { useWorkbenchStore } from './store'
-import VisualIcon from './VisualIcon.vue'
+import WorkbenchViewHeader from './WorkbenchViewHeader.vue'
 
 const props = withDefaults(defineProps<{ embedded?: boolean, integrationId: string, viewId: string }>(), { embedded: false })
 const store = useWorkbenchStore()
-const { t } = useI18n()
+const { t, locale } = useI18n()
 
 interface BlockState {
   loading: boolean
@@ -21,8 +27,18 @@ interface BlockState {
 
 const states = reactive<Record<string, BlockState>>({})
 const searches = ref<Record<string, string>>({})
+const inspectedProjectId = ref(store.selectedProjectId || '')
+watch(() => store.selectedProjectId, value => { inspectedProjectId.value = value || '' })
 const view = computed(() => store.integrationViews.find(candidate => candidate.integrationId === props.integrationId && candidate.id === props.viewId))
 const contribution = computed(() => store.integrationContributions.find(candidate => candidate.id === props.integrationId))
+const scopeSelection = computed({
+  get: () => inspectedProjectId.value || 'global',
+  set: (value: string) => { inspectedProjectId.value = value === 'global' ? '' : value },
+})
+const scopeOptions = computed(() => [
+  { value: 'global', label: t('integrationGlobalScope') },
+  ...store.projects.map(project => ({ value: project.id, label: project.name, icon: 'folder' })),
+])
 const requiresProject = computed(() => view.value?.scope === 'project')
 const diagnostics = computed(() => store.integrationDiagnostics.filter(diagnostic => diagnostic.integrationId === props.integrationId))
 
@@ -33,7 +49,15 @@ function stateFor(blockId: string): BlockState {
 }
 
 function actionTitle(block: WorkbenchIntegrationView['blocks'][number]): string {
-  return block.title ?? contribution.value?.actions.find(action => action.id === block.actionId)?.title ?? block.id
+  return translate(block.title ?? contribution.value?.actions.find(action => action.id === block.actionId)?.title ?? block.id)
+}
+
+function blockNeedsProject(block: WorkbenchIntegrationView['blocks'][number]): boolean {
+  return Boolean(block.requiresProject && (view.value?.scope === 'global' || !inspectedProjectId.value))
+}
+
+function translate(value: string): string {
+  return contribution.value?.translations?.[locale.value]?.[value] ?? value
 }
 
 function connectionStatus(result: IntegrationActionResult | undefined): IntegrationConnectionStatus | undefined {
@@ -41,7 +65,11 @@ function connectionStatus(result: IntegrationActionResult | undefined): Integrat
 }
 
 function entityPage(result: IntegrationActionResult | undefined): IntegrationEntityPage | undefined {
-  return result && 'items' in result ? result : undefined
+  return result && 'items' in result && !('configuration' in result) ? result : result && 'id' in result && 'title' in result ? { items: [result] } : undefined
+}
+
+function configurationPage(result: IntegrationActionResult | undefined): ConfigurationManagementPage | undefined {
+  return result && 'configuration' in result ? result : undefined
 }
 
 function statusActionsFor(block: WorkbenchIntegrationView['blocks'][number]): {
@@ -62,9 +90,20 @@ function statusActionsFor(block: WorkbenchIntegrationView['blocks'][number]): {
     return undefined
   return {
     integrationId: currentContribution.id,
-    projectId: view.value?.scope === 'global' ? undefined : store.selectedProjectId || undefined,
+    projectId: view.value?.scope === 'global' ? undefined : inspectedProjectId.value || undefined,
     transitionsActionId: transitions.id,
     updateActionId: update.id,
+  }
+}
+
+function workItemActionsFor(block: WorkbenchIntegrationView['blocks'][number]) {
+  const current = contribution.value
+  if (!current?.actions.some(action => action.id === block.actionId && ['work-items.list', 'work-items.search'].includes(action.operation)))
+    return undefined
+  return {
+    integrationId: current.id,
+    projectId: view.value?.scope === 'global' ? undefined : inspectedProjectId.value || undefined,
+    detailActionId: current.actions.find(action => action.operation === 'work-items.get')?.id,
   }
 }
 
@@ -82,13 +121,22 @@ async function invoke(block: WorkbenchIntegrationView['blocks'][number], extraIn
   state.loading = true
   state.error = ''
   try {
-    const projectId = currentView.scope === 'global' ? undefined : store.selectedProjectId || undefined
+    const projectId = currentView.scope === 'global' ? undefined : inspectedProjectId.value || undefined
     if (currentView.scope === 'project' && !projectId)
       throw new Error(t('integrationProjectRequired'))
+    const callInput = { ...(block.input ?? {}), ...extraInput, ...(contribution.value?.translations || contribution.value?.actions.find(action => action.id === block.actionId)?.operation === 'configuration.list' ? { locale: locale.value } : {}) }
+    if (!state.result && block.previewInput) {
+      try {
+        state.result = await api.invokeIntegrationAction(props.integrationId, block.actionId, { ...callInput, ...block.previewInput }, projectId)
+      }
+      catch {
+        // The complete read remains authoritative when an optional preview fails.
+      }
+    }
     state.result = await api.invokeIntegrationAction(
       props.integrationId,
       block.actionId,
-      { ...(block.input ?? {}), ...extraInput },
+      callInput,
       projectId,
     )
   }
@@ -105,8 +153,17 @@ async function search(block: WorkbenchIntegrationView['blocks'][number]): Promis
   await invoke(block, { keyword: searches.value[block.id]?.trim() ?? '' })
 }
 
+async function refresh(): Promise<void> {
+  const currentView = view.value
+  if (!currentView)
+    return
+  await Promise.all(currentView.blocks
+    .filter(block => block.type === 'connection-status' || block.type === 'entity-list')
+    .map(block => invoke(block)))
+}
+
 watch(
-  () => [view.value?.id, store.selectedProjectId],
+  [() => props.integrationId, () => view.value?.id, () => inspectedProjectId.value, () => locale.value],
   async () => {
     for (const key of Object.keys(states))
       delete states[key]
@@ -114,7 +171,7 @@ watch(
     if (!currentView)
       return
     await Promise.all(currentView.blocks
-      .filter(block => block.type === 'connection-status' || block.type === 'entity-list')
+      .filter(block => block.type === 'connection-status' || block.type === 'entity-list' || block.type === 'configuration-manager')
       .map(block => invoke(block)))
   },
   { immediate: true },
@@ -122,15 +179,14 @@ watch(
 </script>
 
 <template>
-  <main class="integration-workbench" :class="{ embedded }">
-    <section v-if="view" class="integration-content">
-      <header v-if="!embedded" class="integration-header">
-        <span class="integration-mark"><VisualIcon :icon="view.icon" fallback="plugins" /></span>
-        <div>
-          <h1>{{ view.title }}</h1>
-          <p>{{ view.pluginId }} · {{ view.providerId }}@{{ view.providerVersion }}</p>
-        </div>
-      </header>
+  <main class="integration-workbench workbench-view" :class="{ embedded }">
+    <section v-if="view" class="integration-content workbench-view-content">
+      <WorkbenchViewHeader v-if="!embedded" class="integration-header" :title="translate(view.title)" :icon="view.icon" />
+
+      <label v-if="view.scope === 'global-and-project'" class="integration-scope">
+        <span>{{ t('integrationScope') }}</span>
+        <FormSelect v-model="scopeSelection" :options="scopeOptions" :aria-label="t('integrationScope')" />
+      </label>
 
       <aside v-if="diagnostics.length" class="integration-diagnostics" role="alert">
         <Icon name="error" />
@@ -147,47 +203,92 @@ watch(
       </section>
 
       <div v-else class="integration-blocks">
-        <article v-for="block in view.blocks" :key="block.id" class="integration-block" :data-testid="`integration-block-${block.id}`">
-          <header>
+        <component :is="block.collapsible ? 'details' : 'article'" v-for="block in view.blocks" :key="block.id" class="integration-block" :class="{ 'integration-block-collapsible': block.collapsible }" :data-testid="`integration-block-${block.id}`">
+          <component :is="block.collapsible ? 'summary' : 'header'" v-if="block.type !== 'resource-browser'" class="integration-block-heading">
+            <Icon v-if="block.collapsible" class="integration-block-chevron" name="arrowRight" />
             <div>
               <h2>{{ actionTitle(block) }}</h2>
-              <p v-if="block.description">{{ block.description }}</p>
+              <p v-if="block.description">{{ translate(block.description) }}</p>
             </div>
-            <button v-if="block.type !== 'entity-search'" type="button" :disabled="stateFor(block.id).loading" @click="invoke(block)">
+            <UiButton v-if="block.type !== 'entity-search' && block.type !== 'action-form'" size="compact" :disabled="stateFor(block.id).loading" @click="block.type === 'connection-status' ? refresh() : invoke(block)">
               <Icon :name="stateFor(block.id).loading ? 'loading' : 'refresh'" />
               {{ t('refresh') }}
-            </button>
-          </header>
+            </UiButton>
+          </component>
+
+          <p v-if="blockNeedsProject(block)" class="integration-empty-copy">{{ t('integrationProjectRequired') }}</p>
+
+          <IntegrationResourceBrowser
+            v-if="block.type === 'resource-browser' && contribution"
+            :integration-id="integrationId" :contribution="contribution" :input="block.input"
+            :project-id="view.scope === 'global' ? undefined : inspectedProjectId || undefined"
+          />
+          <IntegrationActionForm
+            v-if="block.type === 'action-form' && contribution && !blockNeedsProject(block)"
+            :key="`${integrationId}:${inspectedProjectId}:${locale}:${block.id}`"
+            :integration-id="integrationId" :block="block"
+            :action="contribution.actions.find(action => action.id === block.actionId)!"
+            :project-id="view.scope === 'global' ? undefined : inspectedProjectId || undefined"
+            :project-title="store.projects.find(project => project.id === inspectedProjectId)?.name"
+            :translate="translate" @completed="stateFor(block.id).result = $event"
+          />
 
           <form v-if="block.type === 'entity-search'" class="integration-search" @submit.prevent="search(block)">
             <Icon name="search" />
             <input v-model="searches[block.id]" type="search" :placeholder="t('integrationSearchPlaceholder')" :aria-label="actionTitle(block)">
-            <button type="submit" :disabled="stateFor(block.id).loading">
+            <UiButton type="submit" size="compact" :disabled="stateFor(block.id).loading">
               <Icon v-if="stateFor(block.id).loading" name="loading" />
               {{ t('search') }}
-            </button>
+            </UiButton>
           </form>
 
-          <p v-if="stateFor(block.id).error" class="integration-error" role="alert">{{ stateFor(block.id).error }}</p>
+          <p v-if="stateFor(block.id).error" class="integration-error" role="alert">{{ translate(stateFor(block.id).error) }}</p>
 
           <div v-else-if="connectionStatus(stateFor(block.id).result)" class="integration-connection" :class="{ connected: connectionStatus(stateFor(block.id).result)?.connected }">
             <span><Icon :name="connectionStatus(stateFor(block.id).result)?.connected ? 'check' : 'error'" /></span>
             <div>
               <strong>{{ connectionStatus(stateFor(block.id).result)?.connected ? t('integrationConnected') : t('integrationDisconnected') }}</strong>
               <p v-if="connectionStatus(stateFor(block.id).result)?.accountLabel">{{ connectionStatus(stateFor(block.id).result)?.accountLabel }}</p>
-              <p v-if="connectionStatus(stateFor(block.id).result)?.message">{{ connectionStatus(stateFor(block.id).result)?.message }}</p>
+              <p v-if="connectionStatus(stateFor(block.id).result)?.message">{{ translate(connectionStatus(stateFor(block.id).result)?.message ?? '') }}</p>
             </div>
           </div>
+
+          <ConfigurationManager
+            v-if="configurationPage(stateFor(block.id).result) && contribution"
+            :page="configurationPage(stateFor(block.id).result)!"
+            :contribution="contribution"
+            :project-id="view.scope === 'global' ? undefined : inspectedProjectId || undefined"
+            @updated="stateFor(block.id).result = $event"
+          />
+
+          <IntegrationConnectionSetup
+            v-if="connectionStatus(stateFor(block.id).result)"
+            :key="`${integrationId}:${inspectedProjectId}:${locale}`"
+            :status="connectionStatus(stateFor(block.id).result)!"
+            :integration-id="integrationId"
+            :action-id="contribution?.actions.find(action => action.operation === 'connection.update')?.id"
+            :project-id="view.scope === 'global' ? undefined : inspectedProjectId || undefined"
+            :translate="translate" @updated="refresh"
+          />
 
           <IntegrationEntityList
             v-else-if="entityPage(stateFor(block.id).result)"
             :items="entityPage(stateFor(block.id).result)!.items"
+            :status-filter="block.statusFilter"
+            :assignee-filter="block.assigneeFilter"
+            :current-user="entityPage(stateFor(block.id).result)!.currentUser"
             :status-actions="statusActionsFor(block)"
+            :work-item-actions="workItemActionsFor(block)"
+            :key="`${integrationId}:${inspectedProjectId}:${locale}`"
+            :loading="stateFor(block.id).loading"
+            :configuration-action-id="contribution?.actions.find(action => action.operation === 'configuration.list' && action.id === block.actionId) ? contribution.actions.find(action => action.operation === 'configuration.update')?.id : undefined"
+            @configuration-updated="stateFor(block.id).result = $event"
+            :source-context="{ integrationId, actionId: block.actionId, projectId: view.scope === 'global' ? undefined : inspectedProjectId || undefined }"
             @updated="applyEntityUpdate(block.id, $event)"
           />
 
           <p v-else-if="stateFor(block.id).loading" class="integration-loading"><Icon name="loading" /> {{ t('loading') }}</p>
-        </article>
+        </component>
       </div>
     </section>
 
@@ -200,40 +301,42 @@ watch(
 </template>
 
 <style scoped>
-.integration-workbench { flex: 1; min-width: 0; overflow: auto; background: var(--surface); }
-.integration-content { width: min(980px, calc(100% - 48px)); margin: 0 auto; padding: 36px 0 72px; }
-.integration-workbench.embedded { overflow: visible; background: transparent; }
-.integration-workbench.embedded .integration-content { width: 100%; padding: 0; }
-.integration-header { display: flex; align-items: center; gap: 14px; margin-bottom: 24px; }
-.integration-header h1 { margin: 0; font-size: 24px; letter-spacing: -.02em; }
-.integration-header p { margin: 4px 0 0; color: var(--muted); font-size: 12px; }
-.integration-mark { display: grid; width: 44px; height: 44px; place-items: center; border: 1px solid var(--border); border-radius: 13px; color: var(--accent); background: var(--surface); }
-.integration-mark :deep(.visual-icon), .integration-mark :deep(.app-icon) { width: 22px; height: 22px; }
-.integration-blocks { display: grid; gap: 16px; }
-.integration-block { overflow: hidden; border: 1px solid var(--border); border-radius: 14px; background: var(--surface); }
-.integration-block > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 16px 18px; border-bottom: 1px solid var(--border); }
-.integration-block h2 { margin: 0; font-size: 15px; }
-.integration-block header p { margin: 4px 0 0; color: var(--muted); font-size: 12px; }
-.integration-block button { display: inline-flex; align-items: center; gap: 6px; min-height: 30px; padding: 0 10px; border: 1px solid var(--border); border-radius: 8px; color: var(--text); background: var(--surface); cursor: pointer; }
-.integration-block button:disabled { opacity: .55; cursor: default; }
-.integration-block button .app-icon { width: 14px; height: 14px; }
-.integration-search { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 10px; padding: 14px 18px; border-bottom: 1px solid var(--border); }
+.integration-scope { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; font-size: var(--font-size-body); color: var(--muted); }
+.integration-scope > span { flex: none; }
+.integration-scope :deep([data-slot='select-trigger']) { width: auto; max-width: min(280px, calc(100% - 72px)); }
+.integration-blocks { display: grid; gap: 12px; }
+.integration-block { min-width: 0; overflow: hidden; border: 1px solid var(--border); border-radius: var(--control-radius); background: var(--surface); }
+.integration-block-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 10px 12px; border-bottom: 1px solid var(--border); }
+.integration-block-heading > div { min-width: 0; }
+.integration-block-heading > button { flex-shrink: 0; white-space: nowrap; }
+.integration-block-collapsible > summary { justify-content: flex-start; align-items: center; gap: 8px; border-bottom: 0; cursor: pointer; list-style: none; }
+.integration-block-collapsible > summary::-webkit-details-marker { display: none; }
+.integration-block-collapsible > summary:hover { background: var(--surface-muted); }
+.integration-block-collapsible > summary:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; border-radius: var(--control-radius); }
+.integration-block-collapsible[open] > summary { border-bottom: 1px solid var(--border); }
+.integration-block-chevron { width: 14px; height: 14px; color: var(--muted); }
+.integration-block-collapsible[open] .integration-block-chevron { transform: rotate(90deg); }
+.integration-block h2 { margin: 0; font-size: var(--font-size-emphasis); font-weight: 600; }
+.integration-block-heading p { margin: 4px 0 0; color: var(--muted); font-size: 12px; }
+.integration-search { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 10px; padding: 10px 12px; border-bottom: 1px solid var(--border); }
 .integration-search > .app-icon { width: 17px; height: 17px; color: var(--muted); }
 .integration-search input { min-width: 0; border: 0; outline: 0; color: var(--text); background: transparent; font: inherit; }
-.integration-connection { display: flex; align-items: flex-start; gap: 10px; padding: 16px 18px; color: var(--danger); }
+.integration-connection { display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; color: var(--danger); }
 .integration-connection.connected { color: var(--success); }
 .integration-connection div { display: grid; gap: 3px; color: var(--text); }
 .integration-connection p { margin: 0; color: var(--muted); font-size: 12px; }
-.integration-error, .integration-loading, .integration-empty-copy { margin: 0; padding: 16px 18px; color: var(--muted); font-size: 13px; }
+.integration-error, .integration-loading, .integration-empty-copy { margin: 0; padding: 10px 12px; color: var(--muted); font-size: 13px; }
 .integration-error { color: var(--danger); }
 .integration-loading { display: flex; align-items: center; gap: 8px; }
 .integration-loading .app-icon { width: 15px; height: 15px; }
-.integration-diagnostics { display: flex; gap: 10px; margin-bottom: 16px; padding: 12px 14px; border: 1px solid color-mix(in srgb, var(--danger) 35%, var(--border)); border-radius: 10px; color: var(--danger); background: color-mix(in srgb, var(--danger) 6%, var(--surface)); }
+.integration-diagnostics { display: flex; gap: 10px; margin-bottom: 12px; padding: 12px 14px; border: 1px solid color-mix(in srgb, var(--danger) 35%, var(--border)); border-radius: 10px; color: var(--danger); background: color-mix(in srgb, var(--danger) 6%, var(--surface)); }
 .integration-diagnostics .app-icon { flex: none; width: 18px; height: 18px; }
 .integration-diagnostics p { margin: 3px 0 0; font-size: 12px; }
 .integration-empty { display: grid; min-height: 320px; place-items: center; align-content: center; gap: 8px; padding: 40px; color: var(--muted); text-align: center; }
 .integration-empty .app-icon { width: 28px; height: 28px; }
 .integration-empty h1, .integration-empty h2, .integration-empty p { margin: 0; }
 .integration-empty h1, .integration-empty h2 { color: var(--text); font-size: 17px; }
-@media (max-width: 720px) { .integration-content { width: min(100% - 24px, 980px); padding-top: 22px; } }
+.integration-header > div, .integration-blocks, .integration-connection div { min-width: 0; }
+.integration-header p, .integration-connection p { overflow-wrap: anywhere; }
+@media (max-width: 760px) { .integration-search input { font-size: 16px; } }
 </style>

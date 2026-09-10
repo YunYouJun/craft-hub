@@ -6,6 +6,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { api } from './api'
+import { useI18n } from './i18n'
 import ProjectSkillsDialog from './ProjectSkillsDialog.vue'
 import { useWorkbenchStore } from './store'
 
@@ -32,6 +33,7 @@ describe('project Skills dialog', () => {
   it('shows every installed plugin Skill and saves machine-local activation choices', async () => {
     const pinia = createPinia()
     setActivePinia(pinia)
+    useI18n().setLocale('en')
     const store = useWorkbenchStore()
     store.projects = [project]
     store.selectedProjectId = project.id

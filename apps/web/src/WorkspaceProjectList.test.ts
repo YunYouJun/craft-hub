@@ -5,6 +5,7 @@ import type { CommandCapability, ProjectRecord, WorkspaceRecord } from 'craft-hu
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { describe, expect, it, vi } from 'vitest'
+import { useI18n } from './i18n'
 import { useWorkbenchStore } from './store'
 import WorkspaceProjectList from './WorkspaceProjectList.vue'
 
@@ -41,6 +42,7 @@ describe('workspace project list', () => {
   it('shows the primary project first with prioritized status and at most two pinned capabilities', async () => {
     const pinia = createPinia()
     setActivePinia(pinia)
+    useI18n().setLocale('en')
     const store = useWorkbenchStore()
     const pinned = [command('dev', 'wetools'), command('test', 'wetools'), command('build', 'wetools')]
     store.projects = projects
@@ -69,6 +71,7 @@ describe('workspace project list', () => {
   it('opens a project from its independent project button', async () => {
     const pinia = createPinia()
     setActivePinia(pinia)
+    useI18n().setLocale('en')
     const store = useWorkbenchStore()
     store.projects = projects
     store.workspaces = [workspace]
@@ -84,6 +87,7 @@ describe('workspace project list', () => {
   it('does not treat project trust as a static list status', () => {
     const pinia = createPinia()
     setActivePinia(pinia)
+    useI18n().setLocale('en')
     const store = useWorkbenchStore()
     store.projects = projects
     store.workspaces = [workspace]
@@ -99,6 +103,7 @@ describe('workspace project list', () => {
   it('renders an actionable empty state for a workspace with no members', () => {
     const pinia = createPinia()
     setActivePinia(pinia)
+    useI18n().setLocale('en')
     const store = useWorkbenchStore()
     store.workspaces = [{ ...workspace, id: 'empty', name: 'Empty', primaryProject: undefined, members: [] }]
     store.selectedWorkspaceId = 'empty'
@@ -111,6 +116,7 @@ describe('workspace project list', () => {
   it('distinguishes an available unregistered project from a missing project', () => {
     const pinia = createPinia()
     setActivePinia(pinia)
+    useI18n().setLocale('en')
     const store = useWorkbenchStore()
     store.workspaces = [{
       ...workspace,

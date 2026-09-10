@@ -6,7 +6,7 @@ import type { OwnerScopeWorkspaceData, WorkspaceService } from './workspaces'
 /** Input required to create one isolated, Git-backed Team. */
 export interface CreateTeamInput {
   name: string
-  repositoryPath: string
+  repositoryPath?: string
   directory?: string
 }
 
@@ -32,8 +32,10 @@ export class TeamManager {
   /** Create a Team only when its Git target and initial snapshot are ready. */
   async create(input: CreateTeamInput): Promise<OwnerScope> {
     const team = await this.ownerScopes.createTeam(input.name)
+    if (!input.repositoryPath)
+      return team
     try {
-      await this.gitSync.configure(team.id, input)
+      await this.gitSync.configure(team.id, { ...input, repositoryPath: input.repositoryPath })
       await this.gitSync.synchronize(team.id)
       return team
     }

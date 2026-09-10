@@ -63,6 +63,20 @@ export class OwnerScopeService {
     return team
   }
 
+  /** Restore a stable shared identity; never merge an unrelated local Team by name. */
+  async ensureTeam(team: OwnerScope): Promise<OwnerScope> {
+    validateOwnerScopeCatalog({ schemaVersion: 1, teams: [team] })
+    const catalog = await this.catalog()
+    const existing = catalog.teams.find(item => item.id === team.id)
+    if (existing) {
+      if (existing.name !== team.name)
+        await this.writeCatalog({ ...catalog, teams: catalog.teams.map(item => item.id === team.id ? team : item) })
+      return team
+    }
+    await this.writeCatalog({ ...catalog, teams: [...catalog.teams, team] })
+    return team
+  }
+
   /** Rename a Team while preserving its stable owner-scope identity. */
   async renameTeam(id: string, name: string): Promise<OwnerScope> {
     const trimmed = validateTeamName(name)

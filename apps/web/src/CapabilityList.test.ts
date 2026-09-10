@@ -6,6 +6,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import CapabilityList from './CapabilityList.vue'
+import { useI18n } from './i18n'
 import { useWorkbenchStore } from './store'
 
 describe('capability list', () => {
@@ -15,6 +16,7 @@ describe('capability list', () => {
   it('shows project-level command and skill counts in the filters', () => {
     const pinia = createPinia()
     setActivePinia(pinia)
+    useI18n().setLocale('en')
     const store = useWorkbenchStore()
     store.selectedProjectId = 'project'
     store.capabilities = [
@@ -52,6 +54,7 @@ describe('capability list', () => {
   it('shows friendly skill sources only when a project mixes source types', async () => {
     const pinia = createPinia()
     setActivePinia(pinia)
+    useI18n().setLocale('en')
     const store = useWorkbenchStore()
     store.selectedProjectId = 'project'
     store.capabilities = [
@@ -103,6 +106,7 @@ describe('capability list', () => {
     }
     const pinia = createPinia()
     setActivePinia(pinia)
+    useI18n().setLocale('en')
     const store = useWorkbenchStore()
     store.projects = [project]
     store.selectedProjectId = project.id
@@ -118,6 +122,7 @@ describe('capability list', () => {
   it('labels first-run-friendly and high-impact commands', () => {
     const pinia = createPinia()
     setActivePinia(pinia)
+    useI18n().setLocale('en')
     const store = useWorkbenchStore()
     store.selectedProjectId = 'project'
     store.capabilities = [
@@ -150,6 +155,7 @@ describe('capability list', () => {
   it('offers safe recovery when no capabilities are discovered', () => {
     const pinia = createPinia()
     setActivePinia(pinia)
+    useI18n().setLocale('en')
     const store = useWorkbenchStore()
     store.projects = [{
       id: 'empty',
@@ -205,6 +211,7 @@ describe('capability list', () => {
     ]
     const pinia = createPinia()
     setActivePinia(pinia)
+    useI18n().setLocale('en')
     const store = useWorkbenchStore()
     store.projects = [project]
     store.selectedProjectId = project.id
@@ -241,6 +248,7 @@ describe('capability list', () => {
     }))
     const pinia = createPinia()
     setActivePinia(pinia)
+    useI18n().setLocale('en')
     const store = useWorkbenchStore()
     store.selectedProjectId = 'monorepo'
     store.commandPackagesByProject = {
@@ -341,6 +349,7 @@ describe('capability list', () => {
     const pinOrders: string[][] = []
     const pinia = createPinia()
     setActivePinia(pinia)
+    useI18n().setLocale('en')
     const store = useWorkbenchStore()
     store.projects = [project]
     store.selectedProjectId = project.id
@@ -369,6 +378,7 @@ describe('capability list', () => {
   it('shows a dismissible Codex suggestion again when the missing command set changes', async () => {
     const pinia = createPinia()
     setActivePinia(pinia)
+    useI18n().setLocale('en')
     const store = useWorkbenchStore()
     store.selectedProjectId = 'project'
     store.agentActions = [{
