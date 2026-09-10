@@ -2,6 +2,7 @@ import type { CraftHubRuntime } from './runtime'
 import { createHash, randomUUID } from 'node:crypto'
 import { mkdir, open, readFile, rename, rm } from 'node:fs/promises'
 import { join } from 'node:path'
+import process from 'node:process'
 import { z } from 'zod'
 import { projectAccentColors } from './types'
 import { WorkspaceSubscriptionError } from './workspace-repository'
@@ -209,6 +210,9 @@ export class AccountSyncService {
     }
     finally { await file.close() }
     await rename(temp, path)
+    // Windows does not support fsync on directory handles; the file is already flushed before rename.
+    if (process.platform === 'win32')
+      return
     const directory = await open(this.runtime.store.dataDir, 'r')
     try {
       await directory.sync()

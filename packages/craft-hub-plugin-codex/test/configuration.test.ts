@@ -30,7 +30,7 @@ describe('codex configuration inspector', () => {
     expect(row.status).toBe('配置已开启')
     expect(row.details).toContainEqual({ label: '全局配置', value: '关闭' })
     expect(row.details?.find(detail => detail.label === '项目覆盖')?.value).toContain('开启')
-    expect(row.details?.find(detail => detail.label === '生效来源')?.sourcePath).toBe('/project/.codex/config.toml')
+    expect(row.details?.find(detail => detail.label === '生效来源')?.sourcePath).toBe(join('/project', '.codex', 'config.toml'))
   })
 
   it('reuses catalog results while re-reading changed enable configuration', async () => {

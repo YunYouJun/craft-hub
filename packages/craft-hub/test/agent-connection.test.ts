@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { request as httpRequest } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import process from 'node:process'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -46,7 +47,9 @@ describe('local agent connection', () => {
     expect(response.status, JSON.stringify(status)).toBe(200)
     const credential = JSON.parse(await readFile(service.credentialPath, 'utf8'))
     expect(JSON.stringify(status)).not.toContain(credential.token)
-    expect((await stat(service.credentialPath)).mode & 0o777).toBe(0o600)
+    // Windows permissions use ACLs rather than POSIX mode bits.
+    if (process.platform !== 'win32')
+      expect((await stat(service.credentialPath)).mode & 0o777).toBe(0o600)
     expect(status.mcpConfig.mcpServers['craft-hub'].args).toContain('mcp')
     const list = await callAgentHost(options, 'craft_hub_projects')
     expect(list).toMatchObject([{ id: projects[0]!.id, trust: 'untrusted' }])
