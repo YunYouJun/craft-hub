@@ -204,7 +204,7 @@ watch(
 
       <div v-else class="integration-blocks">
         <component :is="block.collapsible ? 'details' : 'article'" v-for="block in view.blocks" :key="block.id" class="integration-block" :class="{ 'integration-block-collapsible': block.collapsible }" :data-testid="`integration-block-${block.id}`">
-          <component :is="block.collapsible ? 'summary' : 'header'" v-if="block.type !== 'resource-browser'" class="integration-block-heading">
+          <component :is="block.collapsible ? 'summary' : 'header'" v-if="!['resource-browser', 'configuration-manager'].includes(block.type)" class="integration-block-heading">
             <Icon v-if="block.collapsible" class="integration-block-chevron" name="arrowRight" />
             <div>
               <h2>{{ actionTitle(block) }}</h2>

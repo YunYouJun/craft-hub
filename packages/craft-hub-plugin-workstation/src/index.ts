@@ -92,6 +92,7 @@ export function createWorkstationPlugin(transport: WorkstationTransport = workst
       },
     }],
     integrations: [{
+      translations: { 'zh-CN': { 'Inspect configuration': '配置同步', 'Review configuration changes': '审阅配置修改', 'Synchronize repository': '同步仓库' }, 'en': { 开发环境: 'Development environment' } },
       id: 'workstation',
       provider: { id: 'workstation', requires: '^1.0.0' },
       actions: [

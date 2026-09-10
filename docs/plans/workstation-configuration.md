@@ -121,3 +121,14 @@ Latest temporary logs use `/tmp/craft-hub-merge-` and `/tmp/workstation-merge-`.
 - Selected global scope and opened one real MCP first-adoption difference. Local/source paths and redacted changed fields are visible; the decision remains Defer. No real plan was chosen or applied. The user can select a direction, preview the scope, then explicitly apply.
 - Current checks passed: public boundary/lint, root TypeScript, Vue typecheck, production build and macOS installation; Craft Hub 144 test files / 722 tests; workstation CLI 10 files / 213 tests, including isolated configuration and Git recovery tests.
 - The installed application remains open for user review. A passing reinstall does not close real-machine adoption or the dotfiles sync Todo.
+
+
+## Review UI refinement (2026-09-10)
+
+- Use Reka Tabs (the shadcn-vue composition model) to separate configuration review, repository synchronization and recovery history. Reuse host Field/Input/FormSelect/Button/DialogShell and semantic Badge/Alert components. See https://www.shadcn-vue.com/docs/components/tabs and https://www.shadcn-vue.com/docs/components/dialog.
+- Compact selectable inventory rows; searchable source/status labels; type and status filters; one detail-scoped decision control; local/source comparison; explicit merge-field requirements; persistent selection summary. Filtering retains choices and shows their total.
+- Preview uses the existing panel dialog with a fixed action footer. Closing preserves the prepared plan; discard is explicit. Error text is visible inside the dialog, and recovery remains independently accessible.
+- Retain distinct navigation responsibilities: workstation manages configuration synchronization, Codex manages plugin configuration. Codex now uses its existing brand glyph; workstation retains its terminal glyph.
+- Verification: public boundary/lint, TypeScript, Vue typecheck, build, 144 files / 726 tests. Added tests cover merge completeness across filters, installer-owned read-only items, closing/reopening a prepared preview and distinct Codex/terminal icons.
+- In-app browser: isolated MCP selection → preview → close/reopen → apply → recovery tab → restore; repository tab; screenshots at desktop and 390 × 844. Narrow viewport document/scroll width both 390px; no console errors. Real configuration was not changed.
+- Existing uncommitted subscription/status/style edits were preserved and excluded from this feature commit.
