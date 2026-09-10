@@ -13,6 +13,7 @@ export const workspaceCatalogEntrySchema = z.object({
   description: z.string().max(2000).optional(),
   publisher: z.string().trim().min(1).max(160),
   configurationUrl: httpsUrl,
+  team: z.boolean().optional(),
 }).strict()
 
 /** Versioned index published separately from workspace configuration documents. */

@@ -10,6 +10,8 @@ import type { WorkspaceRepositoryProvider } from './workspace-repository'
 import { discoverCapabilitiesWithDiagnostics } from './discovery'
 
 export interface DistributionConfig {
+  /** Documentation destination supplied by the distribution. */
+  documentationUrl?: string
   id: string
   name: string
   appId?: string

@@ -10,6 +10,8 @@ import { createServer } from 'node:http'
 import { extname, join, normalize } from 'node:path'
 import { ZodError } from 'zod'
 import { handleAccountRequest } from './accounts'
+import { AgentConnectionService } from './agent-connection'
+import { handleAgentConnectionRequest } from './agent-connection-http'
 import { CommandInputValidationError } from './command-inputs'
 import { projectConfigSchemaRevision } from './config'
 import { dotfilesOperations, DotfilesTrustError, DotfilesValidationError } from './dotfiles-manager'
@@ -117,6 +119,8 @@ export interface CraftHubServer {
 /** Start the local-only HTTP API used by the web and Electron clients. */
 export async function startCraftHubServer(options: CraftHubServerOptions = {}): Promise<CraftHubServer> {
   const runtime = options.runtime ?? new CraftHubRuntime()
+  const agentConnection = new AgentConnectionService(runtime)
+  await runtime.accountSync.recover()
   const eventClients = new Set<ServerResponse>()
   const broadcastEvent = (name: string, event: unknown): void => {
     const message = `event: ${name}\ndata: ${JSON.stringify(event)}\n\n`
@@ -142,9 +146,32 @@ export async function startCraftHubServer(options: CraftHubServerOptions = {}): 
     await Promise.allSettled(snapshot.projects.map(project => watcher.watch(project)))
     return snapshot
   }
-  let heartbeat: ReturnType<typeof setInterval> | undefined
-  const server = createServer(async (request, response) => {
+  let teamFollowStatus: Array<{ id: string, error?: string }> = []
+  let refreshing = false
+  async function refreshSharedConfiguration(resolution?: 'use-local' | 'use-cloud'): Promise<void> {
+    if (refreshing)
+      return
+    refreshing = true
     try {
+      if (runtime.accountProvider?.sync)
+        await runtime.accountSync.synchronize(resolution)
+      else
+        teamFollowStatus = await runtime.withConfiguration(() => runtime.workspaceSubscriptions.followTeams())
+      broadcastEvent('configuration-sync', runtime.accountSync.status)
+    }
+    finally {
+      refreshing = false
+    }
+  }
+  const configurationTimer = setInterval(() => {
+    void refreshSharedConfiguration().catch(() => {})
+  }, 30_000)
+  configurationTimer.unref()
+  let heartbeat: ReturnType<typeof setInterval> | undefined
+  const handleRequest = async (request: IncomingMessage, response: ServerResponse): Promise<void> => {
+    try {
+      if (await handleAgentConnectionRequest(agentConnection, new URL(callbackUrl('')).origin, request, response))
+        return
       if (await handleAccountRequest(runtime.accountProvider, request, response))
         return
       const url = new URL(request.url ?? '/', 'http://localhost')
@@ -162,9 +189,11 @@ export async function startCraftHubServer(options: CraftHubServerOptions = {}): 
           distribution: {
             id: runtime.distribution.id,
             name: runtime.distribution.name,
+            documentationUrl: runtime.distribution.documentationUrl,
           },
           projectConfigSchemaRevision,
           hostEnvironment: runtime.hostEnvironment,
+          agentExecution: runtime.hostEnvironment.kind === 'local' ? runtime.agentTasks.availability() : { id: 'unavailable', available: false },
           status: 'ok',
         })
       }
@@ -212,13 +241,15 @@ export async function startCraftHubServer(options: CraftHubServerOptions = {}): 
 
       if (request.method === 'POST' && url.pathname === '/api/owner-scopes') {
         const body = await jsonBody(request)
-        if (typeof body.name !== 'string' || !body.name.trim() || typeof body.repositoryPath !== 'string' || !body.repositoryPath.trim())
-          return sendJson(response, 400, { error: 'name and repositoryPath are required' })
+        if (typeof body.name !== 'string' || !body.name.trim() || (body.repositoryPath !== undefined && typeof body.repositoryPath !== 'string'))
+          return sendJson(response, 400, { error: 'name is required; repositoryPath must be a string when provided' })
+        if (body.repositoryPath && !runtime.hostEnvironment.capabilities.localGitSync)
+          return sendJson(response, 403, { error: 'Local Git is unavailable on this host' })
         if (body.directory !== undefined && typeof body.directory !== 'string')
           return sendJson(response, 400, { error: 'directory must be a string when provided' })
         return sendJson(response, 201, await runtime.teams.create({
           name: body.name,
-          repositoryPath: body.repositoryPath,
+          repositoryPath: body.repositoryPath as string | undefined,
           directory: body.directory as string | undefined,
         }))
       }
@@ -235,6 +266,8 @@ export async function startCraftHubServer(options: CraftHubServerOptions = {}): 
           const body = await jsonBody(request)
           if (typeof body.confirmationName !== 'string')
             return sendJson(response, 400, { error: 'confirmationName is required' })
+          if ((await runtime.workspaceSubscriptions.list()).some(item => item.ownerScopeId === scopeId))
+            return sendJson(response, 409, { error: 'Leave this Team from its source subscription first' })
           return sendJson(response, 200, await runtime.teams.delete(scopeId, body.confirmationName))
         }
       }
@@ -251,8 +284,14 @@ export async function startCraftHubServer(options: CraftHubServerOptions = {}): 
 
       if (parts[0] === 'api' && parts[1] === 'owner-scopes' && parts[2] && parts[3] === 'git-sync') {
         const scopeId = parts[2]
-        if (request.method === 'GET' && parts.length === 4)
+        if (request.method === 'GET' && parts.length === 4) {
+          const source = (await runtime.workspaceSubscriptions.list()).find(item => item.ownerScopeId === scopeId)
+          if (source) {
+            await runtime.ownerScopes.get(scopeId)
+            return sendJson(response, 200, { ownerScopeId: scopeId, state: 'clean', source: { subscriptionId: source.id, revision: source.lastRevision, autoFollow: !!source.autoFollow } })
+          }
           return sendJson(response, 200, await runtime.teamGitSync.status(scopeId))
+        }
         if (request.method === 'PUT' && parts.length === 4) {
           const body = await jsonBody(request)
           if (typeof body.repositoryPath !== 'string' || (body.directory !== undefined && typeof body.directory !== 'string'))
@@ -276,7 +315,7 @@ export async function startCraftHubServer(options: CraftHubServerOptions = {}): 
         return sendJson(response, 200, await runtime.workspaces.projectOwnerScopes(teamIds))
       }
 
-      if (url.pathname.startsWith('/api/config-subscriptions') || url.pathname === '/api/workspace-catalogs') {
+      if (url.pathname.startsWith('/api/config-subscriptions') || url.pathname.startsWith('/api/team-subscriptions') || url.pathname.startsWith('/api/config-sync') || url.pathname === '/api/workspace-catalogs') {
         const origin = runtime.accountProvider?.publicOrigin ?? `http://${request.headers.host}`
         const localHost = `${request.socket.localAddress}:${request.socket.localPort}`
         if ((!runtime.accountProvider?.publicOrigin && request.headers.host !== localHost && request.headers.host !== `localhost:${request.socket.localPort}`)
@@ -285,6 +324,24 @@ export async function startCraftHubServer(options: CraftHubServerOptions = {}): 
           || (request.method !== 'GET' && !request.headers['content-type']?.startsWith('application/json'))) {
           return sendJson(response, 403, { error: 'Subscription access requires a same-origin JSON request' })
         }
+      }
+
+      if (url.pathname === '/api/team-subscriptions/join' && request.method === 'POST') {
+        const body = await jsonBody(request, 4096)
+        if (typeof body.url !== 'string')
+          return sendJson(response, 400, { error: 'Team source URL is required' })
+        return sendJson(response, 200, await runtime.workspaceSubscriptions.joinTeam(body.url))
+      }
+      if (url.pathname === '/api/config-sync' && request.method === 'GET')
+        return sendJson(response, 200, { ...runtime.accountSync.status, teams: teamFollowStatus })
+      if (url.pathname === '/api/config-sync/export' && request.method === 'GET')
+        return sendJson(response, 200, { configuration: await runtime.accountSync.snapshot(), conflict: await runtime.accountSync.conflict() })
+      if (url.pathname === '/api/config-sync' && request.method === 'POST') {
+        const body = await jsonBody(request, 4096)
+        if (body.resolution !== undefined && !['use-local', 'use-cloud'].includes(String(body.resolution)))
+          return sendJson(response, 400, { error: 'Invalid conflict resolution' })
+        await refreshSharedConfiguration(body.resolution as 'use-local' | 'use-cloud' | undefined)
+        return sendJson(response, 200, { ...runtime.accountSync.status, teams: teamFollowStatus })
       }
 
       if (request.method === 'GET' && url.pathname === '/api/config-subscriptions')
@@ -446,6 +503,8 @@ export async function startCraftHubServer(options: CraftHubServerOptions = {}): 
         return sendJson(response, 200, await runtime.agentTasks.list())
 
       if (request.method === 'POST' && url.pathname === '/api/agent-tasks') {
+        if (runtime.hostEnvironment.kind !== 'local')
+          return sendJson(response, 403, { error: 'Local agent execution is unavailable on this hosted workbench' })
         const body = await jsonBody(request)
         if (typeof body.prompt !== 'string' || typeof body.primaryProjectId !== 'string'
           || !Array.isArray(body.projectIds) || !body.projectIds.every(id => typeof id === 'string')) {
@@ -1024,6 +1083,11 @@ export async function startCraftHubServer(options: CraftHubServerOptions = {}): 
         return sendJson(response, 400, { error: error.message })
       sendJson(response, 500, { error: error instanceof Error ? error.message : String(error) })
     }
+  }
+  const server = createServer((request, response) => {
+    const path = new URL(request.url ?? '/', 'http://localhost').pathname
+    const configurationRoute = /^\/api\/(?:owner-scopes|workspaces|workspace-groups|config-subscriptions|team-subscriptions)(?:\/|$)/.test(path)
+    void (configurationRoute ? runtime.withConfiguration(() => handleRequest(request, response)) : handleRequest(request, response))
   })
 
   function callbackUrl(integrationId: string): string {
@@ -1034,6 +1098,7 @@ export async function startCraftHubServer(options: CraftHubServerOptions = {}): 
   let closing: Promise<void> | undefined
   const close = (closeOptions: CraftHubServerCloseOptions = {}): Promise<void> => {
     closing ??= (async () => {
+      clearInterval(configurationTimer)
       if (heartbeat)
         clearInterval(heartbeat)
       stopRunEvents()

@@ -3,6 +3,7 @@ import type { DotfilesManagerStatus, DotfilesOperation, DotfilesOperationResult,
 import { TabsContent, TabsList, TabsRoot, TabsTrigger } from 'reka-ui'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { api } from './api'
+import AgentConnectionSettings from './AgentConnectionSettings.vue'
 import CelebrationSettings from './CelebrationSettings.vue'
 import { Button as UiButton } from './components/ui/button'
 import { DialogShell } from './components/ui/dialog'
@@ -11,7 +12,7 @@ import { useI18n } from './i18n'
 import { applicationShortcutReferences, capabilityShortcutId, commandPaletteShortcutId, defaultCommandPaletteShortcut, formatShortcut, shortcutFromKeyboardEvent } from './shortcuts'
 import { useWorkbenchStore } from './store'
 
-type SettingsTab = 'cloud' | 'configuration' | 'general' | 'help' | 'history' | 'shortcuts' | 'transfer'
+type SettingsTab = 'agents' | 'cloud' | 'configuration' | 'general' | 'help' | 'history' | 'shortcuts' | 'transfer'
 
 const props = withDefaults(defineProps<{ initialTab?: SettingsTab, open: boolean }>(), {
   initialTab: 'general',
@@ -580,6 +581,7 @@ async function cleanupRuns(includeAllUnpinned: boolean): Promise<void> {
           <TabsRoot v-model="activeTab" class="settings-tabs" orientation="vertical">
             <TabsList class="settings-tab-list" :aria-label="t('settings')">
               <TabsTrigger value="general">{{ t('settingsGeneral') }}</TabsTrigger>
+              <TabsTrigger value="agents">{{ t('agentConnection') }}</TabsTrigger>
               <TabsTrigger value="shortcuts">{{ t('keyboardShortcuts') }}</TabsTrigger>
               <TabsTrigger value="cloud">{{ t('personalCloud') }}</TabsTrigger>
               <TabsTrigger value="configuration">{{ t('configurationFiles') }}</TabsTrigger>
@@ -589,6 +591,7 @@ async function cleanupRuns(includeAllUnpinned: boolean): Promise<void> {
             </TabsList>
 
             <div class="settings-tab-panels">
+            <TabsContent value="agents" class="settings-tab-content"><AgentConnectionSettings /></TabsContent>
             <TabsContent value="general" class="settings-tab-content">
               <section class="settings-section">
                 <h3>{{ t('displayLanguage') }}</h3>
@@ -911,6 +914,7 @@ async function cleanupRuns(includeAllUnpinned: boolean): Promise<void> {
             </TabsContent>
 
             <TabsContent value="help" class="settings-tab-content">
+              <a v-if="store.documentationUrl" :href="store.documentationUrl" target="_blank" rel="noopener noreferrer">{{ t('help') }} <Icon name="externalLink" /></a>
               <CelebrationSettings context="help" />
             </TabsContent>
             </div>

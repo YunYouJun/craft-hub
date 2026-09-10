@@ -13,7 +13,7 @@ import IntegrationEntityStatus from './IntegrationEntityStatus.vue'
 import { useI18n } from './i18n'
 import { useWorkbenchStore } from './store'
 
-const props = defineProps<{ entity: IntegrationEntity, integrationId: string, detailActionId?: string, projectId?: string }>()
+const props = defineProps<{ entity: IntegrationEntity, integrationId: string, detailActionId?: string, projectId?: string, taskPrompt?: string, triggerLabel?: string }>()
 const store = useWorkbenchStore()
 const { t } = useI18n()
 const formId = useId()
@@ -24,6 +24,7 @@ const error = ref('')
 const detail = ref<IntegrationEntity>()
 const projectId = ref('')
 const prompt = ref('')
+const copied = ref(false)
 const taskId = ref('')
 const task = computed(() => store.agentTasks.find(item => item.id === taskId.value))
 const projectOptions = computed(() => store.projects.map(project => ({ value: project.id, label: project.name, icon: 'folder' })))
@@ -44,6 +45,7 @@ async function show(event: MouseEvent): Promise<void> {
   error.value = ''
   taskId.value = ''
   prompt.value = ''
+  copied.value = false
   detail.value = props.entity
   projectId.value = props.projectId ?? ''
   try {
@@ -61,7 +63,7 @@ async function show(event: MouseEvent): Promise<void> {
   finally {
     if (current === generation) {
       const item = detail.value!
-      prompt.value = [item.title, item.url, plainText(item.description ?? '')].filter(Boolean).join('\n\n')
+      prompt.value = props.taskPrompt ?? [item.title, item.url, plainText(item.description ?? '')].filter(Boolean).join('\n\n')
       loading.value = false
     }
   }
@@ -93,10 +95,18 @@ async function startTask(): Promise<void> {
     loading.value = false
   }
 }
+
+async function copyPrompt(): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(prompt.value)
+    copied.value = true
+  }
+  catch (caught) { error.value = caught instanceof Error ? caught.message : String(caught) }
+}
 </script>
 
 <template>
-  <UiButton size="compact" @click="show">{{ t('integrationWorkItemDetails') }}</UiButton>
+  <UiButton size="compact" @click="show">{{ triggerLabel ?? t('integrationWorkItemDetails') }}</UiButton>
   <DialogShell :open="open" layout="panel" content-class="dialog-content work-item-detail" @update:open="updateOpen" @close-auto-focus="restoreFocus">
     <template #title>{{ t('integrationWorkItemTitle') }}</template>
     <template #description>{{ t('integrationWorkItemDescription') }}</template>
@@ -133,6 +143,7 @@ async function startTask(): Promise<void> {
           <Textarea :id="`${formId}-prompt`" v-model="prompt" :disabled="loading || Boolean(taskId)" :rows="6" required />
         </Field>
       </FieldGroup>
+      <p v-if="store.agentExecution && !store.agentExecution.available" class="work-item-hint">{{ t('agentExecutionUnavailable') }}</p>
       <p v-if="loading" class="work-item-hint" role="status">{{ t('loading') }}</p>
       <p v-if="error" class="error-message" role="alert">{{ error }}</p>
       <p v-if="taskId" role="status">{{ t('integrationTaskCreated') }} {{ taskId }}</p>
@@ -145,7 +156,8 @@ async function startTask(): Promise<void> {
     </section>
     <template #footer>
       <UiButton @click="updateOpen(false)">{{ t('close') }}</UiButton>
-      <UiButton v-if="!taskId" variant="primary" :disabled="loading || !projectId || !prompt.trim()" @click="startTask"><Icon name="skill" /> {{ t('integrationStartTask') }}</UiButton>
+      <UiButton :disabled="loading || !prompt.trim()" @click="copyPrompt">{{ copied ? t('agentConnectionCopied') : t('resourceCopy') }}</UiButton>
+      <UiButton v-if="!taskId" variant="primary" :disabled="loading || !projectId || !prompt.trim() || store.agentExecution?.available === false" @click="startTask"><Icon name="skill" /> {{ t('integrationStartTask') }}</UiButton>
     </template>
   </DialogShell>
 </template>

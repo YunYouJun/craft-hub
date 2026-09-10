@@ -6,6 +6,7 @@ import { Button as UiButton } from './components/ui/button'
 import Icon from './NavigationIcon.vue'
 import IntegrationActionForm from './IntegrationActionForm.vue'
 import IntegrationEntityList from './IntegrationEntityList.vue'
+import IntegrationWorkItemDetail from './IntegrationWorkItemDetail.vue'
 import { useWorkbenchStore } from './store'
 import MarkdownPreview from './MarkdownPreview.vue'
 import { useI18n } from './i18n'
@@ -136,6 +137,7 @@ onBeforeUnmount(() => { revision++; clearTimeout(timer) })
         <summary><Icon name="arrowRight" />{{ document.title }}</summary>
         <div class="resource-disclosure-body">
           <nav class="resource-document-actions">
+            <IntegrationWorkItemDetail v-if="document.agentPrompt" :entity="{ id: document.id, title: document.title }" :integration-id="integrationId" :project-id="activeProjectId" :task-prompt="document.agentPrompt" :trigger-label="t('agentHandoff')" />
             <UiButton size="compact" variant="ghost" @click="copy(document.content)"><Icon name="copy" />{{ t('resourceCopy') }}</UiButton>
             <UiButton size="compact" variant="ghost" @click="download(document)">{{ t('resourceDownload') }}</UiButton>
             <UiButton v-if="document.filename?.endsWith('.md')" size="compact" variant="ghost" @click="preview[document.id] = !preview[document.id]">{{ t('resourcePreview') }}</UiButton>

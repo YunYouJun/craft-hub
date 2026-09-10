@@ -8,10 +8,10 @@ const { t } = useI18n()
 
 <template>
   <p v-if="task.status === 'running'" class="agent-task-running-note">
-    {{ t('codexTaskRunningOwner') }}
+    {{ t(task.provider === 'codex' ? 'codexTaskRunningOwner' : 'agentTaskRunning') }}
   </p>
   <details v-if="task.output" class="agent-task-output" :open="task.status === 'running'" data-testid="agent-task-output">
-    <summary>{{ t('codexTaskLiveOutput') }}</summary>
+    <summary>{{ t(task.provider === 'codex' ? 'codexTaskLiveOutput' : 'agentTaskOutput') }}</summary>
     <pre>{{ task.output }}</pre>
     <small v-if="task.outputTruncated">{{ t('codexTaskOutputTruncated') }}</small>
   </details>

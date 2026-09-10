@@ -82,6 +82,11 @@ export class AgentTaskManager {
     private readonly provider: AgentTaskProvider = unavailableAgentTaskProvider,
   ) {}
 
+  /** Availability of the adapter owned by this host; it never implies a remote device connection. */
+  availability(): { id: string, available: boolean } {
+    return { id: this.provider.id, available: this.provider !== unavailableAgentTaskProvider }
+  }
+
   async list(): Promise<AgentTaskRecord[]> {
     const tasks = await this.store.listAgentTasks()
     await Promise.all(tasks.map(async (task) => {
@@ -110,6 +115,8 @@ export class AgentTaskManager {
     const primary = projects.find(project => project.id === input.primaryProjectId)!
     const primaryWorkingDirectory = resolve(primary.path, input.primaryProjectRelativePath ?? '.')
     await assertCommandWorkingDirectory(primary.path, primaryWorkingDirectory)
+    if (!this.availability().available)
+      throw new Error('This host has no agent executor. Open the desktop workbench or configure a host agent adapter.')
     const task: AgentTaskRecord = {
       id: randomUUID(),
       provider: this.provider.id,

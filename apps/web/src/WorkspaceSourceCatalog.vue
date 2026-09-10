@@ -12,7 +12,7 @@ function repositoryLabel(value: string): string {
   const url = new URL(value)
   return `${url.hostname}${url.pathname.split('/tree/')[0]}`
 }
-const emit = defineEmits<{ select: [url: string] }>()
+const emit = defineEmits<{ select: [url: string], join: [url: string] }>()
 const { locale } = useI18n()
 const text = (zh: string, en: string) => locale.value === 'zh-CN' ? zh : en
 const catalogs = ref<WorkspaceSourceCatalog[]>([])
@@ -77,7 +77,7 @@ onMounted(() => void load())
             <p class="source-description">{{ entry.description || text('从共享仓库获取工作区与项目配置。', 'Workspace and project definitions from a shared repository.') }}</p>
             <div class="source-meta"><span>{{ entry.publisher }}</span><span aria-hidden="true">·</span><a :href="entry.configurationUrl" target="_blank" rel="noopener noreferrer" :title="entry.configurationUrl">{{ repositoryLabel(entry.configurationUrl) }} ↗</a></div>
           </div>
-          <Button :disabled="disabled" :variant="savedSource(entry.configurationUrl) ? 'secondary' : 'primary'" @click="emit('select', entry.configurationUrl)">{{ savedSource(entry.configurationUrl)?.applied ? text('预览更新', 'Preview updates') : text('预览订阅', 'Preview subscription') }}</Button>
+          <Button :disabled="disabled" :variant="savedSource(entry.configurationUrl) ? 'secondary' : 'primary'" @click="entry.team && !savedSource(entry.configurationUrl)?.applied ? emit('join', entry.configurationUrl) : emit('select', entry.configurationUrl)">{{ entry.team && !savedSource(entry.configurationUrl)?.applied ? text('加入团队', 'Join Team') : savedSource(entry.configurationUrl)?.applied ? text('预览更新', 'Preview updates') : text('预览订阅', 'Preview subscription') }}</Button>
         </article>
       </div>
     </section>

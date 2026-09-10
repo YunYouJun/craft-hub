@@ -1,5 +1,7 @@
+export * from './account-sync'
 export * from './accounts'
 export * from './agent-actions'
+export type { AgentConnectionStatus } from './agent-connection'
 export * from './agent-tasks'
 export * from './app'
 export * from './command-contributions'
@@ -45,6 +47,7 @@ export * from './web-assets'
 export * from './workbench-contributions'
 export * from './workspace-catalog'
 export * from './workspace-import'
+
 export * from './workspace-repository'
 
 export * from './workspace-source'

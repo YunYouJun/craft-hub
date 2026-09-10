@@ -5,6 +5,7 @@ import { resolve } from 'node:path'
 import process from 'node:process'
 import { createInterface } from 'node:readline/promises'
 import { cac } from 'cac'
+import { callAgentHost, startAgentMcp } from './agent-mcp'
 import { launchCraftHubApp, launchCraftHubProject } from './app'
 import { initializeMarketplacePlugin, packMarketplacePlugin, validateMarketplacePlugin } from './plugin-authoring'
 import { loadCraftHubPlugins } from './plugins'
@@ -15,6 +16,24 @@ import { resolveCraftHubWebDirectory } from './web-assets'
 
 const cli = cac('craft-hub')
 const runtime = new CraftHubRuntime()
+
+cli.command('mcp', 'Connect an agent to the running local host with read-only MCP tools')
+  .option('--url <origin>', 'Loopback URL shown in Settings > Agent connection')
+  .option('--credential-file <path>', 'Local credential file shown in the connection configuration')
+  .action(async (options: { url?: string, credentialFile?: string }) => {
+    if (!options.url || !options.credentialFile)
+      throw new Error('Connect an agent in Settings first, then supply --url and --credential-file')
+    await startAgentMcp({ url: options.url, credentialFile: options.credentialFile })
+  })
+
+cli.command('agent:check', 'Verify an existing local agent connection without invoking a model')
+  .option('--url <origin>', 'Loopback URL shown in Settings > Agent connection')
+  .option('--credential-file <path>', 'Local credential file shown in the connection configuration')
+  .action(async (options: { url?: string, credentialFile?: string }) => {
+    if (!options.url || !options.credentialFile)
+      throw new Error('--url and --credential-file are required')
+    console.log(JSON.stringify(await callAgentHost({ url: options.url, credentialFile: options.credentialFile }, 'check'), null, 2))
+  })
 
 cli.command('project:add <path>', 'Add a local project (untrusted by default)').action(async (path: string) => {
   console.log(JSON.stringify(await runtime.addProject(path), null, 2))

@@ -25,7 +25,7 @@ export interface ResourcePage {
   projectSuggestions?: Array<{ path: string, title: string }>
   entities?: IntegrationEntity[]
   links?: Array<{ title: string, input: ResourceInput, projectId?: string, entityId?: string }>
-  documents?: Array<{ id: string, title: string, content: string, filename?: string, compareWith?: string }>
+  documents?: Array<{ id: string, title: string, content: string, filename?: string, compareWith?: string, agentPrompt?: string }>
   forms?: Array<{ id: string, title: string, description?: string, effect: 'read' | 'update' | 'execute', input: ResourceInput, fields: ResourceField[] }>
 }
 

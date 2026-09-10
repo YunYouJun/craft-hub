@@ -1,4 +1,4 @@
-import type { AgentActionId, AgentActionSummary, AgentTaskRecord, ApplyGitIntegrationRequest, Capability, CapabilityDiscoveryResult, CapabilityPins, CatalogPluginV1, CommandInputValues, CommandInvocation, DotfilesManagerStatus, DotfilesOperation, DotfilesOperationResult, GitIntegrationPlan, GitIntegrationRequest, GitIntegrationResult, InstalledNavigationPanel, InstalledPlugin, InstalledPluginWorkbench, IntegrationActionResult, IntegrationDiagnostic, LocalPlugin, LocalSkillActivationSettings, ManagedPlugin, MarketplaceSource, MarketplaceSourcePreview, OwnerScope, OwnerScopeUiState, PersonalGitSyncResolution, PersonalGitSyncStatus, PluginDocumentPreview, PluginInstallPlan, PluginUpdatePlanItem, PluginUpdateResult, ProjectCatalogSnapshot, ProjectChangeEvent, ProjectConfigInitializationResult, ProjectDescriptionApplication, ProjectDescriptionAudit, ProjectDescriptionChange, ProjectOverview, ProjectRecord, ProjectRunSummary, ProjectSkillsState, ProjectVisualInput, ReleasePlan, ResolvedIntegrationContribution, RunCleanupOptions, RunCleanupResult, RunRecord, RunStreamEvent, RuntimeHealth, SettingsExportEnvelope, SettingsExportMode, SettingsImportPreview, SettingsImportStrategy, SettingsSnapshot, TeamDeletionResult, TeamGitSyncStatus, UserConfigStatus, WorkbenchDiagnosticSnapshot, WorkbenchLocale, WorkspaceCatalog, WorkspaceGroup, WorkspaceImportPreview, WorkspaceImportResult, WorkspaceManifest, WorkspaceRecord, WorkspaceUiState } from 'craft-hub'
+import type { AgentActionId, AgentActionSummary, AgentConnectionStatus, AgentTaskRecord, ApplyGitIntegrationRequest, Capability, CapabilityDiscoveryResult, CapabilityPins, CatalogPluginV1, CommandInputValues, CommandInvocation, DotfilesManagerStatus, DotfilesOperation, DotfilesOperationResult, GitIntegrationPlan, GitIntegrationRequest, GitIntegrationResult, InstalledNavigationPanel, InstalledPlugin, InstalledPluginWorkbench, IntegrationActionResult, IntegrationDiagnostic, LocalPlugin, LocalSkillActivationSettings, ManagedPlugin, MarketplaceSource, MarketplaceSourcePreview, OwnerScope, OwnerScopeUiState, PersonalGitSyncResolution, PersonalGitSyncStatus, PluginDocumentPreview, PluginInstallPlan, PluginUpdatePlanItem, PluginUpdateResult, ProjectCatalogSnapshot, ProjectChangeEvent, ProjectConfigInitializationResult, ProjectDescriptionApplication, ProjectDescriptionAudit, ProjectDescriptionChange, ProjectOverview, ProjectRecord, ProjectRunSummary, ProjectSkillsState, ProjectVisualInput, ReleasePlan, ResolvedIntegrationContribution, RunCleanupOptions, RunCleanupResult, RunRecord, RunStreamEvent, RuntimeHealth, SettingsExportEnvelope, SettingsExportMode, SettingsImportPreview, SettingsImportStrategy, SettingsSnapshot, TeamDeletionResult, TeamGitSyncStatus, UserConfigStatus, WorkbenchDiagnosticSnapshot, WorkbenchLocale, WorkspaceCatalog, WorkspaceGroup, WorkspaceImportPreview, WorkspaceImportResult, WorkspaceManifest, WorkspaceRecord, WorkspaceUiState } from 'craft-hub'
 
 export class ApiRequestError extends Error {
   constructor(message: string, readonly status: number) {
@@ -231,6 +231,8 @@ export const api = {
   runs: () => request<RunRecord[]>('/api/runs'),
   cleanupRuns: (options: RunCleanupOptions) => request<RunCleanupResult>('/api/runs/cleanup', { method: 'POST', body: JSON.stringify(options) }),
   pinRun: (runId: string, pinned: boolean) => request<RunRecord>(`/api/runs/${runId}/pin`, { method: 'PUT', body: JSON.stringify({ pinned }) }),
+  agentConnection: () => request<AgentConnectionStatus>('/api/agent-connection'),
+  updateAgentConnection: (input: { enabled: boolean, projectIds: string[], integrationRead: boolean }) => request<AgentConnectionStatus>('/api/agent-connection', { method: 'POST', body: JSON.stringify(input) }),
   agentTasks: () => request<AgentTaskRecord[]>('/api/agent-tasks'),
   startAgentTask: (input: { prompt: string, projectIds: string[], primaryProjectId: string, primaryProjectRelativePath?: string, capabilityId?: string, workspaceId?: string }) => request<AgentTaskRecord>('/api/agent-tasks', { method: 'POST', body: JSON.stringify(input) }),
   cancelAgentTask: (id: string) => request<AgentTaskRecord>(`/api/agent-tasks/${id}`, { method: 'DELETE' }),
@@ -275,6 +277,7 @@ export interface ProjectChangeSubscription {
   onSettingsChange?: (snapshot: SettingsSnapshot) => void
   onUserConfigChange?: (status: UserConfigStatus) => void
   onAgentTaskChange?: (task: AgentTaskRecord) => void
+  onConfigurationSync?: () => void
   onPluginChange?: () => void
   onError?: () => void
   onOpen?: () => void
@@ -282,6 +285,7 @@ export interface ProjectChangeSubscription {
 
 export function subscribeToProjectChanges(subscription: ProjectChangeSubscription): () => void {
   const events = new EventSource('/api/events')
+  events.addEventListener('configuration-sync', () => subscription.onConfigurationSync?.())
   events.addEventListener('open', () => subscription.onOpen?.())
   events.addEventListener('error', () => subscription.onError?.())
   events.addEventListener('project-change', (event) => {

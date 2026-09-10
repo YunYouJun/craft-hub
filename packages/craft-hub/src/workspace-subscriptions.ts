@@ -1,3 +1,4 @@
+import type { OwnerScopeService } from './owner-scopes'
 import type { WorkspaceRepositoryProvider } from './workspace-repository'
 import type { SubscribedWorkspace, WorkspaceSource } from './workspace-source'
 import type { WorkspaceService } from './workspaces'
@@ -9,7 +10,7 @@ import { z } from 'zod'
 import { readWorkspaceGitRepository, WorkspaceSubscriptionError } from './workspace-repository'
 import { readWorkspaceSource, workspaceSourceSchema } from './workspace-source'
 
-const subscriptionSchema = z.object({
+export const workspaceSubscriptionSchema = z.object({
   id: z.string().regex(/^[a-f0-9]{24}$/),
   url: z.string().url(),
   providerId: z.string(),
@@ -17,14 +18,16 @@ const subscriptionSchema = z.object({
   branch: z.string(),
   directory: z.string(),
   sourceId: z.string(),
+  ownerScopeId: z.string().regex(/^team-[a-f0-9]{24}$/).optional(),
+  autoFollow: z.boolean().optional(),
   name: z.string().max(120).optional(),
   selectedWorkspaceIds: z.array(z.string()),
   lastRevision: z.string(),
   lastImportedAt: z.string(),
   snapshot: workspaceSourceSchema,
 }).strict()
-const stateSchema = z.object({ schemaVersion: z.literal(1), version: z.string(), subscriptions: z.array(subscriptionSchema).max(100) }).strict()
-export type WorkspaceSubscription = z.infer<typeof subscriptionSchema>
+const stateSchema = z.object({ schemaVersion: z.literal(1), version: z.string(), subscriptions: z.array(workspaceSubscriptionSchema).max(100) }).strict()
+export type WorkspaceSubscription = z.infer<typeof workspaceSubscriptionSchema>
 type State = z.infer<typeof stateSchema>
 
 /** Preview token includes both remote content and the current local subscription state. */
@@ -42,7 +45,7 @@ export class WorkspaceSubscriptionService {
   private readonly path: string
   private queue: Promise<unknown> = Promise.resolve()
 
-  constructor(dataDir: string, private readonly workspaces: WorkspaceService, private readonly providers: WorkspaceRepositoryProvider[]) {
+  constructor(dataDir: string, private readonly workspaces: WorkspaceService, private readonly providers: WorkspaceRepositoryProvider[], private readonly ownerScopes?: OwnerScopeService) {
     this.path = join(dataDir, 'workspace-subscriptions.json')
     if (new Set(providers.map(provider => provider.id)).size !== providers.length)
       throw new Error('Duplicate workspace repository provider id')
@@ -57,7 +60,78 @@ export class WorkspaceSubscriptionService {
   async projectedWorkspaces(): Promise<SubscribedWorkspace[]> {
     return (await this.read()).subscriptions.flatMap(subscription => subscription.snapshot.workspaces
       .filter(workspace => subscription.selectedWorkspaceIds.includes(workspace.id))
-      .map(workspace => ({ ...workspace, id: this.workspaceId(subscription.id, workspace.id), subscription: { id: subscription.id, sourceId: subscription.sourceId, workspaceId: workspace.id, sourceName: subscription.name || subscription.snapshot.name, revision: subscription.lastRevision } })))
+      .map(workspace => ({ ...workspace, ownerScopeId: subscription.ownerScopeId, id: this.workspaceId(subscription.id, workspace.id), subscription: { id: subscription.id, sourceId: subscription.sourceId, workspaceId: workspace.id, sourceName: subscription.name || subscription.snapshot.name, revision: subscription.lastRevision } })))
+  }
+
+  /** Join a repository-backed Team without requiring a local checkout or granting execution trust. */
+  async joinTeam(url: string): Promise<{ id: string, kind: 'team', name: string }> {
+    return this.serialize(async () => {
+      const { state, next } = await this.prepare(url)
+      const team = { id: teamIdentity(next), kind: 'team' as const, name: next.snapshot.name }
+      if (state.subscriptions.some(item => item.ownerScopeId === team.id && item.id !== next.id))
+        throw new WorkspaceSubscriptionError(409, 'This Team already follows another source location. Leave that subscription before switching.')
+      if (!this.ownerScopes)
+        throw new WorkspaceSubscriptionError(400, 'Team identities are unavailable')
+      await this.workspaces.assertSubscriptionIdsAvailable(next.snapshot.workspaces.map(item => this.workspaceId(next.id, item.id)))
+      await this.ownerScopes.ensureTeam(team)
+      next.ownerScopeId = team.id
+      next.autoFollow = true
+      next.selectedWorkspaceIds = next.snapshot.workspaces.map(item => item.id)
+      state.subscriptions = [...state.subscriptions.filter(item => item.id !== next.id), next]
+      await this.write(state)
+      return team
+    })
+  }
+
+  /** Follow the source branch atomically; a failed read leaves the previous usable snapshot intact. */
+  async followTeams(): Promise<Array<{ id: string, error?: string }>> {
+    const results: Array<{ id: string, error?: string }> = []
+    for (const subscription of (await this.read()).subscriptions.filter(item => item.autoFollow)) {
+      try {
+        await this.serialize(async () => {
+          const { state, next } = await this.prepare(undefined, subscription.id)
+          if (!state.subscriptions.find(item => item.id === subscription.id)?.autoFollow)
+            return
+          next.selectedWorkspaceIds = next.snapshot.workspaces.map(item => item.id)
+          if (next.lastRevision === subscription.lastRevision)
+            return
+          await this.workspaces.assertSubscriptionIdsAvailable(next.selectedWorkspaceIds.map(id => this.workspaceId(next.id, id)))
+          state.subscriptions = state.subscriptions.map(item => item.id === next.id ? next : item)
+          await this.write(state)
+        })
+        results.push({ id: subscription.id })
+      }
+      catch (error) {
+        results.push({ id: subscription.id, error: error instanceof Error ? error.message : String(error) })
+      }
+    }
+    return results
+  }
+
+  /** Export subscription choices and cached portable definitions for account synchronization. */
+  async portableSnapshot(): Promise<WorkspaceSubscription[]> {
+    return (await this.read()).subscriptions
+  }
+
+  /** Restore validated subscriptions, retaining device-local bindings and execution permissions. */
+  async replacePortableSnapshot(input: unknown): Promise<void> {
+    const subscriptions = z.array(workspaceSubscriptionSchema).max(100).parse(input)
+    if (new Set(subscriptions.map(item => item.id)).size !== subscriptions.length)
+      throw new WorkspaceSubscriptionError(400, 'Duplicate subscriptions')
+    for (const item of subscriptions) {
+      if (item.ownerScopeId && item.ownerScopeId !== teamIdentity(item))
+        throw new WorkspaceSubscriptionError(400, 'Team identity does not match its source')
+      if (item.selectedWorkspaceIds.some(id => !item.snapshot.workspaces.some(workspace => workspace.id === id)))
+        throw new WorkspaceSubscriptionError(400, 'Unknown selected workspace')
+    }
+    await this.serialize(async () => {
+      await this.workspaces.assertSubscriptionIdsAvailable(subscriptions.flatMap(item => item.selectedWorkspaceIds.map(id => this.workspaceId(item.id, id))))
+      for (const item of subscriptions) {
+        if (item.ownerScopeId)
+          await this.ownerScopes?.ensureTeam({ id: item.ownerScopeId, kind: 'team', name: item.snapshot.name })
+      }
+      await this.write({ schemaVersion: 1, version: '', subscriptions })
+    })
   }
 
   /** Save a named source for later selection without applying its workspaces. */
@@ -115,9 +189,11 @@ export class WorkspaceSubscriptionService {
   async remove(id: string): Promise<void> {
     await this.serialize(async () => {
       const state = await this.read()
-      this.find(state, id)
+      const previous = this.find(state, id)
       state.subscriptions = state.subscriptions.filter(item => item.id !== id)
       await this.write(state)
+      if (previous.ownerScopeId && !(await this.workspaces.list(previous.ownerScopeId)).length && !(await this.workspaces.groups(previous.ownerScopeId)).length)
+        await this.ownerScopes?.deleteTeam(previous.ownerScopeId)
     })
   }
 
@@ -153,6 +229,9 @@ export class WorkspaceSubscriptionService {
       branch: remote.branch,
       directory: remote.directory,
       sourceId: snapshot.id,
+      name: existing?.name,
+      ownerScopeId: existing?.ownerScopeId,
+      autoFollow: existing?.autoFollow,
       snapshot,
       selectedWorkspaceIds: existing?.lastImportedAt ? existing.selectedWorkspaceIds.filter(id => snapshot.workspaces.some(workspace => workspace.id === id)) : snapshot.workspaces.map(workspace => workspace.id),
       lastRevision: remote.revision,
@@ -259,4 +338,9 @@ export class WorkspaceSubscriptionService {
     this.queue = next
     return next
   }
+}
+
+/** A source identity is stable across branch/directory moves within the same repository authority. */
+function teamIdentity(source: Pick<WorkspaceSubscription, 'providerId' | 'repository' | 'sourceId'>): string {
+  return `team-${digest([source.providerId, source.repository, source.sourceId]).slice(0, 24)}`
 }

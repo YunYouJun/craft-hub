@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
+import ConfigurationSyncStatus from './ConfigurationSyncStatus.vue'
 import WorkbenchPageShell from './WorkbenchPageShell.vue'
 import WorkbenchViewFrame from './WorkbenchViewFrame.vue'
 import { Button } from './components/ui/button'
@@ -8,7 +9,7 @@ import { useI18n } from './i18n'
 import { useWorkbenchStore } from './store'
 import WorkspaceSourceCatalog from './WorkspaceSourceCatalog.vue'
 
-interface Subscription { id: string, url: string, name?: string, sourceRevision?: string, repository: string, branch: string, directory: string, lastImportedAt?: string, selectedWorkspaceIds?: string[], lastRevision?: string, legacy?: boolean }
+interface Subscription { ownerScopeId?: string, autoFollow?: boolean, id: string, url: string, name?: string, sourceRevision?: string, repository: string, branch: string, directory: string, lastImportedAt?: string, selectedWorkspaceIds?: string[], lastRevision?: string, legacy?: boolean }
 interface Manifest { id: string, name: string, members: { project: string, label?: string }[] }
 interface Preview { revision: string, subscription: Subscription, workspaces: Manifest[], removedWorkspaceIds?: string[] }
 interface SubscriptionState { connected: boolean, canConnect?: boolean, provider: string, exampleUrl?: string, subscriptions: Subscription[] }
@@ -103,6 +104,18 @@ async function run(action: () => Promise<void>): Promise<void> {
   catch (caught) { if (route.fullPath === path) error.value = caught instanceof Error ? caught.message : String(caught) }
   finally { pending.value-- }
 }
+async function joinTeam(url: string): Promise<void> {
+  await run(async () => {
+    const response = await fetch('/api/team-subscriptions/join', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ url }) })
+    const result = await response.json()
+    if (!response.ok)
+      throw new Error(result.error || text('加入团队失败', 'Unable to join Team'))
+    await store.loadOwnerScopes()
+    await store.switchOwnerScope(result.id)
+    await load()
+    notice.value = text('已加入团队，将自动跟随源仓库版本。', 'Joined Team. Source updates will be applied automatically.')
+  })
+}
 async function load(): Promise<void> { state.value = await request<SubscriptionState>() }
 async function connect(): Promise<void> {
   await run(async () => {
@@ -148,6 +161,8 @@ async function apply(): Promise<void> {
     return
   await run(async () => {
     await request(selectedId.value ? `/${selectedId.value}/apply` : '/apply', 'POST', { url: previewUrl.value, expectedRevision: preview.value!.revision, selectedWorkspaceIds: selectedWorkspaces.value })
+    if (preview.value?.subscription.ownerScopeId)
+      await store.loadOwnerScopes()
     await Promise.all([load(), store.loadWorkspaces()])
     notice.value = text('已应用订阅配置，可从左侧工作台查看。', 'Subscription applied. Open the workbench to view the workspaces.')
     preview.value = undefined
@@ -157,7 +172,10 @@ async function apply(): Promise<void> {
 }
 async function unsubscribe(id: string): Promise<void> {
   await run(async () => {
+    const team = state.value?.subscriptions.find(item => item.id === id)?.ownerScopeId
     await request(`/${id}`, 'DELETE', {})
+    if (team)
+      await store.loadOwnerScopes()
     await Promise.all([load(), store.loadWorkspaces()])
     preview.value = undefined
     returnToList()
@@ -234,7 +252,8 @@ onMounted(async () => {
         <RouterLink :to="{ path: '/subscriptions', query: route.query.q ? { q: route.query.q } : {} }" :aria-current="!discover ? 'page' : undefined">{{ text('我的源', 'My sources') }}</RouterLink>
         <RouterLink :to="discoverPath" :aria-current="discover ? 'page' : undefined">{{ text('发现源', 'Discover sources') }}</RouterLink>
       </nav>
-      <WorkspaceSourceCatalog v-if="discover" :sources="catalogSources" :disabled="busy || !state?.connected" @select="selectSource" />
+      <ConfigurationSyncStatus />
+      <WorkspaceSourceCatalog v-if="discover" :sources="catalogSources" :disabled="busy || !state?.connected" @select="selectSource" @join="joinTeam" />
       <p v-if="detailId && state && !detail" role="alert">{{ text('配置源不存在或已删除。', 'Source not found or deleted.') }}</p>
       <nav v-if="detail" class="source-tabs workbench-tabs" :aria-label="text('源详情视图', 'Source detail views')">
         <RouterLink :to="{ path: sourcePath(detail.id), query: { q: route.query.q } }" :aria-current="!settings ? 'page' : undefined">{{ text('工作区', 'Workspaces') }}</RouterLink>
@@ -252,14 +271,15 @@ onMounted(async () => {
             <label for="subscription-url">{{ text('配置目录链接', 'Configuration directory URL') }}</label>
             <div class="subscription-input-row"><input id="subscription-url" v-model="sourceUrl" type="url" required :placeholder="state.exampleUrl || 'https://…'" :disabled="busy"><Button type="submit" variant="primary" :disabled="busy || !state.connected || !sourceUrl.trim() || !sourceName.trim()">{{ editing ? text('保存修改', 'Save changes') : text('添加源', 'Add source') }}</Button><Button v-if="editing" :disabled="busy" @click="router.push(sourcePath(detailId))">{{ text('取消编辑', 'Cancel edit') }}</Button></div>
           </form>
+          <Button v-if="!editing" :disabled="busy || !state.connected || !sourceUrl.trim()" @click="joinTeam(sourceUrl.trim())">{{ text('作为团队加入并自动更新', 'Join as a Team and follow updates') }}</Button>
           <p>{{ text('支持 source.jsonc 和工作区 JSON/JSONC；项目 YAML 由下游仓库适配器提供。添加源后可选择工作区并预览更新。', 'Supports source.jsonc and workspace JSON/JSONC; host adapters may also support project YAML. Save a source, then select workspaces and preview updates.') }}</p>
         </section>
         <section v-if="preview && !listing && !settings" class="subscription-card">
           <div class="subscription-row"><h2>{{ cachedPreview ? text('已应用工作区', 'Applied workspaces') : text('订阅预览', 'Subscription preview') }} · {{ preview.workspaces.length }}</h2><span>{{ preview.revision.slice(0, 8) }}</span></div>
           <p>{{ preview.subscription.repository }} · {{ preview.subscription.branch }} · {{ preview.subscription.directory }}</p>
           <aside v-if="!preview.subscription.legacy" class="subscription-explainer">
-            <strong>{{ text('保持订阅，更新由你确认', 'Stay subscribed, review updates before applying') }}</strong>
-            <p>{{ text('工作区定义由源仓库维护。你管理订阅选择、本机路径和执行权限；源有变化时，预览后再应用。需要自行修改定义，可在订阅后复制到个人工作区，副本不再同步。', 'The source repository maintains workspace definitions. You manage workspace selection, local paths and execution permissions. Preview source changes before applying them. For independent edits, copy an applied workspace to Personal; copies no longer sync.') }}</p>
+            <strong>{{ preview.subscription.autoFollow ? text('已加入团队，自动跟随源版本', 'Joined Team, following source updates') : text('保持订阅，更新由你确认', 'Stay subscribed, review updates before applying') }}</strong>
+            <p v-if="!preview.subscription.autoFollow">{{ text('工作区定义由源仓库维护。你管理订阅选择、本机路径和执行权限；源有变化时，预览后再应用。需要自行修改定义，可在订阅后复制到个人工作区，副本不再同步。', 'The source repository maintains workspace definitions. You manage workspace selection, local paths and execution permissions. Preview source changes before applying them. For independent edits, copy an applied workspace to Personal; copies no longer sync.') }}</p>
           </aside>
           <article v-for="workspace in preview.workspaces" :key="workspace.id" class="subscription-preview">
             <label v-if="!cachedPreview"><input v-model="selectedWorkspaces" type="checkbox" :value="workspace.id" :disabled="busy"> {{ workspace.name }}</label><strong v-else>{{ workspace.name }}</strong><Button v-if="cachedPreview" :disabled="busy" @click="copyWorkspace(workspace.id)">{{ text('复制到个人工作区', 'Copy to Personal') }}</Button><span>{{ workspace.members.length }} {{ text('个项目', 'projects') }}</span>
@@ -275,7 +295,7 @@ onMounted(async () => {
           <label v-if="listing" for="source-search">{{ text('搜索配置源', 'Search sources') }}</label><input v-if="listing" id="source-search" v-model="query" type="search">
           <article v-for="subscription in detail ? [detail] : visibleSources" :key="subscription.id" class="subscription-item">
             <div><RouterLink :to="{ path: sourcePath(subscription.id), query: route.query.q ? { q: route.query.q } : {} }">{{ subscription.name || subscription.repository }}</RouterLink><p v-if="subscription.name">{{ subscription.repository }}</p><p>{{ subscription.branch }} · {{ subscription.directory }}</p><small v-if="subscription.lastImportedAt">{{ text('上次应用', 'Last applied') }} {{ new Date(subscription.lastImportedAt).toLocaleString() }}</small></div>
-            <div v-if="detail" class="subscription-actions"><Button :disabled="busy" @click="editSource(subscription)">{{ text('编辑', 'Edit') }}</Button><Button :disabled="busy || !state.connected" @click="openPreview(subscription.id)">{{ text('预览订阅更新', 'Preview subscription update') }}</Button><Button v-if="!subscription.legacy && subscription.lastImportedAt" :disabled="busy" @click="openPreview(subscription.id, true)">{{ text('查看已应用快照', 'View applied snapshot') }}</Button><a :href="`/api/config-subscriptions/${subscription.id}/export`" download>{{ text('导出配置', 'Export') }}</a><Button variant="ghost" :disabled="busy" @click="unsubscribe(subscription.id)">{{ text('删除源', 'Delete source') }}</Button></div>
+            <div v-if="detail" class="subscription-actions"><Button :disabled="busy" @click="editSource(subscription)">{{ text('编辑', 'Edit') }}</Button><Button :disabled="busy || !state.connected" @click="openPreview(subscription.id)">{{ text('预览订阅更新', 'Preview subscription update') }}</Button><Button v-if="!subscription.legacy && subscription.lastImportedAt" :disabled="busy" @click="openPreview(subscription.id, true)">{{ text('查看已应用快照', 'View applied snapshot') }}</Button><a :href="`/api/config-subscriptions/${subscription.id}/export`" download>{{ text('导出配置', 'Export') }}</a><Button variant="ghost" :disabled="busy" @click="unsubscribe(subscription.id)">{{ subscription.ownerScopeId ? text('退出团队', 'Leave Team') : text('删除源', 'Delete source') }}</Button></div>
           </article>
         </section>
       </template>

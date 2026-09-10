@@ -132,7 +132,7 @@ async function switchOwnerScope(value: unknown): Promise<void> {
 async function createTeam(): Promise<void> {
   const name = teamName.value.trim()
   const repositoryPath = teamRepositoryPath.value.trim()
-  if (!name || !repositoryPath || teamSubmitting.value)
+  if (!name || teamSubmitting.value)
     return
   teamSubmitting.value = true
   teamError.value = ''
@@ -221,6 +221,10 @@ async function configureTeamSync(): Promise<void> {
 async function synchronizeTeam(resolution: 'auto' | 'use-local' | 'use-repository' = 'auto'): Promise<void> {
   if (teamSyncSubmitting.value)
     return
+  if (store.activeTeamSyncStatus?.source) {
+    await router.push(`/subscriptions/${store.activeTeamSyncStatus.source.subscriptionId}`)
+    return
+  }
   if (teamSyncUnconfigured.value) {
     railActionError.value = ''
     openTeamManagement()
@@ -240,6 +244,8 @@ async function synchronizeTeam(resolution: 'auto' | 'use-local' | 'use-repositor
 }
 
 function teamSyncStateLabel(): string {
+  if (store.activeTeamSyncStatus?.source)
+    return t('teamSourceFollowing')
   const state = store.activeTeamSyncStatus?.state
   if (state === 'clean')
     return t('personalGitSyncState_clean')
@@ -842,7 +848,7 @@ async function addProjectPath(projectPath: string): Promise<void> {
         :title="workbench.title"
         @click="emit('openPluginWorkbench', workbench.pluginId, workbench.id)"
       >
-        <VisualIcon :icon="workbench.icon" fallback="workspace" monochrome />
+        <VisualIcon :icon="workbench.icon" fallback="workspace" />
       </button>
       <button
         v-for="view in store.standaloneIntegrationViews"
@@ -906,7 +912,7 @@ async function addProjectPath(projectPath: string): Promise<void> {
             </Select>
           </div>
           <button
-            v-if="store.activeOwnerScope?.kind === 'team' && store.hostEnvironment.capabilities.localGitSync"
+            v-if="store.activeOwnerScope?.kind === 'team' && (store.hostEnvironment.capabilities.localGitSync || store.activeTeamSyncStatus?.source)"
             type="button"
             class="team-sync-indicator"
             :class="[store.activeTeamSyncStatus?.state, { pending: store.activeTeamSyncStatus?.workingTreeChanged }]"
@@ -918,9 +924,13 @@ async function addProjectPath(projectPath: string): Promise<void> {
             <Icon :name="teamSyncSubmitting ? 'loading' : teamSyncUnconfigured ? 'settings' : store.activeTeamSyncStatus?.state === 'conflict' ? 'error' : store.activeTeamSyncStatus?.state === 'clean' && !store.activeTeamSyncStatus?.workingTreeChanged ? 'check' : 'refresh'" />
           </button>
           <button v-if="store.activeOwnerScope?.kind === 'team'" type="button" data-testid="manage-team" :aria-label="t('manageTeam')" :title="t('manageTeam')" @click="openTeamManagement"><Icon name="edit" /></button>
-          <button v-if="store.hostEnvironment.capabilities.localGitSync && store.activeOwnerScope?.kind !== 'team'" type="button" :aria-label="t('createTeam')" :title="t('createTeam')" @click="teamDialogOpen = true"><Icon name="plus" /></button>
+          <button v-if="store.activeOwnerScope?.kind !== 'team'" type="button" :aria-label="t('createTeam')" :title="t('createTeam')" @click="teamDialogOpen = true"><Icon name="plus" /></button>
         </div>
-        <div v-if="store.hostEnvironment.capabilities.localGitSync && store.activeOwnerScope?.kind === 'team' && store.activeTeamSyncStatus && teamSyncNeedsAttention" class="team-sync-status" :class="store.activeTeamSyncStatus.state">
+        <div v-if="store.activeTeamSyncStatus?.source" class="team-sync-status clean">
+          <span><Icon name="check" />{{ t('teamSourceFollowing') }}</span>
+          <small>{{ store.activeTeamSyncStatus.source.revision.slice(0, 12) }}</small>
+        </div>
+        <div v-if="!store.activeTeamSyncStatus?.source && store.hostEnvironment.capabilities.localGitSync && store.activeOwnerScope?.kind === 'team' && store.activeTeamSyncStatus && teamSyncNeedsAttention" class="team-sync-status" :class="store.activeTeamSyncStatus.state">
           <span><Icon :name="store.activeTeamSyncStatus.state === 'conflict' ? 'error' : store.activeTeamSyncStatus.state === 'clean' ? 'check' : 'refresh'" />{{ teamSyncStateLabel() }}</span>
           <button v-if="teamSyncUnconfigured" type="button" @click="openTeamManagement">{{ t('configureTeamSync') }}</button>
           <small v-if="store.activeTeamSyncStatus.workingTreeChanged">{{ t('gitSyncPendingCommit') }}</small>
@@ -1130,7 +1140,7 @@ async function addProjectPath(projectPath: string): Promise<void> {
     <template #description>{{ t('createTeamDescription') }}</template>
     <form class="team-create-form" data-testid="create-team-form" @submit.prevent="createTeam">
       <label><span>{{ t('teamName') }}</span><input v-model="teamName" name="team-name" autofocus></label>
-      <label>
+      <label v-if="store.hostEnvironment.capabilities.localGitSync">
         <span>{{ t('teamGitRepository') }}</span>
         <span class="dialog-path-entry">
           <input v-model="teamRepositoryPath" name="team-repository-path" :placeholder="t('gitRepositoryPathPlaceholder')">
@@ -1139,11 +1149,11 @@ async function addProjectPath(projectPath: string): Promise<void> {
           </UiButton>
         </span>
       </label>
-      <label><span>{{ t('gitSyncDirectory') }}</span><input v-model="teamDirectory" name="team-directory" :placeholder="`.craft-hub/teams/${teamName.trim().toLocaleLowerCase().replace(/[^a-z0-9]+/g, '-') || 'team'}`"></label>
+      <label v-if="store.hostEnvironment.capabilities.localGitSync"><span>{{ t('gitSyncDirectory') }}</span><input v-model="teamDirectory" name="team-directory" :placeholder="`.craft-hub/teams/${teamName.trim().toLocaleLowerCase().replace(/[^a-z0-9]+/g, '-') || 'team'}`"></label>
       <p v-if="teamError" class="error-message">{{ teamError }}</p>
       <footer>
         <UiButton @click="teamDialogOpen = false">{{ t('cancel') }}</UiButton>
-        <UiButton type="submit" variant="primary" :disabled="!teamName.trim() || !teamRepositoryPath.trim() || teamSubmitting">{{ teamSubmitting ? t('saving') : t('create') }}</UiButton>
+        <UiButton type="submit" variant="primary" :disabled="!teamName.trim() || teamSubmitting">{{ teamSubmitting ? t('saving') : t('create') }}</UiButton>
       </footer>
     </form>
   </DialogShell>

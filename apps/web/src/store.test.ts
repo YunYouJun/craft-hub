@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 /// <reference lib="dom" />
 
-import type { Capability, CommandCapability, ProjectRecord, RunRecord, WorkspaceManifest } from 'craft-hub'
+import type { AgentTaskRecord, Capability, CommandCapability, ProjectRecord, RunRecord, WorkspaceManifest } from 'craft-hub'
 import { projectConfigSchemaRevision } from 'craft-hub'
 import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -57,6 +57,17 @@ describe('workbench refresh', () => {
   })
 
   afterEach(() => vi.unstubAllGlobals())
+
+  it('retains completion streamed before the task creation response', async () => {
+    const store = useWorkbenchStore()
+    const task: AgentTaskRecord = { id: 'fast-task', provider: 'example', projectIds: ['project'], primaryProjectId: 'project', prompt: 'Review', status: 'running', startedAt: '2026-01-01T00:00:00.000Z' }
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      store.applyAgentTask({ ...task, status: 'completed', finalResponse: 'Finished', output: 'Progress' })
+      return new Response(JSON.stringify(task), { status: 200 })
+    }))
+    await store.startAgentTask('Review', ['project'], 'project')
+    expect(store.agentTasks).toEqual([{ ...task, status: 'completed', finalResponse: 'Finished', output: 'Progress' }])
+  })
 
   it('refreshes changed files while keeping the logical capability selected', async () => {
     const store = useWorkbenchStore()

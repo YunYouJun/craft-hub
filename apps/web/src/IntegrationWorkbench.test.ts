@@ -155,7 +155,7 @@ describe('integration workbench', () => {
 
     expect(wrapper.get('[role="listitem"]').text()).toContain('Done')
 
-    await wrapper.get('select[aria-label="Configuration scope"]').setValue('')
+    wrapper.findComponent({ name: 'FormSelect' }).vm.$emit('update:modelValue', 'global')
     await flushPromises()
     expect(invoke).toHaveBeenLastCalledWith('acme-issues', 'list', { mode: 'assigned', limit: 60 }, undefined)
 

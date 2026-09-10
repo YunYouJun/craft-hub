@@ -3,6 +3,7 @@ import type { ConfigurationManagementPage, IntegrationActionResult, IntegrationC
 import type { WorkbenchIntegrationView } from './store'
 import { computed, reactive, ref, watch } from 'vue'
 import { api } from './api'
+import { FormSelect } from './components/ui/select'
 import { Button as UiButton } from './components/ui/button'
 import Icon from './NavigationIcon.vue'
 import ConfigurationManager from './ConfigurationManager.vue'
@@ -30,6 +31,14 @@ const inspectedProjectId = ref(store.selectedProjectId || '')
 watch(() => store.selectedProjectId, value => { inspectedProjectId.value = value || '' })
 const view = computed(() => store.integrationViews.find(candidate => candidate.integrationId === props.integrationId && candidate.id === props.viewId))
 const contribution = computed(() => store.integrationContributions.find(candidate => candidate.id === props.integrationId))
+const scopeSelection = computed({
+  get: () => inspectedProjectId.value || 'global',
+  set: (value: string) => { inspectedProjectId.value = value === 'global' ? '' : value },
+})
+const scopeOptions = computed(() => [
+  { value: 'global', label: t('integrationGlobalScope') },
+  ...store.projects.map(project => ({ value: project.id, label: project.name, icon: 'folder' })),
+])
 const requiresProject = computed(() => view.value?.scope === 'project')
 const diagnostics = computed(() => store.integrationDiagnostics.filter(diagnostic => diagnostic.integrationId === props.integrationId))
 
@@ -176,10 +185,7 @@ watch(
 
       <label v-if="view.scope === 'global-and-project'" class="integration-scope">
         <span>{{ t('integrationScope') }}</span>
-        <select v-model="inspectedProjectId" class="ui-form-control" :aria-label="t('integrationScope')">
-          <option value="">{{ t('integrationGlobalScope') }}</option>
-          <option v-for="project in store.projects" :key="project.id" :value="project.id">{{ project.name }}</option>
-        </select>
+        <FormSelect v-model="scopeSelection" :options="scopeOptions" :aria-label="t('integrationScope')" />
       </label>
 
       <aside v-if="diagnostics.length" class="integration-diagnostics" role="alert">
@@ -297,7 +303,7 @@ watch(
 <style scoped>
 .integration-scope { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; font-size: var(--font-size-body); color: var(--muted); }
 .integration-scope > span { flex: none; }
-.integration-scope select { width: auto; max-width: min(280px, 100% - 72px); border-color: var(--border); border-radius: var(--control-radius); }
+.integration-scope :deep([data-slot='select-trigger']) { width: auto; max-width: min(280px, calc(100% - 72px)); }
 .integration-blocks { display: grid; gap: 12px; }
 .integration-block { min-width: 0; overflow: hidden; border: 1px solid var(--border); border-radius: var(--control-radius); background: var(--surface); }
 .integration-block-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 10px 12px; border-bottom: 1px solid var(--border); }

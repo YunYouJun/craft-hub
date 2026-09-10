@@ -63,7 +63,7 @@ it('restores detail settings and list filters from URLs without reading a remote
   await flushPromises()
   expect(wrapper.get<HTMLInputElement>('#source-search').element.value).toBe('Team')
   expect(wrapper.find('#source-name').exists()).toBe(false)
-  expect(fetcher).toHaveBeenCalledTimes(1)
+  expect(fetcher).toHaveBeenCalledTimes(2)
   await router.push('/subscriptions/missing')
   await flushPromises()
   expect(wrapper.get('[role=alert]').text()).toMatch(/not found|不存在/)

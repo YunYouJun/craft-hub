@@ -506,6 +506,9 @@ importers:
 
   packages/craft-hub:
     dependencies:
+      '@modelcontextprotocol/sdk':
+        specifier: 'catalog:'
+        version: 1.30.0(supports-color@10.2.2)(zod@4.4.3)
       cac:
         specifier: 'catalog:'
         version: 7.0.0

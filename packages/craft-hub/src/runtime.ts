@@ -10,6 +10,7 @@ import type { CraftHubPlugin, PluginDiagnostic } from './plugins'
 import type { Capability, CapabilityDiscoveryDiagnostic, CapabilityDiscoveryResult, CapabilityPins, CapabilityReference, CommandCapability, CommandInputValues, CommandInvocation, CommandPackage, LocalSkillActivationSettings, ProjectConfigInitializationMode, ProjectConfigInitializationResult, ProjectOverview, ProjectRecord, ProjectRunSummary, ProjectSkillsState, ReleasePlan, RunCleanupOptions, RunCleanupResult, RunOutputEvent, RunRecord } from './types'
 import { isAbsolute, resolve } from 'node:path'
 import process from 'node:process'
+import { AccountSyncService } from './account-sync'
 import { AgentActionService } from './agent-actions'
 import { AgentTaskManager } from './agent-tasks'
 import { resolveCommandContributions } from './command-contributions'
@@ -57,6 +58,7 @@ export class CraftHubRuntime {
   readonly workspaceCatalog: WorkspaceCatalogService
   readonly workspaceImports: WorkspaceImportService
   readonly personalGitSync: PersonalGitSyncService
+  readonly accountSync: AccountSyncService
   readonly ownerScopes: OwnerScopeService
   readonly teamGitSync: TeamGitSyncService
   readonly teams: TeamManager
@@ -115,19 +117,29 @@ export class CraftHubRuntime {
     this.dotfilesManager = new DotfilesManager(this.store.dataDir, this.personalConfigRepository)
     const configDir = normalizedOptions.configDir ?? getCraftHubConfigDir(process.env)
     this.userConfig = new UserConfigService(configDir, this.store.dataDir)
+    this.ownerScopes = new OwnerScopeService(configDir, this.store.dataDir, this.userConfig)
     this.workspaces = new WorkspaceService(configDir, this.store.dataDir, this.projects, this.userConfig, () => this.workspaceSubscriptions.projectedWorkspaces())
     this.workspaceSubscriptions = new WorkspaceSubscriptionService(this.store.dataDir, this.workspaces, [
       ...(normalizedOptions.workspaceRepositoryProviders ?? []),
       ...plugins.flatMap(plugin => plugin.workspaceRepositoryProviders ?? []),
       ...(normalizedOptions.publicWorkspaceRepositories === false ? [] : [publicWorkspaceRepositoryProvider]),
-    ])
-    this.ownerScopes = new OwnerScopeService(configDir, this.store.dataDir, this.userConfig)
+    ], this.ownerScopes)
     this.teamGitSync = new TeamGitSyncService(this.store.dataDir, this.ownerScopes, this.workspaces)
+    this.accountSync = new AccountSyncService(this, this.accountProvider?.sync)
     this.teams = new TeamManager(this.ownerScopes, this.teamGitSync, this.workspaces)
     this.workspaceImports = new WorkspaceImportService(this.projects, this.workspaces)
     this.personalGitSync = new PersonalGitSyncService(this.store.dataDir, this.settings, this.workspaces, this.personalConfigRepository)
     this.agentTasks = new AgentTaskManager(this.store, this.projects, normalizedOptions.agentTaskProvider)
     this.agentActions = new AgentActionService(this.agentTasks, this.projects, (projectId, locale) => this.capabilityDiscovery(projectId, locale))
+  }
+
+  private configurationQueue: Promise<unknown> = Promise.resolve()
+
+  /** Serialize account synchronization with configuration API mutations in this runtime. */
+  withConfiguration<T>(action: () => Promise<T>): Promise<T> {
+    const next = this.configurationQueue.catch(() => {}).then(action)
+    this.configurationQueue = next
+    return next
   }
 
   /** Register a local project path without granting trust. */
@@ -240,7 +252,7 @@ export class CraftHubRuntime {
     return this.integrationRegistry.invoke({
       contribution,
       actionId: options.actionId,
-      context: { ...(resourceProjects ? { projects: resourceProjects } : {}), ...(contribution.actions.find(action => action.id === options.actionId)?.operation === 'connection.update' ? { callbackUrl: options.callbackUrl } : {}), ...(project ? { projectId: project.id, projectPath: project.path } : {}), ...(options.input?.locale === 'zh-CN' ? { locale: 'zh-CN' as const } : {}) },
+      context: { hostEnvironment: this.hostEnvironment.kind, ...(resourceProjects ? { projects: resourceProjects } : {}), ...(contribution.actions.find(action => action.id === options.actionId)?.operation === 'connection.update' ? { callbackUrl: options.callbackUrl } : {}), ...(project ? { projectId: project.id, projectPath: project.path } : {}), ...(options.input?.locale === 'zh-CN' ? { locale: 'zh-CN' as const } : {}) },
       input: options.input,
       confirmed: options.confirmed,
     })

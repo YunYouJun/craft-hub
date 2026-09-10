@@ -16,6 +16,7 @@ Craft Hub is a local, cross-project developer workbench. Its Project Palette dis
 - Capture stdout, stderr, exit status, and run records
 - Review host, configuration, Marketplace, plugin, and integration problems in one diagnostics workbench
 - Use the same runtime from the CLI, web workbench, and Electron shell
+- Connect your own agent with scoped, revocable read access from **Settings → Agent connection**; see the [connection guide](docs/guide/agent-connection.md)
 
 ## Develop
 

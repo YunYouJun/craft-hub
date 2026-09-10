@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
+import type { AccountSyncProvider } from './account-sync'
 
 /** Public identity only; credentials must stay inside the trusted provider. */
 export interface AccountIdentity {
@@ -16,6 +17,7 @@ export interface AccountProvider {
   mode: 'gateway' | 'local'
   required: boolean
   /** Canonical HTTPS origin for a reverse-proxied host. */
+  sync?: AccountSyncProvider
   publicOrigin?: string
   status: (request: IncomingMessage) => Promise<AccountIdentity | undefined>
   signIn?: () => Promise<{ authorizationUrl: string }>

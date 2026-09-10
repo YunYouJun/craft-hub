@@ -131,6 +131,8 @@ export type IntegrationOperation = z.infer<typeof integrationOperationSchema>
 export type IntegrationContribution = z.infer<typeof integrationContributionSchema>
 
 export interface IntegrationProviderContext {
+  /** Host location, supplied by the runtime rather than plugin input. */
+  hostEnvironment?: 'local' | 'hosted'
   /** Host-derived project catalog for cross-project reads and execution scope checks. */
   projects?: Array<{ id: string, name: string, path: string, trust: 'trusted' | 'untrusted' }>
   /** Whether the host reviewed and confirmed the current action invocation. */

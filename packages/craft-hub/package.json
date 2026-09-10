@@ -46,6 +46,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "catalog:",
     "cac": "catalog:",
     "chokidar": "catalog:",
     "cross-spawn": "catalog:",

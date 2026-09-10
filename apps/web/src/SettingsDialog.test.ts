@@ -187,13 +187,14 @@ describe('settings dialog', () => {
     await flushPromises()
 
     const tabs = [...document.body.querySelectorAll<HTMLElement>('[role="tab"]')]
-    expect(tabs.map(tab => tab.textContent)).toEqual(['General', 'Keyboard shortcuts', 'Personal cloud', 'Configuration', 'Run history', 'Import and export', 'Help'])
+    expect(tabs.map(tab => tab.textContent)).toEqual(['General', 'Agent connection', 'Keyboard shortcuts', 'Personal cloud', 'Configuration', 'Run history', 'Import and export', 'Help'])
     expect(document.body.textContent).not.toContain('Export changed settings')
 
-    tabs[5]!.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0 }))
+    const importTab = tabs.find(tab => tab.textContent === 'Import and export')!
+    importTab.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0 }))
     await flushPromises()
 
-    expect(tabs[5]!.getAttribute('data-state')).toBe('active')
+    expect(importTab.getAttribute('data-state')).toBe('active')
     expect(document.body.textContent).toContain('Export changed settings')
     expect(document.body.textContent).not.toContain('Choose the language used throughout Craft Hub.')
   })

@@ -35,6 +35,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
   const projectCatalogDiagnostics = ref<ProjectCatalogDiagnostic[]>([])
   const runtimeSchemaMismatch = ref<{ actual: string, expected: string }>()
   const applicationName = ref('Craft Hub')
+  const documentationUrl = ref<string>()
   const ownerScopes = ref<OwnerScope[]>([])
   const activeOwnerScopeId = ref('personal')
   const hostEnvironment = ref<HostEnvironment>({ kind: 'local', capabilities: { localProjectDirectories: true, localGitSync: true } })
@@ -52,6 +53,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
   const workspaceCapabilityProjectId = ref('')
   const workspaceCapabilityId = ref('')
   const agentTasks = ref<AgentTaskRecord[]>([])
+  const agentExecution = ref<{ id: string, available: boolean }>()
   const agentActions = ref<AgentActionSummary[]>([])
   const agentActionDialogOpen = ref(false)
   const selectedProjectId = ref('')
@@ -778,7 +780,9 @@ export const useWorkbenchStore = defineStore('workbench', () => {
 
   async function startAgentTask(prompt: string, projectIds: string[], primaryProjectId: string, workspaceId?: string, capabilityId?: string, primaryProjectRelativePath?: string): Promise<AgentTaskRecord> {
     const task = await api.startAgentTask({ prompt, projectIds, primaryProjectId, primaryProjectRelativePath, workspaceId, capabilityId })
-    applyAgentTask(task)
+    // A streamed update can arrive before the creation response. Keep its newer state.
+    if (!agentTasks.value.some(item => item.id === task.id))
+      applyAgentTask(task)
     return task
   }
 
@@ -786,7 +790,9 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     if (!selectedProject.value)
       throw new Error('Select a project before starting an agent action')
     const task = await api.startAgentAction(selectedProject.value.id, actionId, locale)
-    applyAgentTask(task)
+    // A streamed update can arrive before the creation response. Keep its newer state.
+    if (!agentTasks.value.some(item => item.id === task.id))
+      applyAgentTask(task)
     return task
   }
 
@@ -877,8 +883,11 @@ export const useWorkbenchStore = defineStore('workbench', () => {
       runtimeSchemaMismatch.value = health && health.projectConfigSchemaRevision !== projectConfigSchemaRevision
         ? { actual: health.projectConfigSchemaRevision, expected: projectConfigSchemaRevision }
         : undefined
+      agentExecution.value = health?.agentExecution
       if (health?.hostEnvironment)
         hostEnvironment.value = health.hostEnvironment
+      const docsUrl = health?.distribution.documentationUrl
+      documentationUrl.value = docsUrl && /^https?:\/\//i.test(docsUrl) ? docsUrl : undefined
       if (health?.distribution.name) {
         applicationName.value = health.distribution.name
         document.title = applicationName.value
@@ -1353,6 +1362,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     selectedProjectDiagnostics,
     runtimeSchemaMismatch,
     applicationName,
+    documentationUrl,
     ownerScopes,
     activeOwnerScopeId,
     activeOwnerScope,
@@ -1378,6 +1388,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     activeCapability,
     unassignedProjects,
     agentTasks,
+    agentExecution,
     agentActions,
     agentActionDialogOpen,
     selectedProjectId,

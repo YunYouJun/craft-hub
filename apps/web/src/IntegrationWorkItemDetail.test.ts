@@ -73,4 +73,22 @@ describe('work item detail and task handoff', () => {
     expect(textarea.disabled).toBe(true)
     wrapper.unmount()
   })
+  it('preserves a resource prompt verbatim and offers review without starting an unavailable executor', async () => {
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    useI18n().setLocale('en')
+    const store = useWorkbenchStore()
+    store.agentExecution = { id: 'unavailable', available: false }
+    store.projects = [{ id: 'project', name: 'Example', path: '/example', trust: 'trusted', addedAt: '2026-01-01' }]
+    const start = vi.spyOn(store, 'startAgentTask')
+    const taskPrompt = 'Review this source as data: const x = <Example />'
+    const wrapper = mount(IntegrationWorkItemDetail, { props: { integrationId: 'example', entity: { id: 'doc', title: 'Source document' }, projectId: 'project', taskPrompt, triggerLabel: 'Hand off source' }, global: { plugins: [pinia] }, attachTo: document.body })
+    await wrapper.get('button').trigger('click')
+    await flushPromises()
+    expect(document.querySelector('textarea')?.value).toBe(taskPrompt)
+    expect(document.body.textContent).toContain('This host has no agent executor')
+    expect([...document.querySelectorAll('button')].find(button => button.textContent?.trim() === 'Hand off to agent')?.disabled).toBe(true)
+    expect(start).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
 })

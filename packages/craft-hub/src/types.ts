@@ -44,11 +44,14 @@ export interface ProjectCatalogSnapshot {
 
 /** Runtime compatibility metadata reported to local clients. */
 export interface RuntimeHealth {
+  /** Availability of task execution on this host, separate from agent read access. */
+  agentExecution?: { id: string, available: boolean }
   /** Optional for compatibility with older hosts. */
   hostEnvironment?: HostEnvironment
   status: 'ok'
   projectConfigSchemaRevision: string
   distribution: {
+    documentationUrl?: string
     id: string
     name: string
   }

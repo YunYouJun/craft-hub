@@ -292,7 +292,8 @@ onBeforeMount(async () => {
     onSettingsChange: snapshot => void store.applySettings(snapshot)
       .then(() => Promise.all([store.loadPluginWorkbenches(), store.loadWorkbenchDiagnostics()]))
       .catch(() => {}),
-    onUserConfigChange: (status) => {
+    onConfigurationSync: () => { void store.loadOwnerScopes().then(() => store.loadWorkspaces()).catch(() => {}) },
+      onUserConfigChange: (status) => {
       store.applyUserConfigStatus(status)
       void Promise.all([store.loadOwnerScopes(), store.loadWorkspaces(), store.loadWorkbenchDiagnostics()]).catch(() => {})
     },
