@@ -168,6 +168,7 @@ describe('craft hub server lifecycle', () => {
           id: 'community',
           name: 'Craft Hub',
         },
+        hostEnvironment: { kind: 'local', capabilities: { localProjectDirectories: true, localGitSync: true } },
         projectConfigSchemaRevision,
         status: 'ok',
       })

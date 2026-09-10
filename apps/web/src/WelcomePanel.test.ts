@@ -21,6 +21,7 @@ describe('guided first run welcome', () => {
     }
     const pinia = createPinia()
     setActivePinia(pinia)
+    useI18n().setLocale('en')
     const store = useWorkbenchStore()
     const addProject = vi.spyOn(store, 'addProject').mockResolvedValue()
 
@@ -37,6 +38,7 @@ describe('guided first run welcome', () => {
     useI18n().setLocale('en')
     const pinia = createPinia()
     setActivePinia(pinia)
+    useI18n().setLocale('en')
     const wrapper = mount(WelcomePanel, { props: { replaying: true }, global: { plugins: [pinia] } })
 
     expect(wrapper.text()).toContain('Choose another project')

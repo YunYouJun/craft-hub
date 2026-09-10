@@ -87,3 +87,11 @@ describe('desktop distribution manifest', () => {
       .toThrow('must stay inside')
   })
 })
+
+it('loads workspace markets independently of plugin marketplaces and rejects duplicate markets', () => {
+  const market = { enabled: true, catalog: { schemaVersion: 1, id: 'example', name: 'Example', entries: [] } }
+  const input = { ...downstreamManifest, distribution: { ...downstreamManifest.distribution, workspaceMarkets: [market] } }
+  expect(parseDesktopDistributionManifest(input).distribution.workspaceMarkets).toEqual([market])
+  input.distribution.workspaceMarkets.push(market)
+  expect(() => parseDesktopDistributionManifest(input)).toThrow('Duplicate workspace market')
+})

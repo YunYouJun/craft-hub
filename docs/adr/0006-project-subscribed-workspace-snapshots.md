@@ -1,0 +1,3 @@
+# Project subscribed workspaces from applied snapshots
+
+Continuous subscriptions expose read-only workspaces from an atomically replaced, device-local source snapshot, while the one-time imports described in ADR 0001 remain editable and independent. This avoids partially updating multiple workspace files or silently overwriting user edits: users explicitly copy a subscribed workspace into Personal before editing it, and local bindings, navigation preferences and execution trust remain separate from source updates. Hosted private readers recheck repository authorization for cached access as well as updates; local installations can retain their last applied snapshot offline.

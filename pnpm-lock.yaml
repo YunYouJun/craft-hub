@@ -25,6 +25,9 @@ catalogs:
     '@electron/packager':
       specifier: ^20.3.0
       version: 20.3.0
+    '@iconify-json/lucide':
+      specifier: ^1.2.130
+      version: 1.2.130
     '@iconify-json/ri':
       specifier: ^1.2.10
       version: 1.2.10
@@ -329,6 +332,9 @@ importers:
 
   apps/desktop:
     dependencies:
+      '@craft-hub/craft-hub-plugin-codex':
+        specifier: workspace:*
+        version: link:../../packages/craft-hub-plugin-codex
       '@craft-hub/personal-cloud':
         specifier: workspace:*
         version: link:../../packages/craft-hub-personal-cloud
@@ -397,6 +403,9 @@ importers:
         specifier: 'catalog:'
         version: 5.2.0(@vue/compiler-sfc@3.5.41)(esbuild@0.28.2)(pinia@4.0.3(@vue/devtools-api@8.2.1)(typescript@6.0.3)(vue@3.5.41(typescript@6.0.3)))(rolldown@1.2.5)(vite@8.2.2(@types/node@26.3.0)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))(vue@3.5.41(typescript@6.0.3))
     devDependencies:
+      '@iconify-json/lucide':
+        specifier: 'catalog:'
+        version: 1.2.130
       '@iconify-json/ri':
         specifier: 'catalog:'
         version: 1.2.10
@@ -566,6 +575,15 @@ importers:
       typescript:
         specifier: 'catalog:'
         version: 6.0.3
+
+  packages/craft-hub-plugin-codex:
+    devDependencies:
+      craft-hub:
+        specifier: workspace:*
+        version: link:../craft-hub
+      tsdown:
+        specifier: 'catalog:'
+        version: 0.22.14(@volar/typescript@2.4.28(typescript@6.0.3))(publint@0.3.24)(tsx@4.23.12)(typescript@6.0.3)(vue-tsc@3.3.11(typescript@6.0.3))
 
   vendor/lodash-set-safe:
     dependencies:
@@ -1266,6 +1284,9 @@ packages:
 
   '@iconify-json/logos@1.2.13':
     resolution: {integrity: sha512-Up54ZnIuiuBgGAsuzhR1nvKqwq8VE6YM3XLwVB6IgY+7NAasz6WKu9Ay5hGfAkfuOKowodfwDC8ozReEBYrWRg==}
+
+  '@iconify-json/lucide@1.2.130':
+    resolution: {integrity: sha512-rRH6qHEDEaFMOkRJPbT8fBYPLP/2GHi3Q2+iDyTDuX4l5PT/GMKs6Dn9JkL7cHtCkIWKnyYWopmMlFpNek1Fcw==}
 
   '@iconify-json/ri@1.2.10':
     resolution: {integrity: sha512-WWMhoncVVM+Xmu9T5fgu2lhYRrKTEWhKk3Com0KiM111EeEsRLiASjpsFKnC/SrB6covhUp95r2mH8tGxhgd5Q==}
@@ -6342,6 +6363,10 @@ snapshots:
   '@humanwhocodes/retry@0.4.3': {}
 
   '@iconify-json/logos@1.2.13':
+    dependencies:
+      '@iconify/types': 2.0.0
+
+  '@iconify-json/lucide@1.2.130':
     dependencies:
       '@iconify/types': 2.0.0
 

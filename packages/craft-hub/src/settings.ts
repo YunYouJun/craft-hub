@@ -147,7 +147,7 @@ interface ValidatedSettingsFile {
 const defaultSettings: CraftHubSettings = {
   'workbench.codex': {},
   'workbench.editor': { default: 'vscode' },
-  'workbench.locale': 'en',
+  'workbench.locale': 'zh-CN',
   'workbench.repositoriesRoot': '',
   'workbench.shortcuts': { 'workbench.showCommandPalette': 'Mod+K' },
   'workbench.theme': 'system',

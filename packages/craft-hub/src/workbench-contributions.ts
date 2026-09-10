@@ -16,11 +16,13 @@ export const workbenchViewReferenceSchema = z.discriminatedUnion('type', [
     plugin: pluginPackageSchema,
     integration: workbenchIdSchema,
     view: workbenchIdSchema,
+    group: localizedWorkbenchTextSchema.optional(),
   }),
   z.strictObject({
     type: z.literal('navigation'),
     plugin: pluginPackageSchema,
     panel: workbenchIdSchema,
+    group: localizedWorkbenchTextSchema.optional(),
   }),
 ])
 
@@ -57,7 +59,7 @@ export interface InstalledPluginWorkbench {
   description?: string
   icon?: string
   order?: number
-  views: WorkbenchViewReference[]
+  views: Array<(Omit<Extract<WorkbenchViewReference, { type: 'integration' }>, 'group'> | Omit<Extract<WorkbenchViewReference, { type: 'navigation' }>, 'group'>) & { group?: string }>
 }
 
 /** Resolve workbench copy for the requested locale while preserving inert view references. */
@@ -71,6 +73,9 @@ export function localizeWorkbench(
     ...(workbench.description ? { description: localizedText(workbench.description as LocalizedText, locale) } : {}),
     ...(workbench.icon ? { icon: workbench.icon } : {}),
     ...(workbench.order === undefined ? {} : { order: workbench.order }),
-    views: structuredClone(workbench.views),
+    views: workbench.views.map(({ group, ...reference }) => ({
+      ...reference,
+      ...(group ? { group: localizedText(group as LocalizedText, locale) } : {}),
+    })),
   }
 }

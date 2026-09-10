@@ -1,0 +1,33 @@
+/* Composed workbenches and standalone integrations share one page geometry. */
+.workbench-view { flex: 1; min-width: 0; min-height: 0; overflow: auto; background: var(--surface); font-size: var(--font-size-body); }
+.workbench-view-content { width: min(var(--page-content-max-width), calc(100% - 2 * var(--page-padding-inline))); min-width: 0; margin: 0 auto; padding: var(--page-padding-block) 0 var(--page-content-bottom); }
+.workbench-view.embedded { overflow: visible; background: transparent; }
+.workbench-view.embedded > .workbench-view-content { width: 100%; padding: 0; }
+.workbench-view .ui-button { min-height: var(--control-height-compact); padding: 5px 10px; border-radius: var(--control-radius); font-size: var(--font-size-body); font-weight: 500; line-height: var(--line-height-body); box-shadow: none; }
+.workbench-view .ui-button .app-icon { width: 14px; height: 14px; }
+@media (max-width: 760px) {
+  .workbench-view .ui-button { min-height: 40px; }
+}
+
+/* The frame owns header alignment and scrolling; pages only supply their content. */
+.workbench-view-frame { display: flex; flex-direction: column; overflow: hidden; }
+.workbench-frame-header, .workbench-frame-content { width: min(var(--page-content-max-width), calc(100% - 2 * var(--page-padding-inline))); min-width: 0; margin-inline: auto; }
+.workbench-frame-header { flex: none; padding-block: var(--page-padding-block) 0; }
+.workbench-frame-layout { display: flex; flex: 1; min-height: 0; min-width: 0; }
+.workbench-frame-scroll { flex: 1; min-width: 0; min-height: 0; overflow: auto; }
+.workbench-frame-content { padding-bottom: var(--page-content-bottom); }
+.workbench-frame-sidebar { flex: 0 0 var(--workbench-sidebar-width); min-width: 0; overflow: auto; border-right: 1px solid var(--workbench-sidebar-border); background: var(--workbench-sidebar-background); scrollbar-width: thin; }
+.workbench-frame-layout:has(> .workbench-frame-sidebar) { border-top: 1px solid var(--border); }
+.workbench-frame-sidebar + .workbench-frame-scroll > .workbench-frame-content { padding-top: var(--page-padding-block); }
+@media (max-width: 900px) {
+  .workbench-frame-layout:has(> .workbench-frame-sidebar) { flex-direction: column; }
+  .workbench-frame-sidebar { flex: none; border-right: 0; border-bottom: 1px solid var(--workbench-sidebar-border); overflow: hidden; }
+  .workbench-frame-sidebar + .workbench-frame-scroll > .workbench-frame-content { padding-top: var(--page-section-gap); }
+}
+
+.workbench-tabs { display: flex; align-items: center; gap: var(--space-1); margin: 0 0 var(--page-section-gap); border-bottom: 1px solid var(--border); overflow-x: auto; scrollbar-width: thin; }
+.workbench-tabs > button, .workbench-tabs > a { position: relative; display: inline-flex; flex: none; min-height: var(--page-toolbar-height); align-items: center; gap: var(--space-2); border: 0; background: transparent; padding: var(--space-2) var(--space-3); color: var(--muted); font-size: var(--font-size-body); font-weight: 500; text-decoration: none; white-space: nowrap; cursor: pointer; }
+.workbench-tabs > .active, .workbench-tabs > [aria-current='page'] { color: var(--accent); }
+.workbench-tabs > .active::after, .workbench-tabs > [aria-current='page']::after { position: absolute; inset: auto var(--space-3) 0; height: 2px; background: var(--accent); content: ''; }
+.workbench-tabs > :focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+.workbench-tabs small { display: grid; min-width: 18px; height: 18px; place-items: center; border-radius: var(--radius-pill); background: var(--surface-hover); color: var(--muted); font-size: var(--font-size-caption); }

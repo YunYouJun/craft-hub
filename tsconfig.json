@@ -9,6 +9,7 @@
       "craft-hub/project-config-schema-revision": ["./packages/craft-hub/src/project-config-schema-revision.ts"],
       "craft-hub/skill-inputs": ["./packages/craft-hub/src/skill-inputs.ts"],
       "craft-hub/skill-prompts": ["./packages/craft-hub/src/skill-prompts.ts"],
+      "@craft-hub/craft-hub-plugin-codex": ["./packages/craft-hub-plugin-codex/src/index.ts"],
       "@craft-hub/personal-cloud": ["./packages/craft-hub-personal-cloud/src/index.ts"]
     },
     "resolveJsonModule": true,

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { WorkbenchDiagnosticTarget } from 'craft-hub'
-import { computed, onBeforeMount, onBeforeUnmount, ref } from 'vue'
+import { useMediaQuery } from '@vueuse/core'
+import { computed, onBeforeMount, onBeforeUnmount, ref, watch } from 'vue'
 import { DialogClose, DialogContent, DialogDescription, DialogOverlay, DialogPortal, DialogRoot, DialogTitle, SplitterGroup, SplitterPanel, SplitterResizeHandle } from 'reka-ui'
 import { useRoute, useRouter } from 'vue-router'
 import { subscribeToProjectChanges } from './api'
@@ -11,7 +12,7 @@ import { Button as UiButton } from './components/ui/button'
 import DesktopNavigationDialog from './DesktopNavigationDialog.vue'
 import DetailPanel from './DetailPanel.vue'
 import DiagnosticsWorkbench from './DiagnosticsWorkbench.vue'
-import { Icon } from './icons'
+import Icon from './NavigationIcon.vue'
 import { useI18n } from './i18n'
 import IntegrationWorkbench from './IntegrationWorkbench.vue'
 import MarketplaceDialog from './MarketplaceDialog.vue'
@@ -20,25 +21,48 @@ import PluginWorkbench from './PluginWorkbench.vue'
 import ProjectRail from './ProjectRail.vue'
 import ProjectAgentActionDialog from './ProjectAgentActionDialog.vue'
 import ProjectToolbar from './ProjectToolbar.vue'
+import ConfigurationSubscriptions from './ConfigurationSubscriptions.vue'
 import SettingsDialog from './SettingsDialog.vue'
-import { capabilityShortcutPrefix, commandPaletteShortcutId, defaultCommandPaletteShortcut, matchesShortcut, parseCapabilityShortcutId } from './shortcuts'
+import { capabilityShortcutPrefix, commandPaletteShortcutId, defaultCommandPaletteShortcut, formatShortcut, matchesShortcut, parseCapabilityShortcutId } from './shortcuts'
 import WelcomePanel from './WelcomePanel.vue'
+import WorkbenchPageShell from './WorkbenchPageShell.vue'
 import WorkspaceDashboard from './WorkspaceDashboard.vue'
 import WorkspaceProjectList from './WorkspaceProjectList.vue'
 import { useWorkbenchStore } from './store'
 
 const store = useWorkbenchStore()
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const route = useRoute()
 const router = useRouter()
+const compactViewport = useMediaQuery('(max-width: 760px)')
+const mobileNavigationOpen = ref(false)
+watch(() => route.fullPath, () => { mobileNavigationOpen.value = false })
+const desktopMac = window.craftHubDesktop?.platform === 'darwin'
 const paletteOpen = ref(false)
+const paletteMode = ref<'all' | 'projects' | 'commands'>('all')
+const paletteShortcutLabel = computed(() => formatShortcut(store.settings?.settings['workbench.shortcuts']?.[commandPaletteShortcutId] ?? defaultCommandPaletteShortcut))
+function showPalette(mode: 'all' | 'projects' | 'commands'): void {
+  paletteMode.value = mode
+  paletteOpen.value = true
+}
 const settingsOpen = ref(false)
 const settingsInitialTab = ref<'general' | 'help'>('general')
 const marketplaceOpen = computed(() => route.name === 'marketplace' || route.name === 'plugin-detail')
+const subscriptionsOpen = computed(() => String(route.name).startsWith('subscriptions'))
 const navigationOpen = computed(() => route.name === 'navigation')
 const diagnosticsOpen = computed(() => route.name === 'diagnostics')
 const integrationOpen = computed(() => route.name === 'integration')
 const pluginWorkbenchOpen = computed(() => route.name === 'plugin-workbench')
+const pageBreadcrumbs = computed(() => {
+  const integrationView = store.integrationViews.find(view => view.integrationId === route.params.integrationId && view.id === route.params.viewId)
+  const pluginWorkbench = store.pluginWorkbenches.find(workbench => workbench.pluginId === route.params.pluginId && workbench.id === route.params.workbenchId)
+  const label = marketplaceOpen.value ? t('pluginMarketplace') : navigationOpen.value ? (locale.value === 'zh-CN' ? '导航' : 'Navigation') : diagnosticsOpen.value ? (locale.value === 'zh-CN' ? '诊断' : 'Diagnostics') : integrationOpen.value ? (integrationView?.title ?? (locale.value === 'zh-CN' ? '集成' : 'Integration')) : (pluginWorkbench?.title ?? (locale.value === 'zh-CN' ? '插件工作台' : 'Plugin workbench'))
+  return [
+    { label: store.applicationName, to: '/' },
+    { label, to: marketplaceOpen.value ? '/marketplace' : undefined },
+    ...(route.name === 'plugin-detail' ? [{ label: String(route.params.packageName) }] : []),
+  ]
+})
 const activeIntegrationId = computed(() => typeof route.params.integrationId === 'string' ? route.params.integrationId : '')
 const activeIntegrationViewId = computed(() => typeof route.params.viewId === 'string' ? route.params.viewId : '')
 const activePluginWorkbenchPluginId = computed(() => typeof route.params.pluginId === 'string' ? route.params.pluginId : '')
@@ -76,7 +100,7 @@ async function openMarketplace(): Promise<void> {
 }
 
 async function openWorkbench(): Promise<void> {
-  if (marketplaceOpen.value || navigationOpen.value || diagnosticsOpen.value || integrationOpen.value || pluginWorkbenchOpen.value)
+  if (subscriptionsOpen.value || marketplaceOpen.value || navigationOpen.value || diagnosticsOpen.value || integrationOpen.value || pluginWorkbenchOpen.value)
     await router.push({ name: 'workbench' })
 }
 
@@ -182,14 +206,20 @@ function onKeydown(event: KeyboardEvent) {
   const paletteShortcut = shortcuts[commandPaletteShortcutId] ?? defaultCommandPaletteShortcut
   if (matchesShortcut(event, paletteShortcut)) {
     event.preventDefault()
+    paletteMode.value = 'all'
     paletteOpen.value = !paletteOpen.value
     return
   }
   const match = Object.entries(shortcuts).find(([id, shortcut]) => id.startsWith(capabilityShortcutPrefix) && matchesShortcut(event, shortcut))
-  if (!match)
+  if (match) {
+    event.preventDefault()
+    void openShortcutCapability(match[0])
     return
-  event.preventDefault()
-  void openShortcutCapability(match[0])
+  }
+  if (matchesShortcut(event, 'Mod+P') || matchesShortcut(event, 'Mod+Shift+P')) {
+    event.preventDefault()
+    showPalette(event.shiftKey ? 'commands' : 'projects')
+  }
 }
 
 async function refreshCodexActivity(): Promise<void> {
@@ -313,7 +343,12 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="app-shell" :class="{ 'has-app-notices': store.runtimeSchemaMismatch || (store.projectsLoadState === 'error' && store.projects.length) }">
+  <div class="app-shell" :class="{ 'mobile-navigation-open': mobileNavigationOpen, 'has-app-notices': store.runtimeSchemaMismatch || (store.projectsLoadState === 'error' && store.projects.length) }">
+    <header class="workbench-titlebar" :class="{ 'desktop-mac': desktopMac }" :aria-label="t('paletteTitlebar')">
+      <button class="mobile-navigation-toggle" :aria-label="locale === 'zh-CN' ? '切换导航' : 'Toggle navigation'" :aria-expanded="mobileNavigationOpen" @click="mobileNavigationOpen = !mobileNavigationOpen"><Icon name="list" /></button>
+      <button class="titlebar-project" aria-haspopup="dialog" :aria-expanded="paletteOpen && paletteMode === 'projects'" :title="t('paletteFindProject')" @click="showPalette('projects')"><Icon name="folder" /><span>{{ store.selectedProject?.name ?? store.applicationName }}</span><Icon name="arrowDown" /><kbd>{{ formatShortcut('Mod+P') }}</kbd></button>
+      <button class="titlebar-search" :aria-label="t('paletteFindAnything')" @click="showPalette('all')"><Icon name="search" /><span class="titlebar-label">{{ t('paletteFindAnything') }}</span><kbd>{{ paletteShortcutLabel }}</kbd></button>
+    </header>
     <section v-if="store.runtimeSchemaMismatch || (store.projectsLoadState === 'error' && store.projects.length)" class="app-notices">
       <div v-if="store.runtimeSchemaMismatch" class="runtime-schema-warning" data-testid="runtime-schema-mismatch" role="alert">
         <Icon name="error" />
@@ -326,9 +361,9 @@ onBeforeUnmount(() => {
         <button type="button" @click="retryProjects">{{ t('retry') }}</button>
       </div>
     </section>
-    <section v-if="navigationOpen || marketplaceOpen || integrationOpen || pluginWorkbenchOpen || diagnosticsOpen" class="navigation-view-shell">
+    <section v-if="subscriptionsOpen || navigationOpen || marketplaceOpen || integrationOpen || pluginWorkbenchOpen || diagnosticsOpen" class="navigation-view-shell">
       <ProjectRail
-        :active-view="pluginWorkbenchOpen ? 'plugin-workbench' : integrationOpen ? 'integration' : navigationOpen ? 'navigation' : diagnosticsOpen ? 'diagnostics' : 'marketplace'"
+        :active-view="subscriptionsOpen ? 'subscriptions' : pluginWorkbenchOpen ? 'plugin-workbench' : integrationOpen ? 'integration' : navigationOpen ? 'navigation' : diagnosticsOpen ? 'diagnostics' : 'marketplace'"
         :active-integration-id="activeIntegrationId"
         :active-integration-view-id="activeIntegrationViewId"
         :active-plugin-workbench-id="activePluginWorkbenchId"
@@ -341,13 +376,16 @@ onBeforeUnmount(() => {
         @open-settings="openSettings()"
         @open-workbench="openWorkbench"
       />
-      <DiagnosticsWorkbench v-if="diagnosticsOpen" @open-target="openDiagnosticTarget" />
-      <PluginWorkbench v-else-if="pluginWorkbenchOpen" :plugin-id="activePluginWorkbenchPluginId" :workbench-id="activePluginWorkbenchId" :refresh-key="navigationRevision" @manage-plugins="openMarketplace" />
-      <IntegrationWorkbench v-else-if="integrationOpen" :integration-id="activeIntegrationId" :view-id="activeIntegrationViewId" />
-      <NavigationWorkbench v-else-if="navigationOpen" :refresh-key="navigationRevision" @manage-plugins="openMarketplace" />
-      <MarketplaceDialog v-else open :import-catalog-url="marketplaceImportCatalogUrl" />
+      <ConfigurationSubscriptions v-if="subscriptionsOpen" />
+      <WorkbenchPageShell v-else :breadcrumbs="pageBreadcrumbs">
+        <DiagnosticsWorkbench v-if="diagnosticsOpen" @open-target="openDiagnosticTarget" />
+        <PluginWorkbench v-else-if="pluginWorkbenchOpen" :plugin-id="activePluginWorkbenchPluginId" :workbench-id="activePluginWorkbenchId" :refresh-key="navigationRevision" @manage-plugins="openMarketplace" />
+        <IntegrationWorkbench v-else-if="integrationOpen" :integration-id="activeIntegrationId" :view-id="activeIntegrationViewId" />
+        <NavigationWorkbench v-else-if="navigationOpen" :refresh-key="navigationRevision" @manage-plugins="openMarketplace" />
+        <MarketplaceDialog v-else open :import-catalog-url="marketplaceImportCatalogUrl" />
+      </WorkbenchPageShell>
     </section>
-    <SplitterGroup
+    <component :is="compactViewport ? 'div' : SplitterGroup"
       v-else
       id="craft-hub-workbench"
       class="workbench-splitter"
@@ -355,7 +393,7 @@ onBeforeUnmount(() => {
       auto-save-id="craft-hub-workbench-layout-v2"
       :keyboard-resize-by="16"
     >
-      <SplitterPanel id="projects-panel" :order="1" size-unit="px" :default-size="280" :min-size="252" :max-size="390">
+      <component :is="compactViewport ? 'div' : SplitterPanel" data-panel id="projects-panel" :order="1" size-unit="px" :default-size="280" :min-size="252" :max-size="390">
         <ProjectRail
           :active-view="marketplaceOpen ? 'marketplace' : 'workbench'"
           @open-diagnostics="openDiagnostics"
@@ -366,18 +404,18 @@ onBeforeUnmount(() => {
           @open-settings="openSettings()"
           @open-workbench="openWorkbench"
         />
-      </SplitterPanel>
-      <SplitterResizeHandle v-if="store.projects.length" id="projects-resize-handle" class="workbench-resize-handle" :aria-label="t('resizeProjects')" :aria-hidden="marketplaceOpen" :inert="marketplaceOpen" :title="t('resizeProjects')">
+      </component>
+      <component :is="compactViewport ? 'div' : SplitterResizeHandle" id="projects-resize-handle" class="workbench-resize-handle" :aria-label="t('resizeProjects')" :aria-hidden="marketplaceOpen" :inert="marketplaceOpen" :title="t('resizeProjects')">
         <span class="splitter-grip" aria-hidden="true" />
-      </SplitterResizeHandle>
-      <SplitterPanel v-if="store.projects.length" id="capabilities-panel" :order="2" size-unit="px" :default-size="320" :min-size="230" :max-size="540" :aria-hidden="marketplaceOpen" :inert="marketplaceOpen">
+      </component>
+      <component :is="compactViewport ? 'div' : SplitterPanel" data-panel v-if="store.projects.length" id="capabilities-panel" :order="2" size-unit="px" :default-size="320" :min-size="230" :max-size="540" :aria-hidden="marketplaceOpen" :inert="marketplaceOpen">
         <WorkspaceProjectList v-if="store.selectedWorkspace" />
         <CapabilityList v-else />
-      </SplitterPanel>
-      <SplitterResizeHandle v-if="store.projects.length" id="capabilities-resize-handle" class="workbench-resize-handle" :aria-label="t('resizeCapabilities')" :aria-hidden="marketplaceOpen" :inert="marketplaceOpen" :title="t('resizeCapabilities')">
+      </component>
+      <component :is="compactViewport ? 'div' : SplitterResizeHandle" v-if="store.projects.length" id="capabilities-resize-handle" class="workbench-resize-handle" :aria-label="t('resizeCapabilities')" :aria-hidden="marketplaceOpen" :inert="marketplaceOpen" :title="t('resizeCapabilities')">
         <span class="splitter-grip" aria-hidden="true" />
-      </SplitterResizeHandle>
-      <SplitterPanel id="detail-panel" :order="3" size-unit="px" :min-size="350" :aria-hidden="marketplaceOpen" :inert="marketplaceOpen">
+      </component>
+      <component :is="compactViewport ? 'div' : SplitterPanel" data-panel id="detail-panel" :order="3" size-unit="px" :min-size="350" :aria-hidden="marketplaceOpen" :inert="marketplaceOpen">
         <section class="detail-workspace">
           <ProjectToolbar v-if="store.selectedProject && !store.selectedWorkspace" />
           <section v-if="store.projectsLoadState === 'error' && !store.projects.length" class="project-load-state error" data-testid="project-load-error" role="alert">
@@ -399,8 +437,8 @@ onBeforeUnmount(() => {
           <WorkspaceDashboard v-else-if="store.selectedWorkspace" />
           <DetailPanel v-else />
         </section>
-      </SplitterPanel>
-    </SplitterGroup>
+      </component>
+    </component>
     <footer class="status-bar">
       <span :aria-busy="store.refreshing">
         <Icon v-if="store.refreshing" name="loading" class="refresh-loading-icon" />
@@ -426,7 +464,7 @@ onBeforeUnmount(() => {
         <span v-if="store.selectedProject">{{ t('project', { name: store.selectedProject.name }) }}</span>
       </div>
     </footer>
-    <CommandPalette v-model:open="paletteOpen" />
+    <CommandPalette v-model:open="paletteOpen" :mode="paletteMode" @open-workbench="openWorkbench" @open-integration="openIntegration" @open-plugin-workbench="openPluginWorkbench" @open-settings="openSettings()" @refresh="refreshWorkbench" />
     <SettingsDialog v-model:open="settingsOpen" :initial-tab="settingsInitialTab" />
     <ProjectAgentActionDialog v-model:open="store.agentActionDialogOpen" />
     <DesktopNavigationDialog

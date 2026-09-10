@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import type { ProjectAccentColor, ProjectRecord, WorkspaceRecord } from 'craft-hub'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
+import AccountMenu from './AccountMenu.vue'
 import AppearanceDialog from './AppearanceDialog.vue'
 import CompactEditableField from './CompactEditableField.vue'
 import { Button as UiButton } from './components/ui/button'
 import { DialogShell } from './components/ui/dialog'
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger } from './components/ui/select'
-import { Icon } from './icons'
+import Icon from './NavigationIcon.vue'
 import { useI18n } from './i18n'
 import ProjectIcon from './ProjectIcon.vue'
 import { projectAccentStyle } from './project-visuals'
@@ -14,7 +16,7 @@ import { useWorkbenchStore } from './store'
 import VisualIcon from './VisualIcon.vue'
 
 withDefaults(defineProps<{
-  activeView?: 'diagnostics' | 'integration' | 'marketplace' | 'navigation' | 'plugin-workbench' | 'workbench'
+  activeView?: 'diagnostics' | 'integration' | 'marketplace' | 'navigation' | 'plugin-workbench' | 'subscriptions' | 'workbench'
   activeIntegrationId?: string
   activeIntegrationViewId?: string
   activePluginWorkbenchId?: string
@@ -22,7 +24,8 @@ withDefaults(defineProps<{
 }>(), { activeView: 'workbench', activeIntegrationId: '', activeIntegrationViewId: '', activePluginWorkbenchId: '', activePluginWorkbenchPluginId: '' })
 const emit = defineEmits<{ openDiagnostics: [], openIntegration: [integrationId: string, viewId: string], openMarketplace: [], openNavigation: [], openPluginWorkbench: [pluginId: string, workbenchId: string], openSettings: [], openWorkbench: [] }>()
 const store = useWorkbenchStore()
-const { t } = useI18n()
+const { t, locale } = useI18n()
+const router = useRouter()
 const canChooseWorkspaceFolders = Boolean(window.craftHubDesktop?.selectProjectDirectories)
 const canChooseTeamRepository = Boolean(window.craftHubDesktop?.selectProjectDirectory)
 const dialogOpen = ref(false)
@@ -50,6 +53,7 @@ const teamDeleteConfirmation = ref('')
 const teamManageError = ref('')
 const teamManageSubmitting = ref(false)
 const teamSyncSubmitting = ref(false)
+const teamSyncUnconfigured = computed(() => !store.activeTeamSyncStatus || store.activeTeamSyncStatus.state === 'unconfigured')
 const path = ref('')
 const error = ref('')
 const railActionError = ref('')
@@ -156,6 +160,8 @@ async function chooseTeamRepository(): Promise<void> {
 function openTeamManagement(): void {
   if (store.activeOwnerScope?.kind !== 'team')
     return
+  teamRepositoryPath.value = store.activeTeamSyncStatus?.target?.repositoryPath || ''
+  teamDirectory.value = store.activeTeamSyncStatus?.target?.directory || ''
   teamRenameName.value = store.activeOwnerScope.name
   teamDeleteConfirmation.value = ''
   teamManageError.value = ''
@@ -199,9 +205,27 @@ async function deleteTeam(): Promise<void> {
   }
 }
 
+async function configureTeamSync(): Promise<void> {
+  if (!teamRepositoryPath.value.trim() || teamManageSubmitting.value) return
+  teamManageSubmitting.value = true
+  teamManageError.value = ''
+  try {
+    await store.configureActiveTeamSync(teamRepositoryPath.value.trim(), teamDirectory.value.trim() || undefined)
+    teamManageDialogOpen.value = false
+    railActionError.value = ''
+  }
+  catch (caught) { teamManageError.value = caught instanceof Error ? caught.message : String(caught) }
+  finally { teamManageSubmitting.value = false }
+}
+
 async function synchronizeTeam(resolution: 'auto' | 'use-local' | 'use-repository' = 'auto'): Promise<void> {
   if (teamSyncSubmitting.value)
     return
+  if (teamSyncUnconfigured.value) {
+    railActionError.value = ''
+    openTeamManagement()
+    return
+  }
   teamSyncSubmitting.value = true
   railActionError.value = ''
   try {
@@ -229,6 +253,7 @@ function teamSyncStateLabel(): string {
 }
 
 function teamSyncTooltip(): string {
+  if (teamSyncUnconfigured.value) return t('configureTeamSync')
   const label = teamSyncStateLabel()
   return store.activeTeamSyncStatus?.workingTreeChanged ? `${label} · ${t('gitSyncPendingCommit')}` : label
 }
@@ -631,6 +656,7 @@ async function confirmDeleteWorkspace(workspace: typeof store.workspaces[number]
 }
 
 async function locateProject(workspace: WorkspaceRecord, member: WorkspaceRecord['members'][number]): Promise<void> {
+  if (!store.hostEnvironment.capabilities.localProjectDirectories) return
   try {
     if (member.path) {
       try {
@@ -729,6 +755,7 @@ function runStateTitle(projectId: string): string {
 }
 
 async function openAddProject(): Promise<void> {
+  if (!store.hostEnvironment.capabilities.localProjectDirectories) return
   path.value = ''
   error.value = ''
   const selectProjectDirectory = window.craftHubDesktop?.selectProjectDirectory
@@ -794,6 +821,17 @@ async function addProjectPath(projectPath: string): Promise<void> {
       >
         <Icon name="compass" />
       </button>
+      <button type="button" class="activity-button" :class="{ active: activeView === 'subscriptions' }" :aria-label="locale === 'zh-CN' ? '工作区配置源' : 'Workspace sources'" :title="locale === 'zh-CN' ? '工作区配置源' : 'Workspace sources'" @click="router.push('/subscriptions')"><Icon name="workspace" /></button>
+      <button
+        class="activity-button marketplace-button"
+        :class="{ active: activeView === 'marketplace' }"
+        data-testid="open-marketplace"
+        :aria-label="t('pluginMarketplace')"
+        :title="t('pluginMarketplace')"
+        @click="emit('openMarketplace')"
+      >
+        <Icon name="plugins" />
+      </button>
       <button
         v-for="workbench in store.pluginWorkbenches"
         :key="`${workbench.pluginId}:${workbench.id}`"
@@ -804,29 +842,20 @@ async function addProjectPath(projectPath: string): Promise<void> {
         :title="workbench.title"
         @click="emit('openPluginWorkbench', workbench.pluginId, workbench.id)"
       >
-        <VisualIcon :icon="workbench.icon" fallback="workspace" />
+        <VisualIcon :icon="workbench.icon" fallback="workspace" monochrome />
       </button>
       <button
         v-for="view in store.standaloneIntegrationViews"
         :key="`${view.integrationId}:${view.id}`"
         class="activity-button integration-button"
         :class="{ active: activeView === 'integration' && activeIntegrationId === view.integrationId && activeIntegrationViewId === view.id }"
+        :aria-current="activeView === 'integration' && activeIntegrationId === view.integrationId && activeIntegrationViewId === view.id ? 'page' : undefined"
         :data-testid="`open-integration-${view.integrationId}-${view.id}`"
         :aria-label="view.title"
         :title="view.title"
         @click="emit('openIntegration', view.integrationId, view.id)"
       >
-        <VisualIcon :icon="view.icon" fallback="plugins" />
-      </button>
-      <button
-        class="activity-button marketplace-button"
-        :class="{ active: activeView === 'marketplace' }"
-        data-testid="open-marketplace"
-        :aria-label="t('pluginMarketplace')"
-        :title="t('pluginMarketplace')"
-        @click="emit('openMarketplace')"
-      >
-        <Icon name="plugins" />
+        <VisualIcon :icon="view.icon" fallback="plugins" monochrome />
       </button>
       <button
         class="activity-button diagnostics-button"
@@ -839,6 +868,7 @@ async function addProjectPath(projectPath: string): Promise<void> {
         <Icon :name="diagnosticCount ? 'error' : 'check'" />
         <small v-if="diagnosticCount" class="activity-badge">{{ diagnosticCount > 99 ? '99+' : diagnosticCount }}</small>
       </button>
+      <AccountMenu class="activity-account" />
       <button
         class="activity-button settings-button"
         data-testid="open-settings"
@@ -876,22 +906,23 @@ async function addProjectPath(projectPath: string): Promise<void> {
             </Select>
           </div>
           <button
-            v-if="store.activeOwnerScope?.kind === 'team'"
+            v-if="store.activeOwnerScope?.kind === 'team' && store.hostEnvironment.capabilities.localGitSync"
             type="button"
             class="team-sync-indicator"
             :class="[store.activeTeamSyncStatus?.state, { pending: store.activeTeamSyncStatus?.workingTreeChanged }]"
             :disabled="teamSyncSubmitting"
-            :aria-label="store.activeTeamSyncStatus ? teamSyncTooltip() : t('syncTeam')"
-            :title="store.activeTeamSyncStatus ? teamSyncTooltip() : t('syncTeam')"
+            :aria-label="teamSyncTooltip()"
+            :title="teamSyncTooltip()"
             @click="synchronizeTeam()"
           >
-            <Icon :name="teamSyncSubmitting ? 'loading' : store.activeTeamSyncStatus?.state === 'conflict' ? 'error' : store.activeTeamSyncStatus?.state === 'clean' && !store.activeTeamSyncStatus?.workingTreeChanged ? 'check' : 'refresh'" />
+            <Icon :name="teamSyncSubmitting ? 'loading' : teamSyncUnconfigured ? 'settings' : store.activeTeamSyncStatus?.state === 'conflict' ? 'error' : store.activeTeamSyncStatus?.state === 'clean' && !store.activeTeamSyncStatus?.workingTreeChanged ? 'check' : 'refresh'" />
           </button>
           <button v-if="store.activeOwnerScope?.kind === 'team'" type="button" data-testid="manage-team" :aria-label="t('manageTeam')" :title="t('manageTeam')" @click="openTeamManagement"><Icon name="edit" /></button>
-          <button v-if="store.activeOwnerScope?.kind !== 'team'" type="button" :aria-label="t('createTeam')" :title="t('createTeam')" @click="teamDialogOpen = true"><Icon name="plus" /></button>
+          <button v-if="store.hostEnvironment.capabilities.localGitSync && store.activeOwnerScope?.kind !== 'team'" type="button" :aria-label="t('createTeam')" :title="t('createTeam')" @click="teamDialogOpen = true"><Icon name="plus" /></button>
         </div>
-        <div v-if="store.activeOwnerScope?.kind === 'team' && store.activeTeamSyncStatus && teamSyncNeedsAttention" class="team-sync-status" :class="store.activeTeamSyncStatus.state">
+        <div v-if="store.hostEnvironment.capabilities.localGitSync && store.activeOwnerScope?.kind === 'team' && store.activeTeamSyncStatus && teamSyncNeedsAttention" class="team-sync-status" :class="store.activeTeamSyncStatus.state">
           <span><Icon :name="store.activeTeamSyncStatus.state === 'conflict' ? 'error' : store.activeTeamSyncStatus.state === 'clean' ? 'check' : 'refresh'" />{{ teamSyncStateLabel() }}</span>
+          <button v-if="teamSyncUnconfigured" type="button" @click="openTeamManagement">{{ t('configureTeamSync') }}</button>
           <small v-if="store.activeTeamSyncStatus.workingTreeChanged">{{ t('gitSyncPendingCommit') }}</small>
           <div v-if="store.activeTeamSyncStatus.state === 'conflict'" class="team-sync-resolution">
             <button type="button" :disabled="teamSyncSubmitting" @click="synchronizeTeam('use-local')">{{ t('useLocalConfiguration') }}</button>
@@ -1049,7 +1080,7 @@ async function addProjectPath(projectPath: string): Promise<void> {
               <span class="project-name">{{ member.label || member.project }}</span>
             </div>
             <template v-if="!member.projectId">
-              <button class="member-pin" :aria-label="t(member.path ? 'addProject' : 'locateProject')" :title="t(member.path ? 'addProject' : 'locateProject')" @click="locateProject(workspace, member)"><Icon :name="member.path ? 'plus' : 'folder'" /></button>
+              <button v-if="store.hostEnvironment.capabilities.localProjectDirectories" class="member-pin" :aria-label="t(member.path ? 'addProject' : 'locateProject')" :title="t(member.path ? 'addProject' : 'locateProject')" @click="locateProject(workspace, member)"><Icon :name="member.path ? 'plus' : 'folder'" /></button>
             </template>
           </div>
         </div>
@@ -1086,9 +1117,10 @@ async function addProjectPath(projectPath: string): Promise<void> {
       </section>
       <p v-if="normalizedSearch && !hasSearchResults" class="rail-search-empty">{{ t('noProjectWorkspaceMatches') }}</p>
       <p v-if="railActionError" class="error-message rail-action-error" role="alert">{{ railActionError }}</p>
-      <button class="add-project" data-testid="add-project" @click="openAddProject">
+      <button v-if="store.hostEnvironment.capabilities.localProjectDirectories" class="add-project" data-testid="add-project" @click="openAddProject">
         <Icon name="plus" /> {{ t('addProject') }}
       </button>
+      <p v-else class="rail-search-empty">{{ t('hostedProjectDirectoryHelp') }}</p>
       </div>
     </div>
   </aside>
@@ -1119,6 +1151,14 @@ async function addProjectPath(projectPath: string): Promise<void> {
   <DialogShell :open="teamManageDialogOpen" content-class="add-project-dialog team-manage-dialog" @update:open="teamManageDialogOpen = $event">
     <template #title>{{ t('manageTeam') }}</template>
     <template #description>{{ t('manageTeamDescription', { name: store.activeOwnerScope?.name ?? '' }) }}</template>
+    <form v-if="store.hostEnvironment.capabilities.localGitSync" data-testid="configure-team-sync-form" @submit.prevent="configureTeamSync">
+      <h3>{{ t('configureTeamSync') }}</h3>
+      <p>{{ t('configureTeamSyncDescription') }}</p>
+      <label><span>{{ t('teamGitRepository') }}</span><input v-model="teamRepositoryPath" name="team-sync-repository" :placeholder="t('gitRepositoryPathPlaceholder')" required></label>
+      <UiButton v-if="canChooseTeamRepository" size="compact" @click="chooseTeamRepository">{{ t('chooseGitRepository') }}</UiButton>
+      <label><span>{{ t('gitSyncDirectory') }}</span><input v-model="teamDirectory" name="team-sync-directory" :placeholder="`.craft-hub/teams/${store.activeOwnerScopeId}`"></label>
+      <footer><UiButton type="submit" variant="primary" :disabled="!teamRepositoryPath.trim() || teamManageSubmitting">{{ t('save') }}</UiButton></footer>
+    </form>
     <form data-testid="rename-team-form" @submit.prevent="renameTeam">
       <label><span>{{ t('teamName') }}</span><input v-model="teamRenameName" name="team-rename-name" autofocus></label>
       <footer>
@@ -1172,8 +1212,11 @@ async function addProjectPath(projectPath: string): Promise<void> {
 
   <DialogShell :open="workspaceDialogOpen" content-class="add-project-dialog workspace-dialog" @update:open="workspaceDialogOpen = $event">
     <template #title>{{ t('addWorkspace') }}</template>
-    <template #description>{{ t('createWorkspaceDescription') }}</template>
-        <UiButton class="workspace-import-button" @click="importVscodeWorkspaces">
+    <template #description>{{ t(store.hostEnvironment.capabilities.localProjectDirectories ? 'createWorkspaceDescription' : 'hostedWorkspaceDescription') }}</template>
+        <UiButton class="workspace-import-button" @click="workspaceDialogOpen = false; router.push('/subscriptions/discover')">
+          <Icon name="workspace" /> {{ locale === 'zh-CN' ? '从配置源添加' : 'Add from a workspace source' }}
+        </UiButton>
+        <UiButton v-if="store.hostEnvironment.capabilities.localProjectDirectories" class="workspace-import-button" @click="importVscodeWorkspaces">
           <Icon name="vscode" /> {{ t('importVscodeWorkspaces') }}
         </UiButton>
         <form data-testid="add-workspace-form" @submit.prevent="createWorkspace">
@@ -1181,7 +1224,7 @@ async function addProjectPath(projectPath: string): Promise<void> {
             <span>{{ t('workspaceName') }}</span>
             <input v-model="workspaceName" name="workspace-name" autofocus>
           </label>
-          <section class="workspace-folder-fieldset">
+          <section v-if="store.hostEnvironment.capabilities.localProjectDirectories" class="workspace-folder-fieldset">
             <div class="workspace-folder-heading">
               <div>
                 <strong>{{ t('workspaceFolders') }}</strong>

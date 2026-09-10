@@ -110,6 +110,7 @@ export const api = {
   deleteTeam: (ownerScopeId: string, confirmationName: string) => request<TeamDeletionResult>(`/api/owner-scopes/${encodeURIComponent(ownerScopeId)}`, { method: 'DELETE', body: JSON.stringify({ confirmationName }) }),
   activateOwnerScope: (activeScopeId: string) => request<OwnerScopeUiState>('/api/owner-scopes/state', { method: 'PUT', body: JSON.stringify({ activeScopeId }) }),
   teamGitSyncStatus: (ownerScopeId: string) => request<TeamGitSyncStatus>(`/api/owner-scopes/${encodeURIComponent(ownerScopeId)}/git-sync`),
+  configureTeamGit: (ownerScopeId: string, repositoryPath: string, directory?: string) => request<TeamGitSyncStatus>(`/api/owner-scopes/${encodeURIComponent(ownerScopeId)}/git-sync`, { method: 'PUT', body: JSON.stringify({ repositoryPath, directory }) }),
   synchronizeTeamGit: (ownerScopeId: string, resolution: PersonalGitSyncResolution = 'auto') => request<TeamGitSyncStatus>(`/api/owner-scopes/${encodeURIComponent(ownerScopeId)}/git-sync/synchronize`, { method: 'POST', body: JSON.stringify({ resolution }) }),
   projectOwnerScopes: () => request<Record<string, string[]>>('/api/projects/owner-scopes'),
   projects: projectCatalog,

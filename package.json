@@ -8,7 +8,7 @@
     "node": "^22.18.0 || ^24.11.0 || >=26.0.0"
   },
   "scripts": {
-    "build": "nr -r build",
+    "build": "nr -r build && node packages/craft-hub/scripts/prepare-package.mjs",
     "build:mac": "pnpm build && pnpm run package:mac",
     "dev": "tsx scripts/dev-environment.ts desktop",
     "dev:web": "tsx scripts/dev-environment.ts web",

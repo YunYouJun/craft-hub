@@ -26,6 +26,7 @@
     "vue-router": "catalog:"
   },
   "devDependencies": {
+    "@iconify-json/lucide": "catalog:",
     "@iconify-json/ri": "catalog:",
     "@iconify-json/svg-spinners": "catalog:",
     "@types/canvas-confetti": "catalog:",

@@ -819,7 +819,7 @@ async function cleanupRuns(includeAllUnpinned: boolean): Promise<void> {
                 </div>
               </section>
 
-              <section class="settings-section">
+              <section v-if="store.hostEnvironment.capabilities.localGitSync" class="settings-section">
                 <h3>{{ t('personalConfigurationRepository') }}</h3>
                 <p>{{ t('personalConfigurationRepositoryDescription') }}</p>
                 <form class="git-sync-form personal-repository-form" data-testid="personal-git-sync-form" @submit.prevent="configureGitSync">
@@ -834,7 +834,7 @@ async function cleanupRuns(includeAllUnpinned: boolean): Promise<void> {
                 </form>
               </section>
 
-              <section class="settings-section">
+              <section v-if="store.hostEnvironment.capabilities.localGitSync" class="settings-section">
                 <h3>{{ t('personalGitSync') }}</h3>
                 <p>{{ t('personalGitSyncDescription') }}</p>
                 <div class="git-sync-status" :data-state="gitSyncStatus.state">
@@ -853,7 +853,7 @@ async function cleanupRuns(includeAllUnpinned: boolean): Promise<void> {
                 </div>
               </section>
 
-              <section class="settings-section">
+              <section v-if="store.hostEnvironment.capabilities.localGitSync" class="settings-section">
                 <h3>{{ t('dotfilesManager') }}</h3>
                 <p>{{ t('dotfilesManagerDescription') }}</p>
                 <div class="git-sync-status" :data-state="dotfilesStatus.state === 'ready' ? 'clean' : dotfilesStatus.state === 'untrusted' ? 'conflict' : ''">

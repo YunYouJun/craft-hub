@@ -11,7 +11,7 @@ import { useI18n } from './i18n'
 import { useWorkbenchStore } from './store'
 
 const store = useWorkbenchStore()
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const desktopActions = computed(() => window.craftHubDesktop)
 const prompt = ref('')
 const selectedProjectIds = ref<string[]>([])
@@ -123,6 +123,8 @@ async function startInBackground(): Promise<void> {
 }
 
 async function savePrimary(): Promise<void> {
+  if (workspace.value?.subscription)
+    return
   if (workspace.value && primaryProjectId.value)
     await store.makePrimaryProject(workspace.value, primaryProjectId.value)
 }
@@ -219,7 +221,7 @@ async function openThread(threadId: string): Promise<void> {
   <main v-if="workspace" class="workspace-dashboard">
     <header>
       <span class="detail-icon"><Icon name="workspace" /></span>
-      <div><h2>{{ workspace.name }}</h2><p>{{ t('codexTaskCount', { projects: String(projects.length), tasks: String(tasks.length) }) }}</p></div>
+      <div><h2>{{ workspace.name }}</h2><a v-if="workspace.subscription" :href="`/subscriptions/${encodeURIComponent(workspace.subscription.id)}`">{{ locale === 'zh-CN' ? '只读订阅 · 管理或复制' : 'Read-only subscription · Manage or copy' }}</a><p>{{ t('codexTaskCount', { projects: String(projects.length), tasks: String(tasks.length) }) }}</p></div>
       <div class="workspace-header-actions">
         <EditorLauncher v-if="desktopActions?.openWorkspaceInEditor" scope="workspace" :disabled="Boolean(openingLauncher)" @open="openWorkspaceInEditor" />
         <UiButton v-if="desktopActions?.openWorkspaceInCodex" size="icon" data-testid="open-workspace-codex" :disabled="Boolean(openingLauncher)" :aria-label="t('openWorkspaceInCodex')" :title="t('openWorkspaceInCodex')" @click="openWorkspaceInCodex"><Icon name="codex" /></UiButton>

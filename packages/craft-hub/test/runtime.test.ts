@@ -70,7 +70,7 @@ describe('capability discovery', () => {
       runtime.capabilityDiscovery(project.id),
       runtime.capabilityPins(project.id),
       runtime.projectOverview(project.id),
-      runtime.agentActions.list(project.id, 'en'),
+      runtime.agentActions.list(project.id, 'zh-CN'),
     ])
     await vi.waitFor(() => expect(providerCalls).toBe(1))
     releaseDiscovery()
@@ -391,13 +391,13 @@ describe('capability discovery', () => {
     const project = await runtime.addProject(root)
 
     expect((await runtime.capabilities(project.id)).find(item => item.name === 'hello')?.description)
-      .toBe('Print a friendly greeting.')
+      .toBe('打印一条友好的问候。')
 
     const settings = await runtime.settings.get()
-    await runtime.settings.update({ 'workbench.locale': 'zh-CN' }, settings.revision)
+    await runtime.settings.update({ 'workbench.locale': 'en' }, settings.revision)
 
     expect((await runtime.capabilities(project.id)).find(item => item.name === 'hello')?.description)
-      .toBe('打印一条友好的问候。')
+      .toBe('Print a friendly greeting.')
   })
 
   it('refreshes persisted project metadata from local config', async () => {

@@ -133,12 +133,14 @@ describe('desktop package scripts', () => {
     const webMainUrl = new URL('../../web/src/main.ts', import.meta.url)
     const desktopStylesUrl = new URL('../../web/src/desktop.css', import.meta.url)
     const webStylesUrl = new URL('../../web/src/styles.css', import.meta.url)
-    const [desktopMain, webIndex, webMain, desktopStyles, webStyles] = await Promise.all([
+    const paletteStylesUrl = new URL('../../web/src/styles/command-palette.css', import.meta.url)
+    const [desktopMain, webIndex, webMain, desktopStyles, webStyles, paletteStyles] = await Promise.all([
       readFile(desktopMainUrl, 'utf8'),
       readFile(webIndexUrl, 'utf8'),
       readFile(webMainUrl, 'utf8'),
       readFile(desktopStylesUrl, 'utf8'),
       readFile(webStylesUrl, 'utf8'),
+      readFile(paletteStylesUrl, 'utf8'),
     ])
 
     expect(desktopMain).toContain('app.setName(productName)')
@@ -162,7 +164,8 @@ describe('desktop package scripts', () => {
     expect(desktopStyles).toContain('padding-top: var(--desktop-titlebar-height)')
     expect(webStyles).toMatch(/\.package-drawer-content \{[^}]*top: var\(--desktop-titlebar-height\)/)
     expect(webStyles).toMatch(/\.dialog-overlay \{[^}]*top: var\(--desktop-titlebar-height\)/)
-    expect(webStyles).toMatch(/\.palette-overlay \{[^}]*top: var\(--desktop-titlebar-height\)/)
+    expect(webStyles).toContain('@import \'./styles/command-palette.css\'')
+    expect(paletteStyles).toMatch(/\.palette-overlay \{[^}]*inset: var\(--desktop-titlebar-height\) 0 0/)
     expect(desktopMain).toContain('nativeTheme.themeSource = theme')
     expect(desktopMain).toContain('settings[\'workbench.theme\']')
     expect(desktopMain).toContain('nativeTheme.shouldUseDarkColors')

@@ -1,7 +1,7 @@
 import type { DistributionConfig, MarketplaceSource, MarketplaceTrustPolicy } from 'craft-hub'
 import { readFileSync } from 'node:fs'
 import { dirname, extname, isAbsolute, relative, resolve, sep } from 'node:path'
-import { pluginCatalogV1Schema } from 'craft-hub'
+import { pluginCatalogV1Schema, workspaceMarketSchema } from 'craft-hub'
 
 export interface DesktopAboutBranding {
   authors: string[]
@@ -66,6 +66,14 @@ export function parseDesktopDistributionManifest(input: unknown): DesktopDistrib
     if (!Array.isArray(rawDistribution.marketplaceSources))
       throw new Error('distribution.marketplaceSources must be an array')
     distribution.marketplaceSources = rawDistribution.marketplaceSources.map((source, index) => parseMarketplaceSource(source, index))
+  }
+  if (rawDistribution.workspaceMarkets !== undefined) {
+    if (!Array.isArray(rawDistribution.workspaceMarkets))
+      throw new Error('distribution.workspaceMarkets must be an array')
+    distribution.workspaceMarkets = rawDistribution.workspaceMarkets.map(market => workspaceMarketSchema.parse(market))
+    const ids = distribution.workspaceMarkets.map(market => market.catalog.id)
+    if (new Set(ids).size !== ids.length)
+      throw new Error('Duplicate workspace market id')
   }
   if (rawDistribution.marketplaceTrustPolicies !== undefined) {
     if (!Array.isArray(rawDistribution.marketplaceTrustPolicies))

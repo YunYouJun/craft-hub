@@ -101,6 +101,9 @@ describe('project rail', () => {
     await button.trigger('click')
 
     expect(wrapper.emitted('openPluginWorkbench')).toEqual([['@acme/craft-hub-plugin-suite', 'engineering']])
+    store.integrationContributions[0]!.views[0]!.showInSidebar = true
+    await flushPromises()
+    expect(wrapper.find('[data-testid="open-integration-acme-issues-overview"]').exists()).toBe(true)
   })
 
   it('shows the diagnostic count and opens the diagnostic workbench', async () => {
@@ -183,11 +186,11 @@ describe('project rail', () => {
     store.switchOwnerScope = vi.fn(async () => {})
     const wrapper = mount(ProjectRail, { attachTo: document.body })
 
-    expect(wrapper.element.querySelector('[data-testid="owner-scope-trigger"] .i-ri-user-line')).not.toBeNull()
+    expect(wrapper.element.querySelector('[data-testid="owner-scope-trigger"] .i-lucide-user-round')).not.toBeNull()
     expect(wrapper.get('[data-testid="owner-scope-trigger"]').text()).toBe('Personal')
     store.activeOwnerScopeId = 'acme'
     await wrapper.vm.$nextTick()
-    expect(wrapper.element.querySelector('[data-testid="owner-scope-trigger"] .i-ri-team-line')).not.toBeNull()
+    expect(wrapper.element.querySelector('[data-testid="owner-scope-trigger"] .i-lucide-users-round')).not.toBeNull()
     expect(wrapper.get('[data-testid="owner-scope-trigger"]').text()).toBe('Acme')
     expect(styles).toContain('.owner-scope-trigger { --select-content-gap: 6px; --select-padding-start: 7px; --select-arrow-inset: 7px; width: 100%; height: 30px;')
     expect(styles).toContain('font-size: var(--font-size-body); font-weight: 600;')
@@ -233,6 +236,45 @@ describe('project rail', () => {
     expect(store.deleteTeam).toHaveBeenCalledWith('acme', 'Acme')
   })
 
+  it('does not offer local project binding or checkout sync on a hosted workbench', async () => {
+    const store = useWorkbenchStore()
+    store.hostEnvironment = { kind: 'hosted', capabilities: { localProjectDirectories: false, localGitSync: false } }
+    store.ownerScopes = [{ id: 'acme', kind: 'team', name: 'Acme' }]
+    store.activeOwnerScopeId = 'acme'
+    store.activeTeamSyncStatus = { ownerScopeId: 'acme', state: 'unconfigured' }
+    const wrapper = mount(ProjectRail, { attachTo: document.body })
+    expect(wrapper.find('[data-testid="add-project"]').exists()).toBe(false)
+    expect(wrapper.find('.team-sync-indicator').exists()).toBe(false)
+    expect(wrapper.text()).toContain('cannot access folders')
+    await wrapper.get('[data-testid="manage-team"]').trigger('click')
+    expect(document.querySelector('[data-testid="configure-team-sync-form"]')).toBeNull()
+    expect(document.querySelector('[data-testid="rename-team-form"]')).not.toBeNull()
+    wrapper.unmount()
+  })
+
+  it('opens configuration instead of synchronizing an imported Team without a Git target', async () => {
+    const store = useWorkbenchStore()
+    store.ownerScopes = [{ id: 'personal', kind: 'personal', name: 'Personal' }, { id: 'acme', kind: 'team', name: 'Acme' }]
+    store.activeOwnerScopeId = 'acme'
+    store.activeTeamSyncStatus = { ownerScopeId: 'acme', state: 'unconfigured' }
+    store.synchronizeActiveTeam = vi.fn(async () => {})
+    store.configureActiveTeamSync = vi.fn(async () => {})
+    const wrapper = mount(ProjectRail, { attachTo: document.body })
+    await wrapper.get('.team-sync-indicator').trigger('click')
+    expect(store.synchronizeActiveTeam).not.toHaveBeenCalled()
+    const form = document.querySelector<HTMLFormElement>('[data-testid="configure-team-sync-form"]')!
+    expect(form).not.toBeNull()
+    const input = form.querySelector<HTMLInputElement>('[name="team-sync-repository"]')!
+    input.value = '/repos/team-config'
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    await flushPromises()
+    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+    await flushPromises()
+    expect(store.configureActiveTeamSync).toHaveBeenCalledWith('/repos/team-config', undefined)
+    expect(store.synchronizeActiveTeam).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
   it('offers both explicit resolutions when Team Git sync diverges', async () => {
     const store = useWorkbenchStore()
     store.ownerScopes = [
@@ -264,7 +306,7 @@ describe('project rail', () => {
 
     const indicator = wrapper.get('.team-sync-indicator')
     expect(indicator.attributes('title')).toBe('Configuration is synchronized')
-    expect(indicator.find('.i-ri-checkbox-circle-fill').exists()).toBe(true)
+    expect(indicator.find('.i-lucide-circle-check').exists()).toBe(true)
     expect(wrapper.find('.team-sync-status').exists()).toBe(false)
 
     store.activeTeamSyncStatus = { ownerScopeId: 'acme', state: 'clean', workingTreeChanged: true }
@@ -391,7 +433,7 @@ describe('project rail', () => {
 
     expect(wrapper.get('.workspace-group .workspace-select').classes()).toContain('rail-root-entry')
     expect(wrapper.get('.workspace-group .workspace-row').element.firstElementChild).toBe(wrapper.get('.workspace-group .workspace-select').element)
-    expect(wrapper.get('.workspace-disclosure .app-icon').classes()).toContain('i-ri-arrow-right-s-line')
+    expect(wrapper.get('.workspace-disclosure .app-icon').classes()).toContain('i-lucide-chevron-right')
     expect(wrapper.get('.workspace-disclosure .app-icon').classes()).toContain('expanded')
     expect(wrapper.get('.workspace-empty').text()).toBe('No projects in this workspace')
   })

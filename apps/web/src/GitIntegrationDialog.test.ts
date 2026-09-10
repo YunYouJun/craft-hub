@@ -73,6 +73,7 @@ describe('git integration dialog', () => {
     }))
     const pinia = createPinia()
     setActivePinia(pinia)
+    useI18n().setLocale('en')
     const store = useWorkbenchStore()
     store.projects = [project]
     store.selectedProjectId = project.id
@@ -112,6 +113,7 @@ describe('git integration dialog', () => {
     }), { headers: { 'content-type': 'application/json' } })))
     const pinia = createPinia()
     setActivePinia(pinia)
+    useI18n().setLocale('en')
     const wrapper = mount(GitIntegrationDialog, {
       attachTo: document.body,
       global: { plugins: [pinia] },

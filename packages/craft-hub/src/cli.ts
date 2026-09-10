@@ -4,13 +4,14 @@ import { readFile, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import process from 'node:process'
 import { createInterface } from 'node:readline/promises'
-import { fileURLToPath } from 'node:url'
 import { cac } from 'cac'
 import { launchCraftHubApp, launchCraftHubProject } from './app'
 import { initializeMarketplacePlugin, packMarketplacePlugin, validateMarketplacePlugin } from './plugin-authoring'
+import { loadCraftHubPlugins } from './plugins'
 import { CraftHubRuntime } from './runtime'
 import { startCraftHubServer } from './server'
 import { craftHubVersion } from './version'
+import { resolveCraftHubWebDirectory } from './web-assets'
 
 const cli = cac('craft-hub')
 const runtime = new CraftHubRuntime()
@@ -331,11 +332,16 @@ cli.command('app [path]', 'Start Craft Hub for a project directory')
     console.log(app.kind === 'desktop' ? `Opened Craft Hub Desktop at ${app.url}` : `Craft Hub is ready at ${app.url}`)
   })
 
-cli.command('ui', 'Start the local Craft Hub workbench').option('--port <port>', 'HTTP port', { default: 4318 }).action(async (options: { port: number }) => {
-  const staticDir = resolve(fileURLToPath(new URL('.', import.meta.url)), '../../../apps/web/dist')
-  const app = await startCraftHubServer({ port: Number(options.port), staticDir, runtime })
-  console.log(`Craft Hub is ready at ${app.url}`)
-})
+cli.command('ui', 'Start the local Craft Hub workbench')
+  .option('--port <port>', 'HTTP port', { default: 4318 })
+  .option('--host-plugin <specifier>', 'Load one explicitly trusted Host Plugin package or absolute module path')
+  .action(async (options: { port: number, hostPlugin?: string }) => {
+    const staticDir = resolveCraftHubWebDirectory()
+    const loaded = options.hostPlugin ? await loadCraftHubPlugins([options.hostPlugin]) : undefined
+    const uiRuntime = loaded ? new CraftHubRuntime({ plugins: loaded.plugins, pluginDiagnostics: loaded.diagnostics }) : runtime
+    const app = await startCraftHubServer({ port: Number(options.port), staticDir, runtime: uiRuntime })
+    console.log(`Craft Hub is ready at ${app.url}`)
+  })
 
 cli.help()
 cli.version(craftHubVersion)

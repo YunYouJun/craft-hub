@@ -1,3 +1,4 @@
+import type { HostEnvironment } from './host-environment'
 /** Local execution trust assigned to a registered project. */
 export type TrustState = 'trusted' | 'untrusted'
 
@@ -43,6 +44,8 @@ export interface ProjectCatalogSnapshot {
 
 /** Runtime compatibility metadata reported to local clients. */
 export interface RuntimeHealth {
+  /** Optional for compatibility with older hosts. */
+  hostEnvironment?: HostEnvironment
   status: 'ok'
   projectConfigSchemaRevision: string
   distribution: {
@@ -130,6 +133,8 @@ export interface ResolvedWorkspaceMember extends WorkspaceMember {
 
 /** Workspace manifest augmented with local resolution metadata. */
 export interface WorkspaceRecord extends WorkspaceManifest {
+  /** Present for read-only workspaces projected from a subscribed source. */
+  subscription?: { id: string, sourceId: string, workspaceId: string, sourceName: string, revision: string }
   ownerScopeId?: string
   revision: string
   members: ResolvedWorkspaceMember[]

@@ -32,15 +32,15 @@ describe('global settings', () => {
     const { root, service } = await settingsFixture()
     const initial = await service.get()
 
-    expect(initial).toMatchObject({ explicitKeys: [], settings: { 'workbench.codex': {}, 'workbench.editor': { default: 'vscode' }, 'workbench.locale': 'en', 'workbench.repositoriesRoot': '', 'workbench.shortcuts': { 'workbench.showCommandPalette': 'Mod+K' }, 'workbench.theme': 'system' } })
-    const updated = await service.update({ 'workbench.locale': 'zh-CN', 'workbench.theme': 'dark' }, initial.revision)
+    expect(initial).toMatchObject({ explicitKeys: [], settings: { 'workbench.codex': {}, 'workbench.editor': { default: 'vscode' }, 'workbench.locale': 'zh-CN', 'workbench.repositoriesRoot': '', 'workbench.shortcuts': { 'workbench.showCommandPalette': 'Mod+K' }, 'workbench.theme': 'system' } })
+    const updated = await service.update({ 'workbench.locale': 'en', 'workbench.theme': 'dark' }, initial.revision)
 
-    expect(updated.settings['workbench.locale']).toBe('zh-CN')
+    expect(updated.settings['workbench.locale']).toBe('en')
     expect(updated.settings['workbench.theme']).toBe('dark')
     expect(updated.explicitKeys).toEqual(['workbench.locale', 'workbench.theme'])
     expect(JSON.parse(await readFile(join(root, 'settings.json'), 'utf8'))).toEqual({
       '$schema': './settings.schema.json',
-      'workbench.locale': 'zh-CN',
+      'workbench.locale': 'en',
       'workbench.theme': 'dark',
     })
     expect(JSON.parse(await readFile(join(root, 'settings.schema.json'), 'utf8'))).toMatchObject({
@@ -127,7 +127,7 @@ describe('global settings', () => {
     expect(full.settings).toEqual({
       'workbench.codex': {},
       'workbench.editor': { default: 'vscode' },
-      'workbench.locale': 'en',
+      'workbench.locale': 'zh-CN',
       'workbench.shortcuts': { 'workbench.showCommandPalette': 'Mod+K' },
       'workbench.theme': 'system',
     })

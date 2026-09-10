@@ -1,12 +1,14 @@
 import type { Buffer } from 'node:buffer'
+import type { AccountProvider } from './accounts'
 import type { WorkbenchDiagnosticSnapshot } from './diagnostics'
 import type { RunHandle } from './executor'
 import type { CapabilityProvider, CraftHubOptions, DistributionConfig } from './extensions'
 import type { ApplyGitIntegrationRequest, GitIntegrationPlan, GitIntegrationRequest, GitIntegrationResult } from './git-integration'
-import type { IntegrationActionResult, IntegrationDiagnostic, ResolvedIntegrationContribution } from './integrations'
+import type { HostEnvironment } from './host-environment'
+import type { InstalledIntegrationContribution, IntegrationActionResult, IntegrationDiagnostic, ResolvedIntegrationContribution } from './integrations'
 import type { CraftHubPlugin, PluginDiagnostic } from './plugins'
 import type { Capability, CapabilityDiscoveryDiagnostic, CapabilityDiscoveryResult, CapabilityPins, CapabilityReference, CommandCapability, CommandInputValues, CommandInvocation, CommandPackage, LocalSkillActivationSettings, ProjectConfigInitializationMode, ProjectConfigInitializationResult, ProjectOverview, ProjectRecord, ProjectRunSummary, ProjectSkillsState, ReleasePlan, RunCleanupOptions, RunCleanupResult, RunOutputEvent, RunRecord } from './types'
-import { resolve } from 'node:path'
+import { isAbsolute, resolve } from 'node:path'
 import process from 'node:process'
 import { AgentActionService } from './agent-actions'
 import { AgentTaskManager } from './agent-tasks'
@@ -18,7 +20,8 @@ import { DotfilesManager } from './dotfiles-manager'
 import { executeCommand } from './executor'
 import { builtinCapabilityProvider, communityDistribution } from './extensions'
 import { GitIntegration } from './git-integration'
-import { IntegrationRegistry } from './integrations'
+import { describeHostEnvironment } from './host-environment'
+import { integrationContributionSchema, IntegrationRegistry } from './integrations'
 import { PluginManager } from './marketplace'
 import { OwnerScopeService } from './owner-scopes'
 import { assertCommandWorkingDirectory } from './path-security'
@@ -34,10 +37,15 @@ import { CraftHubStore } from './store'
 import { TeamGitSyncService } from './team-git-sync'
 import { TeamManager } from './teams'
 import { UserConfigService } from './user-config'
+import { WorkspaceCatalogService } from './workspace-catalog'
 import { WorkspaceImportService } from './workspace-import'
+import { publicWorkspaceRepositoryProvider } from './workspace-repository'
+import { WorkspaceSubscriptionService } from './workspace-subscriptions'
 import { WorkspaceService } from './workspaces'
 
 export class CraftHubRuntime {
+  readonly hostEnvironment: HostEnvironment
+  readonly accountProvider?: AccountProvider
   readonly store: CraftHubStore
   readonly projects: ProjectRegistry
   readonly settings: CraftHubSettingsService
@@ -45,6 +53,8 @@ export class CraftHubRuntime {
   readonly personalConfigRepository: PersonalConfigRepository
   readonly dotfilesManager: DotfilesManager
   readonly workspaces: WorkspaceService
+  readonly workspaceSubscriptions: WorkspaceSubscriptionService
+  readonly workspaceCatalog: WorkspaceCatalogService
   readonly workspaceImports: WorkspaceImportService
   readonly personalGitSync: PersonalGitSyncService
   readonly ownerScopes: OwnerScopeService
@@ -54,6 +64,7 @@ export class CraftHubRuntime {
   readonly agentActions: AgentActionService
   readonly pluginManager: PluginManager
   readonly integrationRegistry: IntegrationRegistry
+  private readonly hostIntegrations: InstalledIntegrationContribution[]
   readonly releasePlanner = new ReleasePlanner()
   readonly gitIntegration = new GitIntegration()
   readonly distribution: DistributionConfig
@@ -67,9 +78,15 @@ export class CraftHubRuntime {
 
   constructor(options: string | CraftHubOptions = {}) {
     const normalizedOptions = typeof options === 'string' ? { dataDir: options } : options
+    this.hostEnvironment = describeHostEnvironment(normalizedOptions.hostEnvironment)
     this.distribution = normalizedOptions.distribution ?? communityDistribution
     const plugins = normalizedOptions.plugins ?? []
     assertUniquePluginIds(plugins)
+    this.workspaceCatalog = new WorkspaceCatalogService(this.distribution.workspaceMarkets, [...(normalizedOptions.workspaceCatalogProviders ?? []), ...plugins.flatMap(plugin => plugin.workspaceCatalogProviders ?? [])])
+    const accounts = plugins.flatMap(plugin => plugin.accountProvider ? [plugin.accountProvider] : [])
+    if (accounts.length > 1)
+      throw new Error('Only one host account provider can be configured')
+    this.accountProvider = accounts[0]
     this.hostPluginDiagnostics = structuredClone(normalizedOptions.pluginDiagnostics ?? [])
     this.store = new CraftHubStore(normalizedOptions.dataDir ?? getCraftHubDataDir(process.env, this.distribution.dataDirectoryName ?? this.distribution.name))
     this.pluginManager = new PluginManager(
@@ -80,6 +97,11 @@ export class CraftHubRuntime {
       undefined,
       this.distribution.marketplaceTrustPolicies,
     )
+    this.hostIntegrations = plugins.flatMap(plugin => (plugin.integrations ?? []).map(contribution => ({
+      ...integrationContributionSchema.parse(contribution),
+      pluginId: plugin.id,
+      source: `host:${plugin.id}`,
+    })))
     this.integrationRegistry = new IntegrationRegistry(plugins.flatMap(plugin => plugin.integrationProviders ?? []))
     this.capabilityProviders = [
       { provider: builtinCapabilityProvider },
@@ -93,7 +115,12 @@ export class CraftHubRuntime {
     this.dotfilesManager = new DotfilesManager(this.store.dataDir, this.personalConfigRepository)
     const configDir = normalizedOptions.configDir ?? getCraftHubConfigDir(process.env)
     this.userConfig = new UserConfigService(configDir, this.store.dataDir)
-    this.workspaces = new WorkspaceService(configDir, this.store.dataDir, this.projects, this.userConfig)
+    this.workspaces = new WorkspaceService(configDir, this.store.dataDir, this.projects, this.userConfig, () => this.workspaceSubscriptions.projectedWorkspaces())
+    this.workspaceSubscriptions = new WorkspaceSubscriptionService(this.store.dataDir, this.workspaces, [
+      ...(normalizedOptions.workspaceRepositoryProviders ?? []),
+      ...plugins.flatMap(plugin => plugin.workspaceRepositoryProviders ?? []),
+      ...(normalizedOptions.publicWorkspaceRepositories === false ? [] : [publicWorkspaceRepositoryProvider]),
+    ])
     this.ownerScopes = new OwnerScopeService(configDir, this.store.dataDir, this.userConfig)
     this.teamGitSync = new TeamGitSyncService(this.store.dataDir, this.ownerScopes, this.workspaces)
     this.teams = new TeamManager(this.ownerScopes, this.teamGitSync, this.workspaces)
@@ -157,7 +184,7 @@ export class CraftHubRuntime {
 
   /** Resolve installed marketplace integration declarations against trusted host providers. */
   async integrationContributions(): Promise<{ integrations: ResolvedIntegrationContribution[], diagnostics: IntegrationDiagnostic[] }> {
-    return this.integrationRegistry.resolve(await this.pluginManager.integrationContributions())
+    return this.integrationRegistry.resolve([...this.hostIntegrations, ...await this.pluginManager.integrationContributions()])
   }
 
   /** Collect current host, extension, and configuration failures for client presentation. */
@@ -185,6 +212,7 @@ export class CraftHubRuntime {
   /** Invoke one enabled declarative integration through a trusted host adapter. */
   async invokeIntegrationAction(options: {
     integrationId: string
+    callbackUrl?: string
     actionId: string
     projectId?: string
     input?: Record<string, unknown>
@@ -195,13 +223,43 @@ export class CraftHubRuntime {
     if (!contribution)
       throw new Error(`Integration contribution is unavailable: ${options.integrationId}`)
     const project = options.projectId ? await this.projects.get(options.projectId) : undefined
+    const operation = contribution.actions.find(action => action.id === options.actionId)?.operation
+    if (operation === 'resources.update' || operation === 'resources.execute') {
+      if (!this.hostEnvironment.capabilities.localProjectDirectories)
+        throw new Error('Local project resource operations are unavailable on this host')
+      if ((project && project.trust !== 'trusted') || (!project && (operation === 'resources.execute' || options.projectId)))
+        throw new Error('Trust a local project before modifying resources or executing actions')
+    }
+    const resourceProjects = operation?.startsWith('resources.') ? await this.projects.list() : undefined
     return this.integrationRegistry.invoke({
       contribution,
       actionId: options.actionId,
-      context: project ? { projectId: project.id, projectPath: project.path } : {},
+      context: { ...(resourceProjects ? { projects: resourceProjects } : {}), ...(contribution.actions.find(action => action.id === options.actionId)?.operation === 'connection.update' ? { callbackUrl: options.callbackUrl } : {}), ...(project ? { projectId: project.id, projectPath: project.path } : {}), ...(options.input?.locale === 'zh-CN' ? { locale: 'zh-CN' as const } : {}) },
       input: options.input,
       confirmed: options.confirmed,
     })
+  }
+
+  /** Finish only an OAuth session previously started through an enabled integration. */
+  async completeIntegrationConnection(integrationId: string, input: Record<string, unknown>): Promise<void> {
+    const { integrations } = await this.integrationContributions()
+    const contribution = integrations.find(item => item.id === integrationId)
+    if (!contribution)
+      throw new Error('Integration is unavailable')
+    await this.integrationRegistry.completeConnection(contribution, input)
+  }
+
+  /** Resolve a source from a fresh provider result, never a renderer-supplied path. */
+  async integrationSourcePath(integrationId: string, actionId: string, entityId: string, detailIndex: number, projectId?: string): Promise<string> {
+    const { integrations } = await this.integrationContributions()
+    const action = integrations.find(item => item.id === integrationId)?.actions.find(item => item.id === actionId)
+    if (action?.operation !== 'configuration.list' || !Number.isInteger(detailIndex) || detailIndex < 0)
+      throw new Error('Invalid configuration source request')
+    const result = await this.invokeIntegrationAction({ integrationId, actionId, projectId })
+    const path = 'items' in result ? result.items.find(item => item.id === entityId)?.details?.[detailIndex]?.sourcePath : undefined
+    if (!path || !isAbsolute(path))
+      throw new Error('Configuration source is unavailable')
+    return path
   }
 
   /** Discover capabilities and non-fatal diagnostics for one registered project. */

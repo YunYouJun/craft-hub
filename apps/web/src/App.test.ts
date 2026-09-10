@@ -605,7 +605,7 @@ describe('app startup', () => {
     await nextTick()
     expect(refreshButton.attributes('disabled')).toBeUndefined()
     expect(refreshButton.attributes('data-tooltip')).toBe('Refresh')
-    expect(refreshButton.find('.i-ri-refresh-line').exists()).toBe(true)
+    expect(refreshButton.find('.i-lucide-refresh-cw').exists()).toBe(true)
 
     store.agentTasks = [
       { id: 'running-codex', provider: 'codex', projectIds: ['target'], primaryProjectId: 'target', prompt: 'Run', startedAt: '2026-01-01T00:00:00.000Z', status: 'running' },

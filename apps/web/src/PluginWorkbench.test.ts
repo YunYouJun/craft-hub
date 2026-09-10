@@ -29,8 +29,8 @@ describe('plugin workbench', () => {
       description: 'One place for daily work.',
       icon: 'builtin:briefcase',
       views: [
-        { type: 'integration', plugin: '@acme/craft-hub-plugin-issues', integration: 'acme-issues', view: 'overview' },
-        { type: 'navigation', plugin: '@acme/craft-hub-plugin-suite', panel: 'resources' },
+        { type: 'integration', plugin: '@acme/craft-hub-plugin-issues', integration: 'acme-issues', view: 'overview', group: 'Work items' },
+        { type: 'navigation', plugin: '@acme/craft-hub-plugin-suite', panel: 'resources', group: 'Resources' },
       ],
     }]
     store.integrationContributions = [{
@@ -43,7 +43,7 @@ describe('plugin workbench', () => {
       views: [{
         id: 'overview',
         title: 'Issues',
-        icon: 'builtin:list',
+        icon: 'data:image/svg+xml;base64,PHN2Zy8+',
         placement: 'primary-sidebar',
         scope: 'global',
         blocks: [{ id: 'items', type: 'entity-list', actionId: 'list' }],
@@ -68,11 +68,18 @@ describe('plugin workbench', () => {
 
     expect(wrapper.get('h1').text()).toBe('Internal workbench')
     expect(wrapper.findAll('[role="tab"]')).toHaveLength(2)
+    const sidebarIcon = wrapper.get('[role="tab"] .visual-icon')
+    expect(sidebarIcon.classes()).toContain('visual-icon-mask')
+    expect(wrapper.findAll('.plugin-workbench-group h2').map(group => group.text())).toEqual(['Work items', 'Resources'])
     expect(wrapper.text()).toContain('Review change')
     expect(wrapper.find('.integration-header').exists()).toBe(false)
 
-    await wrapper.findAll('[role="tab"]')[1]!.trigger('click')
+    await wrapper.get('[role="tablist"]').trigger('keydown', { key: 'ArrowDown' })
+    expect(wrapper.findAll('[role="tab"]')[1]!.attributes('aria-selected')).toBe('true')
     expect(wrapper.get('.navigation-links a').text()).toContain('Handbook')
     expect(wrapper.get('.navigation-links a').attributes('href')).toBe('https://example.com/handbook')
+    await wrapper.get('[role="tablist"]').trigger('keydown', { key: 'Home' })
+    await flushPromises()
+    expect(wrapper.text()).toContain('Review change')
   })
 })

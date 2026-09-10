@@ -21,7 +21,7 @@ import { commandPresetContributionSchema, commandTemplateContributionSchema, pac
 import { integrationContributionSchema } from './integrations'
 import { MarketplaceCatalogTrust } from './marketplace-trust'
 import { localizeNavigationPanel, navigationPanelContributionSchema } from './navigation-contributions'
-import { readPackageDocument, readPackageDocumentAsset } from './project-overview'
+import { readPackageDocument, readPackageDocumentAsset, readPackageIconDataUrl } from './project-overview'
 import { skillActivationConditionSchema } from './skill-activation'
 import { craftHubVersion } from './version'
 import { localizeWorkbench, workbenchContributionSchema } from './workbench-contributions'
@@ -35,7 +35,7 @@ const pluginDocumentTimeoutMs = 15_000
 
 const safeRelativePath = z.string().min(1).refine(value => !isAbsolute(value) && !value.split(/[\\/]/).includes('..'), 'Path must stay inside the plugin package')
 const secureHttpsUrlSchema = z.string().min(1).refine(isSecureHttpsUrl, 'URL must use HTTPS and must not contain credentials')
-const pluginPermissionSchema = z.enum(['command-presets', 'commands', 'read-project-files', 'read-user-settings', 'remote-read', 'remote-write'])
+const pluginPermissionSchema = z.enum(['command-presets', 'commands', 'read-project-files', 'read-user-settings', 'local-read', 'local-write', 'remote-read', 'remote-write'])
 const permissionReasonsSchema = z.record(z.string(), z.string().min(1))
 const pluginLinksV1Schema = z.object({
   documentation: secureHttpsUrlSchema.optional(),
@@ -184,6 +184,10 @@ export const pluginManifestV1Schema = z.object({
   if (manifest.contributes.skills.some(skill => skill.activation) && !manifest.permissions.includes('read-project-files'))
     context.addIssue({ code: 'custom', message: 'Skill activation requires the read-project-files permission', path: ['permissions'] })
   for (const [index, integration] of manifest.contributes.integrations.entries()) {
+    if (integration.actions.some(action => action.effect === 'local-write') && !manifest.permissions.includes('local-write'))
+      context.addIssue({ code: 'custom', message: 'Local write integration actions require the local-write permission', path: ['contributes', 'integrations', index] })
+    if (integration.actions.some(action => action.effect === 'local-read') && !manifest.permissions.includes('local-read'))
+      context.addIssue({ code: 'custom', message: 'Local read integration actions require the local-read permission', path: ['contributes', 'integrations', index] })
     if (integration.actions.some(action => action.effect === 'remote-read') && !manifest.permissions.includes('remote-read'))
       context.addIssue({ code: 'custom', message: 'Remote read integration actions require the remote-read permission', path: ['contributes', 'integrations', index] })
     if (integration.actions.some(action => action.effect === 'remote-write') && !manifest.permissions.includes('remote-write'))
@@ -532,6 +536,18 @@ export class PluginManager {
       this.shadowedUserSources = persistedSources.filter(source => source.kind === 'user' && !activeSourceIds.has(source.id))
       const installed = Array.isArray(persisted.installed)
         ? persisted.installed.map((plugin) => {
+            // A distribution can replace an imported source for the same catalog,
+            // or disappear when this state is opened by another host.
+            if (!activeSourceIds.has(plugin.sourceId)) {
+              const previousSource = persistedSources.find(source => source.id === plugin.sourceId)
+              const replacement = previousSource?.catalogUrl
+                ? sources.find(source => source.catalogUrl === previousSource.catalogUrl)
+                : undefined
+              if (replacement) {
+                plugin = { ...plugin, sourceId: replacement.id }
+                migrated = true
+              }
+            }
             const result = pluginManifestV1Schema.safeParse(plugin.manifest)
             if (result.success) {
               const normalized = { ...plugin, manifest: result.data }
@@ -989,13 +1005,18 @@ export class PluginManager {
   async integrationContributions(): Promise<InstalledIntegrationContribution[]> {
     await this.initialize()
     await this.refreshLocalPlugins()
-    return this.activePluginSnapshot()
+    const contributions = this.activePluginSnapshot()
       .filter(plugin => this.pluginActive(plugin))
-      .flatMap(plugin => plugin.manifest.contributes.integrations.map(integration => ({
+      .flatMap(plugin => plugin.manifest.contributes.integrations.map(async integration => ({
         ...structuredClone(integration),
+        views: await Promise.all(integration.views.map(async view => ({
+          ...structuredClone(view),
+          icon: await readPackageIconDataUrl(plugin.packagePath, view.icon) ?? view.icon,
+        }))),
         pluginId: plugin.package,
         source: `plugin:${plugin.package}@${plugin.version}`,
       })))
+    return Promise.all(contributions)
   }
 
   /** Return localized, project-independent navigation panels from active declarative plugins. */
@@ -1016,14 +1037,16 @@ export class PluginManager {
   async workbenches(locale: string): Promise<InstalledPluginWorkbench[]> {
     await this.initialize()
     await this.refreshLocalPlugins()
-    return this.activePluginSnapshot()
+    const contributions = this.activePluginSnapshot()
       .filter(plugin => this.pluginActive(plugin))
-      .flatMap(plugin => plugin.manifest.contributes.workbenches.map(workbench => ({
+      .flatMap(plugin => plugin.manifest.contributes.workbenches.map(async workbench => ({
         ...localizeWorkbench(workbench, locale),
+        icon: workbench.icon && (await readPackageIconDataUrl(plugin.packagePath, workbench.icon) ?? workbench.icon),
         pluginId: plugin.package,
         pluginName: plugin.manifest.localizations?.[locale]?.displayName ?? plugin.manifest.displayName,
         pluginVersion: plugin.version,
       })))
+    return (await Promise.all(contributions))
       .sort((left, right) => (left.order ?? 100) - (right.order ?? 100) || left.title.localeCompare(right.title))
   }
 

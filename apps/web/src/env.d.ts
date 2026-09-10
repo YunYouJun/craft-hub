@@ -15,6 +15,7 @@ interface Window {
     openProjectDirectory?: (projectId: string) => Promise<void>
     openProjectInVSCode?: (projectId: string) => Promise<void>
     openProjectInEditor?: (projectId: string) => Promise<void>
+    openIntegrationSource?: (integrationId: string, actionId: string, entityId: string, detailIndex: number, projectId?: string) => Promise<void>
     openProjectEvidenceInEditor?: (projectId: string, path: string, line?: number, column?: number) => Promise<void>
     openProjectGitRemote?: (projectId: string) => Promise<void>
     openCapabilitySourceInEditor?: (projectId: string, capabilityId: string) => Promise<void>

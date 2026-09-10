@@ -9,6 +9,7 @@ contextBridge.exposeInMainWorld('craftHubDesktop', {
   openProjectDirectory: projectId => ipcRenderer.invoke('craft-hub:open-project-directory', projectId),
   openProjectInVSCode: projectId => ipcRenderer.invoke('craft-hub:open-project-in-vscode', projectId),
   openProjectInEditor: projectId => ipcRenderer.invoke('craft-hub:open-project-in-editor', projectId),
+  openIntegrationSource: (integrationId, actionId, entityId, detailIndex, projectId) => ipcRenderer.invoke('craft-hub:open-integration-source', integrationId, actionId, entityId, detailIndex, projectId),
   openProjectEvidenceInEditor: (projectId, path, line, column) => ipcRenderer.invoke('craft-hub:open-project-evidence-in-editor', projectId, path, line, column),
   openProjectGitRemote: projectId => ipcRenderer.invoke('craft-hub:open-project-git-remote', projectId),
   openCapabilitySourceInEditor: (projectId, capabilityId) => ipcRenderer.invoke('craft-hub:open-capability-source-in-editor', projectId, capabilityId),

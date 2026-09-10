@@ -9,6 +9,7 @@ import { DialogShell } from './components/ui/dialog'
 import { Icon } from './icons'
 import { useI18n } from './i18n'
 import PluginDetail from './PluginDetail.vue'
+import WorkbenchViewFrame from './WorkbenchViewFrame.vue'
 
 const props = defineProps<{ open: boolean, importCatalogUrl?: string }>()
 const { locale, t } = useI18n()
@@ -436,15 +437,8 @@ function openIncludedPlugin(parent: ManagedPlugin, packageName: string, range: s
       @changed="load"
       @navigate="openPluginDetail"
     />
-    <div v-show="!detailOpen" class="marketplace-index">
-        <header class="marketplace-header">
-          <div>
-            <h2>{{ t('pluginMarketplace') }}</h2>
-            <p>{{ t('pluginMarketplaceDescription') }}</p>
-          </div>
-        </header>
-
-        <nav class="marketplace-tabs" :aria-label="t('pluginMarketplace')">
+    <WorkbenchViewFrame v-show="!detailOpen" class="marketplace-index" :title="t('pluginMarketplace')" :description="t('pluginMarketplaceDescription')" icon="builtin:plugins">
+        <nav class="marketplace-tabs workbench-tabs" :aria-label="t('pluginMarketplace')">
           <button :class="{ active: activeTab === 'discover' }" @click="activeTab = 'discover'">{{ t('discoverPlugins') }}</button>
           <button :class="{ active: activeTab === 'installed' }" @click="activeTab = 'installed'">{{ t('installedPlugins') }} <small>{{ rootInstalled.length }}</small></button>
           <button :class="{ active: activeTab === 'sources' }" @click="activeTab = 'sources'">{{ t('marketplaceSources') }}</button>
@@ -620,6 +614,6 @@ function openIncludedPlugin(parent: ManagedPlugin, packageName: string, range: s
             </UiButton>
           </footer>
         </DialogShell>
-    </div>
+    </WorkbenchViewFrame>
   </section>
 </template>

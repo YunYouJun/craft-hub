@@ -18,13 +18,16 @@ const props = withDefaults(defineProps<{
   modelValue?: string
   options?: readonly FormSelectOption[]
   id?: string
+  disabled?: boolean
   required?: boolean
+  placeholder?: string
   testId?: string
 }>(), {
   modelValue: '',
   options: () => [],
   id: undefined,
   testId: undefined,
+  placeholder: undefined,
 })
 
 const emit = defineEmits<{
@@ -39,9 +42,9 @@ const selectedOption = computed(() => props.options.find(option => option.value 
 </script>
 
 <template>
-  <Select v-model="value" :required="required">
-    <SelectTrigger :id="id" :aria-required="required" :data-testid="testId">
-      <SelectValue>
+  <Select v-model="value" :required="required" :disabled="disabled">
+    <SelectTrigger :id="id" :disabled="disabled" :aria-required="required" :data-testid="testId">
+      <SelectValue :placeholder="placeholder">
         <SelectOptionContent
           v-if="selectedOption"
           :icon="selectedOption.icon"

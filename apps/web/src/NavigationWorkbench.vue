@@ -5,7 +5,8 @@ import { api } from './api'
 import { Icon } from './icons'
 import { useI18n } from './i18n'
 import NavigationPanelCollection from './NavigationPanelCollection.vue'
-import VisualIcon from './VisualIcon.vue'
+import { Button as UiButton } from './components/ui/button'
+import WorkbenchViewFrame from './WorkbenchViewFrame.vue'
 
 const props = withDefaults(defineProps<{ refreshKey?: number }>(), { refreshKey: 0 })
 const emit = defineEmits<{ managePlugins: [] }>()
@@ -43,11 +44,8 @@ onMounted(() => void loadPanels())
 </script>
 
 <template>
-  <main class="navigation-workbench">
-    <header class="navigation-header">
-      <div><h1>{{ t('navigationWorkbench') }}</h1><p>{{ t('navigationWorkbenchDescription') }}</p></div>
-      <button type="button" class="navigation-manage" @click="emit('managePlugins')"><Icon name="settings" />{{ t('manageNavigationPlugins') }}</button>
-    </header>
+  <WorkbenchViewFrame class="navigation-workbench" :title="t('navigationWorkbench')" :description="t('navigationWorkbenchDescription')" icon="builtin:compass">
+    <template #actions><UiButton size="compact" @click="emit('managePlugins')"><Icon name="settings" />{{ t('manageNavigationPlugins') }}</UiButton></template>
     <div class="navigation-search-row">
       <label class="navigation-search"><Icon name="search" /><input v-model="query" type="search" :placeholder="t('searchNavigationLinks')" :aria-label="t('searchNavigationLinks')"><button v-if="query" type="button" :aria-label="t('clearSearch')" @click="query = ''"><Icon name="close" /></button></label>
       <span v-if="panels.length" class="navigation-count">{{ t('navigationSourceCount', { plugins: String(pluginCount), links: String(linkCount) }) }}</span>
@@ -57,5 +55,5 @@ onMounted(() => void loadPanels())
     <section v-else-if="!panels.length" class="navigation-state empty"><span class="navigation-state-icon"><Icon name="compass" /></span><h2>{{ t('navigationEmptyTitle') }}</h2><p>{{ t('navigationEmptyDescription') }}</p><button type="button" @click="emit('managePlugins')"><Icon name="plugins" />{{ t('browseNavigationPlugins') }}</button></section>
     <section v-else-if="!visiblePanels.length" class="navigation-state empty"><span class="navigation-state-icon"><Icon name="search" /></span><h2>{{ t('navigationNoResultsTitle') }}</h2><p>{{ t('navigationNoResultsDescription', { query }) }}</p><button type="button" @click="query = ''">{{ t('clearSearch') }}</button></section>
     <NavigationPanelCollection v-else :panels="visiblePanels" />
-  </main>
+  </WorkbenchViewFrame>
 </template>

@@ -50,6 +50,7 @@ describe('project overview panel', () => {
     useI18n().setLocale('en')
     const pinia = createPinia()
     setActivePinia(pinia)
+    useI18n().setLocale('en')
     const store = useWorkbenchStore()
     store.projects = [project]
     store.selectedProjectId = project.id
@@ -89,6 +90,7 @@ describe('project overview panel', () => {
     useI18n().setLocale('en')
     const pinia = createPinia()
     setActivePinia(pinia)
+    useI18n().setLocale('en')
     const store = useWorkbenchStore()
     store.projects = [project]
     store.selectedProjectId = project.id
@@ -121,6 +123,7 @@ describe('project overview panel', () => {
     useI18n().setLocale('en')
     const pinia = createPinia()
     setActivePinia(pinia)
+    useI18n().setLocale('en')
     const store = useWorkbenchStore()
     store.projects = [project]
     store.selectedProjectId = project.id
@@ -153,6 +156,7 @@ describe('project overview panel', () => {
     useI18n().setLocale('en')
     const pinia = createPinia()
     setActivePinia(pinia)
+    useI18n().setLocale('en')
     const store = useWorkbenchStore()
     const groupId = '@acme/craft-hub-plugin-widget:widget'
     const toolCommand: CommandCapability = {
@@ -191,6 +195,7 @@ describe('project overview panel', () => {
     useI18n().setLocale('en')
     const pinia = createPinia()
     setActivePinia(pinia)
+    useI18n().setLocale('en')
     const store = useWorkbenchStore()
     store.projects = [project]
     store.selectedProjectId = project.id

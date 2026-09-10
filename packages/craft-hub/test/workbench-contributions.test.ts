@@ -48,6 +48,16 @@ describe('workbench contributions', () => {
     })
   })
 
+  it('localizes sidebar groups while preserving reference identity and default copy', () => {
+    const parsed = workbenchContributionSchema.parse({ ...workbench, views: [
+      { ...workbench.views[0], group: { 'default': 'Work items', 'zh-CN': '工作事项' } },
+      { ...workbench.views[1], group: 'Resources' },
+    ] })
+    expect(localizeWorkbench(parsed, 'zh-CN').views.map(view => view.group)).toEqual(['工作事项', 'Resources'])
+    expect(localizeWorkbench(parsed, 'en').views[0]?.group).toBe('Work items')
+    expect(parsed.views[0]?.group).toEqual({ 'default': 'Work items', 'zh-CN': '工作事项' })
+  })
+
   it('rejects duplicate views, unrelated plugins, and missing local targets', () => {
     expect(() => workbenchContributionSchema.parse({ ...workbench, views: [workbench.views[0], workbench.views[0]] })).toThrow(/must be unique/)
     expect(() => pluginManifestV1Schema.parse(manifest({

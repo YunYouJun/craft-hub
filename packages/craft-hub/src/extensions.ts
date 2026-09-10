@@ -1,9 +1,12 @@
 import type { AgentTaskProvider } from './agent-tasks'
+import type { HostEnvironmentKind } from './host-environment'
 import type { MarketplaceSource, PluginPackageInstaller } from './marketplace'
 import type { MarketplaceTrustPolicy } from './marketplace-trust'
 import type { CraftHubPlugin, PluginDiagnostic } from './plugins'
 import type { WorkbenchLocale } from './settings'
 import type { Capability, CapabilityDiscoveryResult, ProjectRecord } from './types'
+import type { WorkspaceCatalogProvider, WorkspaceMarket } from './workspace-catalog'
+import type { WorkspaceRepositoryProvider } from './workspace-repository'
 import { discoverCapabilitiesWithDiagnostics } from './discovery'
 
 export interface DistributionConfig {
@@ -13,6 +16,8 @@ export interface DistributionConfig {
   dataDirectoryName?: string
   /** Marketplace sources managed by this distribution. */
   marketplaceSources?: MarketplaceSource[]
+  /** Workspace source indexes provisioned by this distribution. */
+  workspaceMarkets?: WorkspaceMarket[]
   /** Publisher trust anchors provisioned by the host rather than an import link. */
   marketplaceTrustPolicies?: MarketplaceTrustPolicy[]
 }
@@ -29,8 +34,15 @@ export interface CapabilityProvider {
 }
 
 export interface CraftHubOptions {
+  /** Explicit host placement; hosted APIs must not offer browser-device directory operations. */
+  hostEnvironment?: HostEnvironmentKind
   dataDir?: string
   configDir?: string
+  /** Trusted repository readers; these take precedence over public Git. */
+  workspaceRepositoryProviders?: WorkspaceRepositoryProvider[]
+  workspaceCatalogProviders?: WorkspaceCatalogProvider[]
+  /** Hosted deployments can disable unrestricted public repository reading. */
+  publicWorkspaceRepositories?: boolean
   distribution?: DistributionConfig
   /** Override npm package installation, primarily for embedded hosts and tests. */
   pluginPackageInstaller?: PluginPackageInstaller
