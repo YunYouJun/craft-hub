@@ -1,7 +1,8 @@
 import type { CraftHubPlugin, IntegrationEntity, IntegrationEntityPage, IntegrationProviderContext } from 'craft-hub'
 import type { CodexReader } from './client'
 import { homedir } from 'node:os'
-import { isAbsolute, join } from 'node:path'
+import { isAbsolute, join, relative } from 'node:path'
+import { readPackageIconDataUrl } from 'craft-hub'
 import { CatalogCache } from './catalog-cache'
 import { CodexMethodUnavailableError, openCodexReader } from './client'
 import { configSnapshot, writePluginConfiguration } from './config-file'
@@ -79,6 +80,7 @@ export function configurationRows(globalValue: unknown, projectValue: unknown, i
     return {
       id,
       title: text(object(plugin?.interface).displayName) ?? text(plugin?.name) ?? id,
+      icon: text(plugin?.icon),
       status: t(preview ? 'Checking installation' : !plugin ? 'Not confirmed installed' : effective === undefined ? 'Unknown' : effective ? 'Configured enabled' : 'Disabled'),
       description: id,
       details: [
@@ -103,28 +105,55 @@ export function configurationRows(globalValue: unknown, projectValue: unknown, i
 }
 
 /** Retain only installed-plugin display fields, not the full remote marketplace payload. */
-function compactInventory(value: unknown): unknown {
+async function compactInventory(value: unknown): Promise<unknown> {
   const inventory = object(value)
   if (!Array.isArray(inventory.marketplaces))
     throw new Error('Unsupported Codex configuration response. Update the local Codex CLI.')
   return {
-    marketplaces: inventory.marketplaces.map((entry) => {
+    marketplaces: await Promise.all(inventory.marketplaces.map(async (entry) => {
       const market = object(entry)
       return {
         name: market.name,
-        plugins: array(market.plugins).map(object).filter(plugin => plugin.installed === true).map(plugin => ({
+        plugins: await Promise.all(array(market.plugins).map(object).filter(plugin => plugin.installed === true).map(async plugin => ({
           id: plugin.id,
           name: plugin.name,
           installed: true,
           enabled: plugin.enabled,
           localVersion: plugin.localVersion,
           version: plugin.version,
+          icon: await pluginIcon(plugin),
           interface: { displayName: object(plugin.interface).displayName },
-        })),
+        }))),
       }
-    }),
+    })),
     marketplaceLoadErrors: array(inventory.marketplaceLoadErrors).map(() => ({})),
   }
+}
+
+async function pluginIcon(plugin: Record<string, unknown>): Promise<string | undefined> {
+  const appearance = object(plugin.interface)
+  const source = object(plugin.source)
+  const root = source.type === 'local' ? text(source.path) : undefined
+  if (root && isAbsolute(root)) {
+    for (const candidate of [appearance.logo, appearance.composerIcon]) {
+      if (typeof candidate !== 'string' || !candidate)
+        continue
+      const icon = await readPackageIconDataUrl(root, isAbsolute(candidate) ? relative(root, candidate) : candidate)
+      if (icon)
+        return icon
+    }
+  }
+  for (const candidate of [appearance.logoUrl, appearance.composerIconUrl]) {
+    if (typeof candidate !== 'string')
+      continue
+    try {
+      const url = new URL(candidate)
+      if (url.protocol === 'https:' && !url.username && !url.password)
+        return url.href
+    }
+    catch { /* Missing or malformed artwork falls back to the host icon. */ }
+  }
+  return undefined
 }
 
 /** Create a scoped configuration Host Plugin. The reader is injectable for offline tests. */

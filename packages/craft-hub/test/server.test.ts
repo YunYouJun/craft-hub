@@ -695,12 +695,15 @@ describe('craft hub server lifecycle', () => {
           schemaVersion: 1,
           id: '@acme/craft-hub-plugin-local',
           displayName: 'Local plugin',
+          icon: 'icon.svg',
           permissions: [],
           contributes: {},
         },
       }))
       await writeFile(join(localPluginPath, 'README.md'), '# Local plugin')
       await writeFile(join(localPluginPath, 'preview.png'), Buffer.from([137, 80, 78, 71]))
+      const iconSvg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M0 0h16v16H0z"/></svg>'
+      await writeFile(join(localPluginPath, 'icon.svg'), iconSvg)
       const linkResponse = await fetch(`${app.url}/api/plugins/local`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -719,6 +722,15 @@ describe('craft hub server lifecycle', () => {
       expect(assetResponse.status).toBe(200)
       expect(assetResponse.headers.get('content-type')).toBe('image/png')
       expect(assetResponse.headers.get('x-content-type-options')).toBe('nosniff')
+      const iconResponse = await fetch(`${app.url}/api/plugins/icon?${documentQuery}`)
+      expect(iconResponse.status).toBe(200)
+      expect(iconResponse.headers.get('content-type')).toBe('image/svg+xml')
+      expect(iconResponse.headers.get('x-content-type-options')).toBe('nosniff')
+      expect(iconResponse.headers.get('content-security-policy')).toBe('default-src \'none\'; sandbox')
+      expect(iconResponse.headers.get('cache-control')).toBe('no-cache')
+      expect(await iconResponse.text()).toBe(iconSvg)
+      const svgDocumentQuery = new URLSearchParams({ ...Object.fromEntries(documentQuery), path: 'icon.svg' })
+      expect((await fetch(`${app.url}/api/plugins/document-asset?${svgDocumentQuery}`)).status).toBe(404)
       const unlinkResponse = await fetch(`${app.url}/api/plugins/local/${encodeURIComponent('@acme/craft-hub-plugin-local')}`, { method: 'DELETE' })
       expect(unlinkResponse.status).toBe(200)
       await expect(unlinkResponse.json()).resolves.toEqual({ unlinked: true })

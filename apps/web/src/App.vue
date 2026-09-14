@@ -2,7 +2,7 @@
 import type { WorkbenchDiagnosticTarget } from 'craft-hub'
 import { useMediaQuery } from '@vueuse/core'
 import { computed, onBeforeMount, onBeforeUnmount, ref, watch } from 'vue'
-import { DialogClose, DialogContent, DialogDescription, DialogOverlay, DialogPortal, DialogRoot, DialogTitle, SplitterGroup, SplitterPanel, SplitterResizeHandle } from 'reka-ui'
+import { DialogClose, DialogContent, DialogDescription, DialogOverlay, DialogPortal, DialogRoot, DialogTitle, SplitterPanel } from 'reka-ui'
 import { useRoute, useRouter } from 'vue-router'
 import { subscribeToProjectChanges } from './api'
 import CapabilityList from './CapabilityList.vue'
@@ -26,6 +26,8 @@ import SettingsDialog from './SettingsDialog.vue'
 import { capabilityShortcutPrefix, commandPaletteShortcutId, defaultCommandPaletteShortcut, formatShortcut, matchesShortcut, parseCapabilityShortcutId } from './shortcuts'
 import WelcomePanel from './WelcomePanel.vue'
 import WorkbenchPageShell from './WorkbenchPageShell.vue'
+import WorkbenchResizeHandle from './WorkbenchResizeHandle.vue'
+import WorkbenchSplitter from './WorkbenchSplitter.vue'
 import WorkspaceDashboard from './WorkspaceDashboard.vue'
 import WorkspaceProjectList from './WorkspaceProjectList.vue'
 import { useWorkbenchStore } from './store'
@@ -378,23 +380,26 @@ onBeforeUnmount(() => {
         @open-workbench="openWorkbench"
       />
       <ConfigurationSubscriptions v-if="subscriptionsOpen" />
+      <PluginWorkbench v-else-if="pluginWorkbenchOpen" :breadcrumbs="pageBreadcrumbs" :plugin-id="activePluginWorkbenchPluginId" :workbench-id="activePluginWorkbenchId" :refresh-key="navigationRevision" @manage-plugins="openMarketplace" />
       <WorkbenchPageShell v-else :breadcrumbs="pageBreadcrumbs">
         <DiagnosticsWorkbench v-if="diagnosticsOpen" @open-target="openDiagnosticTarget" />
-        <PluginWorkbench v-else-if="pluginWorkbenchOpen" :plugin-id="activePluginWorkbenchPluginId" :workbench-id="activePluginWorkbenchId" :refresh-key="navigationRevision" @manage-plugins="openMarketplace" />
         <IntegrationWorkbench v-else-if="integrationOpen" :integration-id="activeIntegrationId" :view-id="activeIntegrationViewId" />
         <NavigationWorkbench v-else-if="navigationOpen" :refresh-key="navigationRevision" @manage-plugins="openMarketplace" />
         <MarketplaceDialog v-else open :import-catalog-url="marketplaceImportCatalogUrl" />
       </WorkbenchPageShell>
     </section>
-    <component :is="compactViewport ? 'div' : SplitterGroup"
+    <WorkbenchSplitter
       v-else
       id="craft-hub-workbench"
       class="workbench-splitter"
-      direction="horizontal"
+      :compact="compactViewport"
+      includes-activity-rail
+      sidebar-id="projects-panel"
+      handle-id="projects-resize-handle"
+      :sidebar-label="t('resizeProjects')"
       auto-save-id="craft-hub-workbench-layout-v2"
-      :keyboard-resize-by="16"
     >
-      <component :is="compactViewport ? 'div' : SplitterPanel" data-panel id="projects-panel" :order="1" size-unit="px" :default-size="280" :min-size="252" :max-size="390">
+      <template #sidebar>
         <ProjectRail
           :active-view="marketplaceOpen ? 'marketplace' : 'workbench'"
           @open-diagnostics="openDiagnostics"
@@ -405,17 +410,12 @@ onBeforeUnmount(() => {
           @open-settings="openSettings()"
           @open-workbench="openWorkbench"
         />
-      </component>
-      <component :is="compactViewport ? 'div' : SplitterResizeHandle" id="projects-resize-handle" class="workbench-resize-handle" :aria-label="t('resizeProjects')" :aria-hidden="marketplaceOpen" :inert="marketplaceOpen" :title="t('resizeProjects')">
-        <span class="splitter-grip" aria-hidden="true" />
-      </component>
+      </template>
       <component :is="compactViewport ? 'div' : SplitterPanel" data-panel v-if="store.projects.length" id="capabilities-panel" :order="2" size-unit="px" :default-size="320" :min-size="230" :max-size="540" :aria-hidden="marketplaceOpen" :inert="marketplaceOpen">
         <WorkspaceProjectList v-if="store.selectedWorkspace" />
         <CapabilityList v-else />
       </component>
-      <component :is="compactViewport ? 'div' : SplitterResizeHandle" v-if="store.projects.length" id="capabilities-resize-handle" class="workbench-resize-handle" :aria-label="t('resizeCapabilities')" :aria-hidden="marketplaceOpen" :inert="marketplaceOpen" :title="t('resizeCapabilities')">
-        <span class="splitter-grip" aria-hidden="true" />
-      </component>
+      <WorkbenchResizeHandle v-if="!compactViewport && store.projects.length" id="capabilities-resize-handle" :label="t('resizeCapabilities')" :aria-hidden="marketplaceOpen" :inert="marketplaceOpen" />
       <component :is="compactViewport ? 'div' : SplitterPanel" data-panel id="detail-panel" :order="3" size-unit="px" :min-size="350" :aria-hidden="marketplaceOpen" :inert="marketplaceOpen">
         <section class="detail-workspace">
           <ProjectToolbar v-if="store.selectedProject && !store.selectedWorkspace" />
@@ -439,7 +439,7 @@ onBeforeUnmount(() => {
           <DetailPanel v-else />
         </section>
       </component>
-    </component>
+    </WorkbenchSplitter>
     <footer class="status-bar">
       <span :aria-busy="store.refreshing">
         <Icon v-if="store.refreshing" name="loading" class="refresh-loading-icon" />

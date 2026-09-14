@@ -88,6 +88,29 @@ describe('marketplace dialog', () => {
     vi.unstubAllGlobals()
   })
 
+  it('localizes plugin titles and descriptions, searches both languages, and falls back to the default title', async () => {
+    const translated = { ...catalogPlugin, localizations: { 'zh-CN': { displayName: '示例工具', description: '中文插件简介' } } }
+    vi.spyOn(api, 'marketplaceCatalog').mockResolvedValue([translated])
+    vi.spyOn(api, 'installedPlugins').mockResolvedValue([{ ...installedPlugin, manifest: { ...installedPlugin.manifest, localizations: translated.localizations } }])
+    vi.spyOn(api, 'marketplaceSources').mockResolvedValue([])
+    useI18n().setLocale('zh-CN')
+    const wrapper = await mountMarketplace()
+    await flushPromises()
+    expect(wrapper.get('.plugin-title strong').text()).toBe('示例工具')
+    expect(wrapper.get('.plugin-copy p').text()).toBe('中文插件简介')
+    expect(wrapper.get('.plugin-summary-link').attributes('aria-label')).toContain('示例工具')
+    const search = wrapper.get('.marketplace-search input')
+    await search.setValue('示例')
+    expect(wrapper.findAll('.plugin-row')).toHaveLength(1)
+    await search.setValue('Acme Suite')
+    expect(wrapper.findAll('.plugin-row')).toHaveLength(1)
+    await wrapper.get('.marketplace-tabs button:nth-child(2)').trigger('click')
+    expect(wrapper.get('.installed-plugin-row .plugin-title strong').text()).toBe('示例工具')
+    useI18n().setLocale('en')
+    await flushPromises()
+    expect(wrapper.get('.installed-plugin-row .plugin-title strong').text()).toBe('Acme Suite')
+  })
+
   it('shows catalog-provided branding in discover and installed views', async () => {
     vi.spyOn(api, 'marketplaceCatalog').mockResolvedValue([catalogPlugin])
     vi.spyOn(api, 'installedPlugins').mockResolvedValue([installedPlugin])
@@ -115,6 +138,41 @@ describe('marketplace dialog', () => {
 
     expect(wrapper.get('.plugin-error-badge').text()).toBe('Needs attention')
     expect(wrapper.get('.installed-plugin-row').text()).not.toContain('Manifest is incompatible with this host.')
+  })
+
+  it('shows a linked plugin asset in discovery, installed entries, and local details', async () => {
+    const local = { ...installedPlugin, sourceId: 'local' as const, origin: 'local' as const, version: '0.1.1', linkedAt: '2026-09-01T00:00:00.000Z' }
+    const asset = api.pluginIconUrl('local', packageName, local.version)
+    vi.spyOn(api, 'marketplaceCatalog').mockResolvedValue([{ ...catalogPlugin, icon: undefined }])
+    vi.spyOn(api, 'installedPlugins').mockResolvedValue([local])
+    vi.spyOn(api, 'marketplaceSources').mockResolvedValue([])
+    vi.spyOn(api, 'pluginDocument').mockResolvedValue({ package: packageName, version: local.version, sourceId: 'local', origin: 'local', manifest: local.manifest, document: { status: 'missing' } })
+
+    const wrapper = await mountMarketplace()
+    await flushPromises()
+    expect(wrapper.get('[data-testid="plugin-icon"]').attributes('src')).toBe(asset)
+    await wrapper.get('.marketplace-tabs button:nth-child(2)').trigger('click')
+    expect(wrapper.get('[data-testid="installed-plugin-icon"]').attributes('src')).toBe(asset)
+    await wrapper.get('.installed-plugin-row .plugin-summary-link').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('.plugin-detail-icon img').attributes('src')).toBe(asset)
+    await wrapper.get('.plugin-detail-icon img').trigger('error')
+    expect(wrapper.find('.plugin-detail-icon img').exists()).toBe(false)
+    expect(wrapper.find('.plugin-detail-icon .plugins-icon').exists()).toBe(true)
+  })
+
+  it('uses the downloaded manifest icon when an uninstalled catalog entry has no icon', async () => {
+    vi.spyOn(api, 'marketplaceCatalog').mockResolvedValue([{ ...catalogPlugin, icon: undefined }])
+    vi.spyOn(api, 'installedPlugins').mockResolvedValue([])
+    vi.spyOn(api, 'marketplaceSources').mockResolvedValue([])
+    vi.spyOn(api, 'pluginDocument').mockResolvedValue({ package: packageName, version: catalogPlugin.version, sourceId: 'acme', origin: 'marketplace', manifest: installedPlugin.manifest, document: { status: 'missing' } })
+
+    const wrapper = await mountMarketplace()
+    await flushPromises()
+    expect(wrapper.find('[data-testid="plugin-icon"]').exists()).toBe(false)
+    await wrapper.get('.plugin-summary-link').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('.plugin-detail-icon img').attributes('src')).toBe(api.pluginIconUrl('acme', packageName, catalogPlugin.version))
   })
 
   it('shows one compact catalog row per plugin and keeps permissions in details', async () => {
@@ -153,6 +211,46 @@ describe('marketplace dialog', () => {
     await flushPromises()
     expect(wrapper.get('[data-testid="plugin-detail"]').text()).toContain('remote-write')
     expect(wrapper.get('[data-testid="plugin-detail"]').text()).toContain('Writes only after confirmation.')
+  })
+
+  it.each(['marketplace', 'local'] as const)('does not offer a downgrade as an upgrade for a newer %s plugin', async (origin) => {
+    const active = origin === 'local'
+      ? { ...installedPlugin, version: '0.1.1', sourceId: 'local' as const, origin, linkedAt: '2026-09-01T00:00:00.000Z' }
+      : { ...installedPlugin, version: '0.1.1' }
+    vi.spyOn(api, 'marketplaceCatalog').mockResolvedValue([catalogPlugin])
+    vi.spyOn(api, 'installedPlugins').mockResolvedValue([active])
+    vi.spyOn(api, 'marketplaceSources').mockResolvedValue([])
+    vi.spyOn(api, 'pluginDocument').mockResolvedValue({ package: packageName, version: '0.1.0', sourceId: 'acme', origin: 'marketplace', manifest: installedPlugin.manifest, document: { status: 'missing' } })
+    const install = vi.spyOn(api, 'previewPluginInstall')
+    const wrapper = await mountMarketplace()
+    await flushPromises()
+    const row = wrapper.get('.plugin-row')
+    expect(row.find('.plugin-version-update').exists()).toBe(false)
+    expect(row.findAll('button').some(button => button.text() === 'Update')).toBe(false)
+    expect(row.text()).toContain(origin === 'local' ? 'View local plugin' : 'Newer version installed')
+    await wrapper.get('.plugin-summary-link').trigger('click')
+    await flushPromises()
+    const detail = wrapper.get('[data-testid="plugin-detail"]')
+    expect(detail.text()).toContain(origin === 'local' ? 'View local plugin' : 'Newer version installed')
+    if (origin === 'local') {
+      await detail.findAll('button').find(button => button.text() === 'View local plugin')!.trigger('click')
+      await flushPromises()
+      expect(wrapper.vm.$route).toMatchObject({ params: { sourceId: 'local', packageName }, query: expect.objectContaining({ version: '0.1.1' }) })
+    }
+    expect(install).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('distinguishes changing sources from updating the same installed version', async () => {
+    vi.spyOn(api, 'marketplaceCatalog').mockResolvedValue([catalogPlugin])
+    vi.spyOn(api, 'installedPlugins').mockResolvedValue([{ ...installedPlugin, sourceId: 'other-source' }])
+    vi.spyOn(api, 'marketplaceSources').mockResolvedValue([])
+    const wrapper = await mountMarketplace()
+    await flushPromises()
+    const button = wrapper.get('.plugin-row > .ui-button')
+    expect(button.text()).toBe('Install from this source')
+    expect(button.attributes('disabled')).toBeUndefined()
+    wrapper.unmount()
   })
 
   it('groups extension-pack members by default while keeping them searchable', async () => {
@@ -246,6 +344,7 @@ describe('marketplace dialog', () => {
     expect(packRow.get('.plugin-pack-contents').text()).toContain('Acme Child')
     expect(packRow.get('.plugin-pack-contents').text()).toContain('1.2.0')
     expect(packRow.get('.plugin-pack-contents').text()).toContain('Enabled')
+    expect(packRow.get('.plugin-pack-item-icon img').attributes('src')).toBe(api.pluginIconUrl('acme', childPackage, child.version))
 
     await packRow.get('.plugin-pack-item').trigger('click')
     await flushPromises()

@@ -10,6 +10,13 @@ export default defineConfig({
         'display': 'inline-block',
         'vertical-align': 'middle',
       },
+      // @iconify-json/* 的新入口只提供具名导出（icons/info/metadata/chars），不再有 default，
+      // presetIcons 的默认加载器因此取不到图标数据并静默产出空 CSS，这里显式声明用到的集合。
+      collections: {
+        'lucide': () => import('@iconify-json/lucide').then(collection => collection.icons),
+        'ri': () => import('@iconify-json/ri').then(collection => collection.icons),
+        'svg-spinners': () => import('@iconify-json/svg-spinners').then(collection => collection.icons),
+      },
     }),
   ],
   safelist: [

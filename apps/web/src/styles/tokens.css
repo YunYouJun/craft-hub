@@ -61,6 +61,23 @@
   --space-4: 16px;
   --space-5: 20px;
   --space-6: 24px;
+  /*
+   * Integration blocks share one card, disclosure and status language across every provider.
+   * These alias the semantic tokens above, so the dark theme follows without a second definition.
+   */
+  --integration-card-radius: var(--control-radius);
+  --integration-card-border: var(--border);
+  --integration-card-background: var(--surface);
+  --integration-row-padding-block: 10px;
+  --integration-row-padding-inline: var(--space-3);
+  --integration-row-gap: var(--space-3);
+  --integration-disclosure-radius: var(--control-radius);
+  --integration-disclosure-background: var(--surface-muted);
+  --integration-status-radius: var(--status-badge-radius);
+  --integration-status-tint: 9%;
+  --integration-status-connected: var(--success);
+  --integration-status-neutral: var(--muted);
+  --integration-status-attention: var(--danger);
   /* Page geometry shared by every primary workbench view. */
   --page-content-max-width: 1180px;
   --page-padding-inline: 20px;
@@ -79,14 +96,31 @@
   --page-header-min-height: 44px;
   --page-toolbar-height: 32px;
   --page-section-title-size: var(--font-size-subheading);
-  --workbench-sidebar-width: 196px;
+  /* Primary sidebar excludes the activity rail. App sizing reads these same tokens. */
+  --workbench-activity-width: 44px;
+  --workbench-sidebar-width: 236px;
+  --workbench-sidebar-min-width: 208px;
+  --workbench-sidebar-max-width: 346px;
   --workbench-sidebar-background: var(--surface-muted);
   --workbench-sidebar-border: var(--border);
+  --workbench-sidebar-color: var(--text);
+  --workbench-sidebar-header-height: 40px;
+  --workbench-sidebar-padding-inline: 12px;
+  --workbench-sidebar-item-inset: 4px;
+  --workbench-sidebar-item-padding: 8px;
+  --workbench-sidebar-action-size: 26px;
+  --workbench-sidebar-font-weight: 400;
+  --workbench-sidebar-active-weight: 500;
+  --workbench-sidebar-heading-weight: 600;
+  --workbench-sidebar-active-background: var(--accent-soft);
+  --workbench-sidebar-active-color: var(--accent);
+  --workbench-sidebar-selection-width: 2px;
+  --workbench-sidebar-selection-inset: 5px;
   --workbench-sidebar-group-gap: 12px;
   --workbench-sidebar-row-height: 30px;
-  --workbench-sidebar-font-size: var(--font-size-body);
-  --workbench-sidebar-heading-size: var(--font-size-control);
-  --workbench-sidebar-icon-size: 15px;
+  --workbench-sidebar-font-size: var(--font-size-emphasis);
+  --workbench-sidebar-heading-size: var(--font-size-body);
+  --workbench-sidebar-icon-size: 16px;
   --workbench-sidebar-item-radius: 3px;
   --accent: #1463df;
   --accent-hover: #0f55c4;

@@ -10,9 +10,10 @@ import IntegrationWorkbench from './IntegrationWorkbench.vue'
 import NavigationPanelCollection from './NavigationPanelCollection.vue'
 import { useWorkbenchStore } from './store'
 import VisualIcon from './VisualIcon.vue'
+import WorkbenchPageShell from './WorkbenchPageShell.vue'
 import WorkbenchViewFrame from './WorkbenchViewFrame.vue'
 
-const props = withDefaults(defineProps<{ pluginId: string, refreshKey?: number, workbenchId: string }>(), { refreshKey: 0 })
+const props = withDefaults(defineProps<{ breadcrumbs?: { label: string, to?: string }[], pluginId: string, refreshKey?: number, workbenchId: string }>(), { breadcrumbs: () => [], refreshKey: 0 })
 const emit = defineEmits<{ managePlugins: [] }>()
 const store = useWorkbenchStore()
 const { locale, t } = useI18n()
@@ -100,9 +101,13 @@ onMounted(() => void loadPanels())
 </script>
 
 <template>
-  <WorkbenchViewFrame v-if="workbench" class="plugin-workbench" :title="workbench.title" :description="workbench.description" :icon="workbench.icon">
-    <template #actions><UiButton size="compact" @click="emit('managePlugins')"><Icon name="settings" />{{ t('managePluginWorkbench') }}</UiButton></template>
-    <template #sidebar>
+  <WorkbenchPageShell class="plugin-workbench" :breadcrumbs="breadcrumbs">
+    <template v-if="workbench" #sidebar>
+      <header class="plugin-workbench-sidebar-header">
+        <VisualIcon :icon="workbench.icon" fallback="plugins" monochrome />
+        <strong :title="workbench.description">{{ workbench.title }}</strong>
+        <UiButton size="icon" :title="t('managePluginWorkbench')" :aria-label="t('managePluginWorkbench')" @click="emit('managePlugins')"><Icon name="settings" /></UiButton>
+      </header>
       <nav class="plugin-workbench-sidebar" role="tablist" :aria-label="workbench.title" :aria-orientation="compactNavigation ? 'horizontal' : 'vertical'" @keydown="moveSelection">
         <div v-for="group in groups" :key="group.title" class="plugin-workbench-group" role="presentation">
         <h2 v-if="group.title" role="presentation">{{ group.title }}</h2>
@@ -111,6 +116,7 @@ onMounted(() => void loadPanels())
           :key="member.key"
           type="button"
           role="tab"
+          :title="member.title"
           :id="`${navigationId}-${members.indexOf(member)}`"
           :aria-controls="`${navigationId}-panel`"
           :tabindex="activeMember?.key === member.key ? 0 : -1"
@@ -126,6 +132,7 @@ onMounted(() => void loadPanels())
       </nav>
     </template>
 
+    <WorkbenchViewFrame v-if="workbench" :title="activeMember?.title ?? workbench.title" :icon="activeMember?.icon ?? workbench.icon">
       <section :id="`${navigationId}-panel`" class="plugin-workbench-content" role="tabpanel" :aria-labelledby="`${navigationId}-${members.indexOf(activeMember!)}`" tabindex="0">
         <IntegrationWorkbench
           v-if="activeMember?.reference.type === 'integration' && activeMember.available"
@@ -145,7 +152,7 @@ onMounted(() => void loadPanels())
           <UiButton size="compact" @click="emit('managePlugins')">{{ t('managePluginWorkbench') }}</UiButton>
         </div>
       </section>
-  </WorkbenchViewFrame>
+    </WorkbenchViewFrame>
 
     <section v-else class="plugin-workbench-state">
       <Icon name="plugins" />
@@ -153,17 +160,24 @@ onMounted(() => void loadPanels())
       <p>{{ t('pluginWorkbenchUnavailableDescription') }}</p>
       <UiButton size="compact" @click="emit('managePlugins')">{{ t('managePluginWorkbench') }}</UiButton>
     </section>
+  </WorkbenchPageShell>
 </template>
 
 <style scoped>
-.plugin-workbench-sidebar { display: grid; gap: var(--workbench-sidebar-group-gap); padding: var(--space-3) 0; }
+.plugin-workbench-sidebar-header { display: flex; flex: none; min-height: var(--workbench-sidebar-header-height); align-items: center; gap: var(--space-2); padding: var(--space-2) var(--workbench-sidebar-padding-inline); }
+.plugin-workbench-sidebar-header > .visual-icon { width: var(--workbench-sidebar-icon-size); height: var(--workbench-sidebar-icon-size); flex: none; }
+.plugin-workbench-sidebar-header strong { flex: 1; min-width: 0; color: var(--workbench-sidebar-color); font-size: var(--workbench-sidebar-font-size); font-weight: var(--workbench-sidebar-heading-weight); overflow-wrap: anywhere; }
+.plugin-workbench-sidebar-header .ui-button { flex: none; width: var(--workbench-sidebar-action-size); height: var(--workbench-sidebar-action-size); min-height: var(--workbench-sidebar-action-size); padding: 4px; border: 0; background: transparent; }
+.plugin-workbench-sidebar-header .app-icon { width: var(--workbench-sidebar-icon-size); height: var(--workbench-sidebar-icon-size); }
+.plugin-workbench-sidebar { display: grid; align-content: start; gap: var(--workbench-sidebar-group-gap); min-height: 0; overflow-y: auto; scrollbar-width: thin; padding: 0 0 var(--space-3); }
 .plugin-workbench-group { display: grid; gap: 2px; min-width: 0; }
-.plugin-workbench-group h2 { margin: 0; padding: var(--space-2) var(--space-4); color: var(--text-secondary); font-size: var(--workbench-sidebar-heading-size); font-weight: 600; }
-.plugin-workbench-sidebar button { position: relative; display: flex; min-height: var(--workbench-sidebar-row-height); align-items: center; gap: var(--space-2); margin: 0 var(--space-1); padding: var(--space-1) var(--space-3); border: 0; border-radius: var(--workbench-sidebar-item-radius); color: var(--text-secondary); background: transparent; text-align: start; font-size: var(--workbench-sidebar-font-size); font-weight: 400; cursor: pointer; white-space: nowrap; }
+.plugin-workbench-group h2 { margin: 0; padding: var(--space-2) var(--workbench-sidebar-padding-inline); color: var(--workbench-sidebar-color); font-size: var(--workbench-sidebar-heading-size); font-weight: var(--workbench-sidebar-heading-weight); }
+.plugin-workbench-sidebar button { position: relative; display: flex; min-height: var(--workbench-sidebar-row-height); align-items: center; gap: var(--space-2); min-width: 0; margin: 0 var(--workbench-sidebar-item-inset); padding: var(--space-1) var(--workbench-sidebar-item-padding); border: 0; border-radius: var(--workbench-sidebar-item-radius); color: var(--workbench-sidebar-color); background: transparent; text-align: start; font-size: var(--workbench-sidebar-font-size); font-weight: var(--workbench-sidebar-font-weight); cursor: pointer; white-space: nowrap; }
+.plugin-workbench-sidebar button > span:not(.visual-icon):not(.app-icon) { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .plugin-workbench-sidebar button:hover { color: var(--text); background: var(--surface-hover); }
 .plugin-workbench-sidebar button:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
-.plugin-workbench-sidebar button.active { color: var(--accent); background: var(--accent-soft); font-weight: 500; }
-.plugin-workbench-sidebar button.active::before { position: absolute; inset: 5px auto 5px 0; width: 2px; border-radius: 1px; background: var(--accent); content: ''; }
+.plugin-workbench-sidebar button.active { color: var(--workbench-sidebar-active-color); background: var(--workbench-sidebar-active-background); font-weight: var(--workbench-sidebar-active-weight); }
+.plugin-workbench-sidebar button.active::before { position: absolute; inset: var(--workbench-sidebar-selection-inset) auto var(--workbench-sidebar-selection-inset) 0; width: var(--workbench-sidebar-selection-width); border-radius: 1px; background: var(--workbench-sidebar-active-color); content: ''; }
 .plugin-workbench-sidebar button.unavailable { opacity: .72; }
 .plugin-workbench-sidebar :deep(.visual-icon), .plugin-workbench-sidebar .app-icon { width: var(--workbench-sidebar-icon-size); height: var(--workbench-sidebar-icon-size); flex: none; }
 .plugin-workbench-sidebar button > .app-icon { color: var(--danger); }
@@ -180,6 +194,6 @@ onMounted(() => void loadPanels())
   .plugin-workbench-group { display: flex; flex: none; }
   .plugin-workbench-group + .plugin-workbench-group { border-left: 1px solid var(--workbench-sidebar-border); padding-left: var(--space-2); }
   .plugin-workbench-group h2 { display: none; }
-  .plugin-workbench-sidebar button { min-height: 40px; margin: 0; }
+  .plugin-workbench-sidebar button { flex: none; min-height: 40px; margin: 0; }
 }
 </style>

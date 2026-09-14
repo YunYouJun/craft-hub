@@ -1,4 +1,5 @@
-import { mkdtemp, rm } from 'node:fs/promises'
+import { Buffer } from 'node:buffer'
+import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -19,6 +20,66 @@ const project = { config: { plugins: { [id]: { enabled: true } } }, layers: [lay
 const inventory = { marketplaces: [{ name: 'official', plugins: [{ id, name: 'Build iOS', installed: true, enabled: true, localVersion: '1.0.0', version: '2.0.0' }] }] }
 
 describe('codex configuration inspector', () => {
+  it('reads bounded local artwork and keeps only display-safe metadata in cached rows', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'codex-icon-test-'))
+    directories.push(root)
+    const assets = join(root, 'assets')
+    await mkdir(assets)
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/></svg>'
+    await writeFile(join(assets, 'icon.svg'), svg)
+    const read = vi.fn(async (method: string) => method === 'config/read'
+      ? global
+      : { marketplaces: [{ name: 'official', plugins: [{
+          ...inventory.marketplaces[0]!.plugins[0],
+          source: { type: 'local', path: root },
+          interface: { displayName: 'Build iOS', logo: join(assets, 'missing.png'), composerIcon: './assets/icon.svg', privateValue: 'do-not-expose' },
+        }] }] })
+    const plugin = createCodexConfigurationPlugin(async () => ({ read, close: vi.fn() }))
+    const list = plugin.integrationProviders![0]!.configuration!.list
+    const row = (await list({})).items[0]!
+    expect(row.icon).toBe(`data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`)
+    expect((await list({})).items[0]!.icon).toBe(row.icon)
+    expect(read.mock.calls.filter(call => call[0] === 'plugin/installed')).toHaveLength(1)
+    expect(JSON.stringify(row)).not.toContain(root)
+    expect(JSON.stringify(row)).not.toContain('do-not-expose')
+  })
+
+  it('rejects icons outside the package, symlink escapes, oversized files, and unsafe remote URLs', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'codex-icon-test-'))
+    directories.push(root)
+    const packageRoot = join(root, 'plugin')
+    await mkdir(packageRoot)
+    await writeFile(join(root, 'private.svg'), 'private-value')
+    await symlink(join(root, 'private.svg'), join(packageRoot, 'linked.svg'))
+    await writeFile(join(packageRoot, 'large.png'), 'x'.repeat(128_001))
+    const candidates = ['../private.svg', join(root, 'private.svg'), './linked.svg', './large.png', './missing.svg']
+    for (const logo of candidates) {
+      const read = vi.fn(async (method: string) => method === 'config/read'
+        ? global
+        : { marketplaces: [{ name: 'official', plugins: [{
+            ...inventory.marketplaces[0]!.plugins[0],
+            source: { type: 'local', path: packageRoot },
+            interface: { logo, logoUrl: 'https://user:secret@example.com/icon.svg', composerIconUrl: 'file:///private.svg' },
+          }] }] })
+      const plugin = createCodexConfigurationPlugin(async () => ({ read, close: vi.fn() }))
+      expect((await plugin.integrationProviders![0]!.configuration!.list({})).items[0]!.icon).toBeUndefined()
+    }
+  })
+
+  it('uses HTTPS artwork when local icons are unavailable and never exposes config-only artwork', async () => {
+    const read = vi.fn(async (method: string) => method === 'config/read'
+      ? global
+      : { marketplaces: [{ name: 'official', plugins: [{
+          ...inventory.marketplaces[0]!.plugins[0],
+          interface: { logoUrl: 'https://example.com/icon.svg' },
+        }, { id: 'hidden@official', installed: false, interface: { logoUrl: 'https://example.com/hidden.svg' } }] }] })
+    const plugin = createCodexConfigurationPlugin(async () => ({ read, close: vi.fn() }))
+    const page = await plugin.integrationProviders![0]!.configuration!.list({})
+    expect(page.items).toHaveLength(1)
+    expect(page.items[0]!.icon).toBe('https://example.com/icon.svg')
+    expect(configurationRows(global, project, { marketplaces: [] }).items[0]!.icon).toBeUndefined()
+  })
+
   it('does not allow unrelated operations to claim the local configuration read effect', () => {
     const plugin = createCodexConfigurationPlugin()
     const contribution = plugin.integrations![0]!

@@ -108,8 +108,8 @@ export async function readPackageDocumentAsset(packageRoot: string, packageRelat
   return { content: await readFile(canonicalPath), contentType }
 }
 
-/** Read a package icon as an isolated image URL; never inject SVG markup into the host DOM. */
-export async function readPackageIconDataUrl(packageRoot: string, packageRelativePath: string): Promise<string | undefined> {
+/** Read one bounded SVG or raster icon contained inside a package root. */
+export async function readPackageIconAsset(packageRoot: string, packageRelativePath: string): Promise<{ content: Buffer, contentType: string } | undefined> {
   try {
     const contentType = extname(packageRelativePath).toLowerCase() === '.svg' ? 'image/svg+xml' : assetTypes[extname(packageRelativePath).toLowerCase()]
     if (!contentType || isAbsolute(packageRelativePath))
@@ -124,11 +124,17 @@ export async function readPackageIconDataUrl(packageRoot: string, packageRelativ
     const metadata = await stat(path)
     if (!metadata.isFile() || metadata.size > 128_000)
       return undefined
-    return `data:${contentType};base64,${(await readFile(path)).toString('base64')}`
+    return { content: await readFile(path), contentType }
   }
   catch {
     return undefined
   }
+}
+
+/** Read a package icon as an isolated image URL; never inject SVG markup into the host DOM. */
+export async function readPackageIconDataUrl(packageRoot: string, packageRelativePath: string): Promise<string | undefined> {
+  const asset = await readPackageIconAsset(packageRoot, packageRelativePath)
+  return asset ? `data:${asset.contentType};base64,${asset.content.toString('base64')}` : undefined
 }
 
 /** Resolve and read one bounded UTF-8 README without exposing arbitrary filesystem access. */

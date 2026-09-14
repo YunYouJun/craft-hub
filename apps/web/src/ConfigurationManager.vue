@@ -2,6 +2,8 @@
 import type { ConfigurationManagementPage, ResolvedIntegrationContribution } from 'craft-hub'
 import { computed, reactive, ref, watch } from 'vue'
 import { api } from './api'
+import FilePreview from './FilePreview.vue'
+import FileDiffPreview from './FileDiffPreview.vue'
 import { TabsContent, TabsList, TabsRoot, TabsTrigger } from 'reka-ui'
 import { Badge } from './components/ui/badge'
 import { Alert } from './components/ui/alert'
@@ -139,11 +141,16 @@ async function invoke(operation: string, input: Record<string, unknown> = {}) {
               </Field>
             </FieldGroup>
             <p v-if="item.fields.length" class="configuration-note">{{ copy('Changed fields', '变化字段') }}: {{ item.fields.join(', ') }}</p>
-            <div class="configuration-comparison">
-              <section><h4><Icon name="terminal" />{{ copy('Local file', '本机文件') }}</h4><code>{{ item.localPath }}</code><pre>{{ item.local || copy('File absent', '文件不存在') }}</pre></section>
-              <section><h4><Icon name="gitRepository" />{{ copy('Repository source', '仓库源文件') }}</h4><code>{{ item.sourcePath ?? copy('No connected source', '未连接配置源') }}</code><pre>{{ item.source || copy('File absent', '文件不存在') }}</pre></section>
+            <FileDiffPreview v-if="item.local && item.source"
+              :before="item.local" :after="item.source"
+              :before-path="item.localPath" :after-path="item.sourcePath"
+              :before-label="copy('Local file', '本机文件')" :after-label="copy('Repository source', '仓库源文件')"
+            />
+            <div v-else class="configuration-comparison">
+              <section><h4><Icon name="terminal" />{{ copy('Local file', '本机文件') }}</h4><code>{{ item.localPath }}</code><FilePreview v-if="item.local" :content="item.local" :path="item.localPath" /><pre v-else>{{ copy('File absent', '文件不存在') }}</pre></section>
+              <section><h4><Icon name="gitRepository" />{{ copy('Repository source', '仓库源文件') }}</h4><code>{{ item.sourcePath ?? copy('No connected source', '未连接配置源') }}</code><FilePreview v-if="item.source" :content="item.source" :path="item.sourcePath" /><pre v-else>{{ copy('File absent', '文件不存在') }}</pre></section>
             </div>
-            <p class="configuration-note">{{ copy('Sensitive values and prose are withheld. Field names and change positions remain visible.', '敏感值和正文已隐藏，保留字段名称与变化位置。') }}</p>
+            <p class="configuration-note">{{ copy('Recognizable credentials are hidden. Line numbers refer to the preview; structured fragments may differ from the original file.', '可识别的凭据已隐藏。行号对应预览内容，结构化片段可能与原文件位置不同。') }}</p>
           </section>
           <p v-else class="configuration-empty">{{ copy('Select an item to review its difference and ownership.', '选择配置项，查看差异和管理归属。') }}</p>
         </div>
@@ -195,7 +202,7 @@ async function invoke(operation: string, input: Record<string, unknown> = {}) {
         <article v-for="change in page.preview.changes" :key="change.path">
           <Badge :variant="change.deletion ? 'danger' : 'secondary'">{{ label(change.direction) }}</Badge><code>{{ change.path }}</code>
           <Alert v-if="change.deletion" variant="danger">{{ copy('This file will be deleted; a backup is retained for recovery.', '此文件将被删除，并保留备份用于恢复。') }}</Alert>
-          <details><summary>{{ copy('Redacted before / after', '脱敏前后对比') }}</summary><pre>{{ change.before }}</pre><pre>{{ change.after }}</pre></details>
+          <details><summary>{{ copy('Redacted before / after', '脱敏前后对比') }}</summary><FileDiffPreview :before="change.before" :after="change.after" :before-path="change.path" :after-path="change.path" :before-label="copy('Before', '修改前')" :after-label="copy('After', '修改后')" /></details>
         </article>
         <p v-if="!page.preview.changes.length">{{ copy('No file changes; record the reviewed baseline.', '无需修改文件，仅记录已审阅基线。') }}</p>
       </section>

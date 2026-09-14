@@ -3,7 +3,7 @@ import type { MarketplaceTrustPolicy } from '../src/marketplace-trust'
 import { Buffer } from 'node:buffer'
 import { spawnSync } from 'node:child_process'
 import { generateKeyPairSync, sign } from 'node:crypto'
-import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rename, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import process from 'node:process'
@@ -142,7 +142,7 @@ async function writeLocalPlugin(packagePath: string, version: string, displayNam
 
 describe('plugin marketplace contracts', () => {
   it('previews and caches exact-version plugin documents without installing the plugin', async () => {
-    const installer = new FixtureInstaller()
+    const installer = new FixtureInstaller({ ...manifest, icon: 'docs/preview.png' })
     const manager = new PluginManager(await mkdtemp(join(tmpdir(), 'craft-hub-marketplace-document-')), [source()], installer)
 
     await expect(manager.pluginDocument({ sourceId: 'test', package: packageName, version: '1.0.0' })).resolves.toMatchObject({
@@ -154,6 +154,7 @@ describe('plugin marketplace contracts', () => {
       document: { status: 'found', path: 'docs/guide.md', content: '# Guide' },
     })
     await expect(manager.pluginDocumentAsset({ sourceId: 'test', package: packageName, version: '1.0.0', path: 'docs/preview.png' })).resolves.toMatchObject({ contentType: 'image/png' })
+    await expect(manager.pluginIcon({ sourceId: 'test', package: packageName, version: '1.0.0' })).resolves.toMatchObject({ contentType: 'image/png', content: Buffer.from([137, 80, 78, 71]) })
     await expect(manager.listInstalled()).resolves.toEqual([])
     expect(installer.installs).toEqual([packageName])
   })
@@ -599,6 +600,49 @@ describe('plugin marketplace contracts', () => {
     ])
   })
 
+  it('restores the marketplace version when a linked plugin directory disappears', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'craft-hub-missing-local-plugin-'))
+    const dataDir = join(root, 'data')
+    const localPath = join(root, 'local-plugin')
+    await writeLocalPlugin(localPath, '2.0.0', 'Local hello')
+    const manager = new PluginManager(dataDir, [source()], new FixtureInstaller())
+    await manager.install({ sourceId: 'test', package: packageName })
+    await manager.linkLocal(localPath)
+
+    await rename(localPath, join(root, 'moved-local-plugin'))
+
+    await expect(manager.listInstalled()).resolves.toEqual([
+      expect.objectContaining({ package: packageName, version: '1.0.0', sourceId: 'test' }),
+    ])
+    expect(JSON.parse(await readFile(join(dataDir, 'plugins.json'), 'utf8')).linked).toEqual([])
+  })
+
+  it('forgets a linked plugin when its directory disappears without a marketplace fallback', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'craft-hub-missing-local-only-plugin-'))
+    const dataDir = join(root, 'data')
+    const localPath = join(root, 'local-plugin')
+    await writeLocalPlugin(localPath, '2.0.0', 'Local hello')
+    const manager = new PluginManager(dataDir)
+    await manager.linkLocal(localPath)
+
+    await rename(localPath, join(root, 'moved-local-plugin'))
+
+    await expect(manager.listInstalled()).resolves.toEqual([])
+    expect(JSON.parse(await readFile(join(dataDir, 'plugins.json'), 'utf8')).linked).toEqual([])
+  })
+
+  it('rejects marketplace installs hidden by a local link before downloading packages', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'craft-hub-local-install-'))
+    const installer = new FixtureInstaller()
+    const manager = new PluginManager(join(root, 'data'), [source()], installer)
+    const localPath = join(root, 'local-plugin')
+    await writeLocalPlugin(localPath, '2.0.0', 'Local hello')
+    await manager.linkLocal(localPath)
+    await expect(manager.install({ sourceId: 'test', package: packageName })).rejects.toThrow(/linked locally/)
+    expect(installer.installs).toEqual([])
+    await expect(manager.listInstalled()).resolves.toEqual([expect.objectContaining({ origin: 'local', version: '2.0.0' })])
+  })
+
   it('keeps a broken linked plugin visible but inactive until its local manifest is repaired', async () => {
     const root = await mkdtemp(join(tmpdir(), 'craft-hub-local-plugin-error-'))
     const localPath = join(root, 'local-plugin')
@@ -616,6 +660,22 @@ describe('plugin marketplace contracts', () => {
     const repaired = await manager.refreshLocal(packageName)
     expect(repaired).toMatchObject({ version: '2.0.1' })
     expect(repaired.error).toBeUndefined()
+  })
+
+  it('excludes locally overridden plugins from bulk marketplace updates', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'craft-hub-local-update-'))
+    const updateSource = source()
+    updateSource.catalog!.plugins.push({ ...updateSource.catalog!.plugins[0]!, version: '3.0.0' })
+    const installer = new FixtureInstaller()
+    const manager = new PluginManager(join(root, 'data'), [updateSource], installer)
+    await manager.install({ sourceId: 'test', package: packageName, version: '1.0.0' })
+    const localPath = join(root, 'local-plugin')
+    await writeLocalPlugin(localPath, '2.0.0', 'Local hello')
+    await manager.linkLocal(localPath)
+    await expect(manager.planUpdates()).resolves.toEqual([])
+    await expect(manager.updateAll()).resolves.toEqual({ updated: [], skipped: [], failures: [] })
+    expect(installer.installs).toEqual([packageName])
+    await expect(manager.listInstalled()).resolves.toEqual([expect.objectContaining({ origin: 'local', version: '2.0.0' })])
   })
 
   it('migrates persisted plugin manifest defaults before resolving command presets', async () => {

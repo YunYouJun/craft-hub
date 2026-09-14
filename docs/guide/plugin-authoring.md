@@ -142,3 +142,11 @@ This protocol requires a matching local source build until released. Do not publ
 Workbench view references accept an optional localized `group` (a string or `{ default, "zh-CN" }` object). The host resolves group copy and displays the ordered views in a grouped sidebar, with compact horizontal navigation on narrow screens. References still point to the original integration or navigation view; grouping adds no new execution capability.
 
 Entity list and search blocks can declare `statusFilter: "active"` or `"all"`. Filtering applies to loaded results, can be combined with text search, and never changes remote data. Providers may return `statusLabel` and `statusCategory` alongside the native `status` code. Categories are `open`, `active`, `resolved`, `done`, `closed`, `cancelled`, and `unknown`. The active filter excludes the four terminal categories; missing or unknown categories remain visible. Always preserve the native code for transitions, and return the original `url` for source navigation.
+
+## Installing local host extensions
+
+The desktop Marketplace includes a **Host extensions** tab. Add the author's `distribution.json`, review its executable modules, and choose **Trust and add**. Restart once to apply the change. The ordinary Craft Hub application then loads the saved extension on every startup, including launches from Finder or the Dock. No launcher or environment variable is required. Application branding, update configuration and project trust are unchanged.
+
+When linking or enabling a local Marketplace plugin with integration declarations, the desktop also looks for a containing `distribution.json` and offers the same installation flow. Discovery and review do not execute code. Browser clients cannot install executable host modules.
+
+Registrations live in `host-extensions.json` inside the operating-system Craft Hub data directory. They snapshot the approved module paths; editing the original manifest cannot silently add modules. Keep the linked extension and its dependencies at a stable path. Add it again after moving it or changing its module list. Disable or remove an extension from the tab and restart to unload it. Removal preserves source files and Marketplace plugins; those plugins can report unavailable providers until the matching host extension is enabled again.

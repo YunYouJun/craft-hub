@@ -4,6 +4,12 @@ contextBridge.exposeInMainWorld('craftHubDesktop', {
   // Electron's sandbox exposes process as a safe, limited global.
   // eslint-disable-next-line node/prefer-global/process
   platform: process.platform,
+  hostExtensions: () => ipcRenderer.invoke('craft-hub:host-extensions'),
+  installHostExtension: () => ipcRenderer.invoke('craft-hub:install-host-extension'),
+  configureLocalPluginHost: packageName => ipcRenderer.invoke('craft-hub:configure-local-plugin-host', packageName),
+  setHostExtensionEnabled: (id, enabled) => ipcRenderer.invoke('craft-hub:set-host-extension-enabled', id, enabled),
+  removeHostExtension: id => ipcRenderer.invoke('craft-hub:remove-host-extension', id),
+  restartForHostExtensions: () => ipcRenderer.invoke('craft-hub:restart-for-host-extensions'),
   selectProjectDirectory: defaultPath => ipcRenderer.invoke('craft-hub:select-project-directory', defaultPath),
   selectProjectDirectories: defaultPath => ipcRenderer.invoke('craft-hub:select-project-directories', defaultPath),
   openProjectDirectory: projectId => ipcRenderer.invoke('craft-hub:open-project-directory', projectId),
