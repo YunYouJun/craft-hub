@@ -43,6 +43,7 @@ catalog:
   '@iconify-json/svg-spinners': ^1.2.4
   '@modelcontextprotocol/sdk': ^1.30.0
   '@openai/codex-sdk': ^0.149.1
+  '@pierre/diffs': 1.2.11
   '@shikijs/vitepress-twoslash': ^4.4.3
   '@types/canvas-confetti': ^1.9.0
   '@types/node': ^26.3.0
@@ -102,3 +103,12 @@ catalog:
   wrangler: ^4.127.1
   yaml: ^2.9.0
   zod: ^4.4.3
+
+# The vanilla diffs API does not use its React adapter.
+packageExtensions:
+  '@pierre/diffs@1.2.11':
+    peerDependenciesMeta:
+      react:
+        optional: true
+      react-dom:
+        optional: true

@@ -56,7 +56,7 @@ async function update(enabled: boolean | null): Promise<void> {
 </template>
 
 <style scoped>
-.configuration-control { display: flex; flex-direction: column; align-items: center; gap: var(--space-1); flex: 0 0 auto; min-width: 148px; font-size: var(--font-size-body); color: var(--muted); }
+.configuration-control { display: flex; flex-direction: column; align-items: flex-end; gap: var(--space-1); flex: 0 0 auto; min-width: 148px; font-size: var(--font-size-control); color: var(--muted); }
 .configuration-inheritance { display: flex; align-items: center; gap: var(--space-1); min-height: var(--control-height-compact); white-space: nowrap; }
 .configuration-help { display: inline-grid; place-items: center; flex: none; width: var(--space-6); height: var(--space-6); padding: 0; border-radius: var(--control-radius); background: transparent; color: var(--muted); }
 .configuration-help:hover { background: var(--surface-hover); color: var(--text); }

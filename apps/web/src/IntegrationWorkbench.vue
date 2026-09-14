@@ -4,6 +4,7 @@ import type { WorkbenchIntegrationView } from './store'
 import { computed, reactive, ref, watch } from 'vue'
 import { api } from './api'
 import { FormSelect } from './components/ui/select'
+import { Badge } from './components/ui/badge'
 import { Button as UiButton } from './components/ui/button'
 import Icon from './NavigationIcon.vue'
 import ConfigurationManager from './ConfigurationManager.vue'
@@ -245,10 +246,12 @@ watch(
           <p v-if="stateFor(block.id).error" class="integration-error" role="alert">{{ translate(stateFor(block.id).error) }}</p>
 
           <div v-else-if="connectionStatus(stateFor(block.id).result)" class="integration-connection" :class="{ connected: connectionStatus(stateFor(block.id).result)?.connected }">
-            <span><Icon :name="connectionStatus(stateFor(block.id).result)?.connected ? 'check' : 'error'" /></span>
-            <div>
-              <strong>{{ connectionStatus(stateFor(block.id).result)?.connected ? t('integrationConnected') : t('integrationDisconnected') }}</strong>
-              <p v-if="connectionStatus(stateFor(block.id).result)?.accountLabel">{{ connectionStatus(stateFor(block.id).result)?.accountLabel }}</p>
+            <span class="integration-connection-mark"><Icon :name="connectionStatus(stateFor(block.id).result)?.connected ? 'check' : 'link'" /></span>
+            <div class="integration-connection-body">
+              <div class="integration-connection-title">
+                <strong>{{ connectionStatus(stateFor(block.id).result)?.connected ? t('integrationConnected') : t('integrationDisconnected') }}</strong>
+                <Badge v-if="connectionStatus(stateFor(block.id).result)?.accountLabel" :variant="connectionStatus(stateFor(block.id).result)?.connected ? 'success' : 'secondary'">{{ connectionStatus(stateFor(block.id).result)?.accountLabel }}</Badge>
+              </div>
               <p v-if="connectionStatus(stateFor(block.id).result)?.message">{{ translate(connectionStatus(stateFor(block.id).result)?.message ?? '') }}</p>
             </div>
           </div>
@@ -301,41 +304,46 @@ watch(
 </template>
 
 <style scoped>
-.integration-scope { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; font-size: var(--font-size-body); color: var(--muted); }
+.integration-scope { display: flex; align-items: center; gap: var(--space-2); margin-bottom: var(--space-3); font-size: var(--font-size-body); color: var(--muted); }
 .integration-scope > span { flex: none; }
 .integration-scope :deep([data-slot='select-trigger']) { width: auto; max-width: min(280px, calc(100% - 72px)); }
-.integration-blocks { display: grid; gap: 12px; }
-.integration-block { min-width: 0; overflow: hidden; border: 1px solid var(--border); border-radius: var(--control-radius); background: var(--surface); }
-.integration-block-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 10px 12px; border-bottom: 1px solid var(--border); }
+.integration-blocks { display: grid; gap: var(--space-3); }
+.integration-block { min-width: 0; overflow: hidden; border: 1px solid var(--integration-card-border); border-radius: var(--integration-card-radius); background: var(--integration-card-background); }
+.integration-block-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-4); padding: var(--integration-row-padding-block) var(--integration-row-padding-inline); border-bottom: 1px solid var(--integration-card-border); }
 .integration-block-heading > div { min-width: 0; }
 .integration-block-heading > button { flex-shrink: 0; white-space: nowrap; }
-.integration-block-collapsible > summary { justify-content: flex-start; align-items: center; gap: 8px; border-bottom: 0; cursor: pointer; list-style: none; }
+.integration-block-collapsible > summary { justify-content: flex-start; align-items: center; gap: var(--space-2); border-bottom: 0; cursor: pointer; list-style: none; }
 .integration-block-collapsible > summary::-webkit-details-marker { display: none; }
 .integration-block-collapsible > summary:hover { background: var(--surface-muted); }
-.integration-block-collapsible > summary:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; border-radius: var(--control-radius); }
-.integration-block-collapsible[open] > summary { border-bottom: 1px solid var(--border); }
-.integration-block-chevron { width: 14px; height: 14px; color: var(--muted); }
+.integration-block-collapsible > summary:focus-visible { outline: var(--control-focus-width) solid var(--focus-ring); outline-offset: calc(-1 * var(--control-focus-width)); border-radius: var(--integration-card-radius); }
+.integration-block-collapsible[open] > summary { border-bottom: 1px solid var(--integration-card-border); }
+.integration-block-chevron { width: 14px; height: 14px; color: var(--muted); transition: transform var(--motion-duration-fast) ease; }
 .integration-block-collapsible[open] .integration-block-chevron { transform: rotate(90deg); }
 .integration-block h2 { margin: 0; font-size: var(--font-size-emphasis); font-weight: 600; }
-.integration-block-heading p { margin: 4px 0 0; color: var(--muted); font-size: 12px; }
-.integration-search { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 10px; padding: 10px 12px; border-bottom: 1px solid var(--border); }
-.integration-search > .app-icon { width: 17px; height: 17px; color: var(--muted); }
-.integration-search input { min-width: 0; border: 0; outline: 0; color: var(--text); background: transparent; font: inherit; }
-.integration-connection { display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; color: var(--danger); }
-.integration-connection.connected { color: var(--success); }
-.integration-connection div { display: grid; gap: 3px; color: var(--text); }
-.integration-connection p { margin: 0; color: var(--muted); font-size: 12px; }
-.integration-error, .integration-loading, .integration-empty-copy { margin: 0; padding: 10px 12px; color: var(--muted); font-size: 13px; }
-.integration-error { color: var(--danger); }
-.integration-loading { display: flex; align-items: center; gap: 8px; }
+.integration-block-heading p { margin: 2px 0 0; color: var(--muted); font-size: var(--font-size-body); line-height: var(--line-height-body); }
+.integration-search { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: var(--space-2); padding: var(--integration-row-padding-block) var(--integration-row-padding-inline); border-bottom: 1px solid var(--integration-card-border); }
+.integration-search > .app-icon { width: 16px; height: 16px; color: var(--muted); }
+.integration-search input { min-width: 0; border: 0; outline: 0; color: var(--text); background: transparent; font: inherit; font-size: var(--font-size-emphasis); }
+.integration-connection { display: flex; align-items: flex-start; gap: var(--integration-row-gap); padding: var(--integration-row-padding-block) var(--integration-row-padding-inline); }
+.integration-connection-mark { display: grid; place-items: center; width: 26px; height: 26px; flex: none; border-radius: var(--radius-pill); color: var(--integration-status-neutral); background: color-mix(in srgb, var(--integration-status-neutral) var(--integration-status-tint), var(--surface)); }
+.integration-connection-mark .app-icon { width: 15px; height: 15px; }
+.integration-connection.connected .integration-connection-mark { color: var(--integration-status-connected); background: color-mix(in srgb, var(--integration-status-connected) var(--integration-status-tint), var(--surface)); }
+.integration-connection-body { display: grid; min-width: 0; gap: var(--space-1); }
+.integration-connection-title { display: flex; min-width: 0; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.integration-connection-title strong { color: var(--text); font-size: var(--font-size-emphasis); font-weight: 600; }
+.integration-connection p { margin: 0; color: var(--muted); font-size: var(--font-size-body); line-height: var(--line-height-body); }
+.integration-error { display: flex; align-items: flex-start; gap: var(--space-2); margin: var(--integration-row-gap) var(--integration-row-padding-inline) var(--space-4); padding: var(--space-2) var(--integration-row-padding-inline); border: 1px solid color-mix(in srgb, var(--integration-status-attention) 32%, var(--border)); border-radius: var(--integration-card-radius); background: var(--danger-soft); color: var(--integration-status-attention); font-size: var(--font-size-body); }
+.integration-loading, .integration-empty-copy { margin: 0; padding: var(--integration-row-padding-block) var(--integration-row-padding-inline); color: var(--muted); font-size: var(--font-size-body); }
+.integration-loading { display: flex; align-items: center; gap: var(--space-2); }
 .integration-loading .app-icon { width: 15px; height: 15px; }
-.integration-diagnostics { display: flex; gap: 10px; margin-bottom: 12px; padding: 12px 14px; border: 1px solid color-mix(in srgb, var(--danger) 35%, var(--border)); border-radius: 10px; color: var(--danger); background: color-mix(in srgb, var(--danger) 6%, var(--surface)); }
+.integration-empty-copy { padding: var(--space-6) var(--integration-row-padding-inline); font-size: var(--font-size-emphasis); text-align: center; }
+.integration-diagnostics { display: flex; gap: var(--space-3); margin-bottom: var(--space-3); padding: var(--space-3) var(--space-4); border: 1px solid color-mix(in srgb, var(--integration-status-attention) 35%, var(--border)); border-radius: var(--integration-card-radius); color: var(--integration-status-attention); background: color-mix(in srgb, var(--integration-status-attention) 6%, var(--surface)); }
 .integration-diagnostics .app-icon { flex: none; width: 18px; height: 18px; }
-.integration-diagnostics p { margin: 3px 0 0; font-size: 12px; }
-.integration-empty { display: grid; min-height: 320px; place-items: center; align-content: center; gap: 8px; padding: 40px; color: var(--muted); text-align: center; }
+.integration-diagnostics p { margin: 3px 0 0; font-size: var(--font-size-body); }
+.integration-empty { display: grid; min-height: 320px; place-items: center; align-content: center; gap: var(--space-2); padding: var(--space-6); color: var(--muted); text-align: center; }
 .integration-empty .app-icon { width: 28px; height: 28px; }
 .integration-empty h1, .integration-empty h2, .integration-empty p { margin: 0; }
-.integration-empty h1, .integration-empty h2 { color: var(--text); font-size: 17px; }
+.integration-empty h1, .integration-empty h2 { color: var(--text); font-size: var(--font-size-heading-sm); }
 .integration-header > div, .integration-blocks, .integration-connection div { min-width: 0; }
 .integration-header p, .integration-connection p { overflow-wrap: anywhere; }
 @media (max-width: 760px) { .integration-search input { font-size: 16px; } }

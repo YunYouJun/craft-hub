@@ -3,10 +3,13 @@
 .workbench-view-content { width: min(var(--page-content-max-width), calc(100% - 2 * var(--page-padding-inline))); min-width: 0; margin: 0 auto; padding: var(--page-padding-block) 0 var(--page-content-bottom); }
 .workbench-view.embedded { overflow: visible; background: transparent; }
 .workbench-view.embedded > .workbench-view-content { width: 100%; padding: 0; }
-.workbench-view .ui-button { min-height: var(--control-height-compact); padding: 5px 10px; border-radius: var(--control-radius); font-size: var(--font-size-body); font-weight: 500; line-height: var(--line-height-body); box-shadow: none; }
-.workbench-view .ui-button .app-icon { width: 14px; height: 14px; }
+.workbench-view :is(.ui-button, .workbench-action-link) { min-height: var(--control-height-compact); padding: 5px 10px; border-radius: var(--control-radius); font-size: var(--font-size-body); font-weight: 500; line-height: var(--line-height-body); box-shadow: none; }
+.workbench-view :is(.ui-button, .workbench-action-link) .app-icon { width: 14px; height: 14px; }
+.workbench-view .workbench-action-link { display: inline-flex; align-items: center; justify-content: center; gap: 7px; border: 1px solid var(--border); background: var(--surface); color: var(--text); text-decoration: none; white-space: nowrap; }
+.workbench-view .workbench-action-link:hover { background: var(--surface-hover); color: var(--accent); }
+.workbench-view .workbench-action-link:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
 @media (max-width: 760px) {
-  .workbench-view .ui-button { min-height: 40px; }
+  .workbench-view :is(.ui-button, .workbench-action-link) { min-height: 40px; }
 }
 
 /* The frame owns header alignment and scrolling; pages only supply their content. */

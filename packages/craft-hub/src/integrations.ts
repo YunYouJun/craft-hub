@@ -168,6 +168,8 @@ export interface IntegrationEntity {
   /** Provider availability hint for this entity and request context; writes still require server authorization. */
   statusUpdateAvailable?: boolean
   title: string
+  /** Display icon as an isolated image URL or a host-supported semantic icon. */
+  icon?: string
   url?: string
   status?: string
   /** Archived entities are excluded from unfinished work regardless of workflow status. */

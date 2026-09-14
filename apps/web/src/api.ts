@@ -133,6 +133,7 @@ export const api = {
   }),
   pluginDocument: (sourceId: string, packageName: string, version?: string, path?: string) => request<PluginDocumentPreview>(`/api/plugins/document?${new URLSearchParams({ sourceId, package: packageName, ...(version ? { version } : {}), ...(path ? { path } : {}) })}`),
   pluginDocumentAssetUrl: (sourceId: string, packageName: string, version: string, path: string) => `/api/plugins/document-asset?${new URLSearchParams({ sourceId, package: packageName, version, path })}`,
+  pluginIconUrl: (sourceId: string, packageName: string, version: string) => `/api/plugins/icon?${new URLSearchParams({ sourceId, package: packageName, version })}`,
   linkLocalPlugin: (path: string) => request<LocalPlugin>('/api/plugins/local', { method: 'POST', body: JSON.stringify({ path }) }),
   refreshLocalPlugin: (packageName: string) => request<LocalPlugin>(`/api/plugins/local/${encodeURIComponent(packageName)}/refresh`, { method: 'POST' }),
   unlinkLocalPlugin: (packageName: string) => request<{ unlinked: true }>(`/api/plugins/local/${encodeURIComponent(packageName)}`, { method: 'DELETE' }),

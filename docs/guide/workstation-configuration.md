@@ -37,7 +37,7 @@ Review uncommitted files, unpushed commits, remote-leading counts and divergence
 
 ## Limits and recovery
 
-Literal prose and unknown values are intentionally withheld, including in text comparisons. Safe MCP command names, enable flags, timeouts, credential-free URL hosts and secret references can be shown. `!` marks a differing aligned line and `=` a matching line. Hidden content is never treated as replacement text. Use a device-local editor for detailed confidential prose review.
+Text previews preserve readable prose, comments, blank lines and formatting. Recognizable credential assignments, private keys, authentication headers and credential-bearing URLs are masked; unknown secret formats may not be detected. Structured MCP fragments retain conservative value masking. The viewer supplies line numbers and difference markers; serialized fragments can have different line positions from the original file. Display output is never used as replacement text.
 
 MCP merge uses explicit field choices. Text merge uses explicit aligned line positions; it is not a semantic or inferred three-way merge. Syntax checks cover TOML and Zsh, while generic skills and Ghostty need user review. A missing entire declared MCP fragment is a scan error; individual server/file deletion is supported. Binary, oversized, linked and special files are blocked. Automatic installer updates, backup pruning, remote history conflict resolution and upstream setup remain outside this interface.
 

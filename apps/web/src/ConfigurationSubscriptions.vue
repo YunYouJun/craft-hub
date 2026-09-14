@@ -5,6 +5,7 @@ import ConfigurationSyncStatus from './ConfigurationSyncStatus.vue'
 import WorkbenchPageShell from './WorkbenchPageShell.vue'
 import WorkbenchViewFrame from './WorkbenchViewFrame.vue'
 import { Button } from './components/ui/button'
+import { Icon } from './icons'
 import { useI18n } from './i18n'
 import { useWorkbenchStore } from './store'
 import WorkspaceSourceCatalog from './WorkspaceSourceCatalog.vue'
@@ -53,7 +54,17 @@ const sourceUrl = ref('')
 const sourceName = ref('')
 const editing = ref<Subscription>()
 const query = computed({ get: () => String(route.query.q || ''), set: value => { void router.replace({ query: { ...route.query, q: value || undefined } }) } })
-const visibleSources = computed(() => state.value?.subscriptions.filter(item => [item.name, item.repository, item.branch, item.directory].some(value => value?.toLocaleLowerCase().includes(query.value.toLocaleLowerCase()))) || [])
+const searchTerm = computed(() => query.value.trim().toLocaleLowerCase())
+const visibleSources = computed(() => state.value?.subscriptions.filter(item => [item.name, item.repository, item.branch, item.directory].some(value => value?.toLocaleLowerCase().includes(searchTerm.value))) || [])
+const sourceSearch = ref<HTMLInputElement>()
+async function clearSearch(): Promise<void> {
+  query.value = ''
+  await nextTick()
+  sourceSearch.value?.focus()
+}
+function appliedTime(value: string): string {
+  return new Date(value).toLocaleString(locale.value, { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false })
+}
 function editSource(source: Subscription): void {
   editing.value = source
   sourceName.value = source.name || source.repository
@@ -261,8 +272,8 @@ onMounted(async () => {
       </nav>
       <template v-if="state">
         <section v-if="state.canConnect !== false" class="subscription-connection">
-          <div><strong>{{ state.provider }}</strong><p>{{ state.connected ? text('已连接 · 按当前账号的仓库权限读取', 'Connected · Uses your repository permissions') : text('连接账号后即可读取有权限的配置仓库。', 'Connect your account to read configuration repositories.') }}</p></div>
-          <Button :disabled="busy" @click="connect">{{ state.connected ? text('重新连接', 'Reconnect') : text('连接账号', 'Connect account') }}</Button>
+          <div class="subscription-connection-summary"><Icon :name="state.connected ? 'check' : 'gitRepository'" :class="{ connected: state.connected }" /><strong>{{ state.provider }}</strong><span>{{ state.connected ? text('已连接 · 按账号仓库权限读取', 'Connected · Uses your repository permissions') : text('连接账号后读取配置仓库', 'Connect to read configuration repositories') }}</span></div>
+          <Button size="compact" :variant="state.connected ? 'ghost' : 'secondary'" :disabled="busy" @click="connect">{{ state.connected ? text('重新连接', 'Reconnect') : text('连接账号', 'Connect account') }}</Button>
         </section>
         <section v-if="adding || (detail && settings)" class="subscription-card">
           <h2>{{ editing ? text('编辑配置源', 'Edit source') : text('添加配置源', 'Add source') }}</h2>
@@ -289,13 +300,31 @@ onMounted(async () => {
           <p v-if="preview.removedWorkspaceIds?.length" role="status">{{ text('源中已移除：', 'Removed upstream: ') }}{{ preview.removedWorkspaceIds.join(', ') }}</p>
           <div class="subscription-actions"><Button v-if="!cachedPreview" variant="primary" :disabled="busy || (!selectedWorkspaces.length && preview.workspaces.length > 0)" @click="apply">{{ selectedId ? text('应用订阅更新', 'Apply subscription update') : text('确认订阅', 'Subscribe') }}</Button><Button :disabled="busy" @click="marketPreview ? router.push(discoverPath) : router.push(sourcePath(detailId))">{{ text('取消', 'Cancel') }}</Button></div>
         </section>
-        <section v-if="(listing && !discover) || (detail && !settings)" class="subscription-card">
-          <h2 v-if="listing">{{ text('我的配置源', 'My sources') }} · {{ state.subscriptions.length }}</h2>
-          <p v-if="!state.subscriptions.length">{{ text('还没有订阅。浏览发现源，或点击添加源输入仓库链接。', 'No subscriptions yet. Discover sources or add a repository URL.') }}</p>
-          <label v-if="listing" for="source-search">{{ text('搜索配置源', 'Search sources') }}</label><input v-if="listing" id="source-search" v-model="query" type="search">
+        <section v-if="(listing && !discover) || (detail && !settings)" class="subscription-card subscription-list" :aria-label="text('我的配置源', 'My sources')">
+          <header v-if="listing" class="subscription-list-toolbar">
+            <h2>{{ text('我的配置源', 'My sources') }}<span class="subscription-count" role="status">{{ searchTerm ? `${visibleSources.length} / ${state.subscriptions.length}` : state.subscriptions.length }}</span></h2>
+            <div class="subscription-search" role="search">
+              <Icon name="search" />
+              <input id="source-search" ref="sourceSearch" v-model="query" type="search" :aria-label="text('搜索配置源', 'Search sources')" :placeholder="text('搜索名称、仓库或分支…', 'Search name, repository or branch…')">
+              <button v-if="query" type="button" :aria-label="text('清空搜索', 'Clear search')" @click="clearSearch"><Icon name="close" /></button>
+            </div>
+          </header>
+          <div v-if="listing && !visibleSources.length" class="subscription-empty" role="status">
+            <span>{{ state.subscriptions.length ? text('没有匹配的配置源', 'No matching sources') : text('还没有订阅，可浏览发现源或添加仓库链接。', 'No subscriptions yet. Discover sources or add a repository URL.') }}</span>
+            <Button v-if="query" size="compact" variant="ghost" @click="clearSearch">{{ text('清空搜索', 'Clear search') }}</Button>
+          </div>
           <article v-for="subscription in detail ? [detail] : visibleSources" :key="subscription.id" class="subscription-item">
-            <div><RouterLink :to="{ path: sourcePath(subscription.id), query: route.query.q ? { q: route.query.q } : {} }">{{ subscription.name || subscription.repository }}</RouterLink><p v-if="subscription.name">{{ subscription.repository }}</p><p>{{ subscription.branch }} · {{ subscription.directory }}</p><small v-if="subscription.lastImportedAt">{{ text('上次应用', 'Last applied') }} {{ new Date(subscription.lastImportedAt).toLocaleString() }}</small></div>
-            <div v-if="detail" class="subscription-actions"><Button :disabled="busy" @click="editSource(subscription)">{{ text('编辑', 'Edit') }}</Button><Button :disabled="busy || !state.connected" @click="openPreview(subscription.id)">{{ text('预览订阅更新', 'Preview subscription update') }}</Button><Button v-if="!subscription.legacy && subscription.lastImportedAt" :disabled="busy" @click="openPreview(subscription.id, true)">{{ text('查看已应用快照', 'View applied snapshot') }}</Button><a :href="`/api/config-subscriptions/${subscription.id}/export`" download>{{ text('导出配置', 'Export') }}</a><Button variant="ghost" :disabled="busy" @click="unsubscribe(subscription.id)">{{ subscription.ownerScopeId ? text('退出团队', 'Leave Team') : text('删除源', 'Delete source') }}</Button></div>
+            <RouterLink class="subscription-link" :to="{ path: sourcePath(subscription.id), query: route.query.q ? { q: route.query.q } : {} }">
+              <Icon name="gitRepository" />
+              <div class="subscription-summary">
+                <div class="subscription-heading"><strong :title="subscription.name || subscription.repository">{{ subscription.name || subscription.repository }}</strong><span v-if="subscription.name && subscription.name !== subscription.repository" :title="subscription.repository">{{ subscription.repository }}</span></div>
+                <div class="subscription-meta"><span :title="subscription.branch">{{ subscription.branch }}</span><span aria-hidden="true">·</span><span :title="subscription.directory">{{ subscription.directory }}</span></div>
+              </div>
+              <time v-if="subscription.lastImportedAt" class="subscription-updated" :datetime="subscription.lastImportedAt" :title="new Date(subscription.lastImportedAt).toLocaleString()">{{ text('上次应用', 'Last applied') }} {{ appliedTime(subscription.lastImportedAt) }}</time>
+              <span v-else class="subscription-updated">{{ text('尚未应用', 'Not applied') }}</span>
+              <Icon v-if="listing" name="arrowRight" />
+            </RouterLink>
+            <div v-if="detail" class="subscription-actions"><Button :disabled="busy" @click="editSource(subscription)">{{ text('编辑', 'Edit') }}</Button><Button :disabled="busy || !state.connected" @click="openPreview(subscription.id)">{{ text('预览订阅更新', 'Preview subscription update') }}</Button><Button v-if="!subscription.legacy && subscription.lastImportedAt" :disabled="busy" @click="openPreview(subscription.id, true)">{{ text('查看已应用快照', 'View applied snapshot') }}</Button><a class="workbench-action-link" :href="`/api/config-subscriptions/${subscription.id}/export`" download><span class="app-icon i-ri-download-2-line" aria-hidden="true" />{{ text('导出配置', 'Export') }}</a><Button variant="ghost" :disabled="busy" @click="unsubscribe(subscription.id)">{{ subscription.ownerScopeId ? text('退出团队', 'Leave Team') : text('删除源', 'Delete source') }}</Button></div>
           </article>
         </section>
       </template>
@@ -305,19 +334,60 @@ onMounted(async () => {
 
 <style scoped>
 :global(body:has(.subscriptions-workbench)) { min-width: 0; }
-header, .subscription-connection, .subscription-row, .subscription-item { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+header, .subscription-connection, .subscription-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 h2 { font-size: var(--page-section-title-size); margin: 0 0 var(--space-4); }
 p, small { color: var(--muted); font-size: var(--font-size-body); line-height: 1.6; } p { margin: 6px 0; }
-.subscription-card, .subscription-connection { border: 1px solid var(--border); border-radius: var(--control-radius); background: var(--surface); padding: var(--space-4); margin-top: var(--page-section-gap); }
+.subscription-card { border: 1px solid var(--border); border-radius: var(--control-radius); background: var(--surface); padding: var(--space-4); margin-top: var(--page-section-gap); }
+.subscription-connection { flex-wrap: wrap; gap: var(--space-2); padding-block: var(--space-1); margin-bottom: var(--space-3); }
+.subscription-connection-summary { display: flex; min-width: 0; align-items: center; flex-wrap: wrap; gap: var(--space-2); font-size: var(--font-size-body); }
+.subscription-connection-summary > .app-icon { width: 14px; height: 14px; color: var(--muted); }
+.subscription-connection-summary > .connected { color: var(--success); }
+.subscription-connection-summary > span { color: var(--muted); }
 label { display: block; font-size: var(--font-size-body); margin-bottom: 8px; }
 .subscription-input-row, .subscription-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
 input[type=checkbox] { min-width: auto; width: auto; flex: none; margin-right: 6px; }
 input:not([type=checkbox]) { flex: 1; min-width: 180px; border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px; color: var(--text); background: var(--surface); }
-.subscription-item { padding: 16px 0; border-top: 1px solid var(--border); overflow-wrap: anywhere; }
+.subscription-list { padding: 0; margin-top: var(--space-3); overflow: hidden; }
+.subscription-list-toolbar { flex-wrap: wrap; gap: var(--space-2); padding: var(--space-2) var(--space-3); }
+.subscription-list-toolbar h2 { display: flex; align-items: center; gap: var(--space-2); margin: 0; font-size: var(--font-size-body); white-space: nowrap; }
+.subscription-count { color: var(--muted); font-size: var(--font-size-control); font-weight: 400; font-variant-numeric: tabular-nums; }
+.subscription-search { display: flex; align-items: center; flex: 0 1 300px; min-width: 0; gap: var(--space-2); min-height: var(--control-height-compact); padding-inline: var(--space-2); border: 1px solid var(--border); border-radius: var(--control-radius); background: var(--surface); color: var(--muted); }
+.subscription-search:focus-within { border-color: var(--focus-ring); box-shadow: 0 0 0 1px var(--focus-ring); }
+.subscription-search .app-icon { width: 14px; height: 14px; }
+.subscription-search input { width: 100%; min-width: 0; height: var(--control-height-compact); padding: 0; border: 0; border-radius: 0; outline: none; background: transparent; font-size: var(--font-size-body); }
+.subscription-search input::-webkit-search-cancel-button { appearance: none; }
+.subscription-search input::placeholder { color: var(--muted); }
+.subscription-search button { display: grid; flex: none; width: 24px; height: 24px; place-items: center; border-radius: 4px; background: transparent; color: var(--muted); }
+.subscription-search button:hover { background: var(--surface-hover); color: var(--text); }
+.subscription-search button:focus-visible { outline: 2px solid var(--focus-ring); }
+.subscription-item + .subscription-item, .subscription-list-toolbar + .subscription-item { border-top: 1px solid var(--border); }
+.subscription-link { display: flex; align-items: center; gap: var(--space-3); min-height: 68px; padding: var(--space-3); color: var(--text); text-decoration: none; }
+.subscription-link:hover { background: var(--surface-hover); }
+.subscription-link:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+.subscription-link > .app-icon { width: 16px; height: 16px; color: var(--muted); }
+.subscription-summary { display: grid; flex: 1; min-width: 0; gap: var(--space-1); }
+.subscription-heading, .subscription-meta { display: flex; min-width: 0; align-items: baseline; gap: var(--space-2); line-height: var(--line-height-body); }
+.subscription-heading strong { font-size: var(--font-size-body); font-weight: 500; }
+.subscription-heading > *, .subscription-meta > span:not([aria-hidden]) { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.subscription-heading > span { color: var(--muted); font-size: var(--font-size-control); }
+.subscription-meta { color: var(--muted); font-size: var(--font-size-control); }
+.subscription-updated { flex: none; color: var(--muted); font-size: var(--font-size-control); white-space: nowrap; }
+.subscription-item > .subscription-actions { padding: 0 var(--space-3) var(--space-3); }
+.subscription-empty { display: flex; align-items: center; justify-content: center; gap: var(--space-2); min-height: 68px; padding: var(--space-3); border-top: 1px solid var(--border); color: var(--muted); font-size: var(--font-size-body); }
 .subscription-explainer { margin: 16px 0; padding: 14px 16px; border-left: 3px solid var(--accent); border-radius: 4px; background: color-mix(in srgb, var(--accent) 5%, var(--surface)); }
 .subscription-explainer strong { font-size: var(--font-size-body); }
 .subscription-preview { padding: 12px 0; border-top: 1px solid var(--border); } .subscription-preview > span { margin-left: 12px; font-size: 12px; color: var(--muted); }
 ul { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); padding-left: 20px; gap: 6px; font-size: var(--font-size-body); overflow-wrap: anywhere; }
 a { font-size: var(--font-size-body); color: var(--accent); } .subscription-error { color: var(--danger, #c44); } .subscription-notice { color: var(--text); }
-@media (max-width: 720px) { header, .subscription-item, .subscription-connection { align-items: flex-start; flex-direction: column; } input { width: 100%; } }
+@media (max-width: 720px) {
+  input { width: 100%; }
+  .subscription-search { flex-basis: 100%; min-height: 40px; }
+  .subscription-search input { height: 40px; }
+  .subscription-search button { width: 32px; height: 32px; }
+  .subscription-link { display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; gap: var(--space-1) var(--space-2); }
+  .subscription-heading { flex-wrap: wrap; gap: 0 var(--space-2); }
+  .subscription-updated { grid-column: 2; }
+  .subscription-link > .app-icon:last-child { grid-column: 3; grid-row: 1 / 3; }
+  .subscription-empty { flex-direction: column; }
+}
 </style>

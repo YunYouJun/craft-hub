@@ -6,6 +6,9 @@ import { api } from './api'
 import { Button as UiButton } from './components/ui/button'
 import { Icon } from './icons'
 import { useI18n } from './i18n'
+import { marketplaceActionDisabled, marketplaceActionLabels, marketplacePluginAction } from './marketplace-plugin-action'
+import { pluginIconUrl } from './plugin-icon'
+import { pluginDescription, pluginDisplayName } from './plugin-text'
 import MarkdownPreview from './MarkdownPreview.vue'
 
 type CatalogItem = CatalogPluginV1 & { sourceId: string, sourceName: string, sourceKind: MarketplaceSource['kind'] }
@@ -19,7 +22,7 @@ const props = defineProps<{
   installed: ManagedPlugin[]
   parentName?: string
 }>()
-const emit = defineEmits<{ back: [], navigate: [sourceId: string, packageName: string, version: string, parentName?: string], changed: [] }>()
+const emit = defineEmits<{ back: [], navigate: [sourceId: string, packageName: string, version: string, parentName?: string], changed: [], manageHosts: [] }>()
 const { locale, t } = useI18n()
 const documentPreview = ref<PluginDocumentPreview>()
 const documentPath = ref<string>()
@@ -35,12 +38,24 @@ const catalogEntry = computed(() => props.catalog.find(item => item.sourceId ===
 const installedPlugin = computed(() => props.installed.find(item => item.package === props.packageName
   && (props.sourceId === 'local' ? item.origin === 'local' : item.sourceId === props.sourceId)
   && (!props.version || item.version === props.version)))
+const activePlugin = computed(() => props.installed.find(item => item.package === props.packageName))
+const catalogAction = computed(() => catalogEntry.value ? marketplacePluginAction(catalogEntry.value, activePlugin.value) : undefined)
 const resolvedVersion = computed(() => props.version ?? installedPlugin.value?.version ?? catalogEntry.value?.version)
 const manifest = computed<PluginManifestV1 | undefined>(() => documentPreview.value?.manifest ?? installedPlugin.value?.manifest)
+const icon = computed(() => {
+  if (catalogEntry.value?.icon)
+    return catalogEntry.value.icon
+  if (resolvedVersion.value && manifest.value?.icon)
+    return pluginIconUrl({ sourceId: props.sourceId, package: props.packageName, version: resolvedVersion.value }, manifest.value.icon)
+  const active = activePlugin.value
+  return active && (active.origin === 'local' || active.sourceId === props.sourceId) ? pluginIconUrl(active, active.manifest.icon) : undefined
+})
+const failedIcon = ref<string>()
+watch(icon, () => { failedIcon.value = undefined })
 const metadata = computed(() => catalogEntry.value ?? manifest.value)
 const localized = computed(() => metadata.value?.localizations?.[locale.value])
-const displayName = computed(() => localized.value?.displayName ?? metadata.value?.displayName ?? props.packageName)
-const description = computed(() => localized.value?.description ?? metadata.value?.description)
+const displayName = computed(() => metadata.value ? pluginDisplayName(metadata.value, locale.value) : props.packageName)
+const description = computed(() => metadata.value ? pluginDescription(metadata.value, locale.value) : undefined)
 const permissions = computed(() => catalogEntry.value?.permissions ?? manifest.value?.permissions ?? [])
 const permissionReasons = computed(() => ({ ...(metadata.value?.permissionReasons ?? {}), ...(localized.value?.permissionReasons ?? {}) }))
 const links = computed(() => metadata.value?.links)
@@ -51,6 +66,7 @@ const unavailable = computed(() => !catalogEntry.value && !installedPlugin.value
 const contributionGroups = computed(() => Object.entries(manifest.value?.contributes ?? {}).filter(([, items]) => items.length))
 
 watch(() => [props.sourceId, props.packageName, resolvedVersion.value] as const, () => {
+  documentPreview.value = undefined
   documentPath.value = undefined
   void loadDocument()
 }, { immediate: true })
@@ -97,9 +113,10 @@ function relationTarget(dependency: PluginDependencyV1): PluginTarget | undefine
 }
 
 function relationName(dependency: PluginDependencyV1): string {
-  return relationTarget(dependency)?.displayName
-    ?? props.installed.find(item => item.package === dependency.package)?.manifest.displayName
-    ?? dependency.package
+  const target = relationTarget(dependency)
+  const metadata = target && (props.catalog.find(item => item.sourceId === target.sourceId && item.package === target.package && item.version === target.version)
+    ?? props.installed.find(item => item.sourceId === target.sourceId && item.package === target.package && item.version === target.version)?.manifest)
+  return metadata ? pluginDisplayName(metadata, locale.value) : target?.displayName ?? dependency.package
 }
 
 function navigateRelation(dependency: PluginDependencyV1): void {
@@ -133,10 +150,16 @@ async function install(): Promise<void> {
   const plugin = catalogEntry.value
   if (!plugin)
     return
+  if (catalogAction.value === 'local') {
+    emit('navigate', 'local', activePlugin.value!.package, activePlugin.value!.version)
+    return
+  }
+  if (catalogAction.value && marketplaceActionDisabled(catalogAction.value))
+    return
   await operate('install', async () => {
     const plan = await api.previewPluginInstall(plugin.sourceId, plugin.package, plugin.version)
     const changes = plan.items.filter(item => item.action !== 'none')
-    const plugins = changes.map(item => `${item.displayName}@${item.version}`).join(', ') || plugin.displayName
+    const plugins = changes.map(item => `${pluginDisplayName(props.catalog.find(entry => entry.sourceId === plugin.sourceId && entry.package === item.package && entry.version === item.version) ?? item, locale.value)}@${item.version}`).join(', ') || pluginDisplayName(plugin, locale.value)
     if (!window.confirm(t('confirmPluginBundleInstall', {
       package: plugin.package,
       version: plugin.version,
@@ -151,8 +174,17 @@ async function install(): Promise<void> {
 }
 
 async function toggle(): Promise<void> {
-  if (installedPlugin.value)
-    await operate('toggle', () => api.setPluginEnabled(installedPlugin.value!.package, !installedPlugin.value!.enabled))
+  const plugin = installedPlugin.value
+  if (plugin) {
+    await operate('toggle', async () => {
+      await api.setPluginEnabled(plugin.package, !plugin.enabled)
+      if (!plugin.enabled && plugin.origin === 'local') {
+        const status = await window.craftHubDesktop?.configureLocalPluginHost?.(plugin.package)
+        if (status?.restartRequired)
+          emit('manageHosts')
+      }
+    })
+  }
 }
 
 async function rollback(): Promise<void> {
@@ -184,7 +216,7 @@ async function refreshLocal(): Promise<void> {
       </div>
       <template v-else>
         <div class="plugin-detail-identity">
-          <div class="plugin-detail-icon"><img v-if="catalogEntry?.icon" :src="catalogEntry.icon" alt="" referrerpolicy="no-referrer"><Icon v-else name="plugins" /></div>
+          <div class="plugin-detail-icon"><img v-if="icon && icon !== failedIcon" :src="icon" alt="" referrerpolicy="no-referrer" @error="failedIcon = icon"><Icon v-else name="plugins" /></div>
           <div>
             <div class="plugin-detail-title"><h1>{{ displayName }}</h1><span v-if="includesPlugins.length" class="plugin-pack-badge">{{ t('pluginPackBadge') }}</span><span v-if="installedPlugin?.origin === 'local'" class="local-plugin-badge">{{ t('localPluginBadge') }}</span></div>
             <code>{{ packageName }}@{{ resolvedVersion }}</code>
@@ -192,12 +224,13 @@ async function refreshLocal(): Promise<void> {
           </div>
         </div>
         <div class="plugin-actions">
-          <UiButton v-if="catalogEntry" variant="primary" :disabled="Boolean(busy) || installedPlugin?.version === catalogEntry.version" @click="install">{{ busy === 'install' ? t('installingPlugin') : installedPlugin ? t('updatePlugin') : t('installPlugin') }}</UiButton>
+          <UiButton v-if="catalogAction" variant="primary" :disabled="Boolean(busy) || marketplaceActionDisabled(catalogAction)" @click="install">{{ busy === 'install' ? t('installingPlugin') : t(marketplaceActionLabels[catalogAction]) }}</UiButton>
           <UiButton v-if="installedPlugin && !includesPlugins.length" :disabled="Boolean(busy)" @click="toggle">{{ t(installedPlugin.enabled ? 'disablePlugin' : 'enablePlugin') }}</UiButton>
           <UiButton v-if="installedPlugin?.origin === 'local'" :disabled="Boolean(busy)" @click="refreshLocal">{{ t('refreshLocalPlugin') }}</UiButton>
           <UiButton v-else-if="installedPlugin && !includesPlugins.length" :disabled="Boolean(busy) || !installedPlugin.previousVersion" @click="rollback">{{ t('rollbackPlugin') }}</UiButton>
           <UiButton v-if="installedPlugin" variant="danger-secondary" :disabled="Boolean(busy)" @click="remove">{{ t(installedPlugin.origin === 'local' ? 'unlinkLocalPlugin' : includesPlugins.length ? 'removePluginPack' : 'uninstallPlugin') }}</UiButton>
         </div>
+        <p v-if="catalogAction === 'local'">{{ t('localPluginOverridesMarket') }}</p>
       </template>
     </header>
 

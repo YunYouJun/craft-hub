@@ -9,6 +9,7 @@ import { useI18n } from './i18n'
 import IntegrationWorkItemDetail from './IntegrationWorkItemDetail.vue'
 import IntegrationConfigurationToggle from './IntegrationConfigurationToggle.vue'
 import IntegrationStatusTransitionControl from './IntegrationStatusTransitionControl.vue'
+import VisualIcon from './VisualIcon.vue'
 
 interface IntegrationStatusActions {
   integrationId: string
@@ -238,10 +239,10 @@ function updatedTime(item: IntegrationEntity): { date: string, time: string, raw
     </header>
 
     <p v-if="assigneeFilter && items.length && !currentUser" :id="identityHintId" class="integration-filter-hint" role="status">{{ t('integrationCurrentUserUnavailable') }}</p>
-    <p v-if="sourceError" role="alert">{{ sourceError }}</p>
+    <p v-if="sourceError" class="integration-inline-error" role="alert">{{ sourceError }}</p>
     <p v-if="!items.length" class="integration-empty-copy">{{ t('integrationNoResults') }}</p>
     <p v-else-if="!visibleItems.length" class="integration-empty-copy">{{ t('integrationNoFilteredResults') }}</p>
-    <div v-else class="integration-entities" :class="{ 'has-updated-column': showUpdatedAt, 'has-priority-column': showPriority }">
+    <div v-else class="integration-entities" :class="{ 'has-updated-column': showUpdatedAt, 'has-priority-column': showPriority, 'integration-configuration-list': configurationActionId }">
       <div v-if="showColumns" class="integration-entity-columns">
         <span class="integration-item-column">{{ t('integrationItemColumn') }}</span>
         <span v-if="showPriority" :id="priorityColumnId">{{ t('integrationPriority') }}</span>
@@ -260,12 +261,16 @@ function updatedTime(item: IntegrationEntity): { date: string, time: string, raw
           role="listitem"
         >
           <div class="integration-entity-main">
-            <div class="integration-hierarchy-control">
+            <div v-if="!configurationActionId || childCount || depth > 0" class="integration-hierarchy-control">
               <button v-if="childCount" type="button" class="integration-hierarchy-toggle" :aria-expanded="expanded" :aria-label="t(expanded ? 'integrationCollapseChildren' : 'integrationExpandChildren', { title: item.title })" @click="toggleBranch(key)">
                 <span class="app-icon" :class="expanded ? 'i-lucide-chevron-down' : 'i-lucide-chevron-right'" aria-hidden="true" />
               </button>
               <span v-else-if="depth > 0" class="integration-hierarchy-branch app-icon i-lucide-corner-down-right" aria-hidden="true" />
             </div>
+            <span v-if="item.icon || configurationActionId" class="integration-entity-icon" aria-hidden="true">
+              <VisualIcon v-if="item.icon" :icon="item.icon" fallback="package" />
+              <span v-else class="app-icon i-ri-puzzle-line" />
+            </span>
             <div class="integration-entity-content">
               <component
                 :is="selectable && !context ? 'button' : item.url ? 'a' : 'div'"
@@ -287,7 +292,7 @@ function updatedTime(item: IntegrationEntity): { date: string, time: string, raw
                   <dl v-if="!context && item.details?.length" class="integration-details">
                     <div v-for="(detail, index) in item.details" :key="index">
                       <dt>{{ detail.label }}</dt><dd>
-                        <a v-if="sourceUrl(detail.sourcePath) && !item.url" :href="sourceUrl(detail.sourcePath)" :title="t(desktopSource ? 'integrationOpenSource' : 'integrationOpenSourceVSCode')" :aria-busy="openingSource" @click.stop="openSource($event, item.id, index)">{{ detail.value }} <Icon name="externalLink" /></a>
+                        <a v-if="sourceUrl(detail.sourcePath) && !item.url" :href="sourceUrl(detail.sourcePath)" :title="`${t(desktopSource ? 'integrationOpenSource' : 'integrationOpenSourceVSCode')} · ${detail.value}`" :aria-busy="openingSource" @click.stop="openSource($event, item.id, index)">{{ detail.value }} <Icon name="externalLink" /></a>
                         <template v-else>{{ detail.value }}</template>
                       </dd>
                     </div>
@@ -346,23 +351,26 @@ function updatedTime(item: IntegrationEntity): { date: string, time: string, raw
 .integration-details dt { color: var(--muted); }
 .integration-details dd { margin: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
 .integration-entity-browser { display: grid; min-width: 0; container-type: inline-size; }
-.integration-entity-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; padding: 10px 18px; border-bottom: 1px solid var(--border); background: var(--surface-muted); }
-.integration-entity-toolbar > label { display: flex; flex: 1 1 150px; align-items: center; gap: 8px; min-width: 0; min-height: 28px; }
+.integration-entity-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2) var(--space-3); padding: var(--integration-row-padding-block) var(--integration-row-padding-inline); border-bottom: 1px solid var(--integration-card-border); background: var(--integration-disclosure-background); }
+.integration-entity-toolbar > label { display: flex; flex: 1 1 150px; align-items: center; gap: var(--space-2); min-width: 0; min-height: 28px; }
 .integration-entity-toolbar > label .app-icon { width: 15px; height: 15px; color: var(--muted); }
-.integration-entity-toolbar input { width: 100%; min-width: 0; border: 0; outline: 0; color: var(--text); background: transparent; font: inherit; font-size: 12px; }
-.integration-entity-toolbar > span { flex: none; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.integration-entity-toolbar input { width: 100%; min-width: 0; border: 0; outline: 0; color: var(--text); background: transparent; font: inherit; font-size: var(--font-size-body); }
+.integration-entity-toolbar > span { flex: none; color: var(--muted); font-size: var(--font-size-control); font-variant-numeric: tabular-nums; }
 .integration-entities { --compact-columns: minmax(0, 1fr) auto; display: grid; grid-template-columns: minmax(0, 1fr) auto auto; column-gap: 12px; }
 .integration-entities.has-priority-column { grid-template-columns: minmax(0, 1fr) 80px 100px auto; }
 .integration-entities.has-updated-column { grid-template-columns: minmax(0, 1fr) 104px 100px auto; }
 .integration-entities.has-priority-column.has-updated-column { --compact-columns: minmax(0, .7fr) minmax(0, 1fr) minmax(0, 1fr); grid-template-columns: minmax(0, 1fr) 80px 104px 100px auto; }
 .integration-entity-rows { display: contents; }
-.integration-entity-columns { display: grid; grid-column: 1 / -1; grid-template-columns: subgrid; align-items: center; gap: 12px; padding: 8px 12px; background: var(--surface-muted); color: var(--muted); font-size: var(--font-size-control); border-bottom: 1px solid var(--border-subtle, var(--border)); }
+.integration-entity-columns { display: grid; grid-column: 1 / -1; grid-template-columns: subgrid; align-items: center; gap: var(--space-3); padding: var(--space-2) var(--integration-row-padding-inline); background: var(--integration-disclosure-background); color: var(--muted); font-size: var(--font-size-control); border-bottom: 1px solid var(--border-subtle, var(--border)); }
 .integration-item-column { padding-inline-start: 28px; }
 .integration-actions-column { text-align: right; }
-.integration-entity { display: grid; grid-column: 1 / -1; grid-template-columns: subgrid; align-items: center; gap: 12px; min-width: 0; border-top: 1px solid var(--border-subtle, var(--border)); padding: 10px 12px; }
+.integration-entity { display: grid; grid-column: 1 / -1; grid-template-columns: subgrid; align-items: center; gap: var(--space-3); min-width: 0; border-top: 1px solid var(--border-subtle, var(--border)); padding: var(--integration-row-padding-block) var(--integration-row-padding-inline); }
 .integration-entity:first-child { border-top: 0; }
 .integration-entity-main { display: flex; min-width: 0; gap: 4px; padding-inline-start: calc(var(--hierarchy-depth) * 16px); }
 .integration-entity-content { display: grid; flex: 1; min-width: 0; align-content: center; gap: 4px; }
+.integration-entity-icon { display: grid; flex: 0 0 36px; place-items: center; width: 36px; height: 36px; margin-inline-end: 8px; border: 1px solid var(--border-subtle, var(--border)); border-radius: 9px; background: var(--surface-muted); color: var(--muted); overflow: hidden; }
+.integration-entity-icon :deep(.visual-icon) { display: grid; place-items: center; width: 100%; height: 100%; }
+.integration-entity-icon :deep(img) { padding: 5px; background: #fff; }
 .integration-hierarchy-control { display: flex; flex: 0 0 24px; align-items: flex-start; justify-content: center; }
 .integration-hierarchy-toggle { display: grid; place-items: center; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 4px; background: transparent; color: var(--muted); cursor: pointer; }
 .integration-hierarchy-toggle:hover { background: var(--surface-hover); color: var(--text); }
@@ -394,15 +402,34 @@ button.integration-entity-link { border: 0; background: transparent; text-align:
 .integration-updated-at time { display: grid; gap: 1px; overflow-wrap: anywhere; }
 .integration-entity-tail { display: flex; min-width: 0; align-items: center; color: var(--muted); }
 .integration-entity-actions { display: flex; align-items: center; justify-content: flex-end; gap: 6px; }
-.integration-empty-copy { margin: 0; padding: 18px; color: var(--muted); font-size: 13px; text-align: center; }
-.integration-status-filter, .integration-assignee-filter { display: flex; align-items: center; gap: 6px; flex: none; }
-.integration-status-filter label, .integration-assignee-filter label { flex: none; white-space: nowrap; color: var(--muted); font-size: 11px; }
-.integration-status-filter :deep([data-slot="select-trigger"]), .integration-assignee-filter :deep([data-slot="select-trigger"]) { width: 160px; min-height: 28px; padding: 3px 8px; font-size: 12px; }
+.integration-empty-copy { margin: 0; padding: var(--space-6) var(--integration-row-padding-inline); color: var(--muted); font-size: var(--font-size-emphasis); line-height: var(--line-height-heading-sm); text-align: center; }
+.integration-inline-error { margin: var(--integration-row-gap) var(--integration-row-padding-inline); padding: var(--space-2) var(--integration-row-padding-inline); border: 1px solid color-mix(in srgb, var(--integration-status-attention) 32%, var(--border)); border-radius: var(--integration-card-radius); background: var(--danger-soft); color: var(--integration-status-attention); font-size: var(--font-size-body); }
+.integration-status-filter, .integration-assignee-filter { display: flex; align-items: center; gap: var(--space-1); flex: none; }
+.integration-status-filter label, .integration-assignee-filter label { flex: none; white-space: nowrap; color: var(--muted); font-size: var(--font-size-control); }
+.integration-status-filter :deep([data-slot="select-trigger"]), .integration-assignee-filter :deep([data-slot="select-trigger"]) { width: 160px; min-height: 28px; padding: 3px 8px; font-size: var(--font-size-body); }
 .integration-assignee-filter :deep([data-slot="select-trigger"]) { width: 194px; }
-.integration-filter-hint { margin: 0; padding: 8px 18px; color: var(--muted); font-size: var(--font-size-control); border-bottom: 1px solid var(--border); }
+.integration-filter-hint { margin: 0; padding: var(--space-2) var(--integration-row-padding-inline); color: var(--muted); font-size: var(--font-size-control); border-bottom: 1px solid var(--integration-card-border); }
 .integration-original-link { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 5px; color: var(--muted); }
 .integration-original-link:hover { color: var(--accent); background: var(--accent-soft); }
 .integration-original-link .app-icon { width: 14px; height: 14px; }
+.integration-configuration-list { grid-template-columns: minmax(0, 1fr) auto; }
+.integration-configuration-list .integration-entity { align-items: start; gap: 16px; padding: 16px 18px; }
+.integration-configuration-list .integration-entity:hover { background: var(--surface-subtle); }
+.integration-configuration-list .integration-entity-main { gap: 4px; }
+.integration-configuration-list .integration-entity-title { min-height: 20px; }
+.integration-configuration-list .integration-entity-title strong { font-size: var(--font-size-emphasis); font-weight: 600; }
+.integration-configuration-list .integration-entity-body > small { font-size: var(--font-size-control); }
+.integration-configuration-list .integration-details { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 24px; margin-top: 10px; }
+.integration-configuration-list .integration-details > div { grid-template-columns: max-content minmax(0, 1fr); gap: 10px; align-items: baseline; }
+.integration-configuration-list .integration-details dd { min-width: 0; }
+.integration-configuration-list .integration-details a { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-decoration: none; }
+.integration-configuration-list .integration-details a:hover { text-decoration: underline; }
+.integration-configuration-list .integration-entity-tail:empty { display: none; }
+.integration-configuration-list .integration-entity-actions { grid-column: 2; grid-row: 1; }
+.integration-configuration-list .integration-entity-tail:not(:empty) { grid-column: 2; grid-row: 1; }
+@container (max-width: 900px) {
+  .integration-configuration-list .integration-details { grid-template-columns: minmax(0, 1fr); }
+}
 @media (max-width: 720px) { .integration-entity-toolbar { align-items: stretch; flex-direction: column; gap: 8px; } .integration-entity-toolbar > label { flex-basis: auto; min-height: 36px; } }
 @media (max-width: 720px) {
   .integration-status-filter :deep([data-slot="select-trigger"]), .integration-assignee-filter :deep([data-slot="select-trigger"]) { min-height: 36px; width: 100%; }
@@ -424,5 +451,9 @@ button.integration-entity-link { border: 0; background: transparent; text-align:
   .integration-hierarchy-context .integration-entity-actions { grid-column: -2 / -1; grid-row: 2; }
   .integration-hierarchy-toggle { min-height: 28px; }
   .integration-original-link { width: 32px; height: 32px; }
+  .integration-configuration-list .integration-entity { grid-template-columns: minmax(0, 1fr); gap: 12px; padding: 14px; }
+  .integration-configuration-list .integration-entity-main { grid-column: 1; }
+  .integration-configuration-list .integration-entity-actions, .integration-configuration-list .integration-entity-tail:not(:empty) { grid-column: 1; grid-row: auto; padding-inline-start: 48px; justify-content: flex-start; }
+  .integration-configuration-list :deep(.configuration-control) { flex-direction: row; flex-wrap: wrap; align-items: center; min-width: 0; gap: 8px 12px; }
 }
 </style>

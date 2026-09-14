@@ -10,6 +10,12 @@ type DesktopNavigation
 interface Window {
   craftHubDesktop?: {
     platform?: string
+    hostExtensions?: () => Promise<import('craft-hub').HostExtensionStatus>
+    installHostExtension?: () => Promise<import('craft-hub').HostExtensionStatus>
+    configureLocalPluginHost?: (packageName: string) => Promise<import('craft-hub').HostExtensionStatus>
+    setHostExtensionEnabled?: (id: string, enabled: boolean) => Promise<import('craft-hub').HostExtensionStatus>
+    removeHostExtension?: (id: string) => Promise<import('craft-hub').HostExtensionStatus>
+    restartForHostExtensions?: () => Promise<void>
     selectProjectDirectory?: (defaultPath?: string) => Promise<string | undefined>
     selectProjectDirectories?: (defaultPath?: string) => Promise<string[] | undefined>
     openProjectDirectory?: (projectId: string) => Promise<void>

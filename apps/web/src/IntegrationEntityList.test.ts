@@ -18,6 +18,30 @@ describe('integration entity list', () => {
     delete window.craftHubDesktop
   })
 
+  it('renders configuration artwork with a fallback and preserves filtering and source actions', async () => {
+    const openIntegrationSource = vi.fn(async () => {})
+    window.craftHubDesktop = { openIntegrationSource }
+    const wrapper = mount(IntegrationEntityList, { props: {
+      configurationActionId: 'update',
+      sourceContext: { integrationId: 'configuration', actionId: 'list' },
+      items: [
+        { id: 'plugin', title: 'Plugin', icon: 'https://example.com/icon.svg', details: [{ label: 'Source', value: '/project/config.toml', sourcePath: '/project/config.toml' }] },
+        { id: 'missing', title: 'No artwork' },
+      ],
+    } })
+    expect(wrapper.get('img').attributes('src')).toBe('https://example.com/icon.svg')
+    expect(wrapper.findAll('.integration-entity-icon')).toHaveLength(2)
+    expect(wrapper.find('.i-ri-puzzle-line').exists()).toBe(true)
+    expect(wrapper.find('.integration-hierarchy-control').exists()).toBe(false)
+    await wrapper.get('img').trigger('error')
+    expect(wrapper.find('img').exists()).toBe(false)
+    expect(wrapper.find('.integration-entity-icon .app-icon').exists()).toBe(true)
+    await wrapper.get('input').setValue('config.toml')
+    expect(wrapper.findAll('[role="listitem"]')).toHaveLength(1)
+    await wrapper.get('a').trigger('click')
+    expect(openIntegrationSource).toHaveBeenCalledWith('configuration', 'list', 'plugin', 0, undefined)
+  })
+
   it('groups unfinished children below completed parent context without counting or offering actions on the filtered parent', async () => {
     const parent = { id: 'parent', title: 'Completed parent', status: 'done', statusCategory: 'done' as const, url: 'https://example.com/parent' }
     const wrapper = mount(IntegrationEntityList, { global: { plugins: [getActivePinia()!] }, props: {

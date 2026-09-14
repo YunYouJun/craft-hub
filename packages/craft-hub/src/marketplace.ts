@@ -21,7 +21,7 @@ import { commandPresetContributionSchema, commandTemplateContributionSchema, pac
 import { integrationContributionSchema } from './integrations'
 import { MarketplaceCatalogTrust } from './marketplace-trust'
 import { localizeNavigationPanel, navigationPanelContributionSchema } from './navigation-contributions'
-import { readPackageDocument, readPackageDocumentAsset, readPackageIconDataUrl } from './project-overview'
+import { readPackageDocument, readPackageDocumentAsset, readPackageIconAsset, readPackageIconDataUrl } from './project-overview'
 import { skillActivationConditionSchema } from './skill-activation'
 import { craftHubVersion } from './version'
 import { localizeWorkbench, workbenchContributionSchema } from './workbench-contributions'
@@ -675,6 +675,13 @@ export class PluginManager {
     return readPackageDocumentAsset(resolved.packagePath, request.path)
   }
 
+  /** Read only the declared package icon; callers must isolate SVG as image content. */
+  async pluginIcon(request: { sourceId: string, package: string, version?: string }): Promise<{ content: Buffer, contentType: string } | undefined> {
+    const resolved = await this.resolvePluginDocumentPackage(request)
+    const icon = resolved.manifest.icon
+    return icon && !icon.startsWith('https://') ? readPackageIconAsset(resolved.packagePath, icon) : undefined
+  }
+
   async addSource(input: { name: string, catalogUrl: string, registry?: string }): Promise<MarketplaceSource> {
     const preview = await this.previewSource(input)
     await this.initialize()
@@ -813,6 +820,8 @@ export class PluginManager {
     const visiting: string[] = []
 
     const visit = (packageName: string, range?: string, exactVersion?: string): void => {
+      if (this.state.linked.some(plugin => plugin.package === packageName))
+        throw new LocalPluginOverrideError(packageName)
       const cycleIndex = visiting.indexOf(packageName)
       if (cycleIndex >= 0)
         throw new Error(`Plugin dependency cycle: ${[...visiting.slice(cycleIndex), packageName].join(' -> ')}`)
@@ -862,7 +871,7 @@ export class PluginManager {
     await this.initialize()
     const updates: PluginUpdatePlanItem[] = []
     for (const installed of this.state.installed) {
-      if (!installed.enabled || installed.error)
+      if (!installed.enabled || installed.error || this.state.linked.some(plugin => plugin.package === installed.package))
         continue
       const source = this.state.sources.find(item => item.id === installed.sourceId && item.enabled)
       if (!source)
@@ -877,7 +886,15 @@ export class PluginManager {
       )
       if (!targetVersion)
         continue
-      const plan = await this.planInstall({ sourceId: source.id, package: installed.package, version: targetVersion })
+      let plan: PluginInstallPlan
+      try {
+        plan = await this.planInstall({ sourceId: source.id, package: installed.package, version: targetVersion })
+      }
+      catch (error) {
+        if (error instanceof LocalPluginOverrideError)
+          continue
+        throw error
+      }
       const automatic = plan.items.every((item) => {
         const current = this.state.installed.find(plugin => plugin.package === item.package)
         return current?.sourceId === source.id && sameStringSet(current.manifest.permissions, item.permissions)
@@ -1283,6 +1300,12 @@ export class PluginManager {
         }
       }
       catch (error) {
+        const localPathExists = await stat(resolve(linked.packagePath)).then(() => true, statError => (statError as NodeJS.ErrnoException).code === 'ENOENT' ? false : Promise.reject(statError))
+        if (!localPathExists) {
+          this.state.linked = this.state.linked.filter(plugin => plugin !== linked)
+          changed = true
+          continue
+        }
         const message = error instanceof Error ? error.message : String(error)
         if (linked.error !== message) {
           linked.error = message
@@ -1504,6 +1527,13 @@ function sameStringRecord(left: Record<string, string>, right: Record<string, st
   const leftEntries = Object.entries(left).sort(([leftKey], [rightKey]) => leftKey.localeCompare(rightKey))
   const rightEntries = Object.entries(right).sort(([leftKey], [rightKey]) => leftKey.localeCompare(rightKey))
   return JSON.stringify(leftEntries) === JSON.stringify(rightEntries)
+}
+
+class LocalPluginOverrideError extends Error {
+  constructor(packageName: string) {
+    super(`Plugin ${packageName} is linked locally. Unlink the local plugin before installing a Marketplace version.`)
+    this.name = 'LocalPluginOverrideError'
+  }
 }
 
 function samePluginDependencies(left: PluginDependencyV1[], right: PluginDependencyV1[]): boolean {

@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { Input } from './components/ui/input'
+import { Alert } from './components/ui/alert'
 import { Field, FieldGroup, FieldLabel } from './components/ui/field'
 import { Button as UiButton } from './components/ui/button'
 import type { IntegrationConnectionStatus } from 'craft-hub'
 import { onBeforeUnmount, reactive, ref, useId, watch } from 'vue'
 import { api } from './api'
+import { Icon } from './icons'
 import { useI18n } from './i18n'
 
 const props = defineProps<{ status: IntegrationConnectionStatus, integrationId: string, actionId?: string, projectId?: string, translate: (value: string) => string }>()
@@ -95,12 +97,19 @@ async function submit(form: NonNullable<IntegrationConnectionStatus['forms']>[nu
 
 <template>
   <div class="connection-setup">
-    <p v-for="link in status.links" :key="link.url"><a v-if="safeUrl(link.url)" :href="safeUrl(link.url)" target="_blank" rel="noopener noreferrer">{{ translate(link.title) }} ↗</a></p>
+    <p v-for="link in status.links" :key="link.url" class="connection-link-row">
+      <a v-if="safeUrl(link.url)" class="connection-link" :href="safeUrl(link.url)" target="_blank" rel="noopener noreferrer">
+        {{ translate(link.title) }}<Icon name="externalLink" />
+      </a>
+    </p>
     <template v-if="actionId">
-      <details v-for="form in status.forms" :key="form.id" :open="!status.connected && form.id === 'oauth'">
-        <summary>{{ translate(form.title) }}</summary>
-        <form @submit.prevent="submit(form)">
-          <p v-if="form.description">{{ translate(form.description) }}</p>
+      <details v-for="form in status.forms" :key="form.id" class="connection-disclosure" :open="!status.connected && form.id === 'oauth'">
+        <summary class="connection-disclosure-summary">
+          <span class="connection-disclosure-chevron"><Icon name="arrowRight" /></span>
+          <span>{{ translate(form.title) }}</span>
+        </summary>
+        <form class="connection-form" @submit.prevent="submit(form)">
+          <p v-if="form.description" class="connection-form-description">{{ translate(form.description) }}</p>
           <FieldGroup><Field v-for="field in form.fields" :key="field.id" :data-disabled="saving">
             <FieldLabel :for="`${connectionFormId}-${form.id}-${field.id}`">{{ translate(field.label) }}</FieldLabel>
             <Input :id="`${connectionFormId}-${form.id}-${field.id}`"
@@ -109,20 +118,40 @@ async function submit(form: NonNullable<IntegrationConnectionStatus['forms']>[nu
               @update:model-value="(values[form.id] ??= {})[field.id] = $event"
             />
           </Field></FieldGroup>
-          <UiButton type="submit" :disabled="saving">{{ translate(form.submitLabel) }}</UiButton>
+          <div class="connection-form-actions">
+            <UiButton type="submit" :disabled="saving">{{ translate(form.submitLabel) }}</UiButton>
+          </div>
         </form>
       </details>
     </template>
-    <p v-if="authorizationUrl" role="status"><a :href="authorizationUrl" target="_blank" rel="noopener noreferrer">{{ t('integrationContinueAuthorization') }} ↗</a> · {{ t('integrationReturnRefresh') }}</p>
-    <p v-if="error" role="alert">{{ error }}</p>
+    <p v-if="authorizationUrl" class="connection-authorization" role="status">
+      <Icon name="link" />
+      <span><a :href="authorizationUrl" target="_blank" rel="noopener noreferrer">{{ t('integrationContinueAuthorization') }}</a> · {{ t('integrationReturnRefresh') }}</span>
+    </p>
+    <Alert v-if="error" variant="danger">{{ error }}</Alert>
   </div>
 </template>
 
 <style scoped>
-.connection-setup { display: grid; gap: 10px; padding: 0 18px 16px; font-size: 13px; }
-.connection-setup p { margin: 0; color: var(--muted); }
-.connection-setup a { color: var(--accent); }
-.connection-setup summary { cursor: pointer; padding: 8px 0; font-weight: 500; }
-.connection-setup form { display: grid; gap: 12px; padding: 12px; border: 1px solid var(--border); border-radius: 8px; }
-.connection-setup [role='alert'] { color: var(--danger); }
+.connection-setup { display: grid; gap: var(--integration-row-gap); padding: 0 var(--integration-row-padding-inline) var(--space-4); font-size: var(--font-size-body); }
+.connection-setup p { margin: 0; }
+.connection-link-row { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.connection-link { display: inline-flex; align-items: center; gap: var(--space-1); color: var(--accent); font-weight: 500; text-decoration: none; }
+.connection-link:hover { text-decoration: underline; text-underline-offset: 3px; }
+.connection-link .app-icon { width: 13px; height: 13px; }
+.connection-disclosure { overflow: hidden; border: 1px solid var(--integration-card-border); border-radius: var(--integration-disclosure-radius); background: var(--integration-disclosure-background); }
+.connection-disclosure-summary { display: flex; align-items: center; gap: var(--space-2); padding: var(--integration-row-padding-block) var(--integration-row-padding-inline); color: var(--text); font-size: var(--font-size-emphasis); font-weight: 500; cursor: pointer; list-style: none; }
+.connection-disclosure-summary::-webkit-details-marker { display: none; }
+.connection-disclosure-summary:hover { background: var(--surface-hover); }
+.connection-disclosure-summary:focus-visible { outline: var(--control-focus-width) solid var(--focus-ring); outline-offset: calc(-1 * var(--control-focus-width)); }
+.connection-disclosure-chevron { display: grid; place-items: center; color: var(--muted); transition: transform var(--motion-duration-fast) ease; }
+.connection-disclosure-chevron .app-icon { width: 15px; height: 15px; }
+.connection-disclosure[open] > .connection-disclosure-summary { border-bottom: 1px solid var(--integration-card-border); }
+.connection-disclosure[open] > .connection-disclosure-summary .connection-disclosure-chevron { transform: rotate(90deg); }
+.connection-form { display: grid; gap: var(--integration-row-gap); padding: var(--space-3) var(--integration-row-padding-inline); background: var(--integration-card-background); }
+.connection-form-description { color: var(--muted); line-height: var(--line-height-body); }
+.connection-form-actions { display: flex; justify-content: flex-start; }
+.connection-authorization { display: flex; align-items: flex-start; gap: var(--space-2); padding: var(--space-2) var(--integration-row-padding-inline); border: 1px solid color-mix(in srgb, var(--accent) 32%, var(--border)); border-radius: var(--integration-disclosure-radius); background: var(--accent-soft); color: var(--text-secondary); }
+.connection-authorization .app-icon { flex: none; width: 15px; height: 15px; margin-top: 2px; color: var(--accent); }
+.connection-authorization a { color: var(--accent); font-weight: 500; }
 </style>

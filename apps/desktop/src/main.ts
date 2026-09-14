@@ -12,7 +12,7 @@ import { promisify } from 'node:util'
 import codexConfigurationPlugin from '@craft-hub/craft-hub-plugin-codex'
 import workstationPlugin from '@craft-hub/craft-hub-plugin-workstation'
 import { PersonalCloudController } from '@craft-hub/personal-cloud'
-import { communityDistribution, CraftHubRuntime, loadCraftHubPlugins, startCraftHubServer } from 'craft-hub'
+import { communityDistribution, CraftHubRuntime, HostExtensionManager, loadCraftHubPlugins, startCraftHubServer } from 'craft-hub'
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, nativeTheme, safeStorage, shell } from 'electron'
 import { aboutDocument, aboutPanelOptions } from './about.ts'
 import { loadDesktopBuildInfo } from './build-info.ts'
@@ -24,6 +24,7 @@ import { DesktopLinkCoordinator, DesktopLinkError, findDesktopLinkArgument } fro
 import { DeviceVault } from './device-vault.ts'
 import { communityDesktopAboutBranding, communityDesktopDevelopmentProtocol, communityDesktopProtocol, communityDesktopUpdateBaseUrl, loadDesktopDistributionManifest, resolveDesktopDistributionAsset } from './distribution.ts'
 import { selectedDirectoryPath, selectedDirectoryPaths } from './folder-picker.ts'
+import { registerHostExtensionHandlers } from './host-extensions.ts'
 import { codexThreadUrl, editorTargetPaths, externalHttpUrl, focusCodexApplication, gitRemoteHttpUrl, macTerminalApplications, openCodexProject, openCursorEditor, openCustomEditor, openMacTerminalProject, projectContainsPath, vscodeUrl } from './open-targets.ts'
 import { createDeferredOnceTask } from './shutdown-task.ts'
 import { DesktopUpdater } from './updater.ts'
@@ -215,6 +216,25 @@ app.on('second-instance', (_event, argv) => {
 function directoryDialogDefaultPath(value: unknown): string | undefined {
   return typeof value === 'string' && isAbsolute(value) && !value.includes('\0') ? value : undefined
 }
+
+const hostExtensionManager = new HostExtensionManager(desktopDataDirectories.runtimeDataDir)
+registerHostExtensionHandlers({
+  manager: hostExtensionManager,
+  window: () => mainWindow,
+  localPluginPath: async (packageName) => {
+    const plugin = (await craftHubServer?.runtime.pluginManager.listInstalled())?.find(item => item.package === packageName)
+    return plugin?.origin === 'local' && plugin.manifest.contributes.integrations.length ? plugin.packagePath : undefined
+  },
+  restart: async () => {
+    if (craftHubServer?.runtime.projectRunSummaries().some(summary => summary.running > 0))
+      throw new Error('请先结束运行中的命令再重启 / Finish active commands before restarting')
+    const tasks = await craftHubServer?.runtime.agentTasks.list() ?? []
+    if (tasks.some(task => task.status === 'running'))
+      throw new Error('请先结束运行中的 Agent 任务再重启 / Finish active agent tasks before restarting')
+    app.relaunch()
+    app.quit()
+  },
+})
 
 ipcMain.handle('craft-hub:select-project-directory', async (_event, defaultPath: unknown) => {
   const options: OpenDialogOptions = {
@@ -596,9 +616,22 @@ async function createWindow(): Promise<void> {
   if (!craftHubServer) {
     let runtime!: CraftHubRuntime
     const agentTaskProvider = new CodexAgentTaskProvider(async () => (await runtime.settings.get()).settings['workbench.codex'])
-    const hostPlugins = desktopDistribution?.hostPlugins?.length
+    const configuredPlugins = desktopDistribution?.hostPlugins?.length
       ? await loadCraftHubPlugins(desktopDistribution.hostPlugins, { baseDir: dirname(desktopDistributionManifestPath) })
       : { plugins: [], diagnostics: [] }
+    const preloadedModules = desktopDistribution?.hostPlugins?.length && !configuredPlugins.diagnostics.length
+      ? hostExtensionManager.prepare({
+        id: desktopDistribution.distribution.id,
+        name: desktopDistribution.distribution.name,
+        manifestPath: desktopDistributionManifestPath,
+        modules: desktopDistribution.hostPlugins,
+      }).modules
+      : []
+    const hostPlugins = await hostExtensionManager.load([
+      ...configuredPlugins.plugins,
+      ...[codexConfigurationPlugin, workstationPlugin].filter(builtin => !configuredPlugins.plugins.some(plugin => plugin.id === builtin.id)),
+    ], preloadedModules)
+    hostPlugins.diagnostics.unshift(...configuredPlugins.diagnostics)
     for (const diagnostic of hostPlugins.diagnostics)
       writeApplicationLog('error', `Host Plugin ${diagnostic.pluginId} failed to load: ${diagnostic.message}`)
     runtime = new CraftHubRuntime({
@@ -606,7 +639,7 @@ async function createWindow(): Promise<void> {
       dataDir: desktopDataDirectories.runtimeDataDir,
       distribution: runtimeDistribution,
       pluginDiagnostics: hostPlugins.diagnostics,
-      plugins: [...hostPlugins.plugins, ...[codexConfigurationPlugin, workstationPlugin].filter(builtin => !hostPlugins.plugins.some(plugin => plugin.id === builtin.id))],
+      plugins: hostPlugins.plugins,
     })
     craftHubServer = await startCraftHubServer({ port: developmentUrl ? 4318 : 0, runtime, staticDir })
     writeApplicationLog('info', `Local server started at ${craftHubServer.url}`)

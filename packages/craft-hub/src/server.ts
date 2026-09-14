@@ -102,6 +102,8 @@ export interface CraftHubServerOptions {
   port?: number
   staticDir?: string
   runtime?: CraftHubRuntime
+  /** Canonical origin this host is reached through, required when a reverse proxy terminates TLS. */
+  publicOrigin?: string
 }
 
 export interface CraftHubServerCloseOptions {
@@ -170,7 +172,7 @@ export async function startCraftHubServer(options: CraftHubServerOptions = {}): 
   let heartbeat: ReturnType<typeof setInterval> | undefined
   const handleRequest = async (request: IncomingMessage, response: ServerResponse): Promise<void> => {
     try {
-      if (await handleAgentConnectionRequest(agentConnection, new URL(callbackUrl('')).origin, request, response))
+      if (await handleAgentConnectionRequest(agentConnection, loopbackOrigin(), request, response))
         return
       if (await handleAccountRequest(runtime.accountProvider, request, response))
         return
@@ -605,7 +607,7 @@ export async function startCraftHubServer(options: CraftHubServerOptions = {}): 
           return sendJson(response, 400, { error: 'input must be an object' })
         return sendJson(response, 200, await runtime.invokeIntegrationAction({
           integrationId: parts[2],
-          callbackUrl: callbackUrl(parts[2]),
+          callbackUrl: callbackUrl(parts[2], request),
           actionId: parts[4],
           input: input as Record<string, unknown>,
           confirmed: body.confirmed === true,
@@ -623,6 +625,29 @@ export async function startCraftHubServer(options: CraftHubServerOptions = {}): 
           version: url.searchParams.get('version') ?? undefined,
           path: url.searchParams.get('path') ?? undefined,
         }))
+      }
+
+      if (request.method === 'GET' && url.pathname === '/api/plugins/icon') {
+        const sourceId = url.searchParams.get('sourceId')
+        const packageName = url.searchParams.get('package')
+        if (!sourceId || !packageName)
+          return sendJson(response, 400, { error: 'sourceId and package are required' })
+        const icon = await runtime.pluginManager.pluginIcon({
+          sourceId,
+          package: packageName,
+          version: url.searchParams.get('version') ?? undefined,
+        })
+        if (!icon)
+          return sendJson(response, 404, { error: 'Icon not found' })
+        response.writeHead(200, {
+          'cache-control': sourceId === 'local' ? 'no-cache' : 'private, max-age=3600',
+          'content-length': icon.content.byteLength,
+          'content-type': icon.contentType,
+          'content-security-policy': 'default-src \'none\'; sandbox',
+          'x-content-type-options': 'nosniff',
+        })
+        response.end(icon.content)
+        return
       }
 
       if (request.method === 'GET' && url.pathname === '/api/plugins/document-asset') {
@@ -873,7 +898,7 @@ export async function startCraftHubServer(options: CraftHubServerOptions = {}): 
             return sendJson(response, 400, { error: 'input must be an object' })
           return sendJson(response, 200, await runtime.invokeIntegrationAction({
             integrationId: parts[4],
-            callbackUrl: callbackUrl(parts[4]),
+            callbackUrl: callbackUrl(parts[4], request),
             actionId: parts[6],
             projectId,
             input: input as Record<string, unknown>,
@@ -1090,9 +1115,54 @@ export async function startCraftHubServer(options: CraftHubServerOptions = {}): 
     void (configurationRoute ? runtime.withConfiguration(() => handleRequest(request, response)) : handleRequest(request, response))
   })
 
-  function callbackUrl(integrationId: string): string {
+  /** Loopback origin of this listening socket, used where only this device may reach the host. */
+  function loopbackOrigin(): string {
     const address = server.address() as AddressInfo
-    return `http://127.0.0.1:${address.port}/api/integrations/${encodeURIComponent(integrationId)}/callback`
+    return `http://127.0.0.1:${address.port}`
+  }
+
+  /**
+   * OAuth callback URL handed to a trusted provider. The origin comes from declared host
+   * configuration or from a Host header that addresses this same socket, so a proxied or LAN
+   * deployment never redirects the browser to the server process' own loopback address.
+   */
+  function callbackUrl(integrationId: string, request: IncomingMessage): string {
+    return new URL(`/api/integrations/${encodeURIComponent(integrationId)}/callback`, callbackOrigin(request)).toString()
+  }
+
+  function callbackOrigin(request: IncomingMessage): string {
+    const declared = options.publicOrigin ?? runtime.accountProvider?.publicOrigin
+    if (declared)
+      return new URL(declared).origin
+    const host = request.headers.host
+    // A loopback alias keeps the historical callback so an OAuth app registered for 127.0.0.1
+    // keeps working; only an address that names this socket and is not loopback may replace it.
+    if (host && addressesThisSocket(host, request) && !isLoopbackHost(host))
+      return `http://${host}`
+    return loopbackOrigin()
+  }
+
+  /** Trust a browser-supplied Host only when it points back at this listening socket. */
+  function addressesThisSocket(host: string, request: IncomingMessage): boolean {
+    const { localAddress, localPort } = request.socket
+    if (!localPort)
+      return false
+    const { hostname, port } = splitHost(host)
+    if (port !== String(localPort))
+      return false
+    return hostname === localAddress || isLoopbackHost(host)
+  }
+
+  function isLoopbackHost(host: string): boolean {
+    const { hostname } = splitHost(host)
+    return hostname === '127.0.0.1' || hostname === '::1' || hostname === 'localhost'
+  }
+
+  function splitHost(host: string): { hostname: string, port: string | undefined } {
+    if (host.startsWith('['))
+      return { hostname: host.slice(1, host.indexOf(']')), port: host.slice(host.indexOf(']') + 2) }
+    const [hostname, port] = host.split(':')
+    return { hostname: hostname ?? '', port }
   }
 
   let closing: Promise<void> | undefined
