@@ -7,6 +7,7 @@ import { createInterface } from 'node:readline/promises'
 import { cac } from 'cac'
 import { callAgentHost, startAgentMcp } from './agent-mcp'
 import { launchCraftHubApp, launchCraftHubProject } from './app'
+import { pairDeliveryDevice } from './delivery/connection'
 import { initializeMarketplacePlugin, packMarketplacePlugin, validateMarketplacePlugin } from './plugin-authoring'
 import { loadCraftHubPlugins } from './plugins'
 import { CraftHubRuntime } from './runtime'
@@ -16,6 +17,21 @@ import { resolveCraftHubWebDirectory } from './web-assets'
 
 const cli = cac('craft-hub')
 const runtime = new CraftHubRuntime()
+
+cli.command('device:pair', 'Pair this device with a delivery broker after browser confirmation')
+  .option('--url <origin>', 'HTTPS broker origin')
+  .option('--name <name>', 'Device display name')
+  .option('--bindings <path>', 'Local JSON map from portable project IDs to registered local project IDs')
+  .option('--credential-file <path>', 'Local destination for the receiver credential')
+  .action(async (options: { url?: string, name?: string, bindings?: string, credentialFile?: string }) => {
+    if (!options.url || !options.name || !options.bindings || !options.credentialFile)
+      throw new Error('--url, --name, --bindings and --credential-file are required')
+    const bindings = JSON.parse(await readFile(resolve(options.bindings), 'utf8')) as Record<string, string>
+    await pairDeliveryDevice({ origin: options.url, name: options.name, bindings, credentialPath: resolve(options.credentialFile), onPairing: (id) => {
+      console.log(`Open ${new URL(`/bot?pairing=${encodeURIComponent(id)}`, options.url).href} and approve the displayed device and projects.`)
+    } })
+    console.log('Device paired. Set CRAFT_HUB_DEVICE_CONFIG to this credential file when starting your local host with an agent executor.')
+  })
 
 cli.command('mcp', 'Connect an agent to the running local host with read-only MCP tools')
   .option('--url <origin>', 'Loopback URL shown in Settings > Agent connection')
