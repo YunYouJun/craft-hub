@@ -8,12 +8,14 @@ import { createReadStream } from 'node:fs'
 import { access } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { extname, join, normalize } from 'node:path'
+import process from 'node:process'
 import { ZodError } from 'zod'
 import { handleAccountRequest } from './accounts'
 import { AgentConnectionService } from './agent-connection'
 import { handleAgentConnectionRequest } from './agent-connection-http'
 import { CommandInputValidationError } from './command-inputs'
 import { projectConfigSchemaRevision } from './config'
+import { startDeliveryConnection } from './delivery/connection'
 import { dotfilesOperations, DotfilesTrustError, DotfilesValidationError } from './dotfiles-manager'
 import { GitIntegrationConflictError, GitIntegrationValidationError } from './git-integration'
 import { isLocalDirectoryMutation } from './host-environment'
@@ -122,6 +124,7 @@ export interface CraftHubServer {
 export async function startCraftHubServer(options: CraftHubServerOptions = {}): Promise<CraftHubServer> {
   const runtime = options.runtime ?? new CraftHubRuntime()
   const agentConnection = new AgentConnectionService(runtime)
+  let stopDeliveryConnection: (() => Promise<void>) | undefined
   await runtime.accountSync.recover()
   const eventClients = new Set<ServerResponse>()
   const broadcastEvent = (name: string, event: unknown): void => {
@@ -1180,6 +1183,8 @@ export async function startCraftHubServer(options: CraftHubServerOptions = {}): 
         client.end()
       eventClients.clear()
 
+      if (stopDeliveryConnection)
+        await stopDeliveryConnection()
       const cleanup = [
         runtime.close(),
         runtime.settings.close(),
@@ -1202,6 +1207,8 @@ export async function startCraftHubServer(options: CraftHubServerOptions = {}): 
   }
 
   try {
+    if (process.env.CRAFT_HUB_DEVICE_CONFIG)
+      stopDeliveryConnection = await startDeliveryConnection(runtime, process.env.CRAFT_HUB_DEVICE_CONFIG)
     await watchProjects()
     await runtime.settings.startWatching()
     await runtime.userConfig.startWatching()

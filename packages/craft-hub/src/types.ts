@@ -689,6 +689,8 @@ export interface AgentTaskRecord {
   primaryProjectRelativePath?: string
   prompt: string
   externalThreadId?: string
+  /** Host-verified directory used by the original agent execution. */
+  executionDirectory?: string
   parentTaskId?: string
   startedAt: string
   finishedAt?: string

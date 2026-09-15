@@ -41,6 +41,7 @@ function completedItemOutput(event: ThreadEvent): string {
 /** Desktop adapter that executes Craft Hub agent tasks through Codex. */
 export class CodexAgentTaskProvider implements AgentTaskProvider {
   readonly id = 'codex'
+  readonly supportsResume = true
   private readonly resolveSetting: () => Promise<WorkbenchCodexSetting>
 
   constructor(resolveSetting: () => Promise<WorkbenchCodexSetting> = async () => ({})) {
@@ -49,15 +50,17 @@ export class CodexAgentTaskProvider implements AgentTaskProvider {
 
   async run(input: AgentTaskProviderInput): Promise<AgentTaskProviderResult> {
     const setting = await this.resolveSetting()
-    const thread = new Codex().startThread({
+    const options = {
       threadSource: 'craft-hub',
       workingDirectory: input.primaryWorkingDirectory,
       additionalDirectories: input.projectPaths.filter(path => path !== input.primaryProjectPath),
-      sandboxMode: input.sandboxMode ?? 'workspace-write',
-      approvalPolicy: 'on-request',
+      sandboxMode: input.sandboxMode ?? 'workspace-write' as const,
+      approvalPolicy: 'on-request' as const,
       ...(setting.model ? { model: setting.model } : {}),
       ...(setting.reasoningEffort ? { modelReasoningEffort: setting.reasoningEffort } : {}),
-    })
+    }
+    const codex = new Codex()
+    const thread = input.resumeThreadId ? codex.resumeThread(input.resumeThreadId, options) : codex.startThread(options)
     const streamed = await thread.runStreamed(input.prompt, { signal: input.signal })
     let finalResponse = ''
     const commandOutputLengths = new Map<string, number>()
