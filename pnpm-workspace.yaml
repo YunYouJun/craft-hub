@@ -31,6 +31,7 @@ overrides:
   lodash.unset: 4.18.0
   nanoid: ^3.3.18
   qs: ^6.16.0
+  sharp: ^0.35.4
 patchedDependencies:
   node-pty@1.1.0: patches/node-pty@1.1.0.patch
 catalog:
