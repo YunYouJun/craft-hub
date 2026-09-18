@@ -2,8 +2,11 @@ import type { ProjectRegistry } from './projects'
 import type { CraftHubStore } from './store'
 import type { AgentActionId, AgentActionResult, AgentTaskRecord } from './types'
 import { Buffer } from 'node:buffer'
+import { execFile } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
+import { realpath } from 'node:fs/promises'
 import { resolve } from 'node:path'
+import { promisify } from 'node:util'
 import { assertCommandWorkingDirectory } from './path-security'
 
 /** Input accepted by a host-provided agent task adapter. */
@@ -24,10 +27,17 @@ export interface StartAgentTaskInput {
 /** Optional work to perform after an agent task completes. */
 export interface StartAgentTaskOptions {
   onCompleted?: (result: AgentTaskProviderResult, task: AgentTaskRecord) => Promise<AgentActionResult>
+  /** Host-owned idempotency identity. It is not accepted from ordinary task HTTP input. */
+  taskId?: string
+  /** Host-prepared Git worktree belonging to the trusted primary repository. */
+  worktreePath?: string
+  /** Resume a finished task through a provider that supports its original external thread. */
+  resumeTaskId?: string
 }
 
 /** Fully resolved input passed to an agent task adapter. */
 export interface AgentTaskProviderInput extends StartAgentTaskInput {
+  resumeThreadId?: string
   taskId: string
   projectPaths: string[]
   primaryProjectPath: string
@@ -46,6 +56,7 @@ export interface AgentTaskProviderResult {
 /** Vendor-neutral adapter seam for running an external agent task. */
 export interface AgentTaskProvider {
   id: string
+  supportsResume?: boolean
   run: (input: AgentTaskProviderInput) => Promise<AgentTaskProviderResult>
 }
 
@@ -87,6 +98,15 @@ export class AgentTaskManager {
     return { id: this.provider.id, available: this.provider !== unavailableAgentTaskProvider }
   }
 
+  /** Distinguish a live local provider from a persisted task after a host restart. */
+  isActive(id: string): boolean {
+    return this.active.has(id)
+  }
+
+  supportsFollowup(): boolean {
+    return this.provider.supportsResume === true
+  }
+
   async list(): Promise<AgentTaskRecord[]> {
     const tasks = await this.store.listAgentTasks()
     await Promise.all(tasks.map(async (task) => {
@@ -113,12 +133,40 @@ export class AgentTaskManager {
     if (untrusted.length)
       throw new Error(`Trust every selected project before starting ${this.provider.id}: ${untrusted.map(project => project.name).join(', ')}`)
     const primary = projects.find(project => project.id === input.primaryProjectId)!
-    const primaryWorkingDirectory = resolve(primary.path, input.primaryProjectRelativePath ?? '.')
-    await assertCommandWorkingDirectory(primary.path, primaryWorkingDirectory)
+    const resumed = options.resumeTaskId ? await this.store.getAgentTask(options.resumeTaskId) : undefined
+    if (options.resumeTaskId && (!this.supportsFollowup() || !resumed?.externalThreadId || !resumed.executionDirectory || resumed.status === 'running' || this.active.has(resumed.id) || resumed.primaryProjectId !== primary.id || resumed.provider !== this.provider.id || resumed.error === 'Task was interrupted when Craft Hub stopped'))
+      throw new Error('The original task cannot be safely resumed; inspect it in the original client')
+    let executionRoot = primary.path
+    if (options.worktreePath) {
+      const prepared = await realpath(options.worktreePath)
+      const { stdout } = await promisify(execFile)('git', ['worktree', 'list', '--porcelain', '-z'], { cwd: primary.path, timeout: 15000, maxBuffer: 1024 * 1024 })
+      // Git uses forward slashes on Windows; normalize before the exact path check.
+      const worktrees = stdout.split('\0')
+        .filter(field => field.startsWith('worktree '))
+        .map(field => resolve(field.slice('worktree '.length)))
+      if (!worktrees.includes(prepared))
+        throw new Error('The execution directory is not a worktree of the trusted primary project')
+      executionRoot = prepared
+    }
+    const primaryWorkingDirectory = resolve(executionRoot, input.primaryProjectRelativePath ?? '.')
+    await assertCommandWorkingDirectory(executionRoot, primaryWorkingDirectory)
+    if (resumed && (await realpath(primaryWorkingDirectory) !== await realpath(resumed.executionDirectory!) || JSON.stringify([...resumed.projectIds].sort()) !== JSON.stringify([...input.projectIds].sort())))
+      throw new Error('A continuation must retain the original task workspace')
     if (!this.availability().available)
       throw new Error('This host has no agent executor. Open the desktop workbench or configure a host agent adapter.')
+    if (options.taskId && !/^[a-f0-9]{64}$/.test(options.taskId))
+      throw new Error('Invalid host task identity')
+    const taskId = options.taskId ?? randomUUID()
+    const existing = options.taskId ? await this.store.getAgentTask(taskId) : undefined
+    if (existing) {
+      if (existing.primaryProjectId !== input.primaryProjectId || existing.prompt !== input.prompt || JSON.stringify([...existing.projectIds].sort()) !== JSON.stringify([...input.projectIds].sort()) || existing.executionDirectory !== primaryWorkingDirectory)
+        throw new Error('Task identity belongs to a different request')
+      return existing
+    }
+    if (this.active.has(taskId))
+      throw new Error('This task is already starting')
     const task: AgentTaskRecord = {
-      id: randomUUID(),
+      id: taskId,
       provider: this.provider.id,
       capabilityId: input.capabilityId,
       actionId: input.actionId,
@@ -126,6 +174,7 @@ export class AgentTaskManager {
       projectIds: [...input.projectIds],
       primaryProjectId: input.primaryProjectId,
       primaryProjectRelativePath: input.primaryProjectRelativePath,
+      executionDirectory: primaryWorkingDirectory,
       prompt: input.prompt,
       parentTaskId: input.parentTaskId,
       startedAt: new Date().toISOString(),
@@ -143,9 +192,10 @@ export class AgentTaskManager {
     this.emit(task)
     void this.provider.run({
       ...input,
+      resumeThreadId: resumed?.externalThreadId,
       taskId: task.id,
-      projectPaths: projects.map(project => project.path),
-      primaryProjectPath: primary.path,
+      projectPaths: projects.map(project => project.id === primary.id ? executionRoot : project.path),
+      primaryProjectPath: executionRoot,
       primaryWorkingDirectory,
       signal: controller.signal,
       onThread: async (threadId) => {

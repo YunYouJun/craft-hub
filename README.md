@@ -35,6 +35,14 @@ pnpm dev:web
 
 `pnpm dev` starts the runtime watcher, Vite renderer, local API, and Electron shell. `pnpm dev:web` starts the local API and Vite renderer. Both commands prefer `http://127.0.0.1:5173` and report the actual URL when that port is occupied.
 
+### Development inspector
+
+Vite DevTools is enabled only during development. Press **Shift + Alt + D** (**⇧⌥D** on macOS) to reveal the dock, or open `/__devtools/` on the reported Vite URL. Authenticate with the code printed in the development terminal when prompted, then select **Craft Hub Inspector**.
+
+The `craft-hub` Devframe provides a read-only view of registered projects and their trust state, discovered commands and skills, workbench diagnostics, and the latest 30 run records. The official dock group exposes **Projects / Diagnostics / Runs** as child tabs sharing one live iframe; switching tabs preserves the selected project and filter. Use **Refresh** to fetch current data and select a project to inspect its capabilities. The inspector defaults to Simplified Chinese, offers an English switch, and remembers its own language preference in browser storage. Its content and dock child titles switch together; the upstream Vite DevTools shell keeps its own language. Runtime diagnostic messages and project-defined text retain their original content. It reads the existing runtime at `http://127.0.0.1:4318`; starting Vite alone displays an unavailable-runtime message until the local API starts.
+
+The inspector registers through the public `createPluginFromDevframe()` adapter and reuses the workbench logo. Each child dock attaches the official `attachDevToolsFrameNav()` adapter through a dock client script, so navigation also works when a saved child tab mounts before the hidden anchor. Its development-only HTML entry at `/__craft-hub/` loads Vue source through Vite, so it needs no separate client build. The panel does not execute commands, modify trust, expose agent tools, or ship in production builds.
+
 Quality checks:
 
 ```bash
@@ -146,9 +154,11 @@ without invoking a shell.
 - `examples/sample-project` — discovery and execution fixture
 - `docs/design` — accepted visual concepts
 
-## Downstream distributions
+## Host extensions and optional distributions
 
-Community discovery, trust, execution, and storage remain in this repository. A downstream distribution contributes branding and capabilities through the plugin seam:
+Craft Hub is one application. Private capabilities can be installed as trusted Host extensions alongside their declarative Marketplace plugins; they do not require a second application or a separate workbench build. Desktop and the local browser workbench (`craft-hub ui`, `craft-hub app --browser`, and `pnpm dev:web`) load the same enabled, previously approved extensions from the Craft Hub data directory.
+
+Discovery, trust, execution, and storage remain in this repository. A downstream distribution is an optional packaging choice for hosts that need different branding or provisioned defaults:
 
 ```ts
 import { createDistributionOptions } from '@acme/craft-hub-distribution'
@@ -177,6 +187,8 @@ const runtime = createCraftHub({ plugins: [issuePlugin] })
 Hosts that accept package names from configuration can call `loadCraftHubPlugins(specifiers, { baseDir })`. A plugin package exports its plugin object as `default` or `plugin`. Loading executes package code, so only explicitly configured, trusted dependencies should be accepted. Broken plugins are returned as diagnostics and do not prevent healthy plugins from loading; discovery failures are available through `runtime.getPluginDiagnostics()`.
 
 Desktop distributions may list those reviewed modules in the top-level `hostPlugins` array of their distribution manifest. Package names and safe paths relative to the manifest are supported; network URLs and paths outside the distribution directory are rejected. The Community desktop loads these adapters into the same runtime and UI, so downstream products do not need to fork the workbench shell.
+
+For the ordinary application, install that manifest from Marketplace → **Host extensions** once. Local workbench startups restore only its saved, approved module list; Marketplace installation alone never authorizes executable code. A missing or broken Host extension remains visible in diagnostics. See [installation and removal](./docs/guide/plugin-authoring.md#installing-local-host-extensions).
 
 ### Marketplace plugins
 

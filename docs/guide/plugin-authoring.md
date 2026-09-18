@@ -145,8 +145,12 @@ Entity list and search blocks can declare `statusFilter: "active"` or `"all"`. F
 
 ## Installing local host extensions
 
+Use the ordinary Craft Hub application for both public and private plugins. Host extensions supply executable providers, while Marketplace plugins declare their views and actions. A separate branded distribution is optional; installing private capabilities does not require one.
+
 The desktop Marketplace includes a **Host extensions** tab. Add the author's `distribution.json`, review its executable modules, and choose **Trust and add**. Restart once to apply the change. The ordinary Craft Hub application then loads the saved extension on every startup, including launches from Finder or the Dock. No launcher or environment variable is required. Application branding, update configuration and project trust are unchanged.
 
 When linking or enabling a local Marketplace plugin with integration declarations, the desktop also looks for a containing `distribution.json` and offers the same installation flow. Discovery and review do not execute code. Browser clients cannot install executable host modules.
 
 Registrations live in `host-extensions.json` inside the operating-system Craft Hub data directory. They snapshot the approved module paths; editing the original manifest cannot silently add modules. Keep the linked extension and its dependencies at a stable path. Add it again after moving it or changing its module list. Disable or remove an extension from the tab and restart to unload it. Removal preserves source files and Marketplace plugins; those plugins can report unavailable providers until the matching host extension is enabled again.
+
+`craft-hub ui`, browser launches through `craft-hub app` (including desktop fallback), and `pnpm dev:web` restore the same approved extensions on startup. `--host-plugin` remains available for explicitly loading an additional trusted module for one `ui` session; it does not alter saved installations or register the same module twice. CLI help and standalone discovery commands do not import saved extensions. Embedding applications that supply their own runtime retain control of its providers.

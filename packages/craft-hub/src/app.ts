@@ -1,12 +1,13 @@
 import type { ChildProcess } from 'node:child_process'
+import type { CraftHubRuntime } from './runtime'
 import type { ProjectRecord, ProjectReference } from './types'
 import { execFile, spawn } from 'node:child_process'
 import { once } from 'node:events'
 import { resolve } from 'node:path'
 import process from 'node:process'
 import { promisify } from 'node:util'
+import { createLocalCraftHubRuntime } from './local-runtime'
 import { identifyProjectReference, normalizeProjectReference } from './project-reference'
-import { CraftHubRuntime } from './runtime'
 import { startCraftHubServer } from './server'
 import { resolveCraftHubWebDirectory } from './web-assets'
 
@@ -111,7 +112,7 @@ export async function launchCraftHubProject(projectPath: string, options: Launch
 
 /** Register a project, start its local workbench, and optionally open it. */
 export async function launchCraftHubApp(projectPath: string, options: LaunchCraftHubAppOptions = {}): Promise<CraftHubAppLaunch> {
-  const runtime = options.runtime ?? new CraftHubRuntime()
+  const runtime = options.runtime ?? await createLocalCraftHubRuntime()
   const project = await runtime.addProject(resolve(projectPath))
   const staticDir = options.staticDir ?? resolveCraftHubWebDirectory()
   const workbench = await startCraftHubServer({ port: options.port ?? 0, runtime, staticDir })

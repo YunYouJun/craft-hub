@@ -1,4 +1,4 @@
-import { access, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { access, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -118,5 +118,15 @@ describe('persistent host extensions', () => {
     await manager.install(extension)
     const configured = { id: 'acme' }
     expect(await manager.load([configured], [modulePath])).toEqual({ plugins: [configured], diagnostics: [] })
+  })
+
+  it('recognizes a preloaded module through a symlink without executing it again', async () => {
+    const { root, manager, extension, modulePath, marker } = await fixture()
+    await manager.install(extension)
+    const alias = join(root, 'host-alias.mjs')
+    await symlink(modulePath, alias)
+    const configured = { id: 'acme' }
+    expect(await manager.load([configured], [alias])).toEqual({ plugins: [configured], diagnostics: [] })
+    await expect(access(marker)).rejects.toThrow()
   })
 })

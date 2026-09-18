@@ -1,6 +1,6 @@
 import type { CraftHubPlugin, LoadCraftHubPluginsResult } from './plugins'
 import { randomUUID } from 'node:crypto'
-import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { dirname, isAbsolute, resolve } from 'node:path'
 import { z } from 'zod'
@@ -95,8 +95,10 @@ export class HostExtensionManager {
       this.diagnostics.push({ pluginId: this.path, phase: 'load', message: errorMessage(error) })
       return { plugins, diagnostics: structuredClone(this.diagnostics) }
     }
+    const preloadedPaths = new Set(await Promise.all(preloadedModules.map(canonicalModulePath)))
     for (const extension of extensions.filter(item => item.enabled)) {
-      const loaded = await loadCraftHubPlugins(extension.modules.filter(path => !preloadedModules.includes(path)))
+      const modules = await Promise.all(extension.modules.map(canonicalModulePath))
+      const loaded = await loadCraftHubPlugins(modules.filter(path => !preloadedPaths.has(path)))
       // An extension is activated as a whole. Partial registrations must not leave
       // a broken provider set or replace another explicitly configured provider.
       try {
@@ -143,6 +145,11 @@ export class HostExtensionManager {
     this.writeTail = operation.catch(() => {})
     await operation
   }
+}
+
+async function canonicalModulePath(path: string): Promise<string> {
+  // Let the plugin loader report missing or unreadable files as usual.
+  return realpath(path).catch(() => path)
 }
 
 function errorMessage(error: unknown): string {
