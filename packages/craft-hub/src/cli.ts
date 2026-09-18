@@ -8,8 +8,8 @@ import { cac } from 'cac'
 import { callAgentHost, startAgentMcp } from './agent-mcp'
 import { launchCraftHubApp, launchCraftHubProject } from './app'
 import { pairDeliveryDevice } from './delivery/connection'
+import { createLocalCraftHubRuntime } from './local-runtime'
 import { initializeMarketplacePlugin, packMarketplacePlugin, validateMarketplacePlugin } from './plugin-authoring'
-import { loadCraftHubPlugins } from './plugins'
 import { CraftHubRuntime } from './runtime'
 import { startCraftHubServer } from './server'
 import { craftHubVersion } from './version'
@@ -359,7 +359,6 @@ cli.command('app [path]', 'Start Craft Hub for a project directory')
     const launchOptions = {
       open: options.open !== false,
       port: options.port === undefined ? 0 : Number(options.port),
-      runtime,
     }
     const app = options.browser || options.open === false || options.port !== undefined
       ? { kind: 'browser' as const, ...await launchCraftHubApp(path ?? '.', launchOptions) }
@@ -372,8 +371,7 @@ cli.command('ui', 'Start the local Craft Hub workbench')
   .option('--host-plugin <specifier>', 'Load one explicitly trusted Host Plugin package or absolute module path')
   .action(async (options: { port: number, hostPlugin?: string }) => {
     const staticDir = resolveCraftHubWebDirectory()
-    const loaded = options.hostPlugin ? await loadCraftHubPlugins([options.hostPlugin]) : undefined
-    const uiRuntime = loaded ? new CraftHubRuntime({ plugins: loaded.plugins, pluginDiagnostics: loaded.diagnostics }) : runtime
+    const uiRuntime = await createLocalCraftHubRuntime(options.hostPlugin)
     const app = await startCraftHubServer({ port: Number(options.port), staticDir, runtime: uiRuntime })
     console.log(`Craft Hub is ready at ${app.url}`)
   })
