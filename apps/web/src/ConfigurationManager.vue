@@ -19,6 +19,7 @@ const props = defineProps<{ page: ConfigurationManagementPage, contribution: Res
 const emit = defineEmits<{ updated: [page: ConfigurationManagementPage] }>()
 const { locale } = useI18n()
 const copy = (en: string, zh: string) => locale.value === 'zh-CN' ? zh : en
+const translate = (value: string) => props.contribution.translations?.[locale.value]?.[value] ?? value
 const selected = ref('')
 const filter = ref('')
 const kind = ref('all')
@@ -94,7 +95,7 @@ async function invoke(operation: string, input: Record<string, unknown> = {}) {
       <p>{{ copy('Review differences, choose a direction, then preview before applying.', '查看差异、选择处理方向，再预览并应用。') }}</p>
       <Badge :variant="attentionCount ? 'warning' : 'success'">{{ attentionCount }} {{ copy('need review', '项待审阅') }}</Badge>
     </div>
-    <Alert v-if="error" variant="danger"><p>{{ error }}</p><UiButton size="compact" :disabled="busy" @click="invoke('inspect')">{{ copy('Refresh and inspect recovery', '刷新并检查恢复记录') }}</UiButton></Alert>
+    <Alert v-if="error" variant="danger"><p>{{ translate(error) }}</p><UiButton size="compact" :disabled="busy" @click="invoke('inspect')">{{ copy('Refresh and inspect recovery', '刷新并检查恢复记录') }}</UiButton></Alert>
     <p v-if="page.message" role="status" class="configuration-message"><Icon name="check" />{{ label(page.message) }}</p>
     <TabsRoot v-model="section" class="configuration-tabs">
       <TabsList class="workbench-tabs" :aria-label="copy('Configuration management', '配置管理')">
@@ -166,7 +167,7 @@ async function invoke(operation: string, input: Record<string, unknown> = {}) {
       <h3>{{ copy('Repository synchronization', '仓库同步') }}</h3>
       <p>{{ copy('Ahead / behind reflects the last fetch. Fetch updates the checkout only. Publish never force-pushes.', '领先 / 落后基于上次拉取。拉取仅更新仓库；发布不会强推。') }}</p>
       <article v-for="repo in page.repositories" :key="repo.id">
-        <strong>{{ label(repo.id) }}</strong><code>{{ repo.root }}</code><p v-if="repo.error" role="alert">{{ repo.error }}</p>
+        <strong>{{ label(repo.id) }}</strong><code>{{ repo.root }}</code><p v-if="repo.error" role="alert">{{ translate(repo.error) }}</p>
         <template v-else>
           <p>{{ repo.branch }} · {{ copy('Uncommitted', '未提交') }}: {{ repo.paths?.length ?? 0 }} · {{ copy('Unpushed', '未推送') }}: {{ repo.ahead ?? '?' }} · {{ copy('Remote ahead', '远端领先') }}: {{ repo.behind ?? '?' }} <strong v-if="repo.diverged">{{ copy('Diverged', '已分叉') }}</strong></p>
           <details v-if="repo.outgoing?.length"><summary>{{ copy('Review outgoing commits and changed lines', '审阅待发布提交和变更行数') }}</summary><code>{{ repo.outgoing.join(', ') }}</code><pre>{{ repo.outgoingChanges?.join('\n') }}</pre><pre>{{ repo.outgoingDiff }}</pre></details>
@@ -187,7 +188,7 @@ async function invoke(operation: string, input: Record<string, unknown> = {}) {
       <TabsContent value="history">
     <section class="configuration-history">
       <h3>{{ copy('Application and recovery history', '应用与恢复记录') }}</h3><p class="configuration-note">{{ copy('Restore only files unchanged since application. Later edits are protected.', '仅恢复应用后未再次修改的文件，后续修改会受到保护。') }}</p><p v-if="!page.history?.length">{{ copy('No application history yet.', '暂无应用记录。') }}</p>
-      <article v-for="plan in page.history" :key="plan.planId"><code>{{ plan.planId }}</code> · {{ label(plan.state) }}<small>{{ plan.createdAt }}</small><code v-for="path in plan.paths" :key="path">{{ path }}</code><p v-if="plan.error">{{ plan.error }}</p>
+      <article v-for="plan in page.history" :key="plan.planId"><code>{{ plan.planId }}</code> · {{ label(plan.state) }}<small>{{ plan.createdAt }}</small><code v-for="path in plan.paths" :key="path">{{ path }}</code><p v-if="plan.error">{{ translate(plan.error) }}</p>
         <UiButton size="compact" v-if="['applied', 'failed', 'applying'].includes(plan.state)" :disabled="busy" @click="invoke('restore', { planId: plan.planId })">{{ copy('Restore unchanged files from backup', '从备份恢复未再次修改的文件') }}</UiButton>
       </article>
     </section>
@@ -198,7 +199,7 @@ async function invoke(operation: string, input: Record<string, unknown> = {}) {
       <template #description>{{ copy('Only the listed files will change. Commit and publish are separate actions.', '仅修改下列文件。提交和发布需另行操作。') }}</template>
       <template #header-actions><UiButton size="icon" variant="ghost" :aria-label="copy('Close preview', '关闭预览')" @click="previewOpen = false"><Icon name="close" /></UiButton></template>
       <section v-if="page.preview" class="configuration-preview" aria-label="Change preview">
-        <Alert v-if="error" variant="danger">{{ error }}</Alert>
+        <Alert v-if="error" variant="danger">{{ translate(error) }}</Alert>
         <article v-for="change in page.preview.changes" :key="change.path">
           <Badge :variant="change.deletion ? 'danger' : 'secondary'">{{ label(change.direction) }}</Badge><code>{{ change.path }}</code>
           <Alert v-if="change.deletion" variant="danger">{{ copy('This file will be deleted; a backup is retained for recovery.', '此文件将被删除，并保留备份用于恢复。') }}</Alert>

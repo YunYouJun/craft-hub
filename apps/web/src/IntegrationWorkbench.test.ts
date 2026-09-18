@@ -4,6 +4,7 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { createWorkstationPlugin } from '../../../packages/craft-hub-plugin-workstation/src/index'
 import { api } from './api'
 import { useI18n } from './i18n'
 import IntegrationActionForm from './IntegrationActionForm.vue'
@@ -18,6 +19,35 @@ describe('integration workbench', () => {
     pinia = createPinia()
     setActivePinia(pinia)
     useI18n().setLocale('en')
+  })
+
+  it('translates Workstation connection errors and preserves unknown diagnostics', async () => {
+    const integration = createWorkstationPlugin().integrations![0]!
+    const store = useWorkbenchStore()
+    store.integrationContributions = [{
+      ...integration,
+      pluginId: 'workstation',
+      source: 'host:workstation',
+      providerVersion: '1.0.0',
+      actions: integration.actions.map(action => ({ ...action, effectiveConfirmation: action.confirmation })),
+    }]
+    const message = 'Workstation is unavailable. Configure the versioned local CLI on this host.'
+    const invoke = vi.spyOn(api, 'invokeIntegrationAction').mockRejectedValue(new Error(message))
+    useI18n().setLocale('zh-CN')
+    const wrapper = mount(IntegrationWorkbench, { props: { integrationId: 'workstation', viewId: 'environment' }, global: { plugins: [pinia] } })
+    await flushPromises()
+    expect(wrapper.get('[role="alert"]').text()).toBe('无法连接 Workstation。请在本机配置支持当前版本接口的本地 CLI。')
+
+    useI18n().setLocale('en')
+    await flushPromises()
+    expect(wrapper.get('[role="alert"]').text()).toBe(message)
+
+    invoke.mockRejectedValue(new Error('Unknown backend diagnostic'))
+    useI18n().setLocale('zh-CN')
+    await flushPromises()
+    expect(wrapper.get('[role="alert"]').text()).toBe('Unknown backend diagnostic')
+    wrapper.unmount()
+    invoke.mockRestore()
   })
 
   it('keeps folded project actions read-only until a project is selected and a write is confirmed', async () => {

@@ -92,7 +92,24 @@ export function createWorkstationPlugin(transport: WorkstationTransport = workst
       },
     }],
     integrations: [{
-      translations: { 'zh-CN': { 'Inspect configuration': '配置同步', 'Review configuration changes': '审阅配置修改', 'Synchronize repository': '同步仓库' }, 'en': { 开发环境: 'Development environment' } },
+      translations: {
+        'zh-CN': {
+          'Inspect configuration': '配置同步',
+          'Review configuration changes': '审阅配置修改',
+          'Synchronize repository': '同步仓库',
+          'Workstation is unavailable. Configure the versioned local CLI on this host.': '无法连接 Workstation。请在本机配置支持当前版本接口的本地 CLI。',
+          'Workstation timed out. Refresh recovery history before retrying.': 'Workstation 请求超时。请刷新恢复记录后重试。',
+          'Workstation response exceeded its limit.': 'Workstation 返回的数据超出大小限制。',
+          'Unsupported workstation protocol': '不支持此 Workstation 接口版本，请更新本地 CLI。',
+          'Workstation operation failed': 'Workstation 操作失败。',
+          'Invalid workstation response. Check the local CLI version.': 'Workstation 返回的数据无效，请检查本地 CLI 版本。',
+          'Unsupported read operation': '不支持此读取操作。',
+          'Review and confirm the configuration action': '请先审阅并确认配置操作。',
+          'Unsupported configuration operation': '不支持此配置操作。',
+          'Review and confirm the Git action': '请先审阅并确认 Git 操作。',
+        },
+        'en': { 开发环境: 'Development environment' },
+      },
       id: 'workstation',
       provider: { id: 'workstation', requires: '^1.0.0' },
       actions: [
