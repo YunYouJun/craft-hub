@@ -35,6 +35,14 @@ pnpm dev:web
 
 `pnpm dev` starts the runtime watcher, Vite renderer, local API, and Electron shell. `pnpm dev:web` starts the local API and Vite renderer. Both commands prefer `http://127.0.0.1:5173` and report the actual URL when that port is occupied.
 
+### Development inspector
+
+Vite DevTools is enabled only during development. Press **Shift + Alt + D** (**⇧⌥D** on macOS) to reveal the dock, or open `/__devtools/` on the reported Vite URL. Authenticate with the code printed in the development terminal when prompted, then select **Craft Hub Inspector**.
+
+The `craft-hub` Devframe provides a read-only view of registered projects and their trust state, discovered commands and skills, workbench diagnostics, and the latest 30 run records. The official dock group exposes **Projects / Diagnostics / Runs** as child tabs sharing one live iframe; switching tabs preserves the selected project and filter. Use **Refresh** to fetch current data and select a project to inspect its capabilities. The inspector defaults to Simplified Chinese, offers an English switch, and remembers its own language preference in browser storage. Its content and dock child titles switch together; the upstream Vite DevTools shell keeps its own language. Runtime diagnostic messages and project-defined text retain their original content. It reads the existing runtime at `http://127.0.0.1:4318`; starting Vite alone displays an unavailable-runtime message until the local API starts.
+
+The inspector registers through the public `createPluginFromDevframe()` adapter and reuses the workbench logo. Each child dock attaches the official `attachDevToolsFrameNav()` adapter through a dock client script, so navigation also works when a saved child tab mounts before the hidden anchor. Its development-only HTML entry at `/__craft-hub/` loads Vue source through Vite, so it needs no separate client build. The panel does not execute commands, modify trust, expose agent tools, or ship in production builds.
+
 Quality checks:
 
 ```bash

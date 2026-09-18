@@ -32,12 +32,16 @@
     "@iconify-json/svg-spinners": "catalog:",
     "@types/canvas-confetti": "catalog:",
     "@types/semver": "catalog:",
+    "@vitejs/devtools": "catalog:",
+    "@vitejs/devtools-kit": "catalog:",
     "@vitejs/plugin-vue": "catalog:",
     "@vue/test-utils": "catalog:",
+    "devframe": "catalog:",
     "happy-dom": "catalog:",
     "unocss": "catalog:",
     "vite": "catalog:",
     "vitest": "catalog:",
-    "vue-tsc": "catalog:"
+    "vue-tsc": "catalog:",
+    "zod": "catalog:"
   }
 }
