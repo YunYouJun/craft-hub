@@ -87,6 +87,9 @@ describe('delivery receiver', () => {
       const input = run.mock.calls[0]!
       expect(input[0].primaryWorkingDirectory).toContain('delivery-worktrees')
       expect(input[0].primaryWorkingDirectory).not.toBe(repository)
+      const nested = join(input[0].primaryWorkingDirectory, 'nested')
+      await mkdir(nested)
+      await expect(runtime.agentTasks.start({ projectIds: [project.id], primaryProjectId: project.id, prompt: 'bad subdirectory' }, { worktreePath: nested })).rejects.toThrow('not a worktree')
       const next = await executor.start({ ...request(), id: 'continuation', parentId: 'request', continuation: true, prompt: 'Add a second test' })
       await vi.waitFor(async () => expect((await executor.get(next.id))?.status).toBe('completed'))
       expect(run).toHaveBeenCalledTimes(2)

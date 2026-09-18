@@ -140,7 +140,11 @@ export class AgentTaskManager {
     if (options.worktreePath) {
       const prepared = await realpath(options.worktreePath)
       const { stdout } = await promisify(execFile)('git', ['worktree', 'list', '--porcelain', '-z'], { cwd: primary.path, timeout: 15000, maxBuffer: 1024 * 1024 })
-      if (!stdout.split('\0').includes(`worktree ${prepared}`))
+      // Git uses forward slashes on Windows; normalize before the exact path check.
+      const worktrees = stdout.split('\0')
+        .filter(field => field.startsWith('worktree '))
+        .map(field => resolve(field.slice('worktree '.length)))
+      if (!worktrees.includes(prepared))
         throw new Error('The execution directory is not a worktree of the trusted primary project')
       executionRoot = prepared
     }
