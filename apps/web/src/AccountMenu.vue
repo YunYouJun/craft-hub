@@ -185,7 +185,7 @@ onBeforeUnmount(() => {
 .activity-button:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
 .account-avatar { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; background: var(--surface); border: 1px solid var(--border); font-size: 11px; }
 .account-photo { object-fit: cover; }
-.account-panel { position: fixed; inset: auto; max-height: calc(100dvh - 16px); overflow-y: auto; margin: 0; flex-direction: column; align-items: stretch; gap: 10px; width: min(280px, calc(100vw - 16px)); padding: 16px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); box-shadow: 0 8px 30px #0002; white-space: normal; z-index: 45; }
+.account-panel { position: fixed; inset: auto; max-height: calc(100dvh - 16px); overflow-y: auto; margin: 0; flex-direction: column; align-items: stretch; gap: 10px; width: min(280px, calc(100vw - 16px)); padding: 16px; border: 1px solid var(--menu-border); border-radius: 10px; background: var(--menu-background); box-shadow: var(--menu-shadow); white-space: normal; z-index: 45; }
 .account-panel:popover-open { display: flex; }
 .account-id, [role="alert"] { overflow-wrap: anywhere; }
 .account-panel button { cursor: pointer; text-align: start; padding: 6px 8px; border: 1px solid var(--border); border-radius: 5px; }

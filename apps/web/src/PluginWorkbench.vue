@@ -177,7 +177,6 @@ onMounted(() => void loadPanels())
 .plugin-workbench-sidebar button:hover { color: var(--text); background: var(--surface-hover); }
 .plugin-workbench-sidebar button:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
 .plugin-workbench-sidebar button.active { color: var(--workbench-sidebar-active-color); background: var(--workbench-sidebar-active-background); font-weight: var(--workbench-sidebar-active-weight); }
-.plugin-workbench-sidebar button.active::before { position: absolute; inset: var(--workbench-sidebar-selection-inset) auto var(--workbench-sidebar-selection-inset) 0; width: var(--workbench-sidebar-selection-width); border-radius: 1px; background: var(--workbench-sidebar-active-color); content: ''; }
 .plugin-workbench-sidebar button.unavailable { opacity: .72; }
 .plugin-workbench-sidebar :deep(.visual-icon), .plugin-workbench-sidebar .app-icon { width: var(--workbench-sidebar-icon-size); height: var(--workbench-sidebar-icon-size); flex: none; }
 .plugin-workbench-sidebar button > .app-icon { color: var(--danger); }

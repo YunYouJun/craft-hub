@@ -891,7 +891,6 @@ export const useWorkbenchStore = defineStore('workbench', () => {
       if (health?.distribution.name) {
         applicationName.value = health.distribution.name
         document.title = applicationName.value
-        document.documentElement.style.setProperty('--desktop-product-name', JSON.stringify(applicationName.value))
       }
       const groups = await Promise.all(nextProjects.map(async (project) => {
         const [discovery, pins] = await Promise.all([

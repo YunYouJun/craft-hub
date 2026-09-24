@@ -514,6 +514,7 @@ describe('app startup', () => {
     vi.stubGlobal('EventSource', FakeEventSource)
     let navigate: ((navigation: DesktopNavigation) => void) | undefined
     let openHelp: (() => void) | undefined
+    let openSettings: (() => void) | undefined
     window.craftHubDesktop = {
       onDesktopNavigation: vi.fn((callback) => {
         navigate = callback
@@ -521,6 +522,10 @@ describe('app startup', () => {
       }),
       onOpenHelp: vi.fn((callback) => {
         openHelp = callback
+        return () => {}
+      }),
+      onOpenSettings: vi.fn((callback) => {
+        openSettings = callback
         return () => {}
       }),
     }
@@ -547,6 +552,11 @@ describe('app startup', () => {
     const helpTab = [...document.body.querySelectorAll<HTMLElement>('[role="tab"]')].find(tab => tab.textContent === 'Help')
     expect(helpTab?.getAttribute('data-state')).toBe('active')
     expect(document.body.textContent).toContain('Confetti is visual only')
+
+    openSettings?.()
+    await flushPromises()
+    const generalTab = [...document.body.querySelectorAll<HTMLElement>('[role="tab"]')].find(tab => tab.textContent === 'General')
+    expect(generalTab?.getAttribute('data-state')).toBe('active')
     wrapper.unmount()
   })
 

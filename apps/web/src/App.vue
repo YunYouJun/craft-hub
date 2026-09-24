@@ -91,6 +91,8 @@ let stopCodexActivityEvents: (() => void) | undefined
 let stopCelebrationEvents: (() => void) | undefined
 let stopOnboardingEvents: (() => void) | undefined
 let stopHelpEvents: (() => void) | undefined
+let stopSettingsEvents: (() => void) | undefined
+let stopMenuActionEvents: (() => void) | undefined
 let stopMarketplaceImportEvents: (() => void) | undefined
 let stopDesktopNavigationEvents: (() => void) | undefined
 let visibilityRefreshTimer: ReturnType<typeof setTimeout> | undefined
@@ -317,6 +319,15 @@ onBeforeMount(async () => {
     onboardingOpen.value = true
   })
   stopHelpEvents = window.craftHubDesktop?.onOpenHelp?.(() => openSettings('help'))
+  stopSettingsEvents = window.craftHubDesktop?.onOpenSettings?.(() => openSettings())
+  stopMenuActionEvents = window.craftHubDesktop?.onMenuAction?.((action) => {
+    if (action === 'workbench')
+      void openWorkbench()
+    else if (action === 'marketplace')
+      void openMarketplace()
+    else
+      showPalette(action === 'palette-projects' ? 'projects' : action === 'palette-commands' ? 'commands' : 'all')
+  })
   stopMarketplaceImportEvents = window.craftHubDesktop?.onMarketplaceSourceImport?.(catalogUrl => void openMarketplaceSourceImport(catalogUrl))
   stopDesktopNavigationEvents = window.craftHubDesktop?.onDesktopNavigation?.(navigation => void openDesktopNavigation(navigation))
   const pendingMarketplaceImport = await window.craftHubDesktop?.consumeMarketplaceSourceImport?.()
@@ -339,6 +350,8 @@ onBeforeUnmount(() => {
   stopCelebrationEvents?.()
   stopOnboardingEvents?.()
   stopHelpEvents?.()
+  stopSettingsEvents?.()
+  stopMenuActionEvents?.()
   stopMarketplaceImportEvents?.()
   stopDesktopNavigationEvents?.()
   celebration.reset()

@@ -68,6 +68,16 @@ contextBridge.exposeInMainWorld('craftHubDesktop', {
     ipcRenderer.on('craft-hub:open-help', listener)
     return () => ipcRenderer.removeListener('craft-hub:open-help', listener)
   },
+  onOpenSettings: (callback) => {
+    const listener = () => callback()
+    ipcRenderer.on('craft-hub:open-settings', listener)
+    return () => ipcRenderer.removeListener('craft-hub:open-settings', listener)
+  },
+  onMenuAction: (callback) => {
+    const listener = (_event, action) => callback(action)
+    ipcRenderer.on('craft-hub:menu-action', listener)
+    return () => ipcRenderer.removeListener('craft-hub:menu-action', listener)
+  },
   cloudStatus: () => ipcRenderer.invoke('craft-hub:cloud-status'),
   cloudConnect: () => ipcRenderer.invoke('craft-hub:cloud-connect'),
   cloudDisconnect: () => ipcRenderer.invoke('craft-hub:cloud-disconnect'),
