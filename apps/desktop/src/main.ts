@@ -138,6 +138,18 @@ async function openHelp(): Promise<void> {
   mainWindow?.webContents.send('craft-hub:open-help')
 }
 
+async function openSettings(): Promise<void> {
+  await showMainWindow()
+  mainWindow?.webContents.send('craft-hub:open-settings')
+}
+
+type MenuAction = 'workbench' | 'marketplace' | 'palette-all' | 'palette-projects' | 'palette-commands'
+
+async function performMenuAction(action: MenuAction): Promise<void> {
+  await showMainWindow()
+  mainWindow?.webContents.send('craft-hub:menu-action', action)
+}
+
 function installApplicationMenu(): void {
   if (process.platform !== 'darwin')
     return
@@ -147,6 +159,8 @@ function installApplicationMenu(): void {
       label: app.name,
       submenu: [
         { label: `About ${app.name}`, click: () => void showAboutWindow() },
+        { type: 'separator' },
+        { label: 'Settings…', accelerator: 'CommandOrControl+,', click: () => void openSettings() },
         { type: 'separator' },
         { role: 'services' },
         { type: 'separator' },
@@ -159,7 +173,23 @@ function installApplicationMenu(): void {
     },
     { role: 'fileMenu' },
     { role: 'editMenu' },
-    { role: 'viewMenu' },
+    {
+      label: 'View',
+      submenu: [
+        { label: 'Workbench', accelerator: 'CommandOrControl+1', click: () => void performMenuAction('workbench') },
+        { label: 'Marketplace', accelerator: 'CommandOrControl+2', click: () => void performMenuAction('marketplace') },
+        { type: 'separator' },
+        { label: 'Find Anything…', click: () => void performMenuAction('palette-all') },
+        { label: 'Find Project…', accelerator: 'CommandOrControl+P', click: () => void performMenuAction('palette-projects') },
+        { label: 'Find Command…', accelerator: 'CommandOrControl+Shift+P', click: () => void performMenuAction('palette-commands') },
+        { type: 'separator' },
+        { role: 'resetZoom' },
+        { role: 'zoomIn' },
+        { role: 'zoomOut' },
+        { type: 'separator' },
+        { role: 'togglefullscreen' },
+      ],
+    },
     { role: 'windowMenu' },
     {
       role: 'help',

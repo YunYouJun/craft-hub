@@ -51,6 +51,8 @@ interface Window {
     onUpdateStatus?: (callback: (status: DesktopUpdateStatus) => void) => () => void
     onReplayOnboarding?: (callback: () => void) => () => void
     onOpenHelp?: (callback: () => void) => () => void
+    onOpenSettings?: (callback: () => void) => () => void
+    onMenuAction?: (callback: (action: 'workbench' | 'marketplace' | 'palette-all' | 'palette-projects' | 'palette-commands') => void) => () => void
     cloudStatus?: () => Promise<{
       state: 'disabled' | 'disconnected' | 'connecting' | 'connected' | 'error'
       deviceId?: string

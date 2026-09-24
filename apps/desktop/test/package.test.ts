@@ -127,7 +127,7 @@ describe('desktop package scripts', () => {
     expect(preload).toContain('ipcRenderer.on(\'craft-hub:update-status-changed\'')
   })
 
-  it('brands the desktop shell and reserves the macOS title-bar safe area', async () => {
+  it('brands the desktop shell and integrates the toolbar with the macOS title bar', async () => {
     const desktopMainUrl = new URL('../src/main.ts', import.meta.url)
     const webIndexUrl = new URL('../../web/index.html', import.meta.url)
     const webMainUrl = new URL('../../web/src/main.ts', import.meta.url)
@@ -156,12 +156,11 @@ describe('desktop package scripts', () => {
     expect(webMain).toContain('import \'./desktop.css\'')
     expect(webMain).toContain('document.documentElement.dataset.desktopPlatform')
     expect(desktopStyles).toContain(':root[data-desktop-platform=\'darwin\'] .app-shell')
-    expect(desktopStyles).toContain(':root[data-desktop-platform=\'darwin\'] .marketplace-page')
-    expect(desktopStyles).toContain('-webkit-app-region: drag')
+    expect(desktopStyles).toContain(':root[data-desktop-platform=\'darwin\'] .workbench-titlebar')
+    expect(desktopStyles).toContain('padding-left: 88px')
+    expect(desktopStyles).not.toContain('body::before')
+    expect(webStyles).toContain('.workbench-titlebar.desktop-mac { -webkit-app-region: drag; }')
     expect(desktopStyles).toContain('--desktop-titlebar-height: 0px')
-    expect(desktopStyles).toContain('--desktop-titlebar-height: env(titlebar-area-height, 38px)')
-    expect(desktopStyles).toContain('height: var(--desktop-titlebar-height)')
-    expect(desktopStyles).toContain('padding-top: var(--desktop-titlebar-height)')
     expect(webStyles).toMatch(/\.package-drawer-content \{[^}]*top: var\(--desktop-titlebar-height\)/)
     expect(webStyles).toMatch(/\.dialog-overlay \{[^}]*top: var\(--desktop-titlebar-height\)/)
     expect(webStyles).toContain('@import \'./styles/command-palette.css\'')
@@ -171,7 +170,11 @@ describe('desktop package scripts', () => {
     expect(desktopMain).toContain('nativeTheme.shouldUseDarkColors')
     expect(desktopMain).toContain('Replay Getting Started')
     expect(desktopMain).toContain('mainWindow?.webContents.send(\'craft-hub:replay-onboarding\')')
-    expect(await readFile(new URL('../preload.cjs', import.meta.url), 'utf8')).toContain('ipcRenderer.on(\'craft-hub:replay-onboarding\'')
+    expect(desktopMain).toContain('performMenuAction(\'palette-projects\')')
+    expect(desktopMain).toContain('performMenuAction(\'marketplace\')')
+    const preload = await readFile(new URL('../preload.cjs', import.meta.url), 'utf8')
+    expect(preload).toContain('ipcRenderer.on(\'craft-hub:replay-onboarding\'')
+    expect(preload).toContain('ipcRenderer.on(\'craft-hub:menu-action\'')
   })
 
   it('runs one desktop instance and separates development from packaged ports', async () => {
