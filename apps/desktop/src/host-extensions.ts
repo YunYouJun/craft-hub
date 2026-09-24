@@ -3,7 +3,7 @@ import type { BrowserWindow, IpcMainInvokeEvent } from 'electron'
 import { access } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import { dialog, ipcMain } from 'electron'
-import { loadDesktopDistributionManifest } from './distribution'
+import { loadDesktopDistributionManifest } from './distribution.ts'
 
 /** Review a local distribution as an extension without changing application identity or loading code. */
 export async function prepareDesktopHostExtension(manager: HostExtensionManager, manifestPath: string): Promise<HostExtension> {
