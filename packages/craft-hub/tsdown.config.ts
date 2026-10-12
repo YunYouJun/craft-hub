@@ -10,6 +10,8 @@ export default defineConfig({
     'src/index.ts',
     'src/cli.ts',
     'src/command-inputs.ts',
+    'src/personal-workbench.ts',
+    'src/work-items.ts',
     'src/project-config-schema-revision.ts',
     'src/skill-inputs.ts',
     'src/skill-prompts.ts',

@@ -24,6 +24,28 @@ describe('integration status transition control', () => {
     document.body.innerHTML = ''
   })
 
+  it('uses the native item ID and complete account and container scope for transitions and the confirmed write', async () => {
+    const sourceRef = { providerId: 'tasks', instanceId: 'personal-tasks', accountId: 'me', containerId: 'inbox', kind: 'task', itemId: 'native-task-1' }
+    const entity: IntegrationEntity = { id: 'display-task-1', title: 'Review proposal', status: 'open', sourceRef, metadata: { type: 'task', itemId: 'metadata-id' } }
+    const updated = { ...entity, status: 'done' }
+    const invoke = vi.spyOn(api, 'invokeIntegrationAction')
+      .mockResolvedValueOnce({ currentStatus: 'open', transitions: [{ id: 'complete', title: 'Complete', fromStatus: 'open', toStatus: 'done', requiredFields: [] }] })
+      .mockResolvedValueOnce(updated)
+    const wrapper = mount(IntegrationStatusTransitionControl, { props: { entity, integrationId: 'personal-tasks', transitionsActionId: 'transitions', updateActionId: 'update', projectId: 'project-1' }, global: { plugins: [pinia] }, attachTo: document.body })
+    await wrapper.get('.integration-status-trigger').trigger('click')
+    await flushPromises()
+    const input = { type: 'task', itemId: 'native-task-1', sourceRef, title: entity.title, currentStatus: 'open' }
+    expect(invoke).toHaveBeenNthCalledWith(1, 'personal-tasks', 'transitions', input, 'project-1')
+    expect(invoke).toHaveBeenCalledOnce()
+    document.body.querySelector<HTMLButtonElement>('[data-testid="confirm-status-transition"]')!.click()
+    await flushPromises()
+    expect(invoke).toHaveBeenNthCalledWith(2, 'personal-tasks', 'update', { ...input, transitionId: 'complete', status: 'done', fields: {} }, 'project-1', true)
+    expect(wrapper.emitted('updated')).toEqual([[updated]])
+    expect(entity.id).toBe('display-task-1')
+    expect(entity.metadata?.itemId).toBe('metadata-id')
+    wrapper.unmount()
+  })
+
   it('loads native transitions, validates required fields, and confirms the remote write', async () => {
     const updated: IntegrationEntity = {
       id: '22',

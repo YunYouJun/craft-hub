@@ -88,6 +88,60 @@ describe('marketplace dialog', () => {
     vi.unstubAllGlobals()
   })
 
+  it('supports keyboard tab selection with one focus stop and a labelled content panel', async () => {
+    vi.spyOn(api, 'marketplaceCatalog').mockResolvedValue([catalogPlugin])
+    vi.spyOn(api, 'installedPlugins').mockResolvedValue([installedPlugin])
+    vi.spyOn(api, 'marketplaceSources').mockResolvedValue([builtinSource])
+    const wrapper = await mountMarketplace({ open: true }, document.body)
+    await flushPromises()
+    const tabs = wrapper.findAll('[role="tab"]')
+    const tablist = wrapper.get('[role="tablist"]')
+    const panel = wrapper.get('[role="tabpanel"]')
+    expect(tabs).toHaveLength(3)
+    expect(tabs.map(tab => tab.attributes('tabindex'))).toEqual(['0', '-1', '-1'])
+    expect(tabs[0]!.attributes('aria-controls')).toBe(panel.attributes('id'))
+
+    await tablist.trigger('keydown', { key: 'ArrowRight' })
+    expect(tabs[1]!.attributes('aria-selected')).toBe('true')
+    expect(panel.attributes('aria-labelledby')).toBe(tabs[1]!.attributes('id'))
+    expect(document.activeElement).toBe(tabs[1]!.element)
+    expect(wrapper.find('.local-plugin-form').exists()).toBe(true)
+
+    await tablist.trigger('keydown', { key: 'End' })
+    expect(tabs[2]!.attributes('aria-selected')).toBe('true')
+    expect(wrapper.find('.source-form').exists()).toBe(true)
+    await tablist.trigger('keydown', { key: 'ArrowRight' })
+    expect(tabs[0]!.attributes('aria-selected')).toBe('true')
+    await tablist.trigger('keydown', { key: 'ArrowLeft' })
+    expect(tabs[2]!.attributes('aria-selected')).toBe('true')
+    await tablist.trigger('keydown', { key: 'Home' })
+    expect(tabs.map(tab => tab.attributes('tabindex'))).toEqual(['0', '-1', '-1'])
+    expect(document.activeElement).toBe(tabs[0]!.element)
+    wrapper.unmount()
+  })
+
+  it('includes the host extensions tab in keyboard navigation only when the host provides it', async () => {
+    vi.spyOn(api, 'marketplaceCatalog').mockResolvedValue([])
+    vi.spyOn(api, 'installedPlugins').mockResolvedValue([])
+    vi.spyOn(api, 'marketplaceSources').mockResolvedValue([])
+    const hostExtensions = vi.fn(async () => ({ extensions: [], diagnostics: [], restartRequired: false }))
+    window.craftHubDesktop = { hostExtensions }
+    const wrapper = await mountMarketplace({ open: true }, document.body)
+    await flushPromises()
+    expect(hostExtensions).not.toHaveBeenCalled()
+
+    await wrapper.get('[role="tablist"]').trigger('keydown', { key: 'End' })
+    await flushPromises()
+    const tabs = wrapper.findAll('[role="tab"]')
+    expect(tabs).toHaveLength(4)
+    expect(tabs[3]!.attributes('aria-selected')).toBe('true')
+    expect(document.activeElement).toBe(tabs[3]!.element)
+    expect(hostExtensions).toHaveBeenCalledOnce()
+    await wrapper.get('[role="tablist"]').trigger('keydown', { key: 'ArrowRight' })
+    expect(tabs[0]!.attributes('aria-selected')).toBe('true')
+    wrapper.unmount()
+  })
+
   it('localizes plugin titles and descriptions, searches both languages, and falls back to the default title', async () => {
     const translated = { ...catalogPlugin, localizations: { 'zh-CN': { displayName: '示例工具', description: '中文插件简介' } } }
     vi.spyOn(api, 'marketplaceCatalog').mockResolvedValue([translated])

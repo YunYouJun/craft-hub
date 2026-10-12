@@ -7,6 +7,8 @@
     "paths": {
       "@craft-hub/craft-hub-plugin-workstation": ["./packages/craft-hub-plugin-workstation/src/index.ts"],
       "craft-hub": ["./packages/craft-hub/src/index.ts"],
+      "craft-hub/personal-workbench": ["./packages/craft-hub/src/personal-workbench.ts"],
+      "craft-hub/work-items": ["./packages/craft-hub/src/work-items.ts"],
       "craft-hub/project-config-schema-revision": ["./packages/craft-hub/src/project-config-schema-revision.ts"],
       "craft-hub/skill-inputs": ["./packages/craft-hub/src/skill-inputs.ts"],
       "craft-hub/skill-prompts": ["./packages/craft-hub/src/skill-prompts.ts"],

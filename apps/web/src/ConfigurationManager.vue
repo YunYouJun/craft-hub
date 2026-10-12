@@ -219,7 +219,6 @@ async function invoke(operation: string, input: Record<string, unknown> = {}) {
 .configuration-note, small { color: var(--muted); line-height: var(--line-height-emphasis); }
 .configuration-message { display: flex; align-items: center; gap: var(--space-2); color: var(--success); }
 .configuration-tabs .workbench-tabs { margin-bottom: var(--space-3); }
-.workbench-tabs [data-state='active'] { color: var(--accent); box-shadow: inset 0 -2px var(--accent); }
 .configuration-toolbar { display: grid; grid-template-columns: minmax(120px, 1fr) minmax(110px, 160px) minmax(120px, 180px) auto; align-items: center; gap: var(--space-2); margin-bottom: var(--space-3); }
 .configuration-columns { display: grid; grid-template-columns: minmax(220px, 30%) minmax(0, 1fr); height: clamp(260px, calc(100dvh - 430px), 700px); min-height: 0; border: 1px solid var(--border); border-radius: var(--control-radius); overflow: hidden; }
 .configuration-list { min-height: 0; overflow: auto; border-right: 1px solid var(--border); background: var(--workbench-sidebar-background); scrollbar-width: thin; }

@@ -1,0 +1,73 @@
+<script setup lang="ts">
+import type { WorkbenchNavigationEntry, WorkbenchNavigationGroup } from './workbench-navigation'
+import { computed } from 'vue'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
+import { isIconName } from './icons'
+import NavigationIcon from './NavigationIcon.vue'
+import VisualIcon from './VisualIcon.vue'
+
+const props = defineProps<{ title: string, icon?: string, groups: WorkbenchNavigationGroup[] }>()
+
+const route = useRoute()
+const router = useRouter()
+const headerBuiltinIcon = computed(() => builtinIcon(props.icon))
+
+function builtinIcon(icon?: string) {
+  const name = icon?.startsWith('builtin:') ? icon.slice('builtin:'.length) : undefined
+  return isIconName(name) ? name : undefined
+}
+
+function isActive(entry: WorkbenchNavigationEntry): boolean {
+  const target = router.resolve(entry.to)
+  if (route.path !== target.path && !(entry.match === 'prefix' && route.path.startsWith(`${target.path}/`)))
+    return false
+
+  const currentQuery = { ...route.query }
+  if (target.name === 'integration' && !Object.hasOwn(target.query, 'scope') && currentQuery.scope === 'global')
+    delete currentQuery.scope
+  const queryKeys = entry.match === 'prefix' ? Object.keys(target.query) : new Set([...Object.keys(target.query), ...Object.keys(currentQuery)])
+  return [...queryKeys].every(key => JSON.stringify(target.query[key]) === JSON.stringify(currentQuery[key]))
+}
+</script>
+
+<template>
+  <header class="section-navigation-header">
+    <NavigationIcon v-if="headerBuiltinIcon" :name="headerBuiltinIcon" />
+    <VisualIcon v-else :icon="icon" fallback="workspace" monochrome />
+    <strong>{{ title }}</strong>
+  </header>
+  <nav class="section-navigation" :aria-label="title">
+    <div v-for="(group, index) in groups" :key="index" class="section-navigation-group">
+      <h2 v-if="group.title">{{ group.title }}</h2>
+      <RouterLink v-for="entry in group.entries" :key="entry.key" v-slot="{ href, navigate }" :to="entry.to" custom>
+        <a :href="href" :title="entry.title" :class="{ active: isActive(entry) }" :aria-current="isActive(entry) ? 'page' : undefined" @click="navigate">
+          <NavigationIcon v-if="builtinIcon(entry.icon)" :name="builtinIcon(entry.icon)!" />
+          <VisualIcon v-else :icon="entry.icon" fallback="list" monochrome />
+          <span>{{ entry.title }}</span>
+        </a>
+      </RouterLink>
+    </div>
+  </nav>
+</template>
+
+<style scoped>
+.section-navigation-header { display: flex; flex: none; min-height: var(--workbench-sidebar-header-height); align-items: center; gap: var(--space-2); padding: 6px var(--workbench-sidebar-padding-inline); border-bottom: 1px solid var(--workbench-sidebar-border); }
+.section-navigation-header > .visual-icon, .section-navigation-header > .app-icon { width: var(--workbench-sidebar-icon-size); height: var(--workbench-sidebar-icon-size); flex: none; }
+.section-navigation-header strong { flex: 1; min-width: 0; color: var(--workbench-sidebar-color); font-size: var(--workbench-sidebar-font-size); font-weight: var(--workbench-sidebar-heading-weight); overflow-wrap: anywhere; }
+.section-navigation { display: grid; align-content: start; gap: var(--workbench-sidebar-group-gap); min-height: 0; overflow-y: auto; scrollbar-width: thin; padding: var(--space-2) 0 var(--space-3); }
+.section-navigation-group { display: grid; gap: 2px; min-width: 0; }
+.section-navigation-group h2 { margin: 0; padding: var(--space-2) var(--workbench-sidebar-padding-inline); color: var(--text-secondary); font-size: var(--font-size-caption); font-weight: var(--workbench-sidebar-heading-weight); }
+.section-navigation a { display: flex; min-height: var(--workbench-sidebar-row-height); align-items: center; gap: var(--space-2); min-width: 0; margin: 0 var(--workbench-sidebar-item-inset); padding: var(--space-1) var(--workbench-sidebar-item-padding); border-radius: var(--workbench-sidebar-item-radius); color: var(--workbench-sidebar-color); background: transparent; text-align: start; text-decoration: none; font-size: var(--workbench-sidebar-font-size); font-weight: var(--workbench-sidebar-font-weight); white-space: nowrap; }
+.section-navigation a > span:not(.visual-icon):not(.app-icon) { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.section-navigation a:hover { color: var(--text); background: var(--surface-hover); }
+.section-navigation a:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+.section-navigation a.active { color: var(--workbench-sidebar-active-color); background: var(--workbench-sidebar-active-background); font-weight: var(--workbench-sidebar-active-weight); }
+.section-navigation :deep(.visual-icon), .section-navigation :deep(.app-icon) { width: var(--workbench-sidebar-icon-size); height: var(--workbench-sidebar-icon-size); flex: none; }
+@media (max-width: 900px) {
+  .section-navigation { display: flex; gap: var(--space-2); overflow-x: auto; scrollbar-width: thin; padding: var(--space-1) var(--space-2); }
+  .section-navigation-group { display: flex; flex: none; }
+  .section-navigation-group + .section-navigation-group { border-left: 1px solid var(--workbench-sidebar-border); padding-left: var(--space-2); }
+  .section-navigation-group h2 { display: none; }
+  .section-navigation a { flex: none; min-height: 40px; margin: 0; }
+}
+</style>

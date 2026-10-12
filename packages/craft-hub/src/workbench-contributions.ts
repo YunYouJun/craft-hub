@@ -24,6 +24,15 @@ export const workbenchViewReferenceSchema = z.discriminatedUnion('type', [
     panel: workbenchIdSchema,
     group: localizedWorkbenchTextSchema.optional(),
   }),
+  z.strictObject({
+    type: z.literal('host'),
+    view: z.enum(['work-items', 'projects']),
+    group: localizedWorkbenchTextSchema.optional(),
+    integrations: z.array(workbenchIdSchema).max(100).optional(),
+  }).superRefine((reference, context) => {
+    if (reference.view !== 'work-items' && reference.integrations !== undefined)
+      context.addIssue({ code: 'custom', message: 'Source selection requires the work-items host view', path: ['integrations'] })
+  }),
 ])
 
 /** A product-level workbench that composes existing plugin views without owning their behavior. */
@@ -37,9 +46,11 @@ export const workbenchContributionSchema = z.strictObject({
 }).superRefine((workbench, context) => {
   const references = new Set<string>()
   for (const [index, view] of workbench.views.entries()) {
-    const key = view.type === 'integration'
-      ? `integration:${view.plugin}:${view.integration}:${view.view}`
-      : `navigation:${view.plugin}:${view.panel}`
+    const key = view.type === 'host'
+      ? `host:${view.view}`
+      : view.type === 'integration'
+        ? `integration:${view.plugin}:${view.integration}:${view.view}`
+        : `navigation:${view.plugin}:${view.panel}`
     if (references.has(key))
       context.addIssue({ code: 'custom', message: `Workbench view reference must be unique: ${key}`, path: ['views', index] })
     references.add(key)
@@ -59,7 +70,7 @@ export interface InstalledPluginWorkbench {
   description?: string
   icon?: string
   order?: number
-  views: Array<(Omit<Extract<WorkbenchViewReference, { type: 'integration' }>, 'group'> | Omit<Extract<WorkbenchViewReference, { type: 'navigation' }>, 'group'>) & { group?: string }>
+  views: Array<(Omit<Extract<WorkbenchViewReference, { type: 'integration' }>, 'group'> | Omit<Extract<WorkbenchViewReference, { type: 'navigation' }>, 'group'> | Omit<Extract<WorkbenchViewReference, { type: 'host' }>, 'group'>) & { group?: string }>
 }
 
 /** Resolve workbench copy for the requested locale while preserving inert view references. */

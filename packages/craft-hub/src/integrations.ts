@@ -1,7 +1,9 @@
 import type { ConfigurationManagementPage } from './configuration-management'
 import type { ResourcePage, ResourcePageAdapter } from './resource-pages'
+import type { WorkItemDueDate, WorkItemPersonalMembership, WorkItemSourceRef } from './work-items'
 import { satisfies, validRange } from 'semver'
 import { z } from 'zod'
+import { workItemFieldsSchema, workItemPageFieldsSchema } from './work-items'
 
 export const integrationEffectSchema = z.enum(['local-read', 'local-write', 'remote-read', 'remote-write'])
 export const integrationConfirmationSchema = z.enum(['never', 'risk-based', 'always'])
@@ -131,6 +133,8 @@ export type IntegrationOperation = z.infer<typeof integrationOperationSchema>
 export type IntegrationContribution = z.infer<typeof integrationContributionSchema>
 
 export interface IntegrationProviderContext {
+  /** Actual integration instance selected by the host; never accepted from caller-supplied context. */
+  integrationId?: string
   /** Host location, supplied by the runtime rather than plugin input. */
   hostEnvironment?: 'local' | 'hosted'
   /** Host-derived project catalog for cross-project reads and execution scope checks. */
@@ -165,6 +169,14 @@ export interface IntegrationConnectionStatus {
 export interface IntegrationEntity {
   configurationToggle?: { enabled: boolean, inherited: boolean, revision: string, scope: 'global' | 'project' }
   id: string
+  /** Stable provider identity, required for persisted project associations; absent on legacy providers. */
+  sourceRef?: WorkItemSourceRef
+  /** Explicit personal ownership or assignment, scoped to the authorized source account. */
+  personalMembership?: WorkItemPersonalMembership
+  /** Provider-local deadline and timezone, without host-local date conversion. */
+  dueDate?: WorkItemDueDate
+  /** Source modification time as an ISO instant with a UTC offset. */
+  updatedAt?: string
   /** Provider availability hint for this entity and request context; writes still require server authorization. */
   statusUpdateAvailable?: boolean
   title: string
@@ -184,7 +196,7 @@ export interface IntegrationEntity {
   description?: string
   metadata?: Record<string, string | number | boolean | null>
   /** Root-to-parent context, independent of this item's status and the current result filters. */
-  ancestors?: Array<Pick<IntegrationEntity, 'id' | 'title' | 'url' | 'status' | 'statusLabel' | 'statusCategory' | 'archived' | 'metadata'>>
+  ancestors?: Array<Pick<IntegrationEntity, 'id' | 'title' | 'sourceRef' | 'url' | 'status' | 'statusLabel' | 'statusCategory' | 'archived' | 'metadata'>>
   /** Display-safe fields supplied by the provider, never raw configuration. */
   details?: Array<{ label: string, value: string, sourcePath?: string }>
 }
@@ -202,6 +214,10 @@ export interface IntegrationEntityPage {
   /** Identity of the account authorized with this provider, never inferred from the host user. */
   currentUser?: { id: string, label?: string }
   nextCursor?: string
+  /** Whether this provider read covers the requested scope; a cursor always indicates more pages. */
+  coverage?: 'complete' | 'partial'
+  /** Time this provider read was fetched, as an ISO instant with a UTC offset. */
+  fetchedAt?: string
 }
 
 export interface WorkItemIntegrationAdapter {
@@ -405,7 +421,7 @@ export class IntegrationRegistry {
     const provider = this.providers.get(options.contribution.provider.id)
     if (!provider)
       throw new Error(`Integration provider is unavailable: ${options.contribution.provider.id}`)
-    const context = { ...options.context, confirmed: options.confirmed === true }
+    const context = { ...options.context, integrationId: options.contribution.id, confirmed: options.confirmed === true }
     const input = options.input ?? {}
     const query = integrationEntityQuery(input)
 
@@ -433,11 +449,11 @@ export class IntegrationRegistry {
       }
       case 'configuration.update': return requireMethod(provider.configurationManagement?.update ?? provider.configuration?.update, action.operation)(context, input)
       case 'configuration.list': return requireMethod(provider.configuration?.list, action.operation)(context, input)
-      case 'work-items.get': return requireMethod(provider.workItems?.get, action.operation)(context, input)
-      case 'work-items.search': return requireAdapter(provider.workItems, action.operation).search(context, query)
-      case 'work-items.list': return requireAdapter(provider.workItems, action.operation).list(context, query)
+      case 'work-items.get': return validateWorkItem(await requireMethod(provider.workItems?.get, action.operation)(context, input), provider.id, options.contribution.id)
+      case 'work-items.search': return validateWorkItemPage(await requireAdapter(provider.workItems, action.operation).search(context, query), provider.id, options.contribution.id)
+      case 'work-items.list': return validateWorkItemPage(await requireAdapter(provider.workItems, action.operation).list(context, query), provider.id, options.contribution.id)
       case 'work-items.transitions': return requireMethod(provider.workItems?.transitions, action.operation)(context, input)
-      case 'work-items.update-status': return requireMethod(provider.workItems?.updateStatus, action.operation)(context, input)
+      case 'work-items.update-status': return validateWorkItem(await requireMethod(provider.workItems?.updateStatus, action.operation)(context, input), provider.id, options.contribution.id)
       case 'workspaces.get': return requireMethod(provider.workspaces?.get, action.operation)(context, input)
       case 'repositories.search': return requireAdapter(provider.repositories, action.operation).search(context, query)
       case 'merge-requests.list': return requireAdapter(provider.mergeRequests, action.operation).list(context, query)
@@ -462,6 +478,22 @@ export class IntegrationRegistry {
   private diagnostic(contribution: InstalledIntegrationContribution, message: string): IntegrationDiagnostic {
     return { integrationId: contribution.id, pluginId: contribution.pluginId, message }
   }
+}
+
+function validateWorkItem(item: IntegrationEntity, providerId: string, instanceId: string): IntegrationEntity {
+  workItemFieldsSchema.parse(item)
+  if (item.sourceRef && (item.sourceRef.providerId !== providerId || item.sourceRef.instanceId !== instanceId))
+    throw new Error('Work item source identity must match its provider and integration instance')
+  for (const ancestor of item.ancestors ?? [])
+    validateWorkItem(ancestor, providerId, instanceId)
+  return item
+}
+
+function validateWorkItemPage(page: IntegrationEntityPage, providerId: string, instanceId: string): IntegrationEntityPage {
+  workItemPageFieldsSchema.parse(page)
+  for (const item of page.items)
+    validateWorkItem(item, providerId, instanceId)
+  return page
 }
 
 function integrationEntityQuery(input: Record<string, unknown>): IntegrationEntityQuery {

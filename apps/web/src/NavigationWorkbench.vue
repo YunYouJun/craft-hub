@@ -44,7 +44,7 @@ onMounted(() => void loadPanels())
 </script>
 
 <template>
-  <WorkbenchViewFrame class="navigation-workbench" :title="t('navigationWorkbench')" :description="t('navigationWorkbenchDescription')" icon="builtin:compass">
+  <WorkbenchViewFrame class="navigation-workbench" :title="locale === 'zh-CN' ? '网站导航' : 'Website navigation'" :description="t('navigationWorkbenchDescription')" icon="builtin:compass">
     <template #actions><UiButton size="compact" @click="emit('managePlugins')"><Icon name="settings" />{{ t('manageNavigationPlugins') }}</UiButton></template>
     <div class="navigation-search-row">
       <label class="navigation-search"><Icon name="search" /><input v-model="query" type="search" :placeholder="t('searchNavigationLinks')" :aria-label="t('searchNavigationLinks')"><button v-if="query" type="button" :aria-label="t('clearSearch')" @click="query = ''"><Icon name="close" /></button></label>

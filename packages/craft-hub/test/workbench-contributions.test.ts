@@ -73,4 +73,16 @@ describe('workbench contributions', () => {
   it('accepts references to local views and declared child plugins', () => {
     expect(pluginManifestV1Schema.parse(manifest()).contributes.workbenches).toHaveLength(1)
   })
+
+  it('composes data-only host views without a provider or changing execution permissions', () => {
+    const result = pluginManifestV1Schema.parse(manifest({ ...workbench, views: [
+      { type: 'host', view: 'work-items', integrations: ['issues'], group: { 'default': 'Work', 'zh-CN': '工作事项' } },
+      { type: 'host', view: 'projects', group: 'Projects' },
+    ] }))
+    expect(result.permissions).toEqual([])
+    expect(localizeWorkbench(result.contributes.workbenches[0]!, 'zh-CN').views[0]?.group).toBe('工作事项')
+    expect(() => workbenchContributionSchema.parse({ ...workbench, views: [{ type: 'host', view: 'terminal' }] })).toThrow()
+    expect(() => workbenchContributionSchema.parse({ ...workbench, views: [{ type: 'host', view: 'projects', integrations: ['issues'] }] })).toThrow()
+    expect(() => workbenchContributionSchema.parse({ ...workbench, views: [{ type: 'host', view: 'projects', command: 'anything' }] })).toThrow()
+  })
 })

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { copyText } from './clipboard'
 import type { AgentConnectionStatus } from 'craft-hub'
 import { computed, onMounted, ref } from 'vue'
 import { api } from './api'
@@ -53,7 +54,7 @@ async function update(enabled: boolean): Promise<void> {
 }
 async function copyConfig(): Promise<void> {
   try {
-    await navigator.clipboard.writeText(configuration.value)
+    await copyText(configuration.value)
     copied.value = true
   }
   catch (caught) { error.value = caught instanceof Error ? caught.message : String(caught) }

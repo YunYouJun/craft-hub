@@ -99,7 +99,7 @@ describe('craft hub server lifecycle', () => {
       })
       expect(response.status).toBe(200)
       await expect(response.json()).resolves.toEqual({ items: [{ id: '1', title: 'Example issue' }] })
-      expect(calls).toEqual([{ projectId: project.id, projectPath: project.path, confirmed: false, limit: 30, hostEnvironment: 'local' }])
+      expect(calls).toEqual([{ projectId: project.id, projectPath: project.path, confirmed: false, limit: 30, hostEnvironment: 'local', integrationId: 'acme-issues' }])
     }
     finally {
       await app.close()

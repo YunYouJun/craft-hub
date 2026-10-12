@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 /// <reference lib="dom" />
 
-import type { AgentTaskRecord, Capability, CommandCapability, ProjectRecord, RunRecord, WorkspaceManifest } from 'craft-hub'
+import type { AgentTaskRecord, Capability, CommandCapability, ProjectRecord, RunRecord, SettingsSnapshot, WorkspaceManifest } from 'craft-hub'
 import { projectConfigSchemaRevision } from 'craft-hub'
 import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -57,6 +57,38 @@ describe('workbench refresh', () => {
   })
 
   afterEach(() => vi.unstubAllGlobals())
+
+  it('coalesces settings reads and preserves a newer saved home when an older read finishes', async () => {
+    const snapshot: SettingsSnapshot = {
+      explicitKeys: ['workbench.home'],
+      path: '/settings.json',
+      revision: 'newer',
+      settings: {
+        'workbench.codex': {},
+        'workbench.editor': { default: 'vscode' },
+        'workbench.home': { tools: [{ id: 'new', title: 'Saved tool', group: 'Tools', url: 'https://example.com/' }], pinnedProjectIds: ['project'] },
+        'workbench.locale': 'en',
+        'workbench.repositoriesRoot': '',
+        'workbench.shortcuts': {},
+        'workbench.theme': 'system',
+      },
+    }
+    let resolveRead!: (value: Response) => void
+    const fetch = vi.fn(() => new Promise<Response>((resolve) => {
+      resolveRead = resolve
+    }))
+    vi.stubGlobal('fetch', fetch)
+    const store = useWorkbenchStore()
+    const first = store.loadSettings()
+    const second = store.loadSettings()
+    await store.applySettings(snapshot)
+    resolveRead(new Response(JSON.stringify({ ...snapshot, revision: 'older', settings: { ...snapshot.settings, 'workbench.home': { tools: [] } } })))
+    await Promise.all([first, second])
+    expect(fetch).toHaveBeenCalledTimes(1)
+    expect(store.settings?.revision).toBe('newer')
+    expect(store.settings?.settings['workbench.home']).toEqual(snapshot.settings['workbench.home'])
+    expect(store.settingsLoadState).toBe('ready')
+  })
 
   it('retains completion streamed before the task creation response', async () => {
     const store = useWorkbenchStore()

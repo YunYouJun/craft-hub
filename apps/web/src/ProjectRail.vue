@@ -14,15 +14,16 @@ import ProjectIcon from './ProjectIcon.vue'
 import { projectAccentStyle } from './project-visuals'
 import { useWorkbenchStore } from './store'
 import VisualIcon from './VisualIcon.vue'
+import { classifyWorkbenchSection } from './workbench-navigation'
 
-withDefaults(defineProps<{
-  activeView?: 'diagnostics' | 'integration' | 'marketplace' | 'navigation' | 'plugin-workbench' | 'subscriptions' | 'workbench'
+const props = withDefaults(defineProps<{
+  activeView?: 'diagnostics' | 'tools' | 'software' | 'environment' | 'integration' | 'marketplace' | 'navigation' | 'overview' | 'plugin-workbench' | 'subscriptions' | 'workbench' | 'workbenches'
   activeIntegrationId?: string
   activeIntegrationViewId?: string
   activePluginWorkbenchId?: string
   activePluginWorkbenchPluginId?: string
 }>(), { activeView: 'workbench', activeIntegrationId: '', activeIntegrationViewId: '', activePluginWorkbenchId: '', activePluginWorkbenchPluginId: '' })
-const emit = defineEmits<{ openDiagnostics: [], openIntegration: [integrationId: string, viewId: string], openMarketplace: [], openNavigation: [], openPluginWorkbench: [pluginId: string, workbenchId: string], openSettings: [], openWorkbench: [] }>()
+const emit = defineEmits<{ openDiagnostics: [], openEnvironment: [], openTools: [], openWorkbenches: [], openIntegration: [integrationId: string, viewId: string], openMarketplace: [], openOverview: [], openSettings: [], openWorkbench: [] }>()
 const store = useWorkbenchStore()
 const { t, locale } = useI18n()
 const router = useRouter()
@@ -114,6 +115,7 @@ const hasSearchResults = computed(() => filteredWorkspaces.value.length > 0 || v
 const teamSyncNeedsAttention = computed(() => Boolean(store.activeTeamSyncStatus
   && (store.activeTeamSyncStatus.state !== 'clean' || store.activeTeamSyncStatus.workingTreeChanged)))
 const diagnosticCount = computed(() => store.workbenchDiagnostics.summary.errors + store.workbenchDiagnostics.summary.warnings)
+const activeSection = computed(() => classifyWorkbenchSection(props.activeView, store.integrationViews.find(view => view.integrationId === props.activeIntegrationId && view.id === props.activeIntegrationViewId)))
 
 async function switchOwnerScope(value: unknown): Promise<void> {
   if (typeof value !== 'string')
@@ -804,68 +806,84 @@ async function addProjectPath(projectPath: string): Promise<void> {
     submitting.value = false
   }
 }
+
+function openProject(projectId: string): void {
+  emit('openWorkbench')
+  void store.selectProject(projectId)
+}
+
+function openWorkspace(workspaceId: string): void {
+  emit('openWorkbench')
+  store.selectWorkspace(workspaceId)
+}
 </script>
 
 <template>
   <aside class="project-rail">
     <div class="activity-rail">
       <button
-        class="activity-button brand-mark"
-        :class="{ active: activeView === 'workbench' }"
-        data-testid="open-workbench"
-        :aria-label="store.applicationName"
-        :title="store.applicationName"
-        @click="emit('openWorkbench')"
-      ><Icon name="hub" /></button>
+        type="button"
+        class="activity-button overview-button"
+        :class="{ active: activeSection === 'home' }"
+        :aria-current="activeSection === 'home' ? 'page' : undefined"
+        data-testid="open-overview"
+        :aria-label="locale === 'zh-CN' ? '首页' : 'Home'"
+        :title="locale === 'zh-CN' ? '首页' : 'Home'"
+        @click="emit('openOverview')"
+      ><Icon name="home" /></button>
       <button
-        class="activity-button navigation-button"
-        :class="{ active: activeView === 'navigation' }"
-        data-testid="open-navigation"
-        :aria-label="t('navigationWorkbench')"
-        :title="t('navigationWorkbench')"
-        @click="emit('openNavigation')"
-      >
-        <Icon name="compass" />
-      </button>
-      <button type="button" class="activity-button" :class="{ active: activeView === 'subscriptions' }" :aria-label="locale === 'zh-CN' ? '工作区配置源' : 'Workspace sources'" :title="locale === 'zh-CN' ? '工作区配置源' : 'Workspace sources'" @click="router.push('/subscriptions')"><Icon name="workspace" /></button>
+        type="button"
+        class="activity-button projects-button"
+        :class="{ active: activeSection === 'projects' }"
+        :aria-current="activeSection === 'projects' ? 'page' : undefined"
+        data-testid="open-workbench"
+        :aria-label="locale === 'zh-CN' ? '项目' : 'Projects'"
+        :title="locale === 'zh-CN' ? '项目' : 'Projects'"
+        @click="emit('openWorkbench')"
+      ><Icon name="folder" /></button>
+      <button
+        type="button"
+        class="activity-button tools-button"
+        :class="{ active: activeSection === 'tools' }"
+        :aria-current="activeSection === 'tools' ? 'page' : undefined"
+        data-testid="open-tools"
+        :aria-label="locale === 'zh-CN' ? '工具' : 'Tools'"
+        :title="locale === 'zh-CN' ? '工具' : 'Tools'"
+        @click="emit('openTools')"
+      ><Icon name="package" /></button>
+      <button
+        type="button"
+        class="activity-button environment-button"
+        :class="{ active: activeSection === 'environment' }"
+        :aria-current="activeSection === 'environment' ? 'page' : undefined"
+        data-testid="open-environment"
+        :aria-label="locale === 'zh-CN' ? '开发环境' : 'Development environment'"
+        :title="locale === 'zh-CN' ? '开发环境' : 'Development environment'"
+        @click="emit('openEnvironment')"
+      ><Icon name="terminal" /></button>
+      <button
+        type="button"
+        class="activity-button workbenches-button"
+        :class="{ active: activeSection === 'workbenches' }"
+        :aria-current="activeSection === 'workbenches' ? 'page' : undefined"
+        data-testid="open-workbenches"
+        :aria-label="locale === 'zh-CN' ? '工作台' : 'Workbenches'"
+        :title="locale === 'zh-CN' ? '工作台' : 'Workbenches'"
+        @click="emit('openWorkbenches')"
+      ><Icon name="hub" /></button>
       <button
         class="activity-button marketplace-button"
         :class="{ active: activeView === 'marketplace' }"
+        :aria-current="activeView === 'marketplace' ? 'page' : undefined"
         data-testid="open-marketplace"
-        :aria-label="t('pluginMarketplace')"
-        :title="t('pluginMarketplace')"
+        :aria-label="locale === 'zh-CN' ? '插件管理' : 'Plugins'"
+        :title="locale === 'zh-CN' ? '插件管理' : 'Plugins'"
         @click="emit('openMarketplace')"
-      >
-        <Icon name="plugins" />
-      </button>
-      <button
-        v-for="workbench in store.pluginWorkbenches"
-        :key="`${workbench.pluginId}:${workbench.id}`"
-        class="activity-button plugin-workbench-button"
-        :class="{ active: activeView === 'plugin-workbench' && activePluginWorkbenchPluginId === workbench.pluginId && activePluginWorkbenchId === workbench.id }"
-        :data-testid="`open-plugin-workbench-${workbench.id}`"
-        :aria-label="workbench.title"
-        :title="workbench.title"
-        @click="emit('openPluginWorkbench', workbench.pluginId, workbench.id)"
-      >
-        <VisualIcon :icon="workbench.icon" fallback="workspace" />
-      </button>
-      <button
-        v-for="view in store.standaloneIntegrationViews"
-        :key="`${view.integrationId}:${view.id}`"
-        class="activity-button integration-button"
-        :class="{ active: activeView === 'integration' && activeIntegrationId === view.integrationId && activeIntegrationViewId === view.id }"
-        :aria-current="activeView === 'integration' && activeIntegrationId === view.integrationId && activeIntegrationViewId === view.id ? 'page' : undefined"
-        :data-testid="`open-integration-${view.integrationId}-${view.id}`"
-        :aria-label="view.title"
-        :title="view.title"
-        @click="emit('openIntegration', view.integrationId, view.id)"
-      >
-        <VisualIcon :icon="view.icon" fallback="plugins" monochrome />
-      </button>
+      ><Icon name="plugins" /></button>
       <button
         class="activity-button diagnostics-button"
         :class="{ active: activeView === 'diagnostics', attention: diagnosticCount > 0 }"
+        :aria-current="activeView === 'diagnostics' ? 'page' : undefined"
         data-testid="open-diagnostics"
         :aria-label="t('diagnostics')"
         :title="t('diagnostics')"
@@ -887,6 +905,11 @@ async function addProjectPath(projectPath: string): Promise<void> {
     </div>
     <div class="rail-content" :class="{ 'search-active': normalizedSearch }" :inert="activeView !== 'workbench'" :aria-hidden="activeView !== 'workbench'">
       <div class="rail-controls">
+        <header class="project-section-heading"><Icon name="folder" /><strong>{{ locale === 'zh-CN' ? '项目' : 'Projects' }}</strong></header>
+        <nav class="project-section-tabs" :aria-label="locale === 'zh-CN' ? '项目导航' : 'Project navigation'">
+          <button type="button" aria-current="page" @click="emit('openWorkbench')">{{ locale === 'zh-CN' ? '项目与工作区' : 'Projects and workspaces' }}</button>
+          <button type="button" data-testid="open-workspace-sources" @click="router.push('/subscriptions')">{{ locale === 'zh-CN' ? '配置源' : 'Workspace sources' }}</button>
+        </nav>
         <div class="owner-scope-switcher">
           <div class="owner-scope-select">
             <Select :model-value="store.activeOwnerScopeId" @update:model-value="switchOwnerScope">
@@ -991,7 +1014,7 @@ async function addProjectPath(projectPath: string): Promise<void> {
           draggable="true"
           @dragstart="startProjectDrag(project.id, $event)"
           @dragend="draggedProjectId = ''"
-          @click="store.selectProject(project.id)"
+          @click="openProject(project.id)"
           @contextmenu.stop.prevent="openProjectContextMenu($event, project)"
         >
           <ProjectIcon class="rail-item-icon" :project="project" /><span class="project-name">{{ project.name }}</span>
@@ -1024,7 +1047,7 @@ async function addProjectPath(projectPath: string): Promise<void> {
           draggable="true"
           @dragstart="startProjectDrag(project.id, $event)"
           @dragend="draggedProjectId = ''"
-          @click="store.selectProject(project.id)"
+          @click="openProject(project.id)"
           @contextmenu.stop.prevent="openProjectContextMenu($event, project)"
         >
           <ProjectIcon class="rail-item-icon" :project="project" /><span class="project-name">{{ project.name }}</span>
@@ -1052,7 +1075,7 @@ async function addProjectPath(projectPath: string): Promise<void> {
         @contextmenu.prevent="openWorkspaceContextMenu($event, workspace)"
         >
         <div class="workspace-row" :class="{ selected: workspace.id === store.selectedWorkspaceId }">
-          <button class="workspace-select rail-root-entry" @click="store.selectWorkspace(workspace.id)">
+          <button class="workspace-select rail-root-entry" @click="openWorkspace(workspace.id)">
             <VisualIcon class="rail-item-icon" :icon="workspace.icon" /><span class="workspace-label">{{ workspace.name }}</span><small>{{ workspace.members.length }}</small>
           </button>
           <button class="workspace-disclosure" :aria-expanded="store.expandedWorkspaceIds.includes(workspace.id)" @click="store.toggleWorkspaceExpanded(workspace.id)">
@@ -1071,7 +1094,7 @@ async function addProjectPath(projectPath: string): Promise<void> {
                 class="project-row nested"
                 :class="{ selected: member.projectId === store.selectedProjectId }"
                 :style="projectAccentStyle(store.projects.find(project => project.id === member.projectId)!.color)"
-                @click="store.selectProject(member.projectId)"
+                @click="openProject(member.projectId)"
                 @contextmenu.stop.prevent="openProjectContextMenu($event, store.projects.find(project => project.id === member.projectId)!, workspace.id)"
               >
                 <ProjectIcon class="rail-item-icon" :project="store.projects.find(project => project.id === member.projectId)!" />
@@ -1110,7 +1133,7 @@ async function addProjectPath(projectPath: string): Promise<void> {
           draggable="true"
           @dragstart="startProjectDrag(project.id, $event)"
           @dragend="draggedProjectId = ''"
-          @click="store.selectProject(project.id)"
+          @click="openProject(project.id)"
           @contextmenu.stop.prevent="openProjectContextMenu($event, project)"
         >
           <ProjectIcon class="rail-item-icon" :project="project" /><span class="project-name">{{ project.name }}</span>

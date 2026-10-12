@@ -6,7 +6,9 @@ import type { CapabilityProvider, CraftHubOptions, DistributionConfig } from './
 import type { ApplyGitIntegrationRequest, GitIntegrationPlan, GitIntegrationRequest, GitIntegrationResult } from './git-integration'
 import type { HostEnvironment } from './host-environment'
 import type { InstalledIntegrationContribution, IntegrationActionResult, IntegrationDiagnostic, ResolvedIntegrationContribution } from './integrations'
+import type { LocalEnvironmentSnapshot } from './local-environment'
 import type { CraftHubPlugin, PluginDiagnostic } from './plugins'
+import type { SoftwareApplicationOpen, SoftwareCatalogSnapshot, SoftwareInstallationPlan, SoftwareInstallationRun, SoftwareInstallationRuns } from './software-catalog'
 import type { Capability, CapabilityDiscoveryDiagnostic, CapabilityDiscoveryResult, CapabilityPins, CapabilityReference, CommandCapability, CommandInputValues, CommandInvocation, CommandPackage, LocalSkillActivationSettings, ProjectConfigInitializationMode, ProjectConfigInitializationResult, ProjectOverview, ProjectRecord, ProjectRunSummary, ProjectSkillsState, ReleasePlan, RunCleanupOptions, RunCleanupResult, RunOutputEvent, RunRecord } from './types'
 import { isAbsolute, resolve } from 'node:path'
 import process from 'node:process'
@@ -23,6 +25,7 @@ import { builtinCapabilityProvider, communityDistribution } from './extensions'
 import { GitIntegration } from './git-integration'
 import { describeHostEnvironment } from './host-environment'
 import { integrationContributionSchema, IntegrationRegistry } from './integrations'
+import { inspectLocalEnvironment } from './local-environment'
 import { PluginManager } from './marketplace'
 import { OwnerScopeService } from './owner-scopes'
 import { assertCommandWorkingDirectory } from './path-security'
@@ -34,10 +37,12 @@ import { ProjectRegistry } from './projects'
 import { ReleasePlanner } from './release-planner'
 import { CraftHubSettingsService } from './settings'
 import { localSkillActivationSettingsSchema, resolveSkillActivations } from './skill-activation'
+import { SoftwareCatalogService, SoftwareOperationError } from './software-catalog'
 import { CraftHubStore } from './store'
 import { TeamGitSyncService } from './team-git-sync'
 import { TeamManager } from './teams'
 import { UserConfigService } from './user-config'
+import { WorkItemProjectService } from './work-item-projects'
 import { WorkspaceCatalogService } from './workspace-catalog'
 import { WorkspaceImportService } from './workspace-import'
 import { publicWorkspaceRepositoryProvider } from './workspace-repository'
@@ -49,6 +54,7 @@ export class CraftHubRuntime {
   readonly accountProvider?: AccountProvider
   readonly store: CraftHubStore
   readonly projects: ProjectRegistry
+  readonly workItemProjects: WorkItemProjectService
   readonly settings: CraftHubSettingsService
   readonly userConfig: UserConfigService
   readonly personalConfigRepository: PersonalConfigRepository
@@ -56,6 +62,7 @@ export class CraftHubRuntime {
   readonly workspaces: WorkspaceService
   readonly workspaceSubscriptions: WorkspaceSubscriptionService
   readonly workspaceCatalog: WorkspaceCatalogService
+  private readonly softwareCatalog: SoftwareCatalogService
   readonly workspaceImports: WorkspaceImportService
   readonly personalGitSync: PersonalGitSyncService
   readonly accountSync: AccountSyncService
@@ -77,6 +84,7 @@ export class CraftHubRuntime {
   private readonly lastRuns = new Map<string, Pick<ProjectRunSummary, 'lastFinishedAt' | 'lastStatus'>>()
   private readonly runListeners = new Set<(summary: ProjectRunSummary) => void>()
   private diagnostics: PluginDiagnostic[] = []
+  private environmentInspection?: Promise<LocalEnvironmentSnapshot>
 
   constructor(options: string | CraftHubOptions = {}) {
     const normalizedOptions = typeof options === 'string' ? { dataDir: options } : options
@@ -84,6 +92,7 @@ export class CraftHubRuntime {
     this.distribution = normalizedOptions.distribution ?? communityDistribution
     const plugins = normalizedOptions.plugins ?? []
     assertUniquePluginIds(plugins)
+    this.softwareCatalog = new SoftwareCatalogService(plugins.flatMap(plugin => plugin.softwareCatalogProviders ?? []))
     this.workspaceCatalog = new WorkspaceCatalogService(this.distribution.workspaceMarkets, [...(normalizedOptions.workspaceCatalogProviders ?? []), ...plugins.flatMap(plugin => plugin.workspaceCatalogProviders ?? [])])
     const accounts = plugins.flatMap(plugin => plugin.accountProvider ? [plugin.accountProvider] : [])
     if (accounts.length > 1)
@@ -112,6 +121,7 @@ export class CraftHubRuntime {
       ...plugins.flatMap(plugin => (plugin.capabilityProviders ?? []).map(provider => ({ pluginId: plugin.id, provider }))),
     ]
     this.projects = new ProjectRegistry(this.store)
+    this.workItemProjects = new WorkItemProjectService(this.store.dataDir, () => this.store.listProjects())
     this.settings = new CraftHubSettingsService(this.store.dataDir)
     this.personalConfigRepository = new PersonalConfigRepository(this.store.dataDir)
     this.dotfilesManager = new DotfilesManager(this.store.dataDir, this.personalConfigRepository)
@@ -219,6 +229,58 @@ export class CraftHubRuntime {
       settings,
       userConfig,
     })
+  }
+
+  /** Inspect fixed tools on a local API host, sharing only concurrent requests. */
+  async localEnvironmentSnapshot(): Promise<LocalEnvironmentSnapshot> {
+    if (this.hostEnvironment.kind !== 'local')
+      throw new Error('Local environment inspection is unavailable on a hosted workbench')
+    this.environmentInspection ??= inspectLocalEnvironment().finally(() => {
+      this.environmentInspection = undefined
+    })
+    return this.environmentInspection
+  }
+
+  /** Discover display-only software metadata on the local host, without executing install recipes. */
+  async softwareCatalogSnapshot(): Promise<SoftwareCatalogSnapshot> {
+    if (this.hostEnvironment.kind !== 'local')
+      throw new Error('Local software discovery is unavailable on a hosted workbench')
+    return this.softwareCatalog.snapshot()
+  }
+
+  /** Review selected host software without changing project trust or installing packages. */
+  async softwareInstallationPlan(sourceId: string, softwareIds: string[]): Promise<SoftwareInstallationPlan> {
+    this.assertLocalSoftwareManagement()
+    return this.softwareCatalog.preview(sourceId, softwareIds)
+  }
+
+  /** Install an explicitly reviewed adapter plan on this local machine. */
+  async installSoftware(sourceId: string, planId: string, confirmed: boolean): Promise<SoftwareInstallationRun> {
+    this.assertLocalSoftwareManagement()
+    return this.softwareCatalog.install(sourceId, planId, confirmed)
+  }
+
+  /** Recover recent adapter-owned software progress after a client refresh. */
+  async softwareInstallationRuns(sourceId: string): Promise<SoftwareInstallationRuns> {
+    this.assertLocalSoftwareManagement()
+    return this.softwareCatalog.runs(sourceId)
+  }
+
+  /** Stop active and pending work through the software worker owner. */
+  async cancelSoftwareInstallation(sourceId: string, runId: string): Promise<SoftwareInstallationRun> {
+    this.assertLocalSoftwareManagement()
+    return this.softwareCatalog.cancel(sourceId, runId)
+  }
+
+  /** Request a detected application launch through its trusted catalog identifier. */
+  async openSoftwareApplication(sourceId: string, softwareId: string): Promise<SoftwareApplicationOpen> {
+    this.assertLocalSoftwareManagement()
+    return this.softwareCatalog.open(sourceId, softwareId)
+  }
+
+  private assertLocalSoftwareManagement(): void {
+    if (this.hostEnvironment.kind !== 'local')
+      throw new SoftwareOperationError(403, 'Local software management is unavailable on a hosted workbench')
   }
 
   /** Invoke one enabled declarative integration through a trusted host adapter. */

@@ -22,9 +22,11 @@ import { isLocalDirectoryMutation } from './host-environment'
 import { IntegrationConfirmationRequiredError } from './integrations'
 import { CraftHubRuntime } from './runtime'
 import { SettingsConflictError, SettingsValidationError } from './settings'
+import { softwareApplicationRequestSchema, softwareInstallationConfirmationSchema, softwareInstallationRequestSchema, SoftwareOperationError } from './software-catalog'
 import { TeamLifecycleValidationError } from './teams'
 import { PERSONAL_OWNER_SCOPE_ID, projectAccentColors } from './types'
 import { ProjectWatcher } from './watcher'
+import { WorkItemProjectConflictError, workItemProjectDeleteRequestSchema, WorkItemProjectError, workItemProjectUpdateRequestSchema } from './work-item-projects'
 import { WorkspaceSubscriptionError } from './workspace-repository'
 import { WorkspaceConflictError } from './workspaces'
 
@@ -205,6 +207,82 @@ export async function startCraftHubServer(options: CraftHubServerOptions = {}): 
 
       if (request.method === 'GET' && url.pathname === '/api/diagnostics')
         return sendJson(response, 200, await runtime.diagnosticSnapshot())
+
+      if (url.pathname === '/api/work-item-projects') {
+        if (request.method !== 'GET' && runtime.hostEnvironment.kind !== 'local')
+          return sendJson(response, 403, { error: 'Project associations require a connected local host', code: 'LOCAL_DIRECTORY_UNAVAILABLE' })
+        const declaredOrigin = options.publicOrigin ?? runtime.accountProvider?.publicOrigin
+        const origin = declaredOrigin ? new URL(declaredOrigin).origin : `http://${request.headers.host}`
+        if ((!declaredOrigin && !addressesThisSocket(request.headers.host ?? '', request))
+          || request.headers['sec-fetch-site'] === 'cross-site'
+          || (request.headers.origin && request.headers.origin !== origin)
+          || (request.method !== 'GET' && request.headers['content-type']?.split(';')[0]?.trim().toLowerCase() !== 'application/json')) {
+          return sendJson(response, 403, { error: 'Project association access requires a same-origin JSON request' })
+        }
+        if (url.search)
+          return sendJson(response, 400, { error: 'Project associations accept no query parameters' })
+        if (request.method === 'GET')
+          return sendJson(response, 200, await runtime.workItemProjects.snapshot())
+        if (request.method === 'PATCH' || request.method === 'PUT')
+          return sendJson(response, 200, await runtime.workItemProjects.upsert(workItemProjectUpdateRequestSchema.parse(await jsonBody(request, 16 * 1024))))
+        if (request.method === 'DELETE')
+          return sendJson(response, 200, await runtime.workItemProjects.remove(workItemProjectDeleteRequestSchema.parse(await jsonBody(request, 16 * 1024))))
+        return sendJson(response, 405, { error: 'Method not allowed' })
+      }
+
+      if (request.method === 'GET' && url.pathname === '/api/software') {
+        if (runtime.hostEnvironment.kind !== 'local')
+          return sendJson(response, 403, { error: 'Local software discovery is unavailable on this host', code: 'LOCAL_SOFTWARE_UNAVAILABLE' })
+        if (url.search)
+          return sendJson(response, 400, { error: 'Software discovery accepts no request parameters' })
+        return sendJson(response, 200, await runtime.softwareCatalogSnapshot())
+      }
+
+      if (parts[0] === 'api' && parts[1] === 'software' && parts.length >= 3) {
+        if (runtime.hostEnvironment.kind !== 'local')
+          return sendJson(response, 403, { error: 'Local software management is unavailable on this host', code: 'LOCAL_SOFTWARE_UNAVAILABLE' })
+        if (url.search)
+          return sendJson(response, 400, { error: 'Software management accepts no query parameters' })
+        // Host headers must address this socket, preventing DNS rebinding of the local installer.
+        const localPort = request.socket.localPort
+        const hosts = [`127.0.0.1:${localPort}`, `localhost:${localPort}`, `[::1]:${localPort}`]
+        if (!hosts.includes(request.headers.host ?? '')
+          || request.headers['sec-fetch-site'] === 'cross-site'
+          || (request.headers.origin && request.headers.origin !== `http://${request.headers.host}`)
+          || (request.method !== 'GET' && request.headers['content-type']?.split(';')[0]?.trim().toLowerCase() !== 'application/json')) {
+          return sendJson(response, 403, { error: 'Software management requires a same-origin local JSON request' })
+        }
+        const sourceId = decodeURIComponent(parts[2])
+        if (request.method === 'GET' && parts.length === 4 && parts[3] === 'runs')
+          return sendJson(response, 200, await runtime.softwareInstallationRuns(sourceId))
+        if (request.method === 'POST' && parts.length === 4 && parts[3] === 'plan') {
+          const { softwareIds } = softwareInstallationRequestSchema.parse(await jsonBody(request, 16 * 1024))
+          return sendJson(response, 200, await runtime.softwareInstallationPlan(sourceId, softwareIds))
+        }
+        if (request.method === 'POST' && parts.length === 4 && parts[3] === 'install') {
+          const { planId, confirmed } = softwareInstallationConfirmationSchema.parse(await jsonBody(request, 16 * 1024))
+          return sendJson(response, 200, await runtime.installSoftware(sourceId, planId, confirmed))
+        }
+        if (request.method === 'POST' && parts.length === 4 && parts[3] === 'open') {
+          const { softwareId } = softwareApplicationRequestSchema.parse(await jsonBody(request, 16 * 1024))
+          return sendJson(response, 200, await runtime.openSoftwareApplication(sourceId, softwareId))
+        }
+        if (request.method === 'POST' && parts.length === 6 && parts[3] === 'runs' && parts[5] === 'cancel') {
+          const body = await jsonBody(request, 16 * 1024)
+          if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).length)
+            return sendJson(response, 400, { error: 'Cancellation accepts no body parameters' })
+          return sendJson(response, 200, await runtime.cancelSoftwareInstallation(sourceId, decodeURIComponent(parts[4])))
+        }
+        return sendJson(response, 404, { error: 'Not found' })
+      }
+
+      if (request.method === 'GET' && url.pathname === '/api/environment') {
+        if (runtime.hostEnvironment.kind !== 'local')
+          return sendJson(response, 403, { error: 'Local environment inspection is unavailable on this host', code: 'LOCAL_ENVIRONMENT_UNAVAILABLE' })
+        if (url.search)
+          return sendJson(response, 400, { error: 'Environment inspection accepts no command or path parameters' })
+        return sendJson(response, 200, await runtime.localEnvironmentSnapshot())
+      }
 
       if (request.method === 'GET' && url.pathname === '/api/events') {
         response.writeHead(200, {
@@ -1095,6 +1173,12 @@ export async function startCraftHubServer(options: CraftHubServerOptions = {}): 
       sendJson(response, 404, { error: 'Not found' })
     }
     catch (error) {
+      if (error instanceof WorkItemProjectConflictError)
+        return sendJson(response, 409, { error: error.message, actualRevision: error.actualRevision })
+      if (error instanceof WorkItemProjectError)
+        return sendJson(response, error.status, { error: error.message })
+      if (error instanceof SoftwareOperationError)
+        return sendJson(response, error.status, { error: error.message })
       if (error instanceof SettingsConflictError)
         return sendJson(response, 409, { error: error.message, actualRevision: error.actualRevision })
       if (error instanceof WorkspaceSubscriptionError)

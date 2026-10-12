@@ -32,7 +32,7 @@ describe('settings dialog', () => {
       explicitKeys: [],
       path: '/settings.json',
       revision: 'initial',
-      settings: { 'workbench.codex': {}, 'workbench.editor': { default: 'vscode' }, 'workbench.locale': 'en', 'workbench.repositoriesRoot': '', 'workbench.shortcuts': { 'workbench.showCommandPalette': 'Mod+K' }, 'workbench.theme': 'system' },
+      settings: { 'workbench.codex': {}, 'workbench.editor': { default: 'vscode' }, 'workbench.home': { tools: [] }, 'workbench.locale': 'en', 'workbench.repositoriesRoot': '', 'workbench.shortcuts': { 'workbench.showCommandPalette': 'Mod+K' }, 'workbench.theme': 'system' },
     }
     vi.stubGlobal('fetch', vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
       const path = String(_input)
@@ -74,6 +74,7 @@ describe('settings dialog', () => {
         settings: {
           'workbench.codex': patch['workbench.codex'] ?? {},
           'workbench.editor': patch['workbench.editor'] ?? { default: 'vscode' },
+          'workbench.home': patch['workbench.home'] ?? { tools: [] },
           'workbench.locale': patch['workbench.locale'] ?? 'en',
           'workbench.repositoriesRoot': patch['workbench.repositoriesRoot'] ?? '',
           'workbench.shortcuts': patch['workbench.shortcuts'] ?? { 'workbench.showCommandPalette': 'Mod+K' },

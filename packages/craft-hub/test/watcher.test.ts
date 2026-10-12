@@ -55,15 +55,15 @@ describe('project watcher', () => {
       await writeFile(join(root, '.craft-hub', 'project.jsonc'), '{ "version": 1, "project": { "name": "Renamed Again" } }\n')
       await expect(projectEvent).resolves.toEqual({ projectId: 'project', scopes: ['capabilities', 'overview', 'project'] })
 
-      await mkdir(join(root, 'workspaces'), { recursive: true })
-      await writeFile(join(root, 'workspaces', 'pair.code-workspace'), '{ "folders": [] }')
-
       const overviewEvent = nextEvent(events, 3)
       await writeFile(join(root, 'README.md'), '# Project overview')
       await expect(overviewEvent).resolves.toEqual({ projectId: 'project', scopes: ['overview'] })
 
+      await mkdir(join(root, 'workspaces'), { recursive: true })
+      await writeFile(join(root, 'workspaces', 'pair.code-workspace'), '{ "folders": [] }')
       await writeFile(join(root, 'dist', 'generated', 'package.json'), JSON.stringify({ scripts: { generated: 'true' } }))
-      await new Promise(resolve => setTimeout(resolve, 80))
+      // Observe longer than the debounce window so unrelated changes cannot emit a late event.
+      await new Promise(resolve => setTimeout(resolve, 300))
       expect(events).toHaveLength(4)
     }
     finally {

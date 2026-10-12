@@ -26,7 +26,7 @@ const compactViewport = useMediaQuery('(max-width: 900px)')
 .workbench-page-shell { display: flex; min-width: 0; min-height: 0; overflow: hidden; }
 .workbench-page-main { display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; }
 .workbench-page-sidebar { display: flex; height: 100%; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; background: var(--workbench-sidebar-background); }
-.workbench-page-path { padding: 10px var(--page-padding-inline); border-bottom: 1px solid var(--border); background: var(--surface); }
+.workbench-page-path { display: flex; min-height: var(--workbench-sidebar-header-height); align-items: center; padding: 8px var(--page-padding-inline); border-bottom: 1px solid var(--border); background: var(--workbench-chrome); }
 .workbench-page-content { display: flex; flex: 1; min-width: 0; min-height: 0; overflow: auto; }
 .workbench-page-content > :deep(*) { flex: 1; min-width: 0; }
 @media (max-width: 900px) {

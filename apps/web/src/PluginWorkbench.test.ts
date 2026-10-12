@@ -13,6 +13,7 @@ describe('plugin workbench', () => {
   let pinia: ReturnType<typeof createPinia>
 
   beforeEach(() => {
+    vi.restoreAllMocks()
     pinia = createPinia()
     setActivePinia(pinia)
     useI18n().setLocale('en')
@@ -84,6 +85,30 @@ describe('plugin workbench', () => {
     await wrapper.get('[role="tablist"]').trigger('keydown', { key: 'Home' })
     await flushPromises()
     expect(wrapper.text()).toContain('Review change')
+    wrapper.unmount()
+  })
+
+  it('renders generic host views selected by a plugin and opens projects through host navigation', async () => {
+    const store = useWorkbenchStore()
+    store.projectsLoadState = 'ready'
+    store.integrationsLoadState = 'ready'
+    store.projects = [{ id: 'local', name: 'Local project', path: '/repos/local', trust: 'untrusted', addedAt: '2026-10-12T00:00:00Z' }]
+    store.pluginWorkbenches = [{ id: 'daily', pluginId: '@acme/craft-hub-plugin-suite', pluginName: 'Suite', pluginVersion: '1.0.0', title: 'Daily work', views: [
+      { type: 'host', view: 'work-items', integrations: [], group: 'Tasks' },
+      { type: 'host', view: 'projects', group: 'Development' },
+    ] }]
+    vi.spyOn(api, 'navigationPanels').mockResolvedValue([])
+    const invoke = vi.spyOn(api, 'invokeIntegrationAction')
+    const wrapper = mount(PluginWorkbench, { props: { pluginId: '@acme/craft-hub-plugin-suite', workbenchId: 'daily' }, global: { plugins: [pinia] } })
+    await flushPromises()
+    expect(wrapper.text()).toContain('Connect your work items')
+    await wrapper.findAll('[role="tab"]')[1]!.trigger('click')
+    expect(wrapper.text()).toContain('Local project')
+    const open = wrapper.get('[data-testid="open-project-local"]')
+    await open.trigger('click')
+    expect(wrapper.emitted('openProject')).toEqual([['local']])
+    expect(store.projects[0]?.trust).toBe('untrusted')
+    expect(invoke).not.toHaveBeenCalled()
     wrapper.unmount()
   })
 })

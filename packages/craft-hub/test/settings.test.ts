@@ -1,8 +1,9 @@
+import type { PersonalWorkbenchHome } from '../src/settings'
 import { mkdir, mkdtemp, readdir, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
-import { CraftHubSettingsService, SettingsConflictError } from '../src/settings'
+import { CraftHubSettingsService, personalWorkbenchHomeSchema, SettingsConflictError } from '../src/settings'
 
 async function settingsFixture(): Promise<{ root: string, service: CraftHubSettingsService }> {
   const root = await mkdtemp(join(tmpdir(), 'craft-hub-settings-'))
@@ -58,6 +59,117 @@ describe('global settings', () => {
     expect(updated.settings['workbench.codex']).toEqual(codex)
     expect(JSON.parse(await readFile(join(root, 'settings.json'), 'utf8'))['workbench.codex']).toEqual(codex)
     await expect(service.update({ 'workbench.codex': { reasoningEffort: 'extreme' } }, updated.revision)).rejects.toThrow()
+  })
+
+  it('provides grouped personal tool defaults without sharing mutable snapshots', async () => {
+    const { service } = await settingsFixture()
+    const snapshot = await service.get()
+
+    expect(snapshot.settings['workbench.home']).toEqual({
+      tools: [
+        { id: 'raycast', title: 'Raycast', url: 'https://www.raycast.com/', group: 'Work tools', description: 'Launch tools and installed Raycast commands', launch: { application: 'raycast' } },
+        { id: 'orca', title: 'Orca', url: 'https://www.onorca.dev/', group: 'Work tools', description: 'Continue agent work in Orca; project context is not transferred', launch: { application: 'orca' } },
+        { id: 'chatgpt', title: 'ChatGPT', url: 'https://chatgpt.com/', group: 'AI Tools' },
+        { id: 'claude', title: 'Claude', url: 'https://claude.ai/', group: 'AI Tools' },
+      ],
+    })
+    snapshot.settings['workbench.home'].tools.length = 0
+    expect((await service.get()).settings['workbench.home'].tools).toHaveLength(4)
+    expect(service.schema()).toMatchObject({
+      properties: { 'workbench.home': { properties: { tools: { maxItems: 100 } } } },
+    })
+  })
+
+  it('persists and reloads personal tools and project pins with revisions', async () => {
+    const { root, service } = await settingsFixture()
+    const initial = await service.get()
+    const home: PersonalWorkbenchHome = {
+      tools: [{ id: 'docs', title: 'Project docs', url: 'https://docs.example.com/project', group: 'Projects', description: 'Project reference' }],
+      pinnedProjectIds: ['project-a', 'project-b'],
+    }
+    const updated = await service.update({ 'workbench.home': home }, initial.revision)
+
+    expect(updated.path).toBe(join(root, 'settings.json'))
+    expect(updated.explicitKeys).toEqual(['workbench.home'])
+    expect(updated.revision).not.toBe(initial.revision)
+    expect(JSON.parse(await readFile(updated.path, 'utf8'))['workbench.home']).toEqual(home)
+    const reloaded = await new CraftHubSettingsService(root).get()
+    expect(reloaded.settings['workbench.home']).toEqual(home)
+    expect(reloaded.revision).toBe(updated.revision)
+    await expect(service.update({ 'workbench.home': { tools: [] } }, initial.revision)).rejects.toBeInstanceOf(SettingsConflictError)
+
+    const reset = await service.update({ 'workbench.home': null }, updated.revision)
+    expect(reset.settings['workbench.home'].tools).toHaveLength(4)
+    expect(reset.explicitKeys).toEqual([])
+  })
+
+  it.each([
+    'javascript:alert(1)',
+    'http://example.com/',
+    'file:///private/example',
+    'data:text/html,example',
+    'https://user:password@example.com/',
+    'https://user@example.com/',
+    'https://user%40name@example.com/',
+    'https://exam\nple.com/',
+    'not a URL',
+  ])('rejects unsafe personal tool URL %s without changing settings', async (url) => {
+    const { root, service } = await settingsFixture()
+    const initial = await service.get()
+
+    await expect(service.update({
+      'workbench.home': { tools: [{ id: 'tool', title: 'Tool', url, group: 'Tools' }] },
+    }, initial.revision)).rejects.toThrow()
+    expect((await service.get()).revision).toBe(initial.revision)
+    expect(await readdir(root)).not.toContain('settings.json')
+  })
+
+  it('rejects duplicate personal tool and project identifiers after trimming', async () => {
+    const tool = { id: 'docs', title: 'Docs', url: 'https://docs.example.com/', group: 'Tools' }
+
+    expect(() => personalWorkbenchHomeSchema.parse({ tools: [tool, { ...tool, id: ' docs ' }] })).toThrow('Tool identifiers must be unique')
+    expect(() => personalWorkbenchHomeSchema.parse({ tools: [], pinnedProjectIds: ['project-a', ' project-a '] })).toThrow('Pinned project identifiers must be unique')
+  })
+
+  it('persists known application launches while leaving legacy website tools compatible', async () => {
+    const { root, service } = await settingsFixture()
+    const initial = await service.get()
+    const home: PersonalWorkbenchHome = {
+      tools: [
+        { id: 'website', title: 'Docs', url: 'https://example.com/', group: 'Tools' },
+        { id: 'raycast', title: 'Project launcher', url: 'https://www.raycast.com/', group: 'Tools', launch: { application: 'raycast', commandUrl: 'raycast://extensions/example/repository-manager/list-repositories' } },
+        { id: 'orca', title: 'Orca', url: 'https://www.onorca.dev/', group: 'Tools', launch: { application: 'orca' } },
+      ],
+    }
+    await service.update({ 'workbench.home': home }, initial.revision)
+
+    expect((await new CraftHubSettingsService(root).get()).settings['workbench.home']).toEqual(home)
+  })
+
+  it('bounds personal home inputs and rejects undeclared tool properties', () => {
+    const tool = { id: 'docs', title: 'Docs', url: 'https://docs.example.com/', group: 'Tools' }
+
+    expect(() => personalWorkbenchHomeSchema.parse({ tools: [{ ...tool, title: 'x'.repeat(129) }] })).toThrow()
+    expect(() => personalWorkbenchHomeSchema.parse({ tools: [{ ...tool, description: 'x'.repeat(513) }] })).toThrow()
+    expect(() => personalWorkbenchHomeSchema.parse({ tools: [{ ...tool, url: `https://example.com/${'x'.repeat(4096)}` }] })).toThrow()
+    expect(() => personalWorkbenchHomeSchema.parse({ tools: Array.from({ length: 101 }, (_, index) => ({ ...tool, id: `tool-${index}` })) })).toThrow()
+    expect(() => personalWorkbenchHomeSchema.parse({ tools: [], pinnedProjectIds: Array.from({ length: 201 }, (_, index) => `project-${index}`) })).toThrow()
+    expect(() => personalWorkbenchHomeSchema.parse({ tools: [{ ...tool, command: 'open' }] })).toThrow()
+  })
+
+  it('keeps personal home settings local when exporting or importing portable settings', async () => {
+    const { service } = await settingsFixture()
+    const initial = await service.get()
+    const home = { tools: [], pinnedProjectIds: ['local-project'] }
+    await service.update({ 'workbench.home': home }, initial.revision)
+
+    expect((await service.export('minimal')).settings).not.toHaveProperty('workbench.home')
+    expect((await service.export('full')).settings).not.toHaveProperty('workbench.home')
+    const document = await service.export('full')
+    await expect(service.previewImport({ ...document, settings: { 'workbench.home': home } }, 'merge')).resolves.toMatchObject({
+      changes: [],
+      ignored: ['workbench.home'],
+    })
   })
 
   it('validates and persists keyboard shortcut bindings', async () => {

@@ -7,6 +7,7 @@ export function createWorkbenchRouter(history: RouterHistory = createWebHistory(
     history,
     routes: [
       { path: '/', name: 'workbench', component: App },
+      { path: '/overview', name: 'overview', component: App },
       { path: '/subscriptions', name: 'subscriptions', component: App },
       { path: '/subscriptions/discover', name: 'subscriptions-discover', component: App },
       { path: '/subscriptions/new', name: 'subscriptions-new', component: App },
@@ -14,6 +15,10 @@ export function createWorkbenchRouter(history: RouterHistory = createWebHistory(
       { path: '/subscriptions/:subscriptionId', name: 'subscriptions-detail', component: App },
       { path: '/navigation', name: 'navigation', component: App },
       { path: '/diagnostics', name: 'diagnostics', component: App },
+      { path: '/tools', name: 'tools', component: App },
+      { path: '/software', name: 'software', component: App },
+      { path: '/workbenches', name: 'workbenches', component: App },
+      { path: '/environment', name: 'environment', component: App },
       { path: '/workbenches/:pluginId/:workbenchId', name: 'plugin-workbench', component: App },
       { path: '/integrations/:integrationId/:viewId', name: 'integration', component: App },
       { path: '/marketplace', name: 'marketplace', component: App },

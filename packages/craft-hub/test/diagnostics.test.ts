@@ -58,6 +58,7 @@ describe('workbench diagnostics', () => {
         diagnostic: 'Invalid settings',
         settings: {
           'workbench.codex': {},
+          'workbench.home': { tools: [] },
           'workbench.editor': { default: 'vscode' },
           'workbench.locale': 'en',
           'workbench.repositoriesRoot': '',

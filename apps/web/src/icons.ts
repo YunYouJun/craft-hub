@@ -1,7 +1,7 @@
 import type { VNode } from 'vue'
 import { h } from 'vue'
 
-export type IconName = 'arrowDown' | 'arrowRight' | 'briefcase' | 'calendar' | 'chart' | 'check' | 'close' | 'cloud' | 'code' | 'codex' | 'collection' | 'compass' | 'copy' | 'cursor' | 'database' | 'design' | 'docs' | 'drag' | 'edit' | 'error' | 'experiment' | 'externalLink' | 'folder' | 'folderOpen' | 'gitMerge' | 'gitRepository' | 'help' | 'hub' | 'link' | 'list' | 'loading' | 'mobile' | 'more' | 'package' | 'palette' | 'personal' | 'plugins' | 'plus' | 'rocket' | 'search' | 'security' | 'settings' | 'source' | 'star' | 'starFilled' | 'stop' | 'team' | 'terminal' | 'terminalApp' | 'skill' | 'play' | 'trusted' | 'untrusted' | 'refresh' | 'vscode' | 'web' | 'workspace'
+export type IconName = 'arrowDown' | 'arrowRight' | 'briefcase' | 'calendar' | 'chart' | 'chatgpt' | 'check' | 'claude' | 'close' | 'cloud' | 'code' | 'codex' | 'collection' | 'compass' | 'copy' | 'cursor' | 'database' | 'design' | 'docs' | 'drag' | 'edit' | 'error' | 'experiment' | 'externalLink' | 'folder' | 'folderOpen' | 'gemini' | 'git' | 'gitMerge' | 'gitRepository' | 'help' | 'homebrew' | 'hub' | 'link' | 'list' | 'loading' | 'mobile' | 'more' | 'nodejs' | 'package' | 'palette' | 'perplexity' | 'personal' | 'plugins' | 'plus' | 'pnpm' | 'raycast' | 'rocket' | 'search' | 'security' | 'settings' | 'source' | 'star' | 'starFilled' | 'stop' | 'team' | 'terminal' | 'terminalApp' | 'skill' | 'play' | 'trusted' | 'untrusted' | 'refresh' | 'vscode' | 'web' | 'workspace'
 
 export const visualIconNames = ['workspace', 'folder', 'hub', 'briefcase', 'code', 'docs', 'design', 'database', 'package', 'rocket', 'team', 'experiment', 'security', 'cloud', 'mobile', 'web', 'terminal', 'skill', 'settings', 'calendar', 'chart', 'list'] as const satisfies readonly IconName[]
 
@@ -11,7 +11,9 @@ export const iconClasses: Record<Exclude<IconName, 'codex' | 'cursor' | 'plugins
   briefcase: 'i-ri-briefcase-4-line',
   calendar: 'i-ri-calendar-line',
   chart: 'i-ri-bar-chart-2-line',
+  chatgpt: 'i-simple-icons-openai',
   check: 'i-ri-checkbox-circle-fill',
+  claude: 'i-logos-claude-icon',
   close: 'i-ri-close-line',
   cloud: 'i-ri-cloud-line',
   code: 'i-ri-code-s-slash-line',
@@ -28,19 +30,26 @@ export const iconClasses: Record<Exclude<IconName, 'codex' | 'cursor' | 'plugins
   externalLink: 'i-ri-external-link-line',
   folder: 'i-ri-folder-3-line',
   folderOpen: 'i-ri-folder-open-line',
+  gemini: 'i-logos-google-gemini-icon',
+  git: 'i-logos-git-icon',
   gitMerge: 'i-ri-git-merge-line',
   gitRepository: 'i-ri-git-repository-line',
   help: 'i-ri-question-line',
+  homebrew: 'i-logos-homebrew',
   hub: 'i-ri-node-tree',
   link: 'i-ri-links-line',
   list: 'i-ri-list-check-3',
   loading: 'i-svg-spinners-180-ring-with-bg',
   mobile: 'i-ri-smartphone-line',
   more: 'i-ri-more-2-fill',
+  nodejs: 'i-logos-nodejs-icon',
   package: 'i-ri-box-3-line',
   palette: 'i-ri-palette-line',
+  perplexity: 'i-simple-icons-perplexity',
   personal: 'i-ri-user-line',
   plus: 'i-ri-add-line',
+  pnpm: 'i-logos-pnpm',
+  raycast: 'i-simple-icons-raycast',
   rocket: 'i-ri-rocket-line',
   search: 'i-ri-search-line',
   security: 'i-ri-shield-keyhole-line',

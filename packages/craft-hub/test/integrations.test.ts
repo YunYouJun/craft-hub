@@ -1,4 +1,4 @@
-import type { InstalledIntegrationContribution, IntegrationProvider } from '../src/integrations'
+import type { InstalledIntegrationContribution, IntegrationEntity, IntegrationProvider } from '../src/integrations'
 import { describe, expect, it } from 'vitest'
 import { IntegrationConfirmationRequiredError, integrationContributionSchema, IntegrationRegistry } from '../src/integrations'
 
@@ -251,7 +251,138 @@ describe('connection setup', () => {
     await expect(registry.completeConnection(resolved, { state: 'unknown', code: 'code' })).rejects.toThrow(/invalid or expired/)
     await expect(registry.completeConnection({ ...resolved, id: 'other' }, { state: 'random-state', code: 'code' })).rejects.toThrow(/invalid or expired/)
     await registry.completeConnection(resolved, { state: 'random-state', code: 'code', projectId: 'attacker' })
-    expect(completed).toEqual([{ context: { ...context, confirmed: true }, input: { state: 'random-state', code: 'code', projectId: 'attacker' } }])
+    expect(completed).toEqual([{ context: { ...context, integrationId: resolved.id, confirmed: true }, input: { state: 'random-state', code: 'code', projectId: 'attacker' } }])
     await expect(registry.completeConnection(resolved, { state: 'random-state', code: 'code' })).rejects.toThrow(/invalid or expired/)
+  })
+})
+
+describe('work-item result boundary', () => {
+  const ref = { providerId: 'example', instanceId: 'example-tools', accountId: 'account-1', containerId: 'list-1', kind: 'task', itemId: 'item-1' }
+  const item: IntegrationEntity = {
+    id: 'display-1',
+    title: 'Review proposal',
+    sourceRef: ref,
+    personalMembership: { accountId: 'account-1', relation: 'owned' },
+    dueDate: { dateTime: '2026-10-15T18:00:00', timeZone: 'UTC' },
+    updatedAt: '2026-10-12T05:00:00Z',
+  }
+  const actions: InstalledIntegrationContribution['actions'] = [
+    { id: 'get', title: 'Get work item', operation: 'work-items.get', effect: 'remote-read', confirmation: 'never' },
+    { id: 'list', title: 'List work items', operation: 'work-items.list', effect: 'remote-read', confirmation: 'never' },
+    { id: 'search', title: 'Search work items', operation: 'work-items.search', effect: 'remote-read', confirmation: 'never' },
+  ]
+
+  function setup(result: IntegrationEntity = item, pageFields: Record<string, unknown> = {}) {
+    const page = { items: [result], currentUser: { id: 'account-1' }, ...pageFields }
+    const registry = new IntegrationRegistry([provider({ workItems: { get: async () => result, search: async () => page, list: async () => page } })])
+    return { registry, resolved: registry.resolve([contribution({ actions, views: [] })]).integrations[0]! }
+  }
+
+  it('supplies the actual host integration instance to reusable providers and overrides caller context', async () => {
+    let instanceId: string | undefined
+    const registry = new IntegrationRegistry([provider({ workItems: {
+      search: async () => ({ items: [] }),
+      list: async (context) => {
+        instanceId = context.integrationId
+        return { items: [{ ...item, sourceRef: { ...ref, instanceId: context.integrationId! } }] }
+      },
+    } })])
+    const resolved = registry.resolve([contribution({ id: 'second-installation', actions: actions.filter(action => action.id === 'list'), views: [] })]).integrations[0]!
+    const result = await registry.invoke({ contribution: resolved, actionId: 'list', context: { integrationId: 'forged-instance' }, input: { integrationId: 'forged-input' } })
+    expect(instanceId).toBe('second-installation')
+    expect(result).toMatchObject({ items: [{ sourceRef: { ...ref, instanceId: 'second-installation' } }] })
+  })
+
+  it.each(['get', 'list', 'search'])('validates source and presentation fields for %s without changing provider identities', async (actionId) => {
+    const { registry, resolved } = setup(item, { nextCursor: 'opaque://native/page?value=1', coverage: 'partial', fetchedAt: '2026-10-12T06:00:00+01:00' })
+    const result = await registry.invoke({ contribution: resolved, actionId })
+    expect(result).toEqual(actionId === 'get'
+      ? item
+      : {
+          items: [item],
+          currentUser: { id: 'account-1' },
+          nextCursor: 'opaque://native/page?value=1',
+          coverage: 'partial',
+          fetchedAt: '2026-10-12T06:00:00+01:00',
+        })
+    expect(item.id).toBe('display-1')
+    expect(item.sourceRef?.itemId).toBe('item-1')
+    expect(item.assignees).toBeUndefined()
+  })
+
+  it.each(['get', 'list', 'search'])('rejects a forged provider or integration instance from %s', async (actionId) => {
+    for (const sourceRef of [{ ...ref, providerId: 'other' }, { ...ref, instanceId: 'other-tools' }]) {
+      const { registry, resolved } = setup({ ...item, sourceRef })
+      await expect(registry.invoke({ contribution: resolved, actionId })).rejects.toThrow(/provider and integration instance/)
+    }
+  })
+
+  it('rejects invalid identities, membership, deadlines and page fields at the trusted adapter boundary', async () => {
+    const invalidItems = [
+      { ...item, sourceRef: { ...ref, containerId: 'list\nother' } },
+      { ...item, personalMembership: { accountId: 'other-account', relation: 'owned' as const } },
+      { ...item, dueDate: { dateTime: 'invalid', timeZone: 'UTC' } },
+      { ...item, updatedAt: 'invalid' },
+      { ...item, ancestors: [{ id: 'parent', title: 'Parent', sourceRef: { ...ref, instanceId: 'other-tools' } }] },
+    ]
+    for (const invalid of invalidItems) {
+      const { registry, resolved } = setup(invalid)
+      await expect(registry.invoke({ contribution: resolved, actionId: 'list' })).rejects.toThrow()
+    }
+    for (const fields of [{ coverage: 'all' }, { fetchedAt: 'yesterday' }, { nextCursor: 123 }]) {
+      const { registry, resolved } = setup(item, fields)
+      await expect(registry.invoke({ contribution: resolved, actionId: 'search' })).rejects.toThrow()
+    }
+  })
+
+  it('validates updated work-item identities through the same boundary as reads', async () => {
+    const registry = new IntegrationRegistry([provider({ workItems: {
+      get: async () => item,
+      search: async () => ({ items: [] }),
+      list: async () => ({ items: [] }),
+      updateStatus: async () => ({ ...item, sourceRef: { ...ref, instanceId: 'other-tools' } }),
+    } })])
+    const resolved = registry.resolve([contribution({ actions: [{ id: 'update', title: 'Update', operation: 'work-items.update-status', effect: 'remote-write', confirmation: 'always' }], views: [] })]).integrations[0]!
+    await expect(registry.invoke({ contribution: resolved, actionId: 'update', confirmed: true })).rejects.toThrow(/provider and integration instance/)
+  })
+
+  it('retains legacy provider output without inventing source references, page coverage or membership', async () => {
+    const legacy = { id: '1', title: 'Legacy task', assignees: [{ id: 'account-1' }] }
+    const { registry, resolved } = setup(legacy)
+    const result = await registry.invoke({ contribution: resolved, actionId: 'list' })
+    expect(result).toEqual({ items: [legacy], currentUser: { id: 'account-1' } })
+    expect(result).not.toHaveProperty('coverage')
+    expect(legacy).not.toHaveProperty('sourceRef')
+    expect(legacy).not.toHaveProperty('personalMembership')
+  })
+
+  it('keeps discovery side-effect free and does not confer project trust or execute writes during a read', async () => {
+    let reads = 0
+    let writes = 0
+    let connections = 0
+    const project = { id: 'project-1', name: 'Example', path: '/example', trust: 'untrusted' as const }
+    const registry = new IntegrationRegistry([provider({
+      connectionStatus: async () => {
+        connections++
+        return { connected: true }
+      },
+      workItems: {
+        get: async () => item,
+        search: async () => ({ items: [] }),
+        list: async () => {
+          reads++
+          return { items: [item] }
+        },
+        updateStatus: async () => {
+          writes++
+          return item
+        },
+      },
+    })])
+    const resolved = registry.resolve([contribution({ actions, views: [] })]).integrations[0]!
+    expect([reads, writes, connections]).toEqual([0, 0, 0])
+    await registry.invoke({ contribution: resolved, actionId: 'list', context: { projectId: project.id, projectPath: project.path, projects: [project] } })
+    expect([reads, writes, connections]).toEqual([1, 0, 0])
+    expect(project.trust).toBe('untrusted')
   })
 })

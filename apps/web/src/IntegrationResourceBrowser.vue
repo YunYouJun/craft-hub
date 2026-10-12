@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { copyText } from './clipboard'
 import type { IntegrationActionResult, ResourcePage, ResolvedIntegrationContribution } from 'craft-hub'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { api } from './api'
@@ -35,7 +36,7 @@ function selectEntity(id: string): void {
     void read(link.input, false, link.projectId ?? activeProjectId.value)
 }
 async function copy(content: string): Promise<void> {
-  try { await navigator.clipboard.writeText(content) }
+  try { await copyText(content) }
   catch (caught) { error.value = String(caught) }
 }
 const page = ref<ResourcePage>()
