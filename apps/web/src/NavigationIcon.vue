@@ -10,6 +10,8 @@ const navigationIcons: Partial<Record<IconName | 'home', string>> = {
   search: 'i-lucide-search', terminal: 'i-lucide-square-terminal', list: 'i-lucide-list-todo',
   settings: 'i-lucide-settings-2', plugins: 'i-lucide-blocks', check: 'i-lucide-circle-check',
   error: 'i-lucide-circle-alert', trusted: 'i-lucide-shield-check', untrusted: 'i-lucide-shield-question',
+  keyboard: 'i-lucide-keyboard', transfer: 'i-lucide-arrow-right-left',
+  cloud: 'i-lucide-cloud', docs: 'i-lucide-file-text', link: 'i-lucide-link', help: 'i-lucide-circle-help',
   personal: 'i-lucide-user-round', team: 'i-lucide-users-round', refresh: 'i-lucide-refresh-cw',
   plus: 'i-lucide-plus', close: 'i-lucide-x', play: 'i-lucide-play', more: 'i-lucide-ellipsis',
 }

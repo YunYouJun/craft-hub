@@ -5,6 +5,7 @@ import { useMediaQuery } from '@vueuse/core'
 import { computed, onMounted, ref, useId, watch } from 'vue'
 import { api } from './api'
 import { Button as UiButton } from './components/ui/button'
+import { NavigationItem, NavigationList } from './components/ui/navigation'
 import Icon from './NavigationIcon.vue'
 import { useI18n } from './i18n'
 import IntegrationWorkbench from './IntegrationWorkbench.vue'
@@ -29,6 +30,7 @@ const navigationId = useId()
 const compactNavigation = useMediaQuery('(max-width: 900px)')
 const handoffOpen = ref(false)
 const handoffWork = ref<{ source: HomeWorkSource, item: IntegrationEntity }>()
+const activeIntegration = ref<InstanceType<typeof IntegrationWorkbench>>()
 
 const workbench = computed(() => store.pluginWorkbenches.find(candidate => candidate.pluginId === props.pluginId && candidate.id === props.workbenchId))
 
@@ -107,6 +109,15 @@ async function loadPanels(): Promise<void> {
   }
 }
 
+async function refresh(): Promise<void> {
+  // Navigation panels and host work items follow refreshKey, avoiding a second
+  // request when the toolbar updates that revision after refreshing the member.
+  if (activeMember.value?.reference.type === 'integration')
+    await activeIntegration.value?.refresh()
+}
+
+defineExpose({ refresh })
+
 watch([workbench, members], () => {
   if (!members.value.some(member => member.key === selectedKey.value))
     selectedKey.value = members.value[0]?.key ?? ''
@@ -123,12 +134,13 @@ onMounted(() => void loadPanels())
         <strong :title="workbench.description">{{ workbench.title }}</strong>
         <UiButton size="icon" :title="t('managePluginWorkbench')" :aria-label="t('managePluginWorkbench')" @click="emit('managePlugins')"><Icon name="settings" /></UiButton>
       </header>
-      <nav class="plugin-workbench-sidebar" role="tablist" :aria-label="workbench.title" :aria-orientation="compactNavigation ? 'horizontal' : 'vertical'" @keydown="moveSelection">
+      <NavigationList as="nav" variant="sidebar" class="plugin-workbench-sidebar" role="tablist" :aria-label="workbench.title" :aria-orientation="compactNavigation ? 'horizontal' : 'vertical'" @keydown="moveSelection">
         <div v-for="group in groups" :key="group.title" class="plugin-workbench-group" role="presentation">
         <h2 v-if="group.title" role="presentation">{{ group.title }}</h2>
-        <button
+        <NavigationItem
           v-for="member in group.items"
           :key="member.key"
+          as="button"
           type="button"
           role="tab"
           :title="member.title"
@@ -140,11 +152,11 @@ onMounted(() => void loadPanels())
           @click="selectedKey = member.key"
         >
           <VisualIcon :icon="member.icon" :fallback="member.reference.type === 'integration' ? 'list' : 'web'" monochrome />
-          <span>{{ member.title }}</span>
+          <span class="ui-navigation-label">{{ member.title }}</span>
           <Icon v-if="!member.available && !(member.reference.type === 'navigation' && panelsLoading)" name="error" />
-        </button>
+        </NavigationItem>
         </div>
-      </nav>
+      </NavigationList>
     </template>
 
     <WorkbenchViewFrame v-if="workbench" :title="activeMember?.title ?? workbench.title" :icon="activeMember?.icon ?? workbench.icon">
@@ -163,6 +175,7 @@ onMounted(() => void loadPanels())
         />
         <IntegrationWorkbench
           v-else-if="activeMember?.reference.type === 'integration' && activeMember.available"
+          ref="activeIntegration"
           embedded
           :integration-id="activeMember.reference.integration"
           :view-id="activeMember.reference.view"
@@ -197,16 +210,10 @@ onMounted(() => void loadPanels())
 .plugin-workbench-sidebar-header strong { flex: 1; min-width: 0; color: var(--workbench-sidebar-color); font-size: var(--workbench-sidebar-font-size); font-weight: var(--workbench-sidebar-heading-weight); overflow-wrap: anywhere; }
 .plugin-workbench-sidebar-header .ui-button { flex: none; width: var(--workbench-sidebar-action-size); height: var(--workbench-sidebar-action-size); min-height: var(--workbench-sidebar-action-size); padding: 4px; border: 0; background: transparent; }
 .plugin-workbench-sidebar-header .app-icon { width: var(--workbench-sidebar-icon-size); height: var(--workbench-sidebar-icon-size); }
-.plugin-workbench-sidebar { display: grid; align-content: start; gap: var(--workbench-sidebar-group-gap); min-height: 0; overflow-y: auto; scrollbar-width: thin; padding: var(--space-2) 0 var(--space-3); }
+.plugin-workbench-sidebar { display: grid; align-content: start; gap: var(--workbench-sidebar-group-gap); min-height: 0; overflow-y: auto; scrollbar-width: thin; padding: var(--space-2) var(--navigation-sidebar-list-inset) var(--space-3); }
 .plugin-workbench-group { display: grid; gap: 2px; min-width: 0; }
-.plugin-workbench-group h2 { margin: 0; padding: var(--space-2) var(--workbench-sidebar-padding-inline); color: var(--text-secondary); font-size: var(--font-size-caption); font-weight: var(--workbench-sidebar-heading-weight); }
-.plugin-workbench-sidebar button { position: relative; display: flex; min-height: var(--workbench-sidebar-row-height); align-items: center; gap: var(--space-2); min-width: 0; margin: 0 var(--workbench-sidebar-item-inset); padding: var(--space-1) var(--workbench-sidebar-item-padding); border: 0; border-radius: var(--workbench-sidebar-item-radius); color: var(--workbench-sidebar-color); background: transparent; text-align: start; font-size: var(--workbench-sidebar-font-size); font-weight: var(--workbench-sidebar-font-weight); cursor: pointer; white-space: nowrap; }
-.plugin-workbench-sidebar button > span:not(.visual-icon):not(.app-icon) { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.plugin-workbench-sidebar button:hover { color: var(--text); background: var(--surface-hover); }
-.plugin-workbench-sidebar button:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
-.plugin-workbench-sidebar button.active { color: var(--workbench-sidebar-active-color); background: var(--workbench-sidebar-active-background); font-weight: var(--workbench-sidebar-active-weight); }
+.plugin-workbench-group h2 { margin: 0; padding: var(--space-2) var(--navigation-sidebar-item-padding-inline); color: var(--text-secondary); font-size: var(--font-size-caption); font-weight: var(--workbench-sidebar-heading-weight); }
 .plugin-workbench-sidebar button.unavailable { opacity: .72; }
-.plugin-workbench-sidebar :deep(.visual-icon), .plugin-workbench-sidebar .app-icon { width: var(--workbench-sidebar-icon-size); height: var(--workbench-sidebar-icon-size); flex: none; }
 .plugin-workbench-sidebar button > .app-icon { color: var(--danger); }
 .plugin-workbench-content { min-width: 0; margin: 0; }
 .plugin-workbench-content:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 3px; }
@@ -221,6 +228,6 @@ onMounted(() => void loadPanels())
   .plugin-workbench-group { display: flex; flex: none; }
   .plugin-workbench-group + .plugin-workbench-group { border-left: 1px solid var(--workbench-sidebar-border); padding-left: var(--space-2); }
   .plugin-workbench-group h2 { display: none; }
-  .plugin-workbench-sidebar button { flex: none; min-height: 40px; margin: 0; }
+  .plugin-workbench-sidebar .ui-navigation-item { width: auto; flex: none; }
 }
 </style>

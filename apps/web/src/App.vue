@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import type { WorkbenchDiagnosticTarget } from 'craft-hub'
 import type { WorkbenchNavigationGroup } from './workbench-navigation'
-import { useMediaQuery } from '@vueuse/core'
+import type { DesktopMenuAction } from './shortcuts'
+import { useLocalStorage, useMediaQuery } from '@vueuse/core'
 import { computed, defineAsyncComponent, onBeforeMount, onBeforeUnmount, ref, watch } from 'vue'
 import { DialogClose, DialogContent, DialogDescription, DialogOverlay, DialogPortal, DialogRoot, DialogTitle, SplitterPanel } from 'reka-ui'
 import { useRoute, useRouter } from 'vue-router'
@@ -30,9 +31,10 @@ import ProjectToolbar from './ProjectToolbar.vue'
 import ConfigurationSubscriptions from './ConfigurationSubscriptions.vue'
 import SettingsDialog from './SettingsDialog.vue'
 import SoftwareCenter from './SoftwareCenter.vue'
-import { capabilityShortcutPrefix, commandPaletteShortcutId, defaultCommandPaletteShortcut, formatShortcut, matchesShortcut, parseCapabilityShortcutId } from './shortcuts'
+import { capabilityShortcutPrefix, commandPaletteShortcutId, defaultCommandPaletteShortcut, desktopWorkbenchShortcuts, formatShortcut, matchesShortcut, parseCapabilityShortcutId } from './shortcuts'
 import WelcomePanel from './WelcomePanel.vue'
 import WorkbenchPageShell from './WorkbenchPageShell.vue'
+import WorkbenchToolbar from './WorkbenchToolbar.vue'
 import WorkbenchResizeHandle from './WorkbenchResizeHandle.vue'
 import WorkbenchSplitter from './WorkbenchSplitter.vue'
 import WorkspaceDashboard from './WorkspaceDashboard.vue'
@@ -46,12 +48,34 @@ const { t, locale } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const compactViewport = useMediaQuery('(max-width: 760px)')
+const desktopSidebarCollapsed = useLocalStorage('craft-hub-desktop-sidebar-collapsed', false)
+const activityRailWidth = computed(() => compactViewport.value ? 48 : desktopSidebarCollapsed.value ? 52 : 176)
 const mobileNavigationOpen = ref(false)
 watch(() => route.fullPath, () => { mobileNavigationOpen.value = false })
 const desktopMac = window.craftHubDesktop?.platform === 'darwin'
+const shortcutPlatform = window.craftHubDesktop?.platform ?? navigator.platform
+const historyState = ref({ ...router.options.history.state })
+const canGoBack = computed(() => typeof historyState.value.back === 'string')
+const canGoForward = computed(() => typeof historyState.value.forward === 'string')
+const stopHistoryTracking = router.afterEach((_to, _from, failure) => {
+  if (!failure)
+    historyState.value = { ...router.options.history.state }
+})
+function toggleDesktopSidebar(): void {
+  if (!compactViewport.value)
+    desktopSidebarCollapsed.value = !desktopSidebarCollapsed.value
+}
+function goBack(): void {
+  if (canGoBack.value)
+    router.back()
+}
+function goForward(): void {
+  if (canGoForward.value)
+    router.forward()
+}
 const paletteOpen = ref(false)
 const paletteMode = ref<'all' | 'projects' | 'commands'>('all')
-const paletteShortcutLabel = computed(() => formatShortcut(store.settings?.settings['workbench.shortcuts']?.[commandPaletteShortcutId] ?? defaultCommandPaletteShortcut))
+const paletteShortcutLabel = computed(() => formatShortcut(store.settings?.settings['workbench.shortcuts']?.[commandPaletteShortcutId] ?? defaultCommandPaletteShortcut, shortcutPlatform))
 function showPalette(mode: 'all' | 'projects' | 'commands'): void {
   paletteMode.value = mode
   paletteOpen.value = true
@@ -135,6 +159,10 @@ const activeIntegrationViewId = computed(() => typeof route.params.viewId === 's
 const activePluginWorkbenchPluginId = computed(() => typeof route.params.pluginId === 'string' ? route.params.pluginId : '')
 const activePluginWorkbenchId = computed(() => typeof route.params.workbenchId === 'string' ? route.params.workbenchId : '')
 const navigationRevision = ref(0)
+const toolbarTitle = computed(() => route.name === 'workbench' ? sectionTitle.value : pageBreadcrumbs.value.at(-1)?.label ?? sectionTitle.value)
+const activePage = ref<{ refresh: () => Promise<void> }>()
+const toolbarRefreshing = ref(false)
+const toolbarRefreshError = ref('')
 const marketplaceImportCatalogUrl = ref('')
 const onboardingOpen = ref(false)
 const desktopNavigation = ref<Extract<DesktopNavigation, { kind: 'project' }>>()
@@ -295,25 +323,94 @@ async function openShortcutCapability(shortcutId: string): Promise<void> {
   await openWorkbench()
 }
 
+const navigationActions = new Set<DesktopMenuAction>(['back', 'forward', 'home', 'workbench', 'tools', 'environment', 'workbenches', 'marketplace'])
+function hasOpenOverlay(ignorePalette = false): boolean {
+  const dialogs = ignorePalette ? '[role="dialog"]:not(.command-palette)' : '[role="dialog"]'
+  return Boolean(document.querySelector(`${dialogs}, [role="menu"]:not([data-state="closed"]), [data-slot="select-content"], [popover]:popover-open`))
+}
+
+async function performWorkbenchAction(action: DesktopMenuAction): Promise<void> {
+  if (hasOpenOverlay(action.startsWith('palette-')))
+    return
+  if (['toggle-sidebar', 'refresh'].includes(action) && compactViewport.value)
+    return
+  switch (action) {
+    case 'back':
+      goBack()
+      break
+    case 'forward':
+      goForward()
+      break
+    case 'home':
+      await openOverview()
+      break
+    case 'workbench':
+      await openWorkbench()
+      break
+    case 'tools':
+      await openTools()
+      break
+    case 'environment':
+      await openEnvironment()
+      break
+    case 'workbenches':
+      await openWorkbenches()
+      break
+    case 'marketplace':
+      await openMarketplace()
+      break
+    case 'toggle-sidebar':
+      toggleDesktopSidebar()
+      break
+    case 'refresh':
+      await refreshCurrentView()
+      break
+    case 'settings':
+      openSettings()
+      break
+    case 'palette-all':
+      showPalette('all')
+      break
+    case 'palette-projects':
+      showPalette('projects')
+      break
+    case 'palette-commands':
+      showPalette('commands')
+      break
+  }
+}
+
 function onKeydown(event: KeyboardEvent) {
+  if (event.defaultPrevented || event.isComposing || event.repeat)
+    return
   const shortcuts = store.settings?.settings['workbench.shortcuts'] ?? { [commandPaletteShortcutId]: defaultCommandPaletteShortcut }
   const paletteShortcut = shortcuts[commandPaletteShortcutId] ?? defaultCommandPaletteShortcut
-  if (matchesShortcut(event, paletteShortcut)) {
+  if (matchesShortcut(event, paletteShortcut, shortcutPlatform)) {
+    if (hasOpenOverlay(true))
+      return
     event.preventDefault()
     paletteMode.value = 'all'
     paletteOpen.value = !paletteOpen.value
     return
   }
-  const match = Object.entries(shortcuts).find(([id, shortcut]) => id.startsWith(capabilityShortcutPrefix) && matchesShortcut(event, shortcut))
+  const match = Object.entries(shortcuts).find(([id, shortcut]) => id.startsWith(capabilityShortcutPrefix) && matchesShortcut(event, shortcut, shortcutPlatform))
   if (match) {
+    if (hasOpenOverlay())
+      return
     event.preventDefault()
     void openShortcutCapability(match[0])
     return
   }
-  if (matchesShortcut(event, 'Mod+P') || matchesShortcut(event, 'Mod+Shift+P')) {
-    event.preventDefault()
-    showPalette(event.shiftKey ? 'commands' : 'projects')
-  }
+  const builtin = desktopWorkbenchShortcuts(shortcutPlatform).find(({ shortcut }) => matchesShortcut(event, shortcut, shortcutPlatform))
+  if (!builtin)
+    return
+  const editing = event.target instanceof Element && Boolean(event.target.closest('input, textarea, [contenteditable="true"], [role="textbox"], .xterm'))
+  if (navigationActions.has(builtin.action) && (editing || hasOpenOverlay()))
+    return
+  if (['toggle-sidebar', 'refresh'].includes(builtin.action) && (compactViewport.value || hasOpenOverlay()))
+    return
+  event.preventDefault()
+  void performWorkbenchAction(builtin.action)
 }
 
 async function refreshCodexActivity(): Promise<void> {
@@ -339,6 +436,27 @@ async function refreshWorkbench(): Promise<void> {
   finally {
     if (workbenchRefresh === request)
       workbenchRefresh = undefined
+  }
+}
+
+async function refreshCurrentView(): Promise<void> {
+  if (toolbarRefreshing.value)
+    return
+  toolbarRefreshing.value = true
+  toolbarRefreshError.value = ''
+  try {
+    await refreshWorkbench()
+    await store.loadSettings()
+    if (environmentOpen.value)
+      await store.loadLocalEnvironment()
+    await activePage.value?.refresh()
+    navigationRevision.value++
+  }
+  catch (error) {
+    toolbarRefreshError.value = copy('刷新失败：', 'Refresh failed: ') + (error instanceof Error ? error.message : String(error))
+  }
+  finally {
+    toolbarRefreshing.value = false
   }
 }
 
@@ -413,15 +531,11 @@ onBeforeMount(async () => {
     onboardingOpen.value = true
   })
   stopHelpEvents = window.craftHubDesktop?.onOpenHelp?.(() => openSettings('help'))
-  stopSettingsEvents = window.craftHubDesktop?.onOpenSettings?.(() => openSettings())
-  stopMenuActionEvents = window.craftHubDesktop?.onMenuAction?.((action) => {
-    if (action === 'workbench')
-      void openWorkbench()
-    else if (action === 'marketplace')
-      void openMarketplace()
-    else
-      showPalette(action === 'palette-projects' ? 'projects' : action === 'palette-commands' ? 'commands' : 'all')
+  stopSettingsEvents = window.craftHubDesktop?.onOpenSettings?.(() => {
+    if (!hasOpenOverlay() || settingsOpen.value)
+      openSettings()
   })
+  stopMenuActionEvents = window.craftHubDesktop?.onMenuAction?.(action => { void performWorkbenchAction(action) })
   let marketplaceImportHandled = false
   let desktopNavigationHandled = false
   stopMarketplaceImportEvents = window.craftHubDesktop?.onMarketplaceSourceImport?.((catalogUrl) => {
@@ -458,18 +572,36 @@ onBeforeUnmount(() => {
   stopMenuActionEvents?.()
   stopMarketplaceImportEvents?.()
   stopDesktopNavigationEvents?.()
+  stopHistoryTracking()
   celebration.reset()
 })
 </script>
 
 <template>
-  <div class="app-shell" :class="{ 'mobile-navigation-open': mobileNavigationOpen, 'has-app-notices': store.runtimeSchemaMismatch || (store.projectsLoadState === 'error' && store.projects.length) }">
-    <header class="workbench-titlebar" :class="{ 'desktop-mac': desktopMac }" :aria-label="t('paletteTitlebar')">
-      <button class="mobile-navigation-toggle" :aria-label="locale === 'zh-CN' ? '切换导航' : 'Toggle navigation'" :aria-expanded="mobileNavigationOpen" @click="mobileNavigationOpen = !mobileNavigationOpen"><Icon name="list" /></button>
-      <button class="titlebar-project" aria-haspopup="dialog" :aria-expanded="paletteOpen && paletteMode === 'projects'" :title="t('paletteFindProject')" @click="showPalette('projects')"><Icon name="folder" /><span>{{ store.selectedProject?.name ?? store.applicationName }}</span><Icon name="arrowDown" /><kbd>{{ formatShortcut('Mod+P') }}</kbd></button>
-      <button class="titlebar-search" :aria-label="t('paletteFindAnything')" @click="showPalette('all')"><Icon name="search" /><span class="titlebar-label">{{ t('paletteFindAnything') }}</span><kbd>{{ paletteShortcutLabel }}</kbd></button>
-    </header>
-    <section v-if="store.runtimeSchemaMismatch || (store.projectsLoadState === 'error' && store.projects.length)" class="app-notices">
+  <div class="app-shell" :style="{ '--workbench-activity-width': `${activityRailWidth}px` }" :class="{ 'mobile-navigation-open': mobileNavigationOpen, 'has-app-notices': toolbarRefreshError || store.runtimeSchemaMismatch || (store.projectsLoadState === 'error' && store.projects.length) }">
+    <WorkbenchToolbar
+      :title="toolbarTitle"
+      :project-name="store.selectedProject?.name ?? store.applicationName"
+      :sidebar-collapsed="desktopSidebarCollapsed"
+      :can-go-back="canGoBack"
+      :can-go-forward="canGoForward"
+      :refreshing="toolbarRefreshing"
+      :palette-shortcut-label="paletteShortcutLabel"
+      :palette-open="paletteOpen"
+      :palette-mode="paletteMode"
+      :desktop-mac="desktopMac"
+      :mobile-navigation-open="mobileNavigationOpen"
+      @toggle-sidebar="toggleDesktopSidebar"
+      @toggle-mobile-navigation="mobileNavigationOpen = !mobileNavigationOpen"
+      @back="goBack"
+      @forward="goForward"
+      @refresh="refreshCurrentView"
+      @open-palette="showPalette"
+    />
+    <section v-if="toolbarRefreshError || store.runtimeSchemaMismatch || (store.projectsLoadState === 'error' && store.projects.length)" class="app-notices">
+      <div v-if="toolbarRefreshError" class="project-refresh-warning" role="alert">
+        <Icon name="error" /><span>{{ toolbarRefreshError }}</span><button type="button" @click="refreshCurrentView">{{ t('retry') }}</button>
+      </div>
       <div v-if="store.runtimeSchemaMismatch" class="runtime-schema-warning" data-testid="runtime-schema-mismatch" role="alert">
         <Icon name="error" />
         <span><strong>{{ t('runtimeOutdated') }}</strong> {{ t('runtimeOutdatedDescription') }}</span>
@@ -483,6 +615,7 @@ onBeforeUnmount(() => {
     </section>
     <section v-if="overviewOpen || subscriptionsOpen || navigationOpen || toolsOpen || workbenchesOpen || marketplaceOpen || integrationOpen || pluginWorkbenchOpen || softwareOpen || environmentOpen || diagnosticsOpen" class="navigation-view-shell">
       <ProjectRail
+        :collapsed="desktopSidebarCollapsed"
         :active-view="overviewOpen ? 'overview' : subscriptionsOpen ? 'subscriptions' : pluginWorkbenchOpen ? 'plugin-workbench' : integrationOpen ? 'integration' : navigationOpen ? 'navigation' : toolsOpen ? 'tools' : workbenchesOpen ? 'workbenches' : softwareOpen ? 'software' : environmentOpen ? 'environment' : diagnosticsOpen ? 'diagnostics' : 'marketplace'"
         :active-integration-id="activeIntegrationId"
         :active-integration-view-id="activeIntegrationViewId"
@@ -498,10 +631,10 @@ onBeforeUnmount(() => {
         @open-settings="openSettings()"
         @open-workbench="openWorkbench"
       />
-      <ConfigurationSubscriptions v-if="subscriptionsOpen">
+      <ConfigurationSubscriptions v-if="subscriptionsOpen" ref="activePage">
         <template #sidebar><WorkbenchSectionNavigation :title="sectionTitle" :icon="sectionIcon" :groups="sectionGroups" /></template>
       </ConfigurationSubscriptions>
-      <PluginWorkbench v-else-if="pluginWorkbenchOpen" :breadcrumbs="pageBreadcrumbs" :plugin-id="activePluginWorkbenchPluginId" :workbench-id="activePluginWorkbenchId" :refresh-key="navigationRevision" @manage-plugins="openMarketplace" @open-project="openProject" @open-integration="openIntegration" />
+      <PluginWorkbench v-else-if="pluginWorkbenchOpen" ref="activePage" :breadcrumbs="pageBreadcrumbs" :plugin-id="activePluginWorkbenchPluginId" :workbench-id="activePluginWorkbenchId" :refresh-key="navigationRevision" @manage-plugins="openMarketplace" @open-project="openProject" @open-integration="openIntegration" />
       <WorkbenchPageShell v-else :breadcrumbs="pageBreadcrumbs">
         <template v-if="sectionGroups.length" #sidebar><WorkbenchSectionNavigation :title="sectionTitle" :icon="sectionIcon" :groups="sectionGroups" /></template>
         <PersonalWorkbench
@@ -518,20 +651,22 @@ onBeforeUnmount(() => {
         />
         <ToolsWorkbench v-else-if="toolsOpen" />
         <WorkbenchesOverview v-else-if="workbenchesOpen" />
-        <SoftwareCenter v-else-if="softwareOpen" />
+        <SoftwareCenter v-else-if="softwareOpen" ref="activePage" />
         <EnvironmentWorkbench v-else-if="environmentOpen" />
         <DiagnosticsWorkbench v-else-if="diagnosticsOpen" @open-target="openDiagnosticTarget" />
-        <IntegrationWorkbench v-else-if="integrationOpen" :integration-id="activeIntegrationId" :view-id="activeIntegrationViewId" :initial-scope="route.query.scope === 'global' ? 'global' : undefined" />
+        <IntegrationWorkbench v-else-if="integrationOpen" ref="activePage" :integration-id="activeIntegrationId" :view-id="activeIntegrationViewId" :initial-scope="route.query.scope === 'global' ? 'global' : undefined" />
         <NavigationWorkbench v-else-if="navigationOpen" :refresh-key="navigationRevision" @manage-plugins="openMarketplace" />
-        <MarketplaceDialog v-else open :import-catalog-url="marketplaceImportCatalogUrl" />
+        <MarketplaceDialog v-else ref="activePage" open :import-catalog-url="marketplaceImportCatalogUrl" />
       </WorkbenchPageShell>
     </section>
     <WorkbenchSplitter
       v-else
       id="craft-hub-workbench"
       class="workbench-splitter"
+      :class="{ 'empty-projects': !store.projects.length }"
       :compact="compactViewport"
       includes-activity-rail
+      :activity-rail-width="activityRailWidth"
       sidebar-id="projects-panel"
       handle-id="projects-resize-handle"
       :sidebar-label="t('resizeProjects')"
@@ -539,6 +674,7 @@ onBeforeUnmount(() => {
     >
       <template #sidebar>
         <ProjectRail
+          :collapsed="desktopSidebarCollapsed"
           :active-view="marketplaceOpen ? 'marketplace' : 'workbench'"
           @open-diagnostics="openDiagnostics"
           @open-environment="openEnvironment"
@@ -556,7 +692,7 @@ onBeforeUnmount(() => {
         <CapabilityList v-else />
       </component>
       <WorkbenchResizeHandle v-if="!compactViewport && store.projects.length" id="capabilities-resize-handle" :label="t('resizeCapabilities')" :aria-hidden="marketplaceOpen" :inert="marketplaceOpen" />
-      <component :is="compactViewport ? 'div' : SplitterPanel" data-panel id="detail-panel" :order="3" size-unit="px" :min-size="350" :aria-hidden="marketplaceOpen" :inert="marketplaceOpen">
+      <component :is="compactViewport ? 'div' : SplitterPanel" data-panel id="detail-panel" :order="3" size-unit="px" :min-size="260" :aria-hidden="marketplaceOpen" :inert="marketplaceOpen">
         <section class="detail-workspace">
           <ProjectToolbar v-if="store.selectedProject && !store.selectedWorkspace" />
           <section v-if="store.projectsLoadState === 'error' && !store.projects.length" class="project-load-state error" data-testid="project-load-error" role="alert">

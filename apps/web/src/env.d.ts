@@ -54,7 +54,7 @@ interface Window {
     onReplayOnboarding?: (callback: () => void) => () => void
     onOpenHelp?: (callback: () => void) => () => void
     onOpenSettings?: (callback: () => void) => () => void
-    onMenuAction?: (callback: (action: 'workbench' | 'marketplace' | 'palette-all' | 'palette-projects' | 'palette-commands') => void) => () => void
+    onMenuAction?: (callback: (action: import('./shortcuts').DesktopMenuAction) => void) => () => void
     cloudStatus?: () => Promise<{
       state: 'disabled' | 'disconnected' | 'connecting' | 'connected' | 'error'
       deviceId?: string

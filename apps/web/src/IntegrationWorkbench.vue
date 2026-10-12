@@ -269,6 +269,7 @@ watch(
   },
   { immediate: true },
 )
+defineExpose({ refresh: refresh })
 </script>
 
 <template>

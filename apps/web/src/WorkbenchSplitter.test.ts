@@ -11,9 +11,9 @@ import WorkbenchSplitter from './WorkbenchSplitter.vue'
 const preferenceKey = 'craft-hub-primary-sidebar-width'
 const Fixture = defineComponent({
   components: { SplitterPanel, WorkbenchResizeHandle, WorkbenchSplitter },
-  props: { compact: Boolean, home: Boolean, middle: Boolean },
+  props: { compact: Boolean, home: Boolean, middle: Boolean, activityWidth: Number },
   template: `
-    <WorkbenchSplitter :compact="compact" :includes-activity-rail="home" :auto-save-id="home ? 'test-home-layout' : undefined" sidebar-label="Resize sidebar">
+    <WorkbenchSplitter :compact="compact" :includes-activity-rail="home" :activity-rail-width="activityWidth" :auto-save-id="home ? 'test-home-layout' : undefined" sidebar-label="Resize sidebar">
       <template #sidebar><nav>Navigation</nav></template>
       <SplitterPanel v-if="middle && !compact" id="middle" :order="2" size-unit="px" :default-size="320" :min-size="230" :max-size="540">Commands</SplitterPanel>
       <WorkbenchResizeHandle v-if="middle && !compact" label="Resize commands" />
@@ -46,6 +46,21 @@ describe('shared workbench splitter', () => {
     document.documentElement.removeAttribute('style')
     document.body.innerHTML = ''
     localStorage.clear()
+  })
+
+  it('preserves the project tree width when the primary navigation folds and reopens', async () => {
+    localStorage.setItem(preferenceKey, '236')
+    const wrapper = mount(Fixture, { props: { home: true, activityWidth: 176 }, attachTo: document.body })
+    await flushPromises()
+    expect(sidebarSize(wrapper)).toBeCloseTo(412, 1)
+    await wrapper.setProps({ activityWidth: 52 })
+    await flushPromises()
+    expect(sidebarSize(wrapper)).toBeCloseTo(288, 1)
+    expect(localStorage.getItem(preferenceKey)).toBe('236')
+    await wrapper.setProps({ activityWidth: 176 })
+    await flushPromises()
+    expect(sidebarSize(wrapper)).toBeCloseTo(412, 1)
+    wrapper.unmount()
   })
 
   it('remembers dragging on either page, excluding the fixed activity rail', async () => {

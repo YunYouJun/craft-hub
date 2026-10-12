@@ -25,9 +25,4 @@
   .workbench-frame-sidebar + .workbench-frame-scroll > .workbench-frame-content { padding-top: var(--page-section-gap); }
 }
 
-.workbench-tabs { display: flex; width: fit-content; max-width: 100%; align-items: center; gap: 2px; margin: 0 0 var(--page-section-gap); border: 1px solid var(--border); border-radius: var(--control-radius); background: var(--surface-hover); padding: 2px; overflow-x: auto; scrollbar-width: thin; }
-.workbench-tabs > button, .workbench-tabs > a { position: relative; display: inline-flex; flex: none; min-height: var(--page-toolbar-height); align-items: center; justify-content: center; gap: var(--space-2); border: 1px solid transparent; border-radius: calc(var(--control-radius) - 2px); background: transparent; padding: 4px var(--space-3); color: var(--muted); font-size: var(--font-size-body); font-weight: 500; text-decoration: none; white-space: nowrap; cursor: pointer; }
-.workbench-tabs > :hover { color: var(--text); }
-.workbench-tabs > .active, .workbench-tabs > [aria-current='page'], .workbench-tabs > [aria-selected='true'] { border-color: var(--border); background: var(--surface); color: var(--text); box-shadow: 0 1px 2px var(--shadow); }
-.workbench-tabs > :focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
-.workbench-tabs small { display: grid; min-width: 18px; height: 18px; place-items: center; border-radius: var(--radius-pill); background: var(--surface-hover); color: var(--muted); font-size: var(--font-size-caption); }
+.workbench-tabs { margin: 0 0 var(--page-section-gap); }

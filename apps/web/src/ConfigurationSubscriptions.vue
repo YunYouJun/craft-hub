@@ -6,6 +6,7 @@ import WorkbenchPageShell from './WorkbenchPageShell.vue'
 import WorkbenchViewFrame from './WorkbenchViewFrame.vue'
 import { Button } from './components/ui/button'
 import { Icon } from './icons'
+import { NavigationItem, NavigationList } from './components/ui/navigation'
 import { useI18n } from './i18n'
 import { useWorkbenchStore } from './store'
 import WorkspaceSourceCatalog from './WorkspaceSourceCatalog.vue'
@@ -250,6 +251,7 @@ onMounted(async () => {
   }
   await restoreRoute()
 })
+defineExpose({ refresh: load })
 </script>
 
 <template>
@@ -260,17 +262,17 @@ onMounted(async () => {
       <p v-if="error" role="alert" class="subscription-error">{{ error }}</p>
       <p v-if="notice" role="status" class="subscription-notice">{{ notice }}</p>
       <p v-if="busy" role="status">{{ text('正在处理…', 'Working…') }}</p>
-      <nav v-if="listing" class="source-tabs workbench-tabs" :aria-label="text('工作区源视图', 'Workspace source views')">
-        <RouterLink :to="{ path: '/subscriptions', query: route.query.q ? { q: route.query.q } : {} }" :aria-current="!discover ? 'page' : undefined">{{ text('我的源', 'My sources') }}</RouterLink>
-        <RouterLink :to="discoverPath" :aria-current="discover ? 'page' : undefined">{{ text('发现源', 'Discover sources') }}</RouterLink>
-      </nav>
+      <NavigationList v-if="listing" as="nav" class="source-tabs workbench-tabs" :aria-label="text('工作区源视图', 'Workspace source views')">
+        <NavigationItem as-child><RouterLink :to="{ path: '/subscriptions', query: route.query.q ? { q: route.query.q } : {} }" :aria-current="!discover ? 'page' : undefined">{{ text('我的源', 'My sources') }}</RouterLink></NavigationItem>
+        <NavigationItem as-child><RouterLink :to="discoverPath" :aria-current="discover ? 'page' : undefined">{{ text('发现源', 'Discover sources') }}</RouterLink></NavigationItem>
+      </NavigationList>
       <ConfigurationSyncStatus />
       <WorkspaceSourceCatalog v-if="discover" :sources="catalogSources" :disabled="busy || !state?.connected" @select="selectSource" @join="joinTeam" />
       <p v-if="detailId && state && !detail" role="alert">{{ text('配置源不存在或已删除。', 'Source not found or deleted.') }}</p>
-      <nav v-if="detail" class="source-tabs workbench-tabs" :aria-label="text('源详情视图', 'Source detail views')">
-        <RouterLink :to="{ path: sourcePath(detail.id), query: { q: route.query.q } }" :aria-current="!settings ? 'page' : undefined">{{ text('工作区', 'Workspaces') }}</RouterLink>
-        <RouterLink :to="{ path: sourcePath(detail.id), query: { ...route.query, panel: 'settings' } }" :aria-current="settings ? 'page' : undefined">{{ text('订阅设置', 'Subscription settings') }}</RouterLink>
-      </nav>
+      <NavigationList v-if="detail" as="nav" class="source-tabs workbench-tabs" :aria-label="text('源详情视图', 'Source detail views')">
+        <NavigationItem as-child><RouterLink :to="{ path: sourcePath(detail.id), query: { q: route.query.q } }" :aria-current="!settings ? 'page' : undefined">{{ text('工作区', 'Workspaces') }}</RouterLink></NavigationItem>
+        <NavigationItem as-child><RouterLink :to="{ path: sourcePath(detail.id), query: { ...route.query, panel: 'settings' } }" :aria-current="settings ? 'page' : undefined">{{ text('订阅设置', 'Subscription settings') }}</RouterLink></NavigationItem>
+      </NavigationList>
       <template v-if="state">
         <section v-if="state.canConnect !== false" class="subscription-connection">
           <div class="subscription-connection-summary"><Icon :name="state.connected ? 'check' : 'gitRepository'" :class="{ connected: state.connected }" /><strong>{{ state.provider }}</strong><span>{{ state.connected ? text('已连接 · 按账号仓库权限读取', 'Connected · Uses your repository permissions') : text('连接账号后读取配置仓库', 'Connect to read configuration repositories') }}</span></div>

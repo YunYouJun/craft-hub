@@ -1,5 +1,6 @@
 import type { CraftHubServer, ProjectReference } from 'craft-hub'
 import type { BrowserWindow as BrowserWindowType, MenuItemConstructorOptions, OpenDialogOptions } from 'electron'
+import type { DesktopMenuAction } from './application-menu.ts'
 import type { DesktopUpdateStatus } from './updater.ts'
 import type { WorkspaceLaunchTarget } from './workspace-launch-target.ts'
 import { execFile } from 'node:child_process'
@@ -15,6 +16,7 @@ import { PersonalCloudController } from '@craft-hub/personal-cloud'
 import { communityDistribution, CraftHubRuntime, HostExtensionManager, loadCraftHubPlugins, startCraftHubServer } from 'craft-hub'
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, nativeTheme, safeStorage, shell } from 'electron'
 import { aboutDocument, aboutPanelOptions } from './about.ts'
+import { createWorkbenchMenuShortcutMatcher, createWorkbenchViewMenu, desktopSettingsAccelerator } from './application-menu.ts'
 import { loadDesktopBuildInfo } from './build-info.ts'
 import { CodexActivityMonitor } from './codex-activity.ts'
 import { CodexAgentTaskProvider } from './codex-agent-task-provider.ts'
@@ -143,9 +145,7 @@ async function openSettings(): Promise<void> {
   mainWindow?.webContents.send('craft-hub:open-settings')
 }
 
-type MenuAction = 'workbench' | 'marketplace' | 'palette-all' | 'palette-projects' | 'palette-commands'
-
-async function performMenuAction(action: MenuAction): Promise<void> {
+async function performMenuAction(action: DesktopMenuAction): Promise<void> {
   await showMainWindow()
   mainWindow?.webContents.send('craft-hub:menu-action', action)
 }
@@ -160,7 +160,7 @@ function installApplicationMenu(): void {
       submenu: [
         { label: `About ${app.name}`, click: () => void showAboutWindow() },
         { type: 'separator' },
-        { label: 'Settings…', accelerator: 'CommandOrControl+,', click: () => void openSettings() },
+        { label: 'Settings…', accelerator: desktopSettingsAccelerator, click: () => void openSettings() },
         { type: 'separator' },
         { role: 'services' },
         { type: 'separator' },
@@ -173,23 +173,7 @@ function installApplicationMenu(): void {
     },
     { role: 'fileMenu' },
     { role: 'editMenu' },
-    {
-      label: 'View',
-      submenu: [
-        { label: 'Workbench', accelerator: 'CommandOrControl+1', click: () => void performMenuAction('workbench') },
-        { label: 'Marketplace', accelerator: 'CommandOrControl+2', click: () => void performMenuAction('marketplace') },
-        { type: 'separator' },
-        { label: 'Find Anything…', click: () => void performMenuAction('palette-all') },
-        { label: 'Find Project…', accelerator: 'CommandOrControl+P', click: () => void performMenuAction('palette-projects') },
-        { label: 'Find Command…', accelerator: 'CommandOrControl+Shift+P', click: () => void performMenuAction('palette-commands') },
-        { type: 'separator' },
-        { role: 'resetZoom' },
-        { role: 'zoomIn' },
-        { role: 'zoomOut' },
-        { type: 'separator' },
-        { role: 'togglefullscreen' },
-      ],
-    },
+    createWorkbenchViewMenu(action => void performMenuAction(action), process.platform),
     { role: 'windowMenu' },
     {
       role: 'help',
@@ -704,6 +688,12 @@ async function createWindow(): Promise<void> {
       nodeIntegration: false,
       preload: resolve(fileURLToPath(new URL('.', import.meta.url)), '../preload.cjs'),
     },
+  })
+  const windowContents = mainWindow.webContents
+  const isWorkbenchMenuShortcut = createWorkbenchMenuShortcutMatcher(process.platform)
+  windowContents.on('before-input-event', (_event, input) => {
+    // Keep native menu hints and clicks while letting the renderer prioritize custom shortcuts.
+    windowContents.setIgnoreMenuShortcuts(isWorkbenchMenuShortcut(input))
   })
   mainWindow.on('page-title-updated', event => event.preventDefault())
   mainWindow.on('unresponsive', () => writeApplicationLog('error', 'Main window became unresponsive'))

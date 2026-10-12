@@ -265,8 +265,69 @@ describe('app startup', () => {
     vi.unstubAllGlobals()
     window.history.replaceState({}, '', '/')
     document.body.innerHTML = ''
+    localStorage.removeItem('craft-hub-desktop-sidebar-collapsed')
     Reflect.deleteProperty(window, 'craftHubDesktop')
     delete window.craftHubDesktop
+  })
+
+  it('remembers collapsed navigation while moving between desktop pages', async () => {
+    stubStartupData()
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    const { wrapper, router } = await mountApp(pinia, '/overview')
+    await flushPromises()
+    expect(wrapper.get('.sidebar-toggle').attributes('aria-expanded')).toBe('true')
+    await wrapper.get('.sidebar-toggle').trigger('click')
+    expect(localStorage.getItem('craft-hub-desktop-sidebar-collapsed')).toBe('true')
+    expect(wrapper.get('.app-shell').attributes('style')).toContain('52px')
+    await router.push('/tools')
+    await flushPromises()
+    expect(wrapper.get('.sidebar-toggle').attributes('aria-expanded')).toBe('false')
+    expect(wrapper.get('.project-rail').classes()).toContain('activity-collapsed')
+    wrapper.unmount()
+    const reopened = await mountApp(pinia, '/overview')
+    await flushPromises()
+    expect(reopened.wrapper.get('.sidebar-toggle').attributes('aria-expanded')).toBe('false')
+    reopened.wrapper.unmount()
+  })
+
+  it('routes desktop shortcuts and protects editing and open dialogs from navigation commands', async () => {
+    stubStartupData()
+    let menuAction: Parameters<NonNullable<NonNullable<Window['craftHubDesktop']>['onMenuAction']>>[0] | undefined
+    window.craftHubDesktop = {
+      platform: 'darwin',
+      onMenuAction: (callback) => {
+        menuAction = callback
+        return () => {}
+      },
+    }
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    const { wrapper, router } = await mountApp(pinia, '/overview')
+    await flushPromises()
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: '3', metaKey: true }))
+    await flushPromises()
+    expect(router.currentRoute.value.path).toBe('/tools')
+    const input = document.createElement('input')
+    document.body.append(input)
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: '1', metaKey: true, bubbles: true }))
+    await flushPromises()
+    expect(router.currentRoute.value.path).toBe('/tools')
+    input.remove()
+    menuAction?.('home')
+    await flushPromises()
+    expect(router.currentRoute.value.path).toBe('/overview')
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: ',', metaKey: true }))
+    await flushPromises()
+    expect(document.body.querySelector('.settings-dialog')).not.toBeNull()
+    menuAction?.('tools')
+    menuAction?.('toggle-sidebar')
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'p', metaKey: true }))
+    await flushPromises()
+    expect(router.currentRoute.value.path).toBe('/overview')
+    expect(wrapper.get('.sidebar-toggle').attributes('aria-expanded')).toBe('true')
+    expect(document.body.querySelector('.command-palette')).toBeNull()
+    wrapper.unmount()
   })
 
   it('opens the environment route without projects and keeps probes out of startup and project refreshes', async () => {

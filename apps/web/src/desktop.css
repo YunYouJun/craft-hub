@@ -3,36 +3,10 @@
 }
 
 :root[data-desktop-platform='darwin'] {
+  --workbench-toolbar-height: 52px;
   font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif;
 }
 
-:root[data-desktop-platform='darwin'] .app-shell {
-  grid-template-rows: 52px minmax(0, 1fr) 24px;
-}
-
-:root[data-desktop-platform='darwin'] .app-shell.has-app-notices {
-  grid-template-rows: 52px auto minmax(0, 1fr) 24px;
-}
-
 :root[data-desktop-platform='darwin'] .workbench-titlebar {
-  padding-left: 88px;
-  padding-right: 16px;
-  background: var(--workbench-sidebar-background);
   user-select: none;
-}
-
-:root[data-desktop-platform='darwin'] .workbench-titlebar .titlebar-project {
-  max-width: 28%;
-}
-
-:root[data-desktop-platform='darwin'] .workbench-titlebar .titlebar-search {
-  position: static;
-  width: min(420px, 36vw);
-  margin-left: auto;
-  transform: none;
-}
-
-:root[data-desktop-platform='darwin'] .workbench-titlebar button {
-  height: 30px;
-  font-size: var(--font-size-body);
 }

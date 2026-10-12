@@ -1,15 +1,18 @@
 <script setup lang="ts">
 import type { DotfilesManagerStatus, DotfilesOperation, DotfilesOperationResult, PersonalGitSyncResolution, PersonalGitSyncStatus, WorkbenchCodexReasoningEffort, WorkbenchEditorId } from 'craft-hub'
-import { TabsContent, TabsList, TabsRoot, TabsTrigger } from 'reka-ui'
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import type { IconName } from './icons'
+import { useMediaQuery } from '@vueuse/core'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { api } from './api'
 import AgentConnectionSettings from './AgentConnectionSettings.vue'
 import CelebrationSettings from './CelebrationSettings.vue'
 import { Button as UiButton } from './components/ui/button'
 import { DialogShell } from './components/ui/dialog'
+import { TabsContent, TabsList, TabsRoot, TabsTrigger } from './components/ui/tabs'
 import { Icon } from './icons'
 import { useI18n } from './i18n'
-import { applicationShortcutReferences, capabilityShortcutId, commandPaletteShortcutId, defaultCommandPaletteShortcut, formatShortcut, shortcutFromKeyboardEvent } from './shortcuts'
+import NavigationIcon from './NavigationIcon.vue'
+import { applicationShortcutReferencesForPlatform, capabilityShortcutId, commandPaletteShortcutId, defaultCommandPaletteShortcut, formatShortcut, shortcutFromKeyboardEvent } from './shortcuts'
 import { useWorkbenchStore } from './store'
 
 type SettingsTab = 'agents' | 'cloud' | 'configuration' | 'general' | 'help' | 'history' | 'shortcuts' | 'transfer'
@@ -63,8 +66,29 @@ const updateBusy = ref(false)
 const codexActivityStatus = ref<CodexActivityStatus>()
 const codexActivityBusy = ref(false)
 const activeTab = ref<SettingsTab>(props.initialTab)
+const horizontalNavigation = useMediaQuery('(max-width: 620px)')
+const settingsNavigation = ref<HTMLElement>()
+const settingsTabs = computed(() => [
+  { value: 'general', icon: 'settings', label: t('settingsGeneral') },
+  { value: 'agents', icon: 'link', label: t('agentConnection') },
+  { value: 'shortcuts', icon: 'keyboard', label: t('keyboardShortcuts') },
+  { value: 'cloud', icon: 'cloud', label: t('personalCloud') },
+  { value: 'configuration', icon: 'docs', label: t('configurationFiles') },
+  { value: 'history', icon: 'list', label: t('runHistory') },
+  { value: 'transfer', icon: 'transfer', label: t('settingsTransfer') },
+  { value: 'help', icon: 'help', label: t('help') },
+] satisfies { value: SettingsTab, icon: IconName, label: string }[])
 let removeUpdateListener: (() => void) | undefined
 let removeCodexActivityListener: (() => void) | undefined
+
+async function keepSelectedTabVisible(): Promise<void> {
+  if (!props.open || !horizontalNavigation.value)
+    return
+  await nextTick()
+  settingsNavigation.value?.querySelector<HTMLElement>('[role="tab"][data-state="active"]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+}
+
+watch([activeTab, () => props.open, horizontalNavigation], keepSelectedTabVisible, { flush: 'post' })
 
 const shortcutRows = computed(() => {
   const query = shortcutQuery.value.trim().toLowerCase()
@@ -91,7 +115,7 @@ const shortcutRows = computed(() => {
   return [paletteRow, ...commandRows.filter(row => row.projectId === store.selectedProjectId || configured.has(row.id)).slice(0, 100)]
 })
 
-const shortcutReferenceRows = computed(() => applicationShortcutReferences.map(reference => ({
+const shortcutReferenceRows = computed(() => applicationShortcutReferencesForPlatform().map(reference => ({
   ...reference,
   label: t(`shortcutReference_${reference.id}`),
   description: t(`shortcutReference_${reference.id}Description`),
@@ -178,6 +202,7 @@ watch([() => props.open, () => props.initialTab], ([open]) => {
 }, { immediate: true })
 
 onMounted(() => {
+  void keepSelectedTabVisible()
   removeUpdateListener = window.craftHubDesktop?.onUpdateStatus?.(status => updateStatus.value = status)
   removeCodexActivityListener = window.craftHubDesktop?.onCodexActivityStatus?.(status => codexActivityStatus.value = status)
 })
@@ -578,17 +603,15 @@ async function cleanupRuns(includeAllUnpinned: boolean): Promise<void> {
             <p v-if="transferError" role="alert">{{ transferError }}</p>
           </div>
 
-          <TabsRoot v-model="activeTab" class="settings-tabs" orientation="vertical">
-            <TabsList class="settings-tab-list" :aria-label="t('settings')">
-              <TabsTrigger value="general">{{ t('settingsGeneral') }}</TabsTrigger>
-              <TabsTrigger value="agents">{{ t('agentConnection') }}</TabsTrigger>
-              <TabsTrigger value="shortcuts">{{ t('keyboardShortcuts') }}</TabsTrigger>
-              <TabsTrigger value="cloud">{{ t('personalCloud') }}</TabsTrigger>
-              <TabsTrigger value="configuration">{{ t('configurationFiles') }}</TabsTrigger>
-              <TabsTrigger value="history">{{ t('runHistory') }}</TabsTrigger>
-              <TabsTrigger value="transfer">{{ t('settingsTransfer') }}</TabsTrigger>
-              <TabsTrigger value="help">{{ t('help') }}</TabsTrigger>
-            </TabsList>
+          <TabsRoot v-model="activeTab" class="settings-tabs" :orientation="horizontalNavigation ? 'horizontal' : 'vertical'">
+            <div ref="settingsNavigation" class="settings-navigation">
+              <TabsList variant="sidebar" class="settings-tab-list" :aria-label="t('settings')">
+                <TabsTrigger v-for="tab in settingsTabs" :key="tab.value" :value="tab.value" :title="tab.label" :aria-label="tab.label">
+                  <template #icon><NavigationIcon :name="tab.icon" /></template>
+                  <template #default><span class="ui-navigation-label">{{ tab.label }}</span></template>
+                </TabsTrigger>
+              </TabsList>
+            </div>
 
             <div class="settings-tab-panels">
             <TabsContent value="agents" class="settings-tab-content"><AgentConnectionSettings /></TabsContent>
@@ -922,3 +945,13 @@ async function cleanupRuns(includeAllUnpinned: boolean): Promise<void> {
         </div>
   </DialogShell>
 </template>
+
+<style scoped>
+.settings-navigation { min-width: 0; min-height: 0; overflow: auto; border-inline-end: 1px solid var(--workbench-sidebar-border); background: var(--workbench-sidebar-background); scrollbar-width: thin; }
+.settings-tab-list { width: 100%; }
+
+@media (max-width: 620px) {
+  .settings-navigation { overflow-x: auto; overflow-y: hidden; border-inline-end: 0; border-block-end: 1px solid var(--border); }
+  .settings-tab-list { width: max-content; min-width: 100%; }
+}
+</style>
