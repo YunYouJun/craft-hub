@@ -106,3 +106,37 @@ it('removes mobile top positioning when resizing back to the desktop rail', asyn
   expect(panel.element.style.maxHeight).toBe('')
   wrapper.unmount()
 })
+
+it('opens a desktop toolbar account panel below the trigger with its right edge aligned', async () => {
+  vi.stubGlobal('innerWidth', 1440)
+  vi.stubGlobal('innerHeight', 900)
+  vi.stubGlobal('fetch', vi.fn(async () => Response.json({ enabled: false })))
+  const wrapper = mount(AccountMenu, { props: { placement: 'toolbar' } })
+  await flushPromises()
+  const bounds = new DOMRect(1396, 6, 32, 32)
+  vi.spyOn(wrapper.get<HTMLButtonElement>('[popovertarget]').element, 'getBoundingClientRect').mockReturnValue(bounds)
+
+  const panel = wrapper.get<HTMLDivElement>('.account-panel')
+  await panel.trigger('beforetoggle')
+
+  expect(Number.parseFloat(panel.element.style.left) + 280).toBe(bounds.right)
+  expect(panel.element.style.top).toBe(`${bounds.bottom + 8}px`)
+  expect(panel.element.style.bottom).toBe('')
+  expect(Number.parseFloat(panel.element.style.top) + Number.parseFloat(panel.element.style.maxHeight)).toBeLessThanOrEqual(window.innerHeight - 8)
+  wrapper.unmount()
+})
+
+it('keeps a toolbar account panel inside the viewport when the trigger is near its left edge', async () => {
+  vi.stubGlobal('innerWidth', 900)
+  vi.stubGlobal('innerHeight', 640)
+  vi.stubGlobal('fetch', vi.fn(async () => Response.json({ enabled: false })))
+  const wrapper = mount(AccountMenu, { props: { placement: 'toolbar' } })
+  await flushPromises()
+  vi.spyOn(wrapper.get<HTMLButtonElement>('[popovertarget]').element, 'getBoundingClientRect').mockReturnValue(new DOMRect(10, 6, 32, 32))
+  const panel = wrapper.get<HTMLDivElement>('.account-panel')
+  await panel.trigger('beforetoggle')
+
+  expect(panel.element.style.left).toBe('8px')
+  expect(Number.parseFloat(panel.element.style.left) + 280).toBeLessThanOrEqual(window.innerWidth - 8)
+  wrapper.unmount()
+})

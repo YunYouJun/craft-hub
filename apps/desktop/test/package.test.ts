@@ -133,14 +133,16 @@ describe('desktop package scripts', () => {
     const webMainUrl = new URL('../../web/src/main.ts', import.meta.url)
     const desktopStylesUrl = new URL('../../web/src/desktop.css', import.meta.url)
     const webStylesUrl = new URL('../../web/src/styles.css', import.meta.url)
+    const toolbarUrl = new URL('../../web/src/WorkbenchToolbar.vue', import.meta.url)
     const paletteStylesUrl = new URL('../../web/src/styles/command-palette.css', import.meta.url)
-    const [desktopMain, webIndex, webMain, desktopStyles, webStyles, paletteStyles] = await Promise.all([
+    const [desktopMain, webIndex, webMain, desktopStyles, webStyles, paletteStyles, toolbar] = await Promise.all([
       readFile(desktopMainUrl, 'utf8'),
       readFile(webIndexUrl, 'utf8'),
       readFile(webMainUrl, 'utf8'),
       readFile(desktopStylesUrl, 'utf8'),
       readFile(webStylesUrl, 'utf8'),
       readFile(paletteStylesUrl, 'utf8'),
+      readFile(toolbarUrl, 'utf8'),
     ])
 
     expect(desktopMain).toContain('app.setName(productName)')
@@ -155,11 +157,12 @@ describe('desktop package scripts', () => {
     expect(webIndex).toContain('<title>Craft Hub</title>')
     expect(webMain).toContain('import \'./desktop.css\'')
     expect(webMain).toContain('document.documentElement.dataset.desktopPlatform')
-    expect(desktopStyles).toContain(':root[data-desktop-platform=\'darwin\'] .app-shell')
+    expect(desktopStyles).toContain('--workbench-toolbar-height: 52px')
     expect(desktopStyles).toContain(':root[data-desktop-platform=\'darwin\'] .workbench-titlebar')
-    expect(desktopStyles).toContain('padding-left: 88px')
+    expect(toolbar).toContain('padding-left: 78px')
     expect(desktopStyles).not.toContain('body::before')
-    expect(webStyles).toContain('.workbench-titlebar.desktop-mac { -webkit-app-region: drag; }')
+    expect(toolbar).toContain('-webkit-app-region: drag')
+    expect(toolbar).toContain('-webkit-app-region: no-drag')
     expect(desktopStyles).toContain('--desktop-titlebar-height: 0px')
     expect(webStyles).toMatch(/\.package-drawer-content \{[^}]*top: var\(--desktop-titlebar-height\)/)
     expect(webStyles).toMatch(/\.dialog-overlay \{[^}]*top: var\(--desktop-titlebar-height\)/)
@@ -170,8 +173,7 @@ describe('desktop package scripts', () => {
     expect(desktopMain).toContain('nativeTheme.shouldUseDarkColors')
     expect(desktopMain).toContain('Replay Getting Started')
     expect(desktopMain).toContain('mainWindow?.webContents.send(\'craft-hub:replay-onboarding\')')
-    expect(desktopMain).toContain('performMenuAction(\'palette-projects\')')
-    expect(desktopMain).toContain('performMenuAction(\'marketplace\')')
+    expect(desktopMain).toContain('createWorkbenchViewMenu(action => void performMenuAction(action), process.platform)')
     const preload = await readFile(new URL('../preload.cjs', import.meta.url), 'utf8')
     expect(preload).toContain('ipcRenderer.on(\'craft-hub:replay-onboarding\'')
     expect(preload).toContain('ipcRenderer.on(\'craft-hub:menu-action\'')

@@ -5,6 +5,7 @@ import { computed, ref, useId, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api } from './api'
 import { Button as UiButton } from './components/ui/button'
+import { NavigationItem, NavigationList } from './components/ui/navigation'
 import { DialogShell } from './components/ui/dialog'
 import { Icon } from './icons'
 import { useI18n } from './i18n'
@@ -193,6 +194,8 @@ async function load(): Promise<void> {
     error.value = caught instanceof Error ? caught.message : String(caught)
   }
 }
+
+defineExpose({ refresh: load })
 
 async function install(plugin: CatalogItem): Promise<void> {
   const action = catalogAction(plugin)
@@ -494,12 +497,12 @@ function openIncludedPlugin(parent: ManagedPlugin, packageName: string, range: s
       @navigate="openPluginDetail"
     />
     <WorkbenchViewFrame v-show="!detailOpen" class="marketplace-index" :title="t('pluginMarketplace')" :description="t('pluginMarketplaceDescription')" icon="builtin:plugins">
-        <nav class="marketplace-tabs workbench-tabs" role="tablist" aria-orientation="horizontal" :aria-label="t('pluginMarketplace')" @keydown="moveTabSelection">
-          <button v-bind="tabAttributes('discover')" :class="{ active: activeTab === 'discover' }" @click="activeTab = 'discover'">{{ t('discoverPlugins') }}</button>
-          <button v-bind="tabAttributes('installed')" :class="{ active: activeTab === 'installed' }" @click="activeTab = 'installed'">{{ t('installedPlugins') }} <small>{{ rootInstalled.length }}</small></button>
-          <button v-bind="tabAttributes('sources')" :class="{ active: activeTab === 'sources' }" @click="activeTab = 'sources'">{{ t('marketplaceSources') }}</button>
-          <button v-if="canManageHostExtensions" v-bind="tabAttributes('hosts')" :class="{ active: activeTab === 'hosts' }" @click="activeTab = 'hosts'">{{ t('hostExtensions') }}</button>
-        </nav>
+        <NavigationList as="nav" class="marketplace-tabs workbench-tabs" role="tablist" aria-orientation="horizontal" :aria-label="t('pluginMarketplace')" @keydown="moveTabSelection">
+          <NavigationItem v-bind="tabAttributes('discover')" :class="{ active: activeTab === 'discover' }" @click="activeTab = 'discover'">{{ t('discoverPlugins') }}</NavigationItem>
+          <NavigationItem v-bind="tabAttributes('installed')" :class="{ active: activeTab === 'installed' }" @click="activeTab = 'installed'">{{ t('installedPlugins') }} <small>{{ rootInstalled.length }}</small></NavigationItem>
+          <NavigationItem v-bind="tabAttributes('sources')" :class="{ active: activeTab === 'sources' }" @click="activeTab = 'sources'">{{ t('marketplaceSources') }}</NavigationItem>
+          <NavigationItem v-if="canManageHostExtensions" v-bind="tabAttributes('hosts')" :class="{ active: activeTab === 'hosts' }" @click="activeTab = 'hosts'">{{ t('hostExtensions') }}</NavigationItem>
+        </NavigationList>
 
         <section :id="`${tabsId}-panel`" class="marketplace-tab-panel" role="tabpanel" :aria-labelledby="`${tabsId}-${activeTab}`" tabindex="0">
         <p v-if="error" class="marketplace-error" role="alert">{{ error }}</p>

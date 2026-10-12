@@ -88,6 +88,37 @@ describe('marketplace dialog', () => {
     vi.unstubAllGlobals()
   })
 
+  it('refreshes marketplace reads while keeping filters and source drafts', async () => {
+    const catalog = vi.spyOn(api, 'marketplaceCatalog').mockResolvedValue([catalogPlugin])
+    const installed = vi.spyOn(api, 'installedPlugins').mockResolvedValue([installedPlugin])
+    const sources = vi.spyOn(api, 'marketplaceSources').mockResolvedValue([builtinSource])
+    const wrapper = await mountMarketplace()
+    await flushPromises()
+    await wrapper.get('.marketplace-search input').setValue('Acme')
+    await wrapper.findAll('[role="tab"]')[2]!.trigger('click')
+    const fields = wrapper.findAll<HTMLInputElement>('.source-fields input')
+    await fields[0]!.setValue('My source draft')
+    await fields[1]!.setValue('https://example.com/plugins/catalog.json')
+
+    catalog.mockResolvedValue([{ ...catalogPlugin, description: 'Updated catalog description.' }])
+    const refresh: unknown = Reflect.get(wrapper.vm, 'refresh')
+    if (typeof refresh !== 'function')
+      throw new TypeError('Marketplace refresh action is unavailable')
+    await refresh()
+    await flushPromises()
+
+    expect(catalog).toHaveBeenCalledTimes(2)
+    expect(installed).toHaveBeenCalledTimes(2)
+    expect(sources).toHaveBeenCalledTimes(2)
+    expect(wrapper.findAll('[role="tab"]')[2]!.attributes('aria-selected')).toBe('true')
+    expect(fields[0]!.element.value).toBe('My source draft')
+    expect(fields[1]!.element.value).toBe('https://example.com/plugins/catalog.json')
+    await wrapper.findAll('[role="tab"]')[0]!.trigger('click')
+    expect(wrapper.get<HTMLInputElement>('.marketplace-search input').element.value).toBe('Acme')
+    expect(wrapper.get('.plugin-copy p').text()).toBe('Updated catalog description.')
+    wrapper.unmount()
+  })
+
   it('supports keyboard tab selection with one focus stop and a labelled content panel', async () => {
     vi.spyOn(api, 'marketplaceCatalog').mockResolvedValue([catalogPlugin])
     vi.spyOn(api, 'installedPlugins').mockResolvedValue([installedPlugin])

@@ -10,6 +10,7 @@ const props = withDefaults(defineProps<{
   sidebarId?: string
   handleId?: string
   includesActivityRail?: boolean
+  activityRailWidth?: number
   autoSaveId?: string
 }>(), {
   sidebarId: 'primary-sidebar-panel',
@@ -25,7 +26,7 @@ const defaultWidth = layoutSize('--workbench-sidebar-width')
 const minWidth = layoutSize('--workbench-sidebar-min-width')
 const maxWidth = layoutSize('--workbench-sidebar-max-width')
 const activityWidth = layoutSize('--workbench-activity-width') ?? 0
-const offset = computed(() => props.includesActivityRail ? activityWidth : 0)
+const offset = computed(() => props.includesActivityRail ? props.activityRailWidth ?? activityWidth : 0)
 const savedWidth = useLocalStorage<number | null>('craft-hub-primary-sidebar-width', null, { serializer: StorageSerializers.object })
 const preferredWidth = computed(() => {
   const width = savedWidth.value
@@ -47,6 +48,13 @@ function rememberWidth(): void {
     return
   savedWidth.value = Math.round(Math.min(maxWidth, Math.max(minWidth, size - offset.value)) * 100) / 100
 }
+
+watch(offset, async () => {
+  await nextTick()
+  const width = panelWidth(preferredWidth.value)
+  if (!props.compact && width !== undefined)
+    panel()?.resize(width)
+})
 
 let panelCount = 0
 watch(() => props.compact, () => { panelCount = 0 })

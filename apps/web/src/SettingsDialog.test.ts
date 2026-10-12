@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { celebration } from './celebration'
 import { useI18n } from './i18n'
 import SettingsDialog from './SettingsDialog.vue'
-import { isMacPlatform } from './shortcuts'
+import { applicationShortcutReferencesForPlatform, desktopSidebarShortcut, formatShortcut, isMacPlatform } from './shortcuts'
 import { useWorkbenchStore } from './store'
 
 vi.mock('./celebration', () => ({
@@ -200,6 +200,86 @@ describe('settings dialog', () => {
     expect(document.body.textContent).not.toContain('Choose the language used throughout Craft Hub.')
   })
 
+  it('labels source-list entries while keeping their icons decorative', async () => {
+    const wrapper = mount(SettingsDialog, { props: { open: true }, attachTo: document.body })
+    await flushPromises()
+
+    const tabs = [...document.body.querySelectorAll<HTMLElement>('[role="tab"]')]
+    expect(tabs).toHaveLength(8)
+    for (const tab of tabs) {
+      expect(tab.getAttribute('aria-label')).toBe(tab.textContent?.trim())
+      expect(tab.getAttribute('title')).toBe(tab.getAttribute('aria-label'))
+      expect(tab.querySelector('.app-icon')?.getAttribute('aria-hidden')).toBe('true')
+    }
+    wrapper.unmount()
+  })
+
+  it('adapts arrow-key navigation when the source list becomes horizontal', async () => {
+    const media = Object.assign(new EventTarget(), {
+      matches: false,
+      media: '(max-width: 620px)',
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+    }) as MediaQueryList
+    const originalMatchMedia = window.matchMedia.bind(window)
+    const matchMedia = vi.spyOn(window, 'matchMedia').mockImplementation(query => query === media.media ? media : originalMatchMedia(query))
+    const wrapper = mount(SettingsDialog, { props: { open: true }, attachTo: document.body })
+    try {
+      await flushPromises()
+      const list = document.body.querySelector<HTMLElement>('[role="tablist"]')!
+      const tabs = [...list.querySelectorAll<HTMLElement>('[role="tab"]')]
+      expect(list.getAttribute('aria-orientation')).toBe('vertical')
+      tabs[0]!.focus()
+      tabs[0]!.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'ArrowRight' }))
+      await flushPromises()
+      expect(document.activeElement).toBe(tabs[0])
+      tabs[0]!.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'ArrowDown' }))
+      await flushPromises()
+      expect(document.activeElement).toBe(tabs[1])
+      expect(tabs[1]!.getAttribute('aria-selected')).toBe('true')
+
+      Object.defineProperty(media, 'matches', { value: true })
+      media.dispatchEvent(Object.assign(new Event('change'), { matches: true }))
+      await flushPromises()
+      expect(list.getAttribute('aria-orientation')).toBe('horizontal')
+      tabs[1]!.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'ArrowDown' }))
+      await flushPromises()
+      expect(document.activeElement).toBe(tabs[1])
+      tabs[1]!.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'ArrowRight' }))
+      await flushPromises()
+      expect(document.activeElement).toBe(tabs[2])
+      expect(tabs[2]!.getAttribute('aria-selected')).toBe('true')
+      expect(document.body.querySelector('[role="tabpanel"][data-state="active"]')?.getAttribute('aria-labelledby')).toBe(tabs[2]!.id)
+    }
+    finally {
+      wrapper.unmount()
+      matchMedia.mockRestore()
+    }
+  })
+
+  it('reveals the selected help entry when opening on a narrow viewport', async () => {
+    const originalMatchMedia = window.matchMedia.bind(window)
+    const matchMedia = vi.spyOn(window, 'matchMedia').mockImplementation(query => query === '(max-width: 620px)'
+      ? { matches: true, media: query, onchange: null, addEventListener: vi.fn(), removeEventListener: vi.fn(), addListener: vi.fn(), removeListener: vi.fn(), dispatchEvent: vi.fn() }
+      : originalMatchMedia(query))
+    const reveal = vi.spyOn(HTMLElement.prototype, 'scrollIntoView')
+    const wrapper = mount(SettingsDialog, { props: { initialTab: 'help', open: true }, attachTo: document.body })
+    try {
+      await flushPromises()
+      const help = document.body.querySelector<HTMLElement>('[role="tab"][aria-label="Help"]')!
+      expect(help.getAttribute('aria-selected')).toBe('true')
+      expect(reveal.mock.contexts).toContain(help)
+      expect(reveal).toHaveBeenCalledWith({ block: 'nearest', inline: 'nearest' })
+      expect(document.body.textContent).toContain('Confetti is visual only')
+    }
+    finally {
+      wrapper.unmount()
+      matchMedia.mockRestore()
+      reveal.mockRestore()
+    }
+  })
+
   it('offers a confetti test in general settings', async () => {
     mount(SettingsDialog, { props: { open: true }, attachTo: document.body })
     await flushPromises()
@@ -253,13 +333,18 @@ describe('settings dialog', () => {
     await flushPromises()
 
     const rows = [...document.body.querySelectorAll('.shortcut-reference-row')]
-    expect(rows).toHaveLength(9)
+    expect(rows).toHaveLength(applicationShortcutReferencesForPlatform().length)
     expect(rows.map(row => row.textContent)).toEqual(expect.arrayContaining([
       expect.stringContaining('Navigate Command Palette results'),
+      expect.stringContaining('Open Home'),
+      expect.stringContaining('Open Development Environment'),
+      expect.stringContaining('Show or hide the sidebar'),
+      expect.stringContaining('Refresh the workbench'),
       expect.stringContaining('Reorder a pinned command or skill'),
       expect.stringContaining('Resize workbench panels'),
       expect.stringContaining('Open a terminal link'),
     ]))
+    expect(rows.find(row => row.textContent?.includes('Show or hide the sidebar'))?.textContent).toContain(formatShortcut(desktopSidebarShortcut()))
     expect(document.body.textContent).toContain('Built-in keyboard and pointer shortcuts supported throughout Craft Hub.')
   })
 

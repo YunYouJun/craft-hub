@@ -24,6 +24,8 @@ export default defineConfig({
     }),
   ],
   safelist: [
+    'i-lucide-arrow-right-left',
+    'i-lucide-keyboard',
     'i-logos-claude-icon',
     'i-logos-git-icon',
     'i-logos-google-gemini-icon',

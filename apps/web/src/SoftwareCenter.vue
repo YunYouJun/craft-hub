@@ -418,6 +418,7 @@ async function addFavorite(item: SoftwareCatalogItem): Promise<void> {
   }
   finally { saving.value = false }
 }
+defineExpose({ refresh: loadCatalog })
 </script>
 
 <template>

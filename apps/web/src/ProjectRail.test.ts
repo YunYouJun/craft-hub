@@ -57,6 +57,52 @@ describe('project rail', () => {
     wrapper.unmount()
   })
 
+  it('keeps destinations named when switching between the source list and icon rail', async () => {
+    const wrapper = mount(ProjectRail, { props: { activeView: 'environment' } })
+    const buttons = wrapper.findAll('.activity-rail > .activity-button')
+    expect(buttons.map(button => button.get('.activity-label').text())).toEqual([
+      'Home',
+      'Projects',
+      'Tools',
+      'Environment',
+      'Workbenches',
+      'Plugins',
+      'Diagnostics',
+      'Settings',
+    ])
+    expect(wrapper.get('.activity-rail').attributes('aria-label')).toBe('Main navigation')
+    expect(wrapper.find('.activity-account').exists()).toBe(false)
+    await wrapper.setProps({ collapsed: true })
+
+    expect(wrapper.get('.project-rail').classes()).toContain('activity-collapsed')
+    for (const button of buttons) {
+      expect(button.attributes('aria-label')).toBeTruthy()
+      expect(button.attributes('title')).toBeTruthy()
+    }
+    expect(wrapper.get('[data-testid="open-environment"]').attributes('aria-current')).toBe('page')
+    await wrapper.get('[data-testid="open-environment"]').trigger('click')
+    expect(wrapper.emitted('openEnvironment')).toEqual([[]])
+    await wrapper.setProps({ collapsed: false })
+    expect(wrapper.get('.project-rail').classes()).not.toContain('activity-collapsed')
+    wrapper.unmount()
+  })
+
+  it('keeps the account entry available in mobile navigation', () => {
+    const originalMatchMedia = window.matchMedia.bind(window)
+    const mobileMedia = vi.spyOn(window, 'matchMedia').mockImplementation(query => query === '(max-width: 760px)'
+      ? { matches: true, media: query, onchange: null, addEventListener: vi.fn(), removeEventListener: vi.fn(), addListener: vi.fn(), removeListener: vi.fn(), dispatchEvent: vi.fn() }
+      : originalMatchMedia(query))
+    try {
+      const wrapper = mount(ProjectRail, { props: { collapsed: true } })
+      expect(wrapper.get('.activity-account').attributes('aria-label')).toBe('Open account details')
+      expect(wrapper.get('[data-testid="open-environment"] .activity-label').text()).toBe('Environment')
+      wrapper.unmount()
+    }
+    finally {
+      mobileMedia.mockRestore()
+    }
+  })
+
   beforeEach(() => {
     document.body.innerHTML = ''
     delete window.craftHubDesktop
@@ -251,6 +297,9 @@ describe('project rail', () => {
 
     const button = wrapper.get('[data-testid="open-diagnostics"]')
     expect(button.classes()).toEqual(expect.arrayContaining(['active', 'attention']))
+    expect(button.attributes('aria-label')).toBe('Diagnostics (2)')
+    expect(button.get('.activity-badge').text()).toBe('2')
+    await wrapper.setProps({ collapsed: true })
     expect(button.get('.activity-badge').text()).toBe('2')
     await button.trigger('click')
 

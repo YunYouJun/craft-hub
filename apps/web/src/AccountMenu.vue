@@ -12,6 +12,7 @@ interface AccountStatus {
   canSignOut?: boolean
 }
 
+const props = withDefaults(defineProps<{ placement?: 'sidebar' | 'toolbar' }>(), { placement: 'sidebar' })
 const { locale } = useI18n()
 const zh = computed(() => locale.value === 'zh-CN')
 const panelId = useId()
@@ -23,10 +24,10 @@ function positionPanel(): void {
   if (!bounds)
     return
   const width = Math.min(280, window.innerWidth - 16)
-  if (window.innerWidth <= 760) {
+  if (props.placement === 'toolbar' || window.innerWidth <= 760) {
     const top = Math.max(8, bounds.bottom + 8)
     panelPosition.value = {
-      left: `${Math.max(8, Math.min(bounds.left, window.innerWidth - width - 8))}px`,
+      left: `${Math.max(8, Math.min(props.placement === 'toolbar' ? bounds.right - width : bounds.left, window.innerWidth - width - 8))}px`,
       top: `${top}px`,
       maxHeight: `${Math.max(0, window.innerHeight - top - 8)}px`,
     }
@@ -37,6 +38,7 @@ function positionPanel(): void {
     bottom: `${Math.max(8, window.innerHeight - bounds.bottom)}px`,
   }
 }
+watch(() => props.placement, positionPanel)
 const status = ref<AccountStatus>({ enabled: false })
 const failedAvatar = ref(false)
 const avatarUrl = computed(() => {
@@ -168,11 +170,12 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <aside class="account-menu" :aria-label="zh ? '账号' : 'Account'">
-    <button ref="trigger" type="button" :popovertarget="panelId" class="activity-button" :title="status.identity?.name || (zh ? '账号' : 'Account')" :aria-label="zh ? '打开账号信息' : 'Open account details'">
+  <aside class="account-menu" :class="{ 'account-menu--toolbar': placement === 'toolbar' }" :aria-label="zh ? '账号' : 'Account'">
+    <button ref="trigger" type="button" :popovertarget="panelId" class="activity-button account-trigger" :title="status.identity?.name || (zh ? '账号' : 'Account')" :aria-label="zh ? '打开账号信息' : 'Open account details'">
       <img v-if="avatarUrl && !failedAvatar" :src="avatarUrl" class="account-avatar account-photo" alt="" referrerpolicy="no-referrer" @error="failedAvatar = true">
       <span v-else-if="status.identity" class="account-avatar" aria-hidden="true">{{ status.identity.name.slice(0, 1).toUpperCase() }}</span>
       <Icon v-else name="personal" />
+      <span v-if="placement === 'sidebar'" class="account-trigger-label" aria-hidden="true">{{ zh ? '账号' : 'Account' }}</span>
     </button>
     <div :id="panelId" popover="auto" class="account-panel" :style="panelPosition" @beforetoggle="positionPanel">
       <strong>{{ status.identity?.name || (status.enabled ? (zh ? '未登录' : 'Signed out') : (zh ? '本地模式' : 'Local mode')) }}</strong>
@@ -191,11 +194,21 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .account-menu { position: relative; color: var(--text); font-size: 12px; -webkit-app-region: no-drag; }
+.account-menu--toolbar .account-trigger { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; min-height: 32px; padding: 0; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--text-secondary); cursor: pointer; }
+.account-menu--toolbar .account-trigger:hover { background: var(--surface-hover); color: var(--text); }
+.account-menu--toolbar .account-trigger :deep(.app-icon) { width: 18px; height: 18px; }
+.account-menu--toolbar .account-trigger .account-avatar { width: 24px; height: 24px; }
 .activity-button:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
+.account-trigger-label { display: none; }
 .account-avatar { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; background: var(--surface); border: 1px solid var(--border); font-size: 11px; }
 .account-photo { object-fit: cover; }
 .account-panel { position: fixed; inset: auto; max-height: calc(100dvh - 16px); overflow-y: auto; margin: 0; flex-direction: column; align-items: stretch; gap: 10px; width: min(280px, calc(100vw - 16px)); padding: 16px; border: 1px solid var(--menu-border); border-radius: 10px; background: var(--menu-background); box-shadow: var(--menu-shadow); white-space: normal; z-index: 45; }
 .account-panel:popover-open { display: flex; }
 .account-id, [role="alert"] { overflow-wrap: anywhere; }
 .account-panel button { cursor: pointer; text-align: start; padding: 6px 8px; border: 1px solid var(--border); border-radius: 5px; }
+@media (max-width: 760px), (pointer: coarse) { .account-panel button { min-height: 44px; padding: 8px 12px; font-size: 14px; } }
+@media (max-width: 760px) {
+  .account-menu:not(.account-menu--toolbar) .account-trigger { display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 4px; width: 64px; min-width: 64px; height: 54px; min-height: 54px; padding: 5px 8px; }
+  .account-trigger-label { display: block; font-size: 11px; line-height: 1.3; }
+}
 </style>
