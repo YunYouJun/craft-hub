@@ -8,6 +8,12 @@ describe('development environment lifecycle', () => {
     expect(source).toContain('await Promise.allSettled(childExits)')
   })
 
+  it('launches the Web Runtime with the current Node executable and the tsx loader', async () => {
+    const source = await readFile(new URL('./dev-environment.ts', import.meta.url), 'utf8')
+
+    expect(source).toContain('spawnWorkspace(\'Web Runtime\', [\'--filter\', \'craft-hub\', \'exec\', process.execPath, \'--import\', \'tsx\', \'src/cli.ts\', \'ui\'])')
+  })
+
   it('reports desktop startup failures to the invoking terminal', async () => {
     const source = await readFile(new URL('../apps/desktop/src/main.ts', import.meta.url), 'utf8')
 
@@ -28,6 +34,6 @@ describe('development environment lifecycle', () => {
     }
 
     expect(packageJson.scripts.dev).toBe('tsx scripts/dev-environment.ts desktop')
-    expect(packageJson.scripts['dev:web']).toBe('tsx scripts/dev-environment.ts web')
+    expect(packageJson.scripts['dev:web']).toBe('node --import tsx scripts/dev-environment.ts web')
   })
 })
