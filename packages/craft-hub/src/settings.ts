@@ -1,10 +1,15 @@
 import type { FSWatcher } from 'chokidar'
+import type { PersonalWorkbenchHome } from './personal-workbench'
 import { createHash, randomUUID } from 'node:crypto'
 import { copyFile, mkdir, readdir, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
 import { watch } from 'chokidar'
 import { z } from 'zod'
+import { createDefaultPersonalWorkbenchHome, personalWorkbenchHomeSchema } from './personal-workbench'
 import { craftHubVersion } from './version'
+
+export { createDefaultPersonalWorkbenchHome, defaultPersonalWorkbenchTools, isRaycastCommandUrl, personalWorkbenchHomeSchema, personalWorkbenchToolSchema } from './personal-workbench'
+export type { PersonalWorkbenchHome, PersonalWorkbenchTool, PersonalWorkbenchToolLaunch, WorkbenchToolOpenResult } from './personal-workbench'
 
 /** File name used for editable global settings. */
 export const settingsFileName = 'settings.json'
@@ -41,6 +46,7 @@ const editorSettingSchema = z.object({
 const coreSettingsSchema = z.object({
   'workbench.codex': codexSettingSchema.optional(),
   'workbench.editor': editorSettingSchema.optional(),
+  'workbench.home': personalWorkbenchHomeSchema.optional(),
   'workbench.locale': localeSchema.optional(),
   'workbench.repositoriesRoot': localPathSchema.optional(),
   'workbench.theme': themeSchema.optional(),
@@ -80,6 +86,8 @@ export interface CraftHubSettings {
   /** Empty values inherit the user's Codex configuration. */
   'workbench.codex': WorkbenchCodexSetting
   'workbench.editor': WorkbenchEditorSetting
+  /** Personal tool shortcuts and project pins; project identifiers are machine-local. */
+  'workbench.home': PersonalWorkbenchHome
   'workbench.locale': WorkbenchLocale
   /** Optional local starting directory for repository and project folder pickers. */
   'workbench.repositoriesRoot': string
@@ -147,6 +155,7 @@ interface ValidatedSettingsFile {
 const defaultSettings: CraftHubSettings = {
   'workbench.codex': {},
   'workbench.editor': { default: 'vscode' },
+  'workbench.home': createDefaultPersonalWorkbenchHome(),
   'workbench.locale': 'zh-CN',
   'workbench.repositoriesRoot': '',
   'workbench.shortcuts': { 'workbench.showCommandPalette': 'Mod+K' },
@@ -194,7 +203,7 @@ function validateSettingsFile(input: unknown): ValidatedSettingsFile {
   if (!input || typeof input !== 'object' || Array.isArray(input))
     throw new SettingsValidationError('Settings must be a JSON object')
   const record = input as Record<string, unknown>
-  const knownKeys = new Set(['workbench.codex', 'workbench.editor', 'workbench.locale', 'workbench.repositoriesRoot', 'workbench.theme', 'workbench.shortcuts'])
+  const knownKeys = new Set(['workbench.codex', 'workbench.editor', 'workbench.home', 'workbench.locale', 'workbench.repositoriesRoot', 'workbench.theme', 'workbench.shortcuts'])
   const known = Object.fromEntries(Object.entries(record).filter(([key]) => knownKeys.has(key)))
   const parsed = coreSettingsSchema.parse(known)
   const extensions: Record<string, unknown> = {}
@@ -441,7 +450,7 @@ export class CraftHubSettingsService {
       explicitKeys: [...Object.keys(this.explicit), ...Object.keys(this.extensions)].sort(),
       path: this.path,
       revision: revisionFor(raw),
-      settings: { ...defaultSettings, ...this.explicit },
+      settings: structuredClone({ ...defaultSettings, ...this.explicit }),
     }
   }
 

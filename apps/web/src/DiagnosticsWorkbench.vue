@@ -101,11 +101,12 @@ function openLabel(target: WorkbenchDiagnosticTarget): string {
 .diagnostic-row > button { display: inline-flex; min-height: var(--control-height-compact); flex: none; align-items: center; justify-content: center; gap: var(--space-2); border: 1px solid var(--border); border-radius: var(--control-radius); background: var(--surface); padding: 0 11px; color: var(--text-secondary); font: inherit; font-size: var(--font-size-body); }
 .diagnostic-row > button:hover { border-color: var(--border-strong); background: var(--surface-hover); color: var(--text); }
 .diagnostic-row > button .app-icon { width: 15px; height: 15px; }
-.diagnostics-summary { display: flex; gap: 18px; margin-bottom: 22px; border-bottom: 1px solid var(--border); padding-bottom: 14px; color: var(--muted); font-size: var(--font-size-body); font-variant-numeric: tabular-nums; }
+.diagnostics-summary { display: flex; flex-wrap: wrap; gap: var(--space-4); margin-bottom: var(--page-section-gap); color: var(--muted); font-size: var(--font-size-body); font-variant-numeric: tabular-nums; }
+.diagnostics-group { border: 1px solid var(--border); border-radius: var(--panel-radius); background: var(--surface); padding: var(--space-4); }
 .diagnostics-group + .diagnostics-group { margin-top: 28px; }
 .diagnostics-group > header { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 5px; padding: 0 2px 8px; }
 .diagnostics-group h2 { margin: 0; color: var(--text); font-size: var(--page-section-title-size); }
-.diagnostics-group > header small { display: grid; min-width: 19px; height: 19px; place-items: center; border-radius: 10px; background: var(--surface-muted); color: var(--muted); font-size: 10px; }
+.diagnostics-group > header small { display: grid; min-width: 22px; height: 22px; place-items: center; border-radius: var(--radius-pill); background: var(--surface-muted); color: var(--muted); font-size: var(--font-size-caption); }
 .diagnostic-row { display: grid; grid-template-columns: 24px minmax(0, 1fr) auto; align-items: start; gap: 12px; border-top: 1px solid var(--border); padding: 14px 2px; }
 .diagnostic-icon { display: grid; width: 24px; height: 24px; place-items: center; color: var(--warning); }
 .diagnostic-row[data-severity='error'] .diagnostic-icon { color: var(--danger); }
@@ -113,7 +114,7 @@ function openLabel(target: WorkbenchDiagnosticTarget): string {
 .diagnostic-copy { display: grid; min-width: 0; gap: 3px; }
 .diagnostic-copy strong { overflow: hidden; color: var(--text); font-size: var(--font-size-emphasis); text-overflow: ellipsis; white-space: nowrap; }
 .diagnostic-copy p { margin: 0; color: var(--text-secondary); font-size: var(--font-size-body); line-height: 1.55; overflow-wrap: anywhere; }
-.diagnostic-copy small { overflow: hidden; color: var(--muted); font: 10px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; text-overflow: ellipsis; white-space: nowrap; }
+.diagnostic-copy small { overflow-wrap: anywhere; color: var(--muted); font-family: var(--font-mono); font-size: var(--font-size-caption); line-height: 1.5; }
 .diagnostics-state { display: grid; min-height: 360px; place-items: center; align-content: center; gap: 9px; color: var(--muted); text-align: center; }
 .diagnostics-state > .app-icon { width: 26px; height: 26px; }
 .diagnostics-state h2, .diagnostics-state p { margin: 0; }

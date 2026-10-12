@@ -3,25 +3,71 @@
 
 import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { flushPromises, mount } from '@vue/test-utils'
+import { config, flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Select } from './components/ui/select'
 import { useI18n } from './i18n'
 import ProjectRail from './ProjectRail.vue'
 import { useWorkbenchStore } from './store'
 
+vi.mock('./AccountMenu.vue', () => ({ default: { template: '<button class="activity-button activity-account" aria-label="Open account details" />' } }))
+vi.mock('vue-router', () => ({ useRouter: () => ({ push: vi.fn() }) }))
+
 const stylesPath = ['apps/web/src/styles.css', 'src/styles.css']
   .map(candidate => resolve(process.cwd(), candidate))
   .find(existsSync)
 const styles = readFileSync(stylesPath!, 'utf8')
+const originalPlugins = [...config.global.plugins]
 
 describe('project rail', () => {
+  it.each([
+    ['overview', 'open-overview'],
+    ['navigation', 'open-tools'],
+    ['software', 'open-tools'],
+    ['tools', 'open-tools'],
+    ['workbench', 'open-workbench'],
+    ['subscriptions', 'open-workbench'],
+    ['environment', 'open-environment'],
+    ['integration', 'open-workbenches'],
+    ['plugin-workbench', 'open-workbenches'],
+    ['workbenches', 'open-workbenches'],
+    ['marketplace', 'open-marketplace'],
+    ['diagnostics', 'open-diagnostics'],
+  ] as const)('announces only the current %s destination', (activeView, testId) => {
+    const wrapper = mount(ProjectRail, { props: { activeView } })
+    expect(wrapper.get(`[data-testid="${testId}"]`).attributes('aria-current')).toBe('page')
+    expect(wrapper.findAll('.activity-button[aria-current="page"]')).toHaveLength(1)
+    wrapper.unmount()
+  })
+
+  it('keeps five main destinations and collects software and navigation under tools', async () => {
+    const wrapper = mount(ProjectRail, { props: { activeView: 'software' } })
+    const button = wrapper.get('[data-testid="open-tools"]')
+    expect(button.attributes('aria-current')).toBe('page')
+    expect(button.attributes('aria-label')).toBe('Tools')
+    const identifiers = wrapper.findAll('.activity-button').map(item => item.attributes('data-testid')).filter(Boolean)
+    expect(identifiers.slice(0, 5)).toEqual(['open-overview', 'open-workbench', 'open-tools', 'open-environment', 'open-workbenches'])
+    expect(identifiers.slice(5)).toEqual(['open-marketplace', 'open-diagnostics', 'open-settings'])
+    expect(wrapper.find('[data-testid="open-navigation"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="open-software"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="open-workspace-sources"]').element.closest('.activity-rail')).toBeNull()
+    await button.trigger('click')
+    expect(wrapper.emitted('openTools')).toEqual([[]])
+    wrapper.unmount()
+  })
+
   beforeEach(() => {
     document.body.innerHTML = ''
     delete window.craftHubDesktop
-    setActivePinia(createPinia())
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    config.global.plugins = [...originalPlugins, pinia]
     useI18n().setLocale('en')
+  })
+
+  afterEach(() => {
+    config.global.plugins = originalPlugins
   })
 
   it('opens an in-app project path dialog when Add project is clicked', async () => {
@@ -33,7 +79,49 @@ describe('project rail', () => {
     expect(document.body.querySelector('input[name="project-path"]')).not.toBeNull()
   })
 
-  it('renders resolved integration views in the activity rail', async () => {
+  it('opens home and keeps its activity button distinct from projects', async () => {
+    const wrapper = mount(ProjectRail, { attachTo: document.body, props: { activeView: 'overview' } })
+    const overview = wrapper.get('[data-testid="open-overview"]')
+
+    expect(overview.attributes('aria-label')).toBe('Home')
+    expect(overview.classes()).toContain('active')
+    expect(wrapper.get('[data-testid="open-workbench"]').classes()).not.toContain('active')
+    await overview.trigger('click')
+    expect(wrapper.emitted('openOverview')).toEqual([[]])
+
+    useI18n().setLocale('zh-CN')
+    await flushPromises()
+    expect(overview.attributes('aria-label')).toBe('首页')
+    wrapper.unmount()
+  })
+
+  it('leaves the overview when selecting a project or workspace from the rail', async () => {
+    const store = useWorkbenchStore()
+    store.projects = [{ id: 'project', name: 'Project', path: '/project', trust: 'untrusted', addedAt: '2026-01-01T00:00:00.000Z' }]
+    store.workspaces = [{ schemaVersion: 1, id: 'workspace', name: 'Workspace', members: [], revision: 'revision' }]
+    const selectProject = vi.spyOn(store, 'selectProject').mockResolvedValue()
+    const selectWorkspace = vi.spyOn(store, 'selectWorkspace').mockImplementation(() => {})
+    const wrapper = mount(ProjectRail, { attachTo: document.body, props: { activeView: 'overview' } })
+
+    await wrapper.get('.project-row').trigger('click')
+    expect(selectProject).toHaveBeenCalledWith('project')
+    await wrapper.get('.workspace-select').trigger('click')
+    expect(selectWorkspace).toHaveBeenCalledWith('workspace')
+    expect(wrapper.emitted('openWorkbench')).toEqual([[], []])
+    wrapper.unmount()
+  })
+
+  it('opens development environment without requiring a registered project', async () => {
+    const wrapper = mount(ProjectRail, { props: { activeView: 'environment' } })
+    const button = wrapper.get('[data-testid="open-environment"]')
+    expect(button.attributes('aria-label')).toBe('Development environment')
+    expect(button.attributes('aria-current')).toBe('page')
+    await button.trigger('click')
+    expect(wrapper.emitted('openEnvironment')).toEqual([[]])
+    wrapper.unmount()
+  })
+
+  it('collects standalone integrations under the workbenches destination', async () => {
     const store = useWorkbenchStore()
     store.integrationContributions = [{
       id: 'acme-issues',
@@ -56,16 +144,19 @@ describe('project rail', () => {
       props: { activeView: 'integration', activeIntegrationId: 'acme-issues', activeIntegrationViewId: 'overview' },
     })
 
-    const button = wrapper.get('[data-testid="open-integration-acme-issues-overview"]')
+    expect(wrapper.find('[data-testid="open-integration-acme-issues-overview"]').exists()).toBe(false)
+    const button = wrapper.get('[data-testid="open-workbenches"]')
     expect(button.classes()).toContain('active')
-    expect(button.find('.i-ri-list-check-3').exists()).toBe(true)
+    expect(button.attributes('aria-current')).toBe('page')
+    expect(button.find('.i-lucide-panels-top-left').exists()).toBe(true)
     expect(button.find('.plugins-icon').exists()).toBe(false)
     await button.trigger('click')
 
-    expect(wrapper.emitted('openIntegration')).toEqual([['acme-issues', 'overview']])
+    expect(wrapper.emitted('openWorkbenches')).toEqual([[]])
+    wrapper.unmount()
   })
 
-  it('groups claimed integration views under one contributed workbench button', async () => {
+  it('collects contributed workbenches under one workbenches destination without flattening extensions', async () => {
     const store = useWorkbenchStore()
     store.integrationContributions = [{
       id: 'acme-issues',
@@ -95,15 +186,55 @@ describe('project rail', () => {
     })
 
     expect(wrapper.find('[data-testid="open-integration-acme-issues-overview"]').exists()).toBe(false)
-    const button = wrapper.get('[data-testid="open-plugin-workbench-engineering"]')
+    expect(wrapper.find('[data-testid="open-plugin-workbench-engineering"]').exists()).toBe(false)
+    const button = wrapper.get('[data-testid="open-workbenches"]')
     expect(button.classes()).toContain('active')
-    expect(button.find('.i-ri-briefcase-4-line').exists()).toBe(true)
+    expect(button.attributes('aria-current')).toBe('page')
+    expect(wrapper.findAll('.activity-button[aria-current="page"]')).toHaveLength(1)
     await button.trigger('click')
 
-    expect(wrapper.emitted('openPluginWorkbench')).toEqual([['@acme/craft-hub-plugin-suite', 'engineering']])
+    expect(wrapper.emitted('openWorkbenches')).toEqual([[]])
     store.integrationContributions[0]!.views[0]!.showInSidebar = true
     await flushPromises()
-    expect(wrapper.find('[data-testid="open-integration-acme-issues-overview"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="open-integration-acme-issues-overview"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('selects development environment for a configuration manager integration', async () => {
+    const store = useWorkbenchStore()
+    store.integrationContributions = [{
+      id: 'acme-configuration',
+      pluginId: '@acme/craft-hub-plugin-configuration',
+      source: 'plugin:@acme/craft-hub-plugin-configuration@1.0.0',
+      provider: { id: 'configuration', requires: '^1.0.0' },
+      providerVersion: '1.0.0',
+      actions: [],
+      views: [{ id: 'overview', title: 'Acme configuration', icon: 'builtin:settings', placement: 'primary-sidebar', scope: 'global', blocks: [
+        { id: 'connection', type: 'connection-status', actionId: 'status' },
+        { id: 'configuration', type: 'configuration-manager', actionId: 'read' },
+      ] }],
+    }]
+    const wrapper = mount(ProjectRail, { props: { activeView: 'integration', activeIntegrationId: 'acme-configuration', activeIntegrationViewId: 'overview' } })
+    expect(wrapper.get('[data-testid="open-environment"]').attributes('aria-current')).toBe('page')
+    expect(wrapper.get('[data-testid="open-workbenches"]').attributes('aria-current')).toBeUndefined()
+    expect(wrapper.findAll('.activity-button[aria-current="page"]')).toHaveLength(1)
+    await wrapper.get('[data-testid="open-environment"]').trigger('click')
+    expect(wrapper.emitted('openEnvironment')).toEqual([[]])
+    wrapper.unmount()
+  })
+
+  it('opens plugins from its separate management destination', async () => {
+    const wrapper = mount(ProjectRail, { props: { activeView: 'marketplace' } })
+    const button = wrapper.get('[data-testid="open-marketplace"]')
+    expect(button.attributes('aria-label')).toBe('Plugins')
+    expect(button.find('.i-lucide-blocks').exists()).toBe(true)
+    expect(wrapper.get('[data-testid="open-tools"]').find('.i-ri-box-3-line').exists()).toBe(true)
+    await button.trigger('click')
+    expect(wrapper.emitted('openMarketplace')).toEqual([[]])
+    useI18n().setLocale('zh-CN')
+    await flushPromises()
+    expect(button.attributes('aria-label')).toBe('插件管理')
+    wrapper.unmount()
   })
 
   it('shows the diagnostic count and opens the diagnostic workbench', async () => {
@@ -158,6 +289,7 @@ describe('project rail', () => {
       settings: {
         'workbench.codex': {},
         'workbench.editor': { default: 'vscode' },
+        'workbench.home': { tools: [] },
         'workbench.locale': 'en',
         'workbench.repositoriesRoot': '/repos',
         'workbench.shortcuts': { 'workbench.showCommandPalette': 'Mod+K' },

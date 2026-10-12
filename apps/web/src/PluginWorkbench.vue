@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import type { InstalledNavigationPanel, WorkbenchViewReference } from 'craft-hub'
+import type { InstalledNavigationPanel, IntegrationEntity, WorkbenchViewReference } from 'craft-hub'
+import type { HomeWorkSource } from './personal-workbench'
 import { useMediaQuery } from '@vueuse/core'
 import { computed, onMounted, ref, useId, watch } from 'vue'
 import { api } from './api'
@@ -12,9 +13,12 @@ import { useWorkbenchStore } from './store'
 import VisualIcon from './VisualIcon.vue'
 import WorkbenchPageShell from './WorkbenchPageShell.vue'
 import WorkbenchViewFrame from './WorkbenchViewFrame.vue'
+import WorkbenchProjectCatalog from './WorkbenchProjectCatalog.vue'
+import WorkHandoffDialog from './WorkHandoffDialog.vue'
+import WorkItemsOverview from './WorkItemsOverview.vue'
 
 const props = withDefaults(defineProps<{ breadcrumbs?: { label: string, to?: string }[], pluginId: string, refreshKey?: number, workbenchId: string }>(), { breadcrumbs: () => [], refreshKey: 0 })
-const emit = defineEmits<{ managePlugins: [] }>()
+const emit = defineEmits<{ managePlugins: [], openProject: [projectId: string], openIntegration: [integrationId: string, viewId: string, scope: 'global'] }>()
 const store = useWorkbenchStore()
 const { locale, t } = useI18n()
 const panels = ref<InstalledNavigationPanel[]>([])
@@ -23,16 +27,27 @@ const panelsError = ref('')
 const selectedKey = ref('')
 const navigationId = useId()
 const compactNavigation = useMediaQuery('(max-width: 900px)')
+const handoffOpen = ref(false)
+const handoffWork = ref<{ source: HomeWorkSource, item: IntegrationEntity }>()
 
 const workbench = computed(() => store.pluginWorkbenches.find(candidate => candidate.pluginId === props.pluginId && candidate.id === props.workbenchId))
 
 function referenceKey(reference: WorkbenchViewReference): string {
-  return reference.type === 'integration'
+  return reference.type === 'host' ? `host:${reference.view}` : reference.type === 'integration'
     ? `integration:${reference.plugin}:${reference.integration}:${reference.view}`
     : `navigation:${reference.plugin}:${reference.panel}`
 }
 
 const members = computed(() => (workbench.value?.views ?? []).map((reference) => {
+  if (reference.type === 'host') {
+    return {
+      available: true,
+      icon: reference.view === 'projects' ? 'builtin:folder' : 'builtin:list',
+      key: referenceKey(reference),
+      reference,
+      title: reference.view === 'projects' ? (locale.value === 'zh-CN' ? '项目' : 'Projects') : (locale.value === 'zh-CN' ? '我的工作' : 'My work'),
+    }
+  }
   if (reference.type === 'integration') {
     const view = store.integrationViews.find(candidate => candidate.pluginId === reference.plugin
       && candidate.integrationId === reference.integration
@@ -134,8 +149,20 @@ onMounted(() => void loadPanels())
 
     <WorkbenchViewFrame v-if="workbench" :title="activeMember?.title ?? workbench.title" :icon="activeMember?.icon ?? workbench.icon">
       <section :id="`${navigationId}-panel`" class="plugin-workbench-content" role="tabpanel" :aria-labelledby="`${navigationId}-${members.indexOf(activeMember!)}`" tabindex="0">
+        <WorkItemsOverview
+          v-if="activeMember?.reference.type === 'host' && activeMember.reference.view === 'work-items'"
+          :integrations="activeMember.reference.integrations"
+          :refresh-key="refreshKey"
+          @prepare-handoff="work => { handoffWork = work; handoffOpen = true }"
+          @open-integration="(id, view, scope) => emit('openIntegration', id, view, scope)"
+          @open-marketplace="emit('managePlugins')"
+        />
+        <WorkbenchProjectCatalog
+          v-else-if="activeMember?.reference.type === 'host' && activeMember.reference.view === 'projects'"
+          @open-project="emit('openProject', $event)"
+        />
         <IntegrationWorkbench
-          v-if="activeMember?.reference.type === 'integration' && activeMember.available"
+          v-else-if="activeMember?.reference.type === 'integration' && activeMember.available"
           embedded
           :integration-id="activeMember.reference.integration"
           :view-id="activeMember.reference.view"
@@ -160,18 +187,19 @@ onMounted(() => void loadPanels())
       <p>{{ t('pluginWorkbenchUnavailableDescription') }}</p>
       <UiButton size="compact" @click="emit('managePlugins')">{{ t('managePluginWorkbench') }}</UiButton>
     </section>
+    <WorkHandoffDialog v-model:open="handoffOpen" :work="handoffWork" />
   </WorkbenchPageShell>
 </template>
 
 <style scoped>
-.plugin-workbench-sidebar-header { display: flex; flex: none; min-height: var(--workbench-sidebar-header-height); align-items: center; gap: var(--space-2); padding: var(--space-2) var(--workbench-sidebar-padding-inline); }
+.plugin-workbench-sidebar-header { display: flex; flex: none; min-height: var(--workbench-sidebar-header-height); align-items: center; gap: var(--space-2); padding: 6px var(--workbench-sidebar-padding-inline); border-bottom: 1px solid var(--workbench-sidebar-border); }
 .plugin-workbench-sidebar-header > .visual-icon { width: var(--workbench-sidebar-icon-size); height: var(--workbench-sidebar-icon-size); flex: none; }
 .plugin-workbench-sidebar-header strong { flex: 1; min-width: 0; color: var(--workbench-sidebar-color); font-size: var(--workbench-sidebar-font-size); font-weight: var(--workbench-sidebar-heading-weight); overflow-wrap: anywhere; }
 .plugin-workbench-sidebar-header .ui-button { flex: none; width: var(--workbench-sidebar-action-size); height: var(--workbench-sidebar-action-size); min-height: var(--workbench-sidebar-action-size); padding: 4px; border: 0; background: transparent; }
 .plugin-workbench-sidebar-header .app-icon { width: var(--workbench-sidebar-icon-size); height: var(--workbench-sidebar-icon-size); }
-.plugin-workbench-sidebar { display: grid; align-content: start; gap: var(--workbench-sidebar-group-gap); min-height: 0; overflow-y: auto; scrollbar-width: thin; padding: 0 0 var(--space-3); }
+.plugin-workbench-sidebar { display: grid; align-content: start; gap: var(--workbench-sidebar-group-gap); min-height: 0; overflow-y: auto; scrollbar-width: thin; padding: var(--space-2) 0 var(--space-3); }
 .plugin-workbench-group { display: grid; gap: 2px; min-width: 0; }
-.plugin-workbench-group h2 { margin: 0; padding: var(--space-2) var(--workbench-sidebar-padding-inline); color: var(--workbench-sidebar-color); font-size: var(--workbench-sidebar-heading-size); font-weight: var(--workbench-sidebar-heading-weight); }
+.plugin-workbench-group h2 { margin: 0; padding: var(--space-2) var(--workbench-sidebar-padding-inline); color: var(--text-secondary); font-size: var(--font-size-caption); font-weight: var(--workbench-sidebar-heading-weight); }
 .plugin-workbench-sidebar button { position: relative; display: flex; min-height: var(--workbench-sidebar-row-height); align-items: center; gap: var(--space-2); min-width: 0; margin: 0 var(--workbench-sidebar-item-inset); padding: var(--space-1) var(--workbench-sidebar-item-padding); border: 0; border-radius: var(--workbench-sidebar-item-radius); color: var(--workbench-sidebar-color); background: transparent; text-align: start; font-size: var(--workbench-sidebar-font-size); font-weight: var(--workbench-sidebar-font-weight); cursor: pointer; white-space: nowrap; }
 .plugin-workbench-sidebar button > span:not(.visual-icon):not(.app-icon) { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .plugin-workbench-sidebar button:hover { color: var(--text); background: var(--surface-hover); }

@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import type { WorkbenchDiagnosticTarget } from 'craft-hub'
+import type { WorkbenchNavigationGroup } from './workbench-navigation'
 import { useMediaQuery } from '@vueuse/core'
-import { computed, onBeforeMount, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, onBeforeMount, onBeforeUnmount, ref, watch } from 'vue'
 import { DialogClose, DialogContent, DialogDescription, DialogOverlay, DialogPortal, DialogRoot, DialogTitle, SplitterPanel } from 'reka-ui'
 import { useRoute, useRouter } from 'vue-router'
 import { subscribeToProjectChanges } from './api'
@@ -12,17 +13,23 @@ import { Button as UiButton } from './components/ui/button'
 import DesktopNavigationDialog from './DesktopNavigationDialog.vue'
 import DetailPanel from './DetailPanel.vue'
 import DiagnosticsWorkbench from './DiagnosticsWorkbench.vue'
+import EnvironmentWorkbench from './EnvironmentWorkbench.vue'
 import Icon from './NavigationIcon.vue'
 import { useI18n } from './i18n'
 import IntegrationWorkbench from './IntegrationWorkbench.vue'
-import MarketplaceDialog from './MarketplaceDialog.vue'
 import NavigationWorkbench from './NavigationWorkbench.vue'
+import ToolsWorkbench from './ToolsWorkbench.vue'
+import WorkbenchesOverview from './WorkbenchesOverview.vue'
+import WorkbenchSectionNavigation from './WorkbenchSectionNavigation.vue'
+import { classifyWorkbenchSection, isEnvironmentView } from './workbench-navigation'
+import PersonalWorkbench from './PersonalWorkbench.vue'
 import PluginWorkbench from './PluginWorkbench.vue'
 import ProjectRail from './ProjectRail.vue'
 import ProjectAgentActionDialog from './ProjectAgentActionDialog.vue'
 import ProjectToolbar from './ProjectToolbar.vue'
 import ConfigurationSubscriptions from './ConfigurationSubscriptions.vue'
 import SettingsDialog from './SettingsDialog.vue'
+import SoftwareCenter from './SoftwareCenter.vue'
 import { capabilityShortcutPrefix, commandPaletteShortcutId, defaultCommandPaletteShortcut, formatShortcut, matchesShortcut, parseCapabilityShortcutId } from './shortcuts'
 import WelcomePanel from './WelcomePanel.vue'
 import WorkbenchPageShell from './WorkbenchPageShell.vue'
@@ -31,6 +38,8 @@ import WorkbenchSplitter from './WorkbenchSplitter.vue'
 import WorkspaceDashboard from './WorkspaceDashboard.vue'
 import WorkspaceProjectList from './WorkspaceProjectList.vue'
 import { useWorkbenchStore } from './store'
+
+const MarketplaceDialog = defineAsyncComponent(() => import('./MarketplaceDialog.vue'))
 
 const store = useWorkbenchStore()
 const { t, locale } = useI18n()
@@ -52,15 +61,71 @@ const settingsInitialTab = ref<'general' | 'help'>('general')
 const marketplaceOpen = computed(() => route.name === 'marketplace' || route.name === 'plugin-detail')
 const subscriptionsOpen = computed(() => String(route.name).startsWith('subscriptions'))
 const navigationOpen = computed(() => route.name === 'navigation')
+const overviewOpen = computed(() => route.name === 'overview')
 const diagnosticsOpen = computed(() => route.name === 'diagnostics')
+const environmentOpen = computed(() => route.name === 'environment')
+const softwareOpen = computed(() => route.name === 'software')
+const toolsOpen = computed(() => route.name === 'tools')
+const workbenchesOpen = computed(() => route.name === 'workbenches')
 const integrationOpen = computed(() => route.name === 'integration')
 const pluginWorkbenchOpen = computed(() => route.name === 'plugin-workbench')
+const copy = (zh: string, en: string) => locale.value === 'zh-CN' ? zh : en
+const currentIntegrationView = computed(() => store.integrationViews.find(view => view.integrationId === route.params.integrationId && view.id === route.params.viewId))
+const activeSection = computed(() => classifyWorkbenchSection(route.name, currentIntegrationView.value))
+const sectionTitle = computed(() => ({
+  home: copy('首页', 'Home'),
+  projects: copy('项目', 'Projects'),
+  tools: copy('工具', 'Tools'),
+  environment: copy('开发环境', 'Development environment'),
+  workbenches: copy('工作台', 'Workbenches'),
+})[activeSection.value ?? 'home'])
+const sectionIcon = computed(() => ({ home: 'builtin:hub', projects: 'builtin:folder', tools: 'builtin:package', environment: 'builtin:terminal', workbenches: 'builtin:hub' })[activeSection.value ?? 'home'])
+const sectionPath = computed(() => ({ home: '/overview', projects: '/', tools: '/tools', environment: '/environment', workbenches: '/workbenches' })[activeSection.value ?? 'home'])
+function integrationPath(integrationId: string, viewId: string): string {
+  return `/integrations/${encodeURIComponent(integrationId)}/${encodeURIComponent(viewId)}`
+}
+const sectionGroups = computed<WorkbenchNavigationGroup[]>(() => {
+  if (activeSection.value === 'projects') {
+    return [{ entries: [
+      { key: 'projects', title: copy('项目与工作区', 'Projects and workspaces'), icon: 'builtin:folder', to: '/' },
+      { key: 'sources', title: copy('配置源', 'Workspace sources'), icon: 'builtin:workspace', to: '/subscriptions', match: 'prefix' },
+    ] }]
+  }
+  if (activeSection.value === 'tools') {
+    return [{ entries: [
+      { key: 'favorites', title: copy('常用工具', 'Favorite tools'), icon: 'builtin:star', to: '/tools' },
+      { key: 'software', title: copy('软件中心', 'Software center'), icon: 'builtin:package', to: '/software' },
+      { key: 'navigation', title: copy('网站导航', 'Website navigation'), icon: 'builtin:web', to: '/navigation' },
+    ] }]
+  }
+  if (activeSection.value === 'environment') {
+    return [
+      { entries: [{ key: 'environment', title: copy('本机检测', 'Machine checks'), icon: 'builtin:terminal', to: '/environment' }] },
+      { title: copy('环境配置', 'Environment configuration'), entries: store.integrationViews.filter(isEnvironmentView).map(view => ({
+        key: `${view.integrationId}:${view.id}`, title: view.title, icon: view.icon ?? 'builtin:settings', to: integrationPath(view.integrationId, view.id),
+      })) },
+    ].filter(group => group.entries.length)
+  }
+  if (activeSection.value === 'workbenches') {
+    return [
+      { entries: [{ key: 'workbenches', title: copy('全部工作台', 'All workbenches'), icon: 'builtin:hub', to: '/workbenches' }] },
+      { title: copy('已安装工作台', 'Installed workbenches'), entries: store.pluginWorkbenches.map(workbench => ({
+        key: `${workbench.pluginId}:${workbench.id}`, title: workbench.title, icon: workbench.icon,
+        to: `/workbenches/${encodeURIComponent(workbench.pluginId)}/${encodeURIComponent(workbench.id)}`,
+      })) },
+      { title: copy('独立集成', 'Standalone integrations'), entries: store.standaloneIntegrationViews.filter(view => !isEnvironmentView(view)).map(view => ({
+        key: `${view.integrationId}:${view.id}`, title: view.title, icon: view.icon, to: integrationPath(view.integrationId, view.id),
+      })) },
+    ].filter(group => group.entries.length)
+  }
+  return []
+})
 const pageBreadcrumbs = computed(() => {
-  const integrationView = store.integrationViews.find(view => view.integrationId === route.params.integrationId && view.id === route.params.viewId)
   const pluginWorkbench = store.pluginWorkbenches.find(workbench => workbench.pluginId === route.params.pluginId && workbench.id === route.params.workbenchId)
-  const label = marketplaceOpen.value ? t('pluginMarketplace') : navigationOpen.value ? (locale.value === 'zh-CN' ? '导航' : 'Navigation') : diagnosticsOpen.value ? (locale.value === 'zh-CN' ? '诊断' : 'Diagnostics') : integrationOpen.value ? (integrationView?.title ?? (locale.value === 'zh-CN' ? '集成' : 'Integration')) : (pluginWorkbench?.title ?? (locale.value === 'zh-CN' ? '插件工作台' : 'Plugin workbench'))
+  const label = overviewOpen.value ? copy('首页', 'Home') : marketplaceOpen.value ? copy('插件管理', 'Plugins') : navigationOpen.value ? copy('网站导航', 'Website navigation') : softwareOpen.value ? copy('软件中心', 'Software center') : toolsOpen.value ? copy('常用工具', 'Favorite tools') : workbenchesOpen.value ? copy('全部工作台', 'All workbenches') : environmentOpen.value ? copy('本机检测', 'Machine checks') : diagnosticsOpen.value ? t('diagnostics') : integrationOpen.value ? (currentIntegrationView.value?.title ?? copy('集成', 'Integration')) : (pluginWorkbench?.title ?? copy('插件工作台', 'Plugin workbench'))
   return [
-    { label: store.applicationName, to: '/' },
+    { label: store.applicationName, to: '/overview' },
+    ...(activeSection.value && activeSection.value !== 'home' ? [{ label: sectionTitle.value, to: sectionPath.value }] : []),
     { label, to: marketplaceOpen.value ? '/marketplace' : undefined },
     ...(route.name === 'plugin-detail' ? [{ label: String(route.params.packageName) }] : []),
   ]
@@ -104,21 +169,46 @@ async function openMarketplace(): Promise<void> {
 }
 
 async function openWorkbench(): Promise<void> {
-  if (subscriptionsOpen.value || marketplaceOpen.value || navigationOpen.value || diagnosticsOpen.value || integrationOpen.value || pluginWorkbenchOpen.value)
+  if (overviewOpen.value || subscriptionsOpen.value || marketplaceOpen.value || navigationOpen.value || toolsOpen.value || workbenchesOpen.value || softwareOpen.value || environmentOpen.value || diagnosticsOpen.value || integrationOpen.value || pluginWorkbenchOpen.value)
     await router.push({ name: 'workbench' })
 }
 
-async function openIntegration(integrationId: string, viewId: string): Promise<void> {
-  await router.push({ name: 'integration', params: { integrationId, viewId } })
+async function openOverview(): Promise<void> {
+  if (!overviewOpen.value)
+    await router.push({ name: 'overview' })
 }
 
-async function openNavigation(): Promise<void> {
-  if (!navigationOpen.value)
-    await router.push({ name: 'navigation' })
+async function openProject(projectId: string): Promise<void> {
+  await openWorkbench()
+  await store.selectProject(projectId)
+}
+
+async function openWorkspace(workspaceId: string): Promise<void> {
+  await openWorkbench()
+  store.selectWorkspace(workspaceId)
+}
+
+async function openIntegration(integrationId: string, viewId: string, scope?: 'global'): Promise<void> {
+  await router.push({ name: 'integration', params: { integrationId, viewId }, ...(scope ? { query: { scope } } : {}) })
 }
 
 async function openPluginWorkbench(pluginId: string, workbenchId: string): Promise<void> {
   await router.push({ name: 'plugin-workbench', params: { pluginId, workbenchId } })
+}
+
+async function openTools(): Promise<void> {
+  if (!toolsOpen.value)
+    await router.push({ name: 'tools' })
+}
+
+async function openWorkbenches(): Promise<void> {
+  if (!workbenchesOpen.value)
+    await router.push({ name: 'workbenches' })
+}
+
+async function openEnvironment(): Promise<void> {
+  if (!environmentOpen.value)
+    await router.push({ name: 'environment' })
 }
 
 async function openDiagnostics(): Promise<void> {
@@ -276,12 +366,16 @@ onBeforeMount(async () => {
   window.addEventListener('focus', refreshWhenVisible)
   document.addEventListener('visibilitychange', refreshWhenVisible)
   const initialProjectId = typeof route.query.project === 'string' ? route.query.project : undefined
-  await store.loadSettings()
-  await store.loadOwnerScopes()
-  await store.loadWorkspaces()
-  const restoredProjectId = await store.loadWorkspaceState(initialProjectId)
-  await Promise.all([
-    store.loadProjects(restoredProjectId).catch(() => {}),
+  const pendingMarketplaceImport = await window.craftHubDesktop?.consumeMarketplaceSourceImport?.()
+  const pendingDesktopNavigation = await window.craftHubDesktop?.consumeDesktopNavigation?.()
+  if (route.name === 'workbench' && route.query.project === undefined && !pendingMarketplaceImport && !pendingDesktopNavigation)
+    await router.replace({ name: 'overview', query: route.query, hash: route.hash })
+  await store.loadSettings().catch(() => {})
+  await store.loadOwnerScopes().catch(() => {})
+  await store.loadWorkspaces().catch(() => {})
+  const restoredProjectId = await store.loadWorkspaceState(initialProjectId).catch(() => initialProjectId)
+  await Promise.allSettled([
+    store.loadProjects(restoredProjectId),
     store.loadAgentTasks(),
     store.loadIntegrations(),
     store.loadPluginWorkbenches(),
@@ -289,7 +383,7 @@ onBeforeMount(async () => {
     refreshCodexActivity(),
     store.loadRuns(),
   ])
-  await store.loadRunSummaries()
+  await store.loadRunSummaries().catch(() => {})
   stopProjectEvents = subscribeToProjectChanges({
     onChange: event => void store.refreshProject(event).catch(() => {}),
     onRunChange: summary => store.applyRunSummary(summary),
@@ -297,7 +391,7 @@ onBeforeMount(async () => {
       .then(() => Promise.all([store.loadPluginWorkbenches(), store.loadWorkbenchDiagnostics()]))
       .catch(() => {}),
     onConfigurationSync: () => { void store.loadOwnerScopes().then(() => store.loadWorkspaces()).catch(() => {}) },
-      onUserConfigChange: (status) => {
+    onUserConfigChange: (status) => {
       store.applyUserConfigStatus(status)
       void Promise.all([store.loadOwnerScopes(), store.loadWorkspaces(), store.loadWorkbenchDiagnostics()]).catch(() => {})
     },
@@ -328,16 +422,26 @@ onBeforeMount(async () => {
     else
       showPalette(action === 'palette-projects' ? 'projects' : action === 'palette-commands' ? 'commands' : 'all')
   })
-  stopMarketplaceImportEvents = window.craftHubDesktop?.onMarketplaceSourceImport?.(catalogUrl => void openMarketplaceSourceImport(catalogUrl))
-  stopDesktopNavigationEvents = window.craftHubDesktop?.onDesktopNavigation?.(navigation => void openDesktopNavigation(navigation))
-  const pendingMarketplaceImport = await window.craftHubDesktop?.consumeMarketplaceSourceImport?.()
-  if (pendingMarketplaceImport)
-    await openMarketplaceSourceImport(pendingMarketplaceImport)
+  let marketplaceImportHandled = false
+  let desktopNavigationHandled = false
+  stopMarketplaceImportEvents = window.craftHubDesktop?.onMarketplaceSourceImport?.((catalogUrl) => {
+    marketplaceImportHandled = true
+    void openMarketplaceSourceImport(catalogUrl)
+  })
+  stopDesktopNavigationEvents = window.craftHubDesktop?.onDesktopNavigation?.((navigation) => {
+    desktopNavigationHandled = true
+    void openDesktopNavigation(navigation)
+  })
+  const latestMarketplaceImport = await window.craftHubDesktop?.consumeMarketplaceSourceImport?.()
+  const marketplaceImport = latestMarketplaceImport ?? (marketplaceImportHandled ? undefined : pendingMarketplaceImport)
+  if (marketplaceImport)
+    await openMarketplaceSourceImport(marketplaceImport)
   if (await window.craftHubDesktop?.consumeCelebration?.())
     celebration.fire()
-  const pendingDesktopNavigation = await window.craftHubDesktop?.consumeDesktopNavigation?.()
-  if (pendingDesktopNavigation)
-    await openDesktopNavigation(pendingDesktopNavigation)
+  const latestDesktopNavigation = await window.craftHubDesktop?.consumeDesktopNavigation?.()
+  const navigation = latestDesktopNavigation ?? (desktopNavigationHandled ? undefined : pendingDesktopNavigation)
+  if (navigation)
+    await openDesktopNavigation(navigation)
 })
 onBeforeUnmount(() => {
   if (visibilityRefreshTimer)
@@ -377,26 +481,47 @@ onBeforeUnmount(() => {
         <button type="button" @click="retryProjects">{{ t('retry') }}</button>
       </div>
     </section>
-    <section v-if="subscriptionsOpen || navigationOpen || marketplaceOpen || integrationOpen || pluginWorkbenchOpen || diagnosticsOpen" class="navigation-view-shell">
+    <section v-if="overviewOpen || subscriptionsOpen || navigationOpen || toolsOpen || workbenchesOpen || marketplaceOpen || integrationOpen || pluginWorkbenchOpen || softwareOpen || environmentOpen || diagnosticsOpen" class="navigation-view-shell">
       <ProjectRail
-        :active-view="subscriptionsOpen ? 'subscriptions' : pluginWorkbenchOpen ? 'plugin-workbench' : integrationOpen ? 'integration' : navigationOpen ? 'navigation' : diagnosticsOpen ? 'diagnostics' : 'marketplace'"
+        :active-view="overviewOpen ? 'overview' : subscriptionsOpen ? 'subscriptions' : pluginWorkbenchOpen ? 'plugin-workbench' : integrationOpen ? 'integration' : navigationOpen ? 'navigation' : toolsOpen ? 'tools' : workbenchesOpen ? 'workbenches' : softwareOpen ? 'software' : environmentOpen ? 'environment' : diagnosticsOpen ? 'diagnostics' : 'marketplace'"
         :active-integration-id="activeIntegrationId"
         :active-integration-view-id="activeIntegrationViewId"
         :active-plugin-workbench-id="activePluginWorkbenchId"
         :active-plugin-workbench-plugin-id="activePluginWorkbenchPluginId"
         @open-diagnostics="openDiagnostics"
+        @open-environment="openEnvironment"
+        @open-tools="openTools"
+        @open-workbenches="openWorkbenches"
         @open-integration="openIntegration"
         @open-marketplace="openMarketplace"
-        @open-navigation="openNavigation"
-        @open-plugin-workbench="openPluginWorkbench"
+        @open-overview="openOverview"
         @open-settings="openSettings()"
         @open-workbench="openWorkbench"
       />
-      <ConfigurationSubscriptions v-if="subscriptionsOpen" />
-      <PluginWorkbench v-else-if="pluginWorkbenchOpen" :breadcrumbs="pageBreadcrumbs" :plugin-id="activePluginWorkbenchPluginId" :workbench-id="activePluginWorkbenchId" :refresh-key="navigationRevision" @manage-plugins="openMarketplace" />
+      <ConfigurationSubscriptions v-if="subscriptionsOpen">
+        <template #sidebar><WorkbenchSectionNavigation :title="sectionTitle" :icon="sectionIcon" :groups="sectionGroups" /></template>
+      </ConfigurationSubscriptions>
+      <PluginWorkbench v-else-if="pluginWorkbenchOpen" :breadcrumbs="pageBreadcrumbs" :plugin-id="activePluginWorkbenchPluginId" :workbench-id="activePluginWorkbenchId" :refresh-key="navigationRevision" @manage-plugins="openMarketplace" @open-project="openProject" @open-integration="openIntegration" />
       <WorkbenchPageShell v-else :breadcrumbs="pageBreadcrumbs">
-        <DiagnosticsWorkbench v-if="diagnosticsOpen" @open-target="openDiagnosticTarget" />
-        <IntegrationWorkbench v-else-if="integrationOpen" :integration-id="activeIntegrationId" :view-id="activeIntegrationViewId" />
+        <template v-if="sectionGroups.length" #sidebar><WorkbenchSectionNavigation :title="sectionTitle" :icon="sectionIcon" :groups="sectionGroups" /></template>
+        <PersonalWorkbench
+          :refresh-key="navigationRevision"
+          v-if="overviewOpen"
+          @open-project="openProject"
+          @open-workspace="openWorkspace"
+          @open-navigation="openTools"
+          @open-integration="openIntegration"
+          @open-plugin-workbench="openPluginWorkbench"
+          @open-settings="openSettings()"
+          @open-diagnostics="openDiagnostics"
+          @open-marketplace="openMarketplace"
+        />
+        <ToolsWorkbench v-else-if="toolsOpen" />
+        <WorkbenchesOverview v-else-if="workbenchesOpen" />
+        <SoftwareCenter v-else-if="softwareOpen" />
+        <EnvironmentWorkbench v-else-if="environmentOpen" />
+        <DiagnosticsWorkbench v-else-if="diagnosticsOpen" @open-target="openDiagnosticTarget" />
+        <IntegrationWorkbench v-else-if="integrationOpen" :integration-id="activeIntegrationId" :view-id="activeIntegrationViewId" :initial-scope="route.query.scope === 'global' ? 'global' : undefined" />
         <NavigationWorkbench v-else-if="navigationOpen" :refresh-key="navigationRevision" @manage-plugins="openMarketplace" />
         <MarketplaceDialog v-else open :import-catalog-url="marketplaceImportCatalogUrl" />
       </WorkbenchPageShell>
@@ -416,10 +541,12 @@ onBeforeUnmount(() => {
         <ProjectRail
           :active-view="marketplaceOpen ? 'marketplace' : 'workbench'"
           @open-diagnostics="openDiagnostics"
+          @open-environment="openEnvironment"
+          @open-tools="openTools"
+          @open-workbenches="openWorkbenches"
           @open-integration="openIntegration"
           @open-marketplace="openMarketplace"
-          @open-navigation="openNavigation"
-          @open-plugin-workbench="openPluginWorkbench"
+          @open-overview="openOverview"
           @open-settings="openSettings()"
           @open-workbench="openWorkbench"
         />

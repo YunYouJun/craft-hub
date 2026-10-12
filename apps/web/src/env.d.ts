@@ -10,6 +10,7 @@ type DesktopNavigation
 interface Window {
   craftHubDesktop?: {
     platform?: string
+    copyText?: (text: string) => Promise<void>
     hostExtensions?: () => Promise<import('craft-hub').HostExtensionStatus>
     installHostExtension?: () => Promise<import('craft-hub').HostExtensionStatus>
     configureLocalPluginHost?: (packageName: string) => Promise<import('craft-hub').HostExtensionStatus>
@@ -43,6 +44,7 @@ interface Window {
     openProjectInTerminal?: (projectId: string, application?: string) => Promise<void>
     openDotfilesInTerminal?: () => Promise<void>
     openExternalUrl?: (url: string) => Promise<void>
+    openWorkbenchTool?: (toolId: string) => Promise<import('craft-hub').WorkbenchToolOpenResult>
     openSettingsFile?: () => Promise<void>
     setTheme?: (theme: 'system' | 'light' | 'dark') => Promise<void>
     updateStatus?: () => Promise<DesktopUpdateStatus | undefined>

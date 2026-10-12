@@ -23,6 +23,7 @@ describe('workbench theme', () => {
     })))
     delete window.craftHubDesktop
     delete document.documentElement.dataset.theme
+    document.documentElement.classList.remove('ylf-theme-dark', 'ylf-theme-light')
   })
 
   afterEach(() => vi.unstubAllGlobals())
@@ -35,6 +36,8 @@ describe('workbench theme', () => {
     applyWorkbenchTheme('dark')
 
     expect(document.documentElement.dataset.theme).toBe('dark')
+    expect(document.documentElement.classList.contains('ylf-theme-dark')).toBe(true)
+    expect(document.documentElement.classList.contains('ylf-theme-light')).toBe(false)
     expect(document.documentElement.style.colorScheme).toBe('dark')
     expect(resolvedWorkbenchTheme.value).toBe('dark')
     expect(setTheme).toHaveBeenCalledWith('dark')
@@ -52,5 +55,7 @@ describe('workbench theme', () => {
     matches = false
     onChange?.({ matches: false } as MediaQueryListEvent)
     expect(document.documentElement.dataset.theme).toBe('light')
+    expect(document.documentElement.classList.contains('ylf-theme-light')).toBe(true)
+    expect(document.documentElement.classList.contains('ylf-theme-dark')).toBe(false)
   })
 })

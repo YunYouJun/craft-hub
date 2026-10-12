@@ -129,6 +129,8 @@ export const pluginManifestV1Schema = z.object({
       context.addIssue({ code: 'custom', message: `Workbench id must be unique: ${workbench.id}`, path: ['contributes', 'workbenches', workbenchIndex, 'id'] })
     workbenchIds.add(workbench.id)
     for (const [viewIndex, view] of workbench.views.entries()) {
+      if (view.type === 'host')
+        continue
       if (!relatedPluginIds.has(view.plugin)) {
         context.addIssue({
           code: 'custom',

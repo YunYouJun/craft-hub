@@ -16,13 +16,22 @@ const { locale } = useI18n()
 const zh = computed(() => locale.value === 'zh-CN')
 const panelId = useId()
 const trigger = ref<HTMLButtonElement>()
-const panelPosition = ref({ left: '48px', bottom: '68px' })
+const panelPosition = ref<{ left: string, top?: string, bottom?: string, maxHeight?: string }>({ left: '48px', bottom: '68px' })
 
 function positionPanel(): void {
   const bounds = trigger.value?.getBoundingClientRect()
   if (!bounds)
     return
   const width = Math.min(280, window.innerWidth - 16)
+  if (window.innerWidth <= 760) {
+    const top = Math.max(8, bounds.bottom + 8)
+    panelPosition.value = {
+      left: `${Math.max(8, Math.min(bounds.left, window.innerWidth - width - 8))}px`,
+      top: `${top}px`,
+      maxHeight: `${Math.max(0, window.innerHeight - top - 8)}px`,
+    }
+    return
+  }
   panelPosition.value = {
     left: `${Math.max(8, Math.min(bounds.right + 8, window.innerWidth - width - 8))}px`,
     bottom: `${Math.max(8, window.innerHeight - bounds.bottom)}px`,

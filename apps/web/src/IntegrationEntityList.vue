@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { IntegrationEntity, IntegrationEntityPage } from 'craft-hub'
+import { isPersonalWorkItem, workItemIdentityKey } from 'craft-hub/work-items'
 import { computed, ref, useId, watch } from 'vue'
 import { FormSelect } from './components/ui/select'
 import IntegrationEntityStatus from './IntegrationEntityStatus.vue'
@@ -117,7 +118,9 @@ const visibleItems = computed(() => {
     if (props.assigneeFilter) {
       const accountId = assigneeSelection.value === 'current-user' ? props.currentUser?.id
         : assigneeSelection.value.startsWith('account:') ? assigneeSelection.value.slice(8) : undefined
-      if (accountId && !item.assignees?.some(account => account.id === accountId))
+      if (assigneeSelection.value === 'current-user' && !isPersonalWorkItem(item, props.currentUser))
+        return false
+      if (assigneeSelection.value !== 'current-user' && accountId && !item.assignees?.some(account => account.id === accountId))
         return false
       if (assigneeSelection.value === 'unassigned' && item.assignees?.length)
         return false
@@ -127,7 +130,7 @@ const visibleItems = computed(() => {
 })
 
 function entityKey(item: IntegrationEntity): string {
-  return JSON.stringify([item.metadata?.workspaceId ?? '', item.metadata?.type ?? '', item.id])
+  return workItemIdentityKey(item)
 }
 
 const collapsedKeys = ref(new Set<string>())
@@ -388,15 +391,15 @@ button.integration-entity-link { border: 0; background: transparent; text-align:
 .integration-entity-body > small { color: var(--muted); font-size: var(--font-size-control); }
 .integration-type-badge { flex: none; max-width: 76px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 1px 4px; border-radius: 3px; font-size: var(--font-size-micro); font-weight: 600; line-height: 14px; letter-spacing: .02em; color: var(--text-secondary); background: var(--surface-muted); }
 .integration-type-badge[data-type="story"] { background: var(--accent); color: var(--on-accent); }
-.integration-type-badge[data-type="bug"] { background: var(--danger); color: var(--on-danger); }
-.integration-type-badge[data-type="task"] { background: var(--success); color: var(--on-success); }
+.integration-type-badge[data-type="bug"] { background: var(--danger-fill); color: var(--on-danger); }
+.integration-type-badge[data-type="task"] { background: var(--success-fill); color: var(--on-success); }
 .integration-child-count { flex: none; min-width: 16px; padding: 0 4px; border-radius: 4px; color: var(--muted); background: var(--surface-muted); font-size: var(--font-size-caption); text-align: center; }
 .integration-entity-priority { min-width: 0; display: flex; align-items: center; }
 .integration-empty-value { color: var(--muted); font-size: var(--font-size-control); }
 .integration-priority-badge { max-width: 100%; padding: 0 5px; line-height: 18px; border-radius: 3px; overflow-wrap: anywhere; background: var(--surface-hover); color: var(--text-secondary); font-size: var(--font-size-caption); font-weight: 500; }
-.integration-priority-badge[data-tone='danger'] { background: var(--danger); color: var(--on-danger); }
-.integration-priority-badge[data-tone='warning'] { background: var(--warning); color: var(--on-warning); }
-.integration-priority-badge[data-tone='success'] { background: var(--success); color: var(--on-success); }
+.integration-priority-badge[data-tone='danger'] { background: var(--danger-fill); color: var(--on-danger); }
+.integration-priority-badge[data-tone='warning'] { background: var(--warning-fill); color: var(--on-warning); }
+.integration-priority-badge[data-tone='success'] { background: var(--success-fill); color: var(--on-success); }
 .integration-priority-badge[data-tone='info'] { background: var(--accent); color: var(--on-accent); }
 .integration-updated-at { min-width: 0; color: var(--muted); font-size: var(--font-size-control); font-variant-numeric: tabular-nums; }
 .integration-updated-at time { display: grid; gap: 1px; overflow-wrap: anywhere; }

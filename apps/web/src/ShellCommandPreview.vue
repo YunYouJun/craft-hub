@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { copyText } from './clipboard'
 import { onBeforeUnmount, ref, watch } from 'vue'
 import { Icon } from './icons'
 import { useI18n } from './i18n'
@@ -30,7 +31,7 @@ function resetCopyState(): void {
 async function copyCommand(): Promise<void> {
   resetCopyState()
   try {
-    await navigator.clipboard.writeText(props.command)
+    await copyText(props.command)
     copyState.value = 'copied'
   }
   catch {

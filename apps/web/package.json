@@ -15,6 +15,7 @@
     "@xterm/addon-fit": "catalog:",
     "@xterm/addon-web-links": "catalog:",
     "@xterm/xterm": "catalog:",
+    "@yunlefun/ui": "catalog:",
     "canvas-confetti": "catalog:",
     "craft-hub": "workspace:*",
     "dompurify": "catalog:",
@@ -27,8 +28,10 @@
     "vue-router": "catalog:"
   },
   "devDependencies": {
+    "@iconify-json/logos": "catalog:",
     "@iconify-json/lucide": "catalog:",
     "@iconify-json/ri": "catalog:",
+    "@iconify-json/simple-icons": "catalog:",
     "@iconify-json/svg-spinners": "catalog:",
     "@types/canvas-confetti": "catalog:",
     "@types/semver": "catalog:",

@@ -30,11 +30,13 @@ withDefaults(defineProps<{
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 7px;
+  gap: var(--control-icon-gap);
   border: 1px solid transparent;
-  border-radius: 7px;
+  border-radius: var(--control-radius);
   font-size: var(--font-size-body);
-  font-weight: 600;
+  font-weight: 500;
+  line-height: var(--line-height-body);
+  box-shadow: none;
 }
 
 .ui-button:focus-visible {
@@ -48,33 +50,30 @@ withDefaults(defineProps<{
   opacity: .5;
 }
 
-.ui-button--default { padding: 8px 12px; }
-.ui-button--compact { padding: 7px 10px; }
-.ui-button--icon { width: 32px; height: 32px; padding: 0; }
+.ui-button--default { min-height: var(--control-height-default); padding: 4px 12px; }
+.ui-button--compact { min-height: var(--control-height-compact); padding: 3px 10px; font-size: var(--font-size-control); line-height: var(--line-height-control); }
+.ui-button--icon { width: var(--control-height-default); height: var(--control-height-default); padding: 0; }
 
 .ui-button--primary {
   background: var(--accent);
   color: var(--on-accent);
-  box-shadow: 0 2px 5px color-mix(in srgb, var(--accent) 25%, transparent);
 }
 
 .ui-button--primary:hover:not(:disabled) { background: var(--accent-hover); }
 
 .ui-button--warning {
-  background: var(--warning);
+  background: var(--warning-fill);
   color: var(--on-warning);
-  box-shadow: 0 2px 5px color-mix(in srgb, var(--warning) 25%, transparent);
 }
 
-.ui-button--warning:hover:not(:disabled) { background: var(--warning-hover); }
+.ui-button--warning:hover:not(:disabled) { background: var(--warning-fill-hover); }
 
 .ui-button--danger {
-  background: var(--danger);
+  background: var(--danger-fill);
   color: var(--on-danger);
-  box-shadow: 0 2px 5px color-mix(in srgb, var(--danger) 25%, transparent);
 }
 
-.ui-button--danger:hover:not(:disabled) { background: var(--danger-hover); }
+.ui-button--danger:hover:not(:disabled) { background: var(--danger-fill-hover); }
 
 .ui-button--danger-secondary {
   border-color: color-mix(in srgb, var(--danger) 38%, var(--border));
@@ -103,5 +102,6 @@ withDefaults(defineProps<{
   color: var(--text-secondary);
 }
 
-.ui-button :deep(.app-icon) { width: 17px; height: 17px; }
+.ui-button :deep(.app-icon) { width: var(--control-icon-size); height: var(--control-icon-size); }
+.ui-button--compact :deep(.app-icon) { width: var(--control-icon-size-compact); height: var(--control-icon-size-compact); }
 </style>

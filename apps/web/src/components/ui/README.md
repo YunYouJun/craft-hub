@@ -2,7 +2,13 @@
 
 Form primitives follow [shadcn-vue](https://shadcn-vue.com/docs/components/field)'s source-owned component approach. Input, Textarea, Checkbox and Field were adapted from its `new-york-v4` registry; Select and Dialog compose Reka UI primitives. Registry source can be inspected with `pnpm dlx shadcn-vue@latest view @shadcn/input @shadcn/textarea @shadcn/checkbox @shadcn/field`.
 
-The host uses its existing CSS theme tokens rather than Tailwind classes. Shared form styles live in `src/styles.css`; keep colors, focus, disabled and invalid states there rather than overriding them on individual pages. Icons come from the host's existing icon module.
+The host's semantic CSS tokens map to YunLeFun's base CSS and Workspace / Admin profile, rather than Tailwind classes. Desktop controls use 32px default and 28px compact heights; the profile increases them to 44px and 40px on narrow or coarse-pointer surfaces. Shared form styles live in `src/styles.css`; keep colors, focus, disabled and invalid states there rather than overriding them on individual pages. `theme.ts` synchronizes upstream theme classes with the existing theme preference, including portaled controls.
+
+Button variants share the same size geometry, medium text weight and flat surface in pages and portals. Default icons are 16px and compact icons are 14px. Dialog panel footer actions use the shared size and a 72px minimum width for default text buttons; longer labels retain their natural width. Do not override Button's density or add an outer shadow in a page or footer.
+
+For paired confirmation actions, wrap two default text buttons in `dialog-action-pair`. Its desktop columns are equal with a 112px minimum each; narrow and coarse-pointer layouts fill the footer with equal columns. Keep both labels text-only and use semantic variants for priority. Height, type and padding remain owned by Button; the pair owns only width and spacing. Avoid changing the columns when the action label changes after success.
+
+Use `--danger`, `--warning` and `--success` for status text, and the separate `--danger-fill`, `--warning-fill`, `--success-fill` with their corresponding `--on-*` tokens for solid surfaces. Do not put on-fill text on a status-text background. Icons come from the existing icon module; brand icons are compiled from local Iconify collections with explicit safelists, and unknown brands retain semantic icons and visible names.
 
 For detail dialogs with long content, use `DialogShell layout="panel"` with `title`, optional `description` and `header-actions`, default body, and `footer` slots. The shared panel keeps the header and footer visible while the body scrolls within the viewport. Its width, padding and title size use the dialog tokens in `styles/tokens.css`; colors, radius and overlay use the existing theme. Default DialogShell layouts are unchanged. Use FormSelect's `placeholder` for an unselected value rather than an empty option.
 

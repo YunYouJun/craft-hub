@@ -1,6 +1,7 @@
 import type { AccountProvider } from './accounts'
 import type { CapabilityProvider } from './extensions'
 import type { IntegrationContribution, IntegrationProvider } from './integrations'
+import type { SoftwareCatalogProvider } from './software-catalog'
 import type { WorkspaceCatalogProvider } from './workspace-catalog'
 import type { WorkspaceRepositoryProvider } from './workspace-repository'
 import { createRequire } from 'node:module'
@@ -17,6 +18,8 @@ export interface CraftHubPlugin {
   accountProvider?: AccountProvider
   workspaceRepositoryProviders?: WorkspaceRepositoryProvider[]
   workspaceCatalogProviders?: WorkspaceCatalogProvider[]
+  /** Read-only software catalogs supplied by the trusted local host. */
+  softwareCatalogProviders?: SoftwareCatalogProvider[]
   capabilityProviders?: CapabilityProvider[]
   integrationProviders?: IntegrationProvider[]
   /** Declarative views shipped with an explicitly loaded trusted Host Plugin. */
@@ -103,4 +106,6 @@ function assertPlugin(value: unknown, specifier: string): asserts value is Craft
   }
   if (plugin.integrationProviders !== undefined && !Array.isArray(plugin.integrationProviders))
     throw new TypeError(`Plugin ${specifier} integrationProviders must be an array`)
+  if (plugin.softwareCatalogProviders !== undefined && !Array.isArray(plugin.softwareCatalogProviders))
+    throw new TypeError(`Plugin ${specifier} softwareCatalogProviders must be an array`)
 }

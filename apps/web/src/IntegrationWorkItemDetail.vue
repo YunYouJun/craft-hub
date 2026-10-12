@@ -1,5 +1,7 @@
 <script setup lang="ts">
+import { copyText } from './clipboard'
 import type { IntegrationEntity } from 'craft-hub'
+import { workItemActionInput } from 'craft-hub/work-items'
 import { computed, ref, useId } from 'vue'
 import AgentTaskOutput from './AgentTaskOutput.vue'
 import { api } from './api'
@@ -50,7 +52,7 @@ async function show(event: MouseEvent): Promise<void> {
   projectId.value = props.projectId ?? ''
   try {
     if (props.detailActionId) {
-      const result = await api.invokeIntegrationAction<IntegrationEntity>(props.integrationId, props.detailActionId, { ...props.entity.metadata, itemId: props.entity.id }, props.projectId)
+      const result = await api.invokeIntegrationAction<IntegrationEntity>(props.integrationId, props.detailActionId, workItemActionInput(props.entity), props.projectId)
       if (current !== generation)
         return
       detail.value = result
@@ -98,7 +100,7 @@ async function startTask(): Promise<void> {
 
 async function copyPrompt(): Promise<void> {
   try {
-    await navigator.clipboard.writeText(prompt.value)
+    await copyText(prompt.value)
     copied.value = true
   }
   catch (caught) { error.value = caught instanceof Error ? caught.message : String(caught) }

@@ -23,9 +23,11 @@
     ".": "./dist/index.mjs",
     "./cli": "./dist/cli.mjs",
     "./command-inputs": "./dist/command-inputs.mjs",
+    "./personal-workbench": "./dist/personal-workbench.mjs",
     "./project-config-schema-revision": "./dist/project-config-schema-revision.mjs",
     "./skill-inputs": "./dist/skill-inputs.mjs",
     "./skill-prompts": "./dist/skill-prompts.mjs",
+    "./work-items": "./dist/work-items.mjs",
     "./package.json": "./package.json"
   },
   "types": "./dist/index.d.mts",

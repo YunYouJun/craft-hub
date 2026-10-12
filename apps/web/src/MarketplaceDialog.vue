@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { CatalogPluginV1, ManagedPlugin, MarketplaceSource, MarketplaceSourcePreview } from 'craft-hub'
 import { maxSatisfying, satisfies } from 'semver'
-import { computed, ref, watch } from 'vue'
+import { computed, ref, useId, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api } from './api'
 import { Button as UiButton } from './components/ui/button'
@@ -21,8 +21,10 @@ const route = useRoute()
 const router = useRouter()
 type CatalogItem = CatalogPluginV1 & { sourceId: string, sourceName: string, sourceKind: MarketplaceSource['kind'] }
 type PluginTarget = Pick<CatalogItem, 'displayName' | 'package' | 'sourceId' | 'version'>
+type MarketplaceTab = 'discover' | 'installed' | 'sources' | 'hosts'
 
-const activeTab = ref<'discover' | 'installed' | 'sources' | 'hosts'>('discover')
+const activeTab = ref<MarketplaceTab>('discover')
+const tabsId = useId()
 const catalog = ref<CatalogItem[]>([])
 const installed = ref<ManagedPlugin[]>([])
 const localPluginPath = ref('')
@@ -45,6 +47,30 @@ const detailVersion = computed(() => typeof route.query.version === 'string' ? r
 const detailParentName = computed(() => typeof route.query.parentName === 'string' ? route.query.parentName : undefined)
 const canChooseLocalPluginDirectory = Boolean(window.craftHubDesktop?.selectProjectDirectory)
 const canManageHostExtensions = Boolean(window.craftHubDesktop?.hostExtensions)
+const availableTabs: MarketplaceTab[] = canManageHostExtensions ? ['discover', 'installed', 'sources', 'hosts'] : ['discover', 'installed', 'sources']
+
+function tabAttributes(tab: MarketplaceTab) {
+  return {
+    id: `${tabsId}-${tab}`,
+    type: 'button' as const,
+    role: 'tab',
+    'aria-controls': `${tabsId}-panel`,
+    'aria-selected': activeTab.value === tab,
+    tabindex: activeTab.value === tab ? 0 : -1,
+  }
+}
+
+function moveTabSelection(event: KeyboardEvent): void {
+  const step = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0
+  if (!step && event.key !== 'Home' && event.key !== 'End')
+    return
+  event.preventDefault()
+  const current = availableTabs.indexOf(activeTab.value)
+  const index = event.key === 'Home' ? 0 : event.key === 'End' ? availableTabs.length - 1 : (current + step + availableTabs.length) % availableTabs.length
+  activeTab.value = availableTabs[index]!
+  const buttons = (event.currentTarget as HTMLElement).querySelectorAll<HTMLButtonElement>('[role="tab"]')
+  buttons[index]?.focus()
+}
 
 const preferredCatalog = computed(() => {
   const grouped = new Map<string, CatalogItem[]>()
@@ -468,13 +494,14 @@ function openIncludedPlugin(parent: ManagedPlugin, packageName: string, range: s
       @navigate="openPluginDetail"
     />
     <WorkbenchViewFrame v-show="!detailOpen" class="marketplace-index" :title="t('pluginMarketplace')" :description="t('pluginMarketplaceDescription')" icon="builtin:plugins">
-        <nav class="marketplace-tabs workbench-tabs" :aria-label="t('pluginMarketplace')">
-          <button :class="{ active: activeTab === 'discover' }" @click="activeTab = 'discover'">{{ t('discoverPlugins') }}</button>
-          <button :class="{ active: activeTab === 'installed' }" @click="activeTab = 'installed'">{{ t('installedPlugins') }} <small>{{ rootInstalled.length }}</small></button>
-          <button :class="{ active: activeTab === 'sources' }" @click="activeTab = 'sources'">{{ t('marketplaceSources') }}</button>
-          <button v-if="canManageHostExtensions" :class="{ active: activeTab === 'hosts' }" @click="activeTab = 'hosts'">{{ t('hostExtensions') }}</button>
+        <nav class="marketplace-tabs workbench-tabs" role="tablist" aria-orientation="horizontal" :aria-label="t('pluginMarketplace')" @keydown="moveTabSelection">
+          <button v-bind="tabAttributes('discover')" :class="{ active: activeTab === 'discover' }" @click="activeTab = 'discover'">{{ t('discoverPlugins') }}</button>
+          <button v-bind="tabAttributes('installed')" :class="{ active: activeTab === 'installed' }" @click="activeTab = 'installed'">{{ t('installedPlugins') }} <small>{{ rootInstalled.length }}</small></button>
+          <button v-bind="tabAttributes('sources')" :class="{ active: activeTab === 'sources' }" @click="activeTab = 'sources'">{{ t('marketplaceSources') }}</button>
+          <button v-if="canManageHostExtensions" v-bind="tabAttributes('hosts')" :class="{ active: activeTab === 'hosts' }" @click="activeTab = 'hosts'">{{ t('hostExtensions') }}</button>
         </nav>
 
+        <section :id="`${tabsId}-panel`" class="marketplace-tab-panel" role="tabpanel" :aria-labelledby="`${tabsId}-${activeTab}`" tabindex="0">
         <p v-if="error" class="marketplace-error" role="alert">{{ error }}</p>
 
         <section v-if="activeTab === 'discover'" class="marketplace-view">
@@ -619,6 +646,7 @@ function openIncludedPlugin(parent: ManagedPlugin, packageName: string, range: s
             <p v-if="sourceSuccess" class="source-form-success" role="status">{{ sourceSuccess }}</p>
           </form>
         </section>
+        </section>
 
         <DialogShell
           :open="Boolean(sourcePreview)"
@@ -654,3 +682,12 @@ function openIncludedPlugin(parent: ManagedPlugin, packageName: string, range: s
     </WorkbenchViewFrame>
   </section>
 </template>
+
+<style scoped>
+.marketplace-tab-panel { min-width: 0; }
+.marketplace-tab-panel:focus-visible { outline: var(--control-focus-width) solid var(--focus-ring); outline-offset: var(--control-focus-offset); border-radius: var(--panel-radius); }
+.local-plugin-form { border-color: var(--border); background: var(--surface-subtle); border-radius: var(--panel-radius); }
+.source-form { border: 1px solid var(--border); border-radius: var(--panel-radius); padding: var(--space-4); background: var(--surface-subtle); }
+.local-plugin-controls input { height: var(--control-height-default); border-radius: var(--control-radius); font-family: var(--font-mono); }
+.local-plugin-controls input:focus { box-shadow: 0 0 0 var(--control-focus-width) var(--accent-soft); }
+</style>

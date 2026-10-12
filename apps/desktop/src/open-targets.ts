@@ -1,10 +1,53 @@
-import type { WorkbenchCustomEditor } from 'craft-hub'
+import type { WorkbenchCustomEditor, WorkbenchToolOpenResult } from 'craft-hub'
 import type { ChildProcess, SpawnOptions } from 'node:child_process'
 import { spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { isAbsolute, relative, sep } from 'node:path'
 import process from 'node:process'
+import { personalWorkbenchToolSchema } from 'craft-hub/personal-workbench'
+
+/** Open a validated known application entry, falling back to its HTTPS website when local launch is unavailable. */
+export async function openPersonalWorkbenchTool(
+  value: unknown,
+  openWebsite: (url: string) => Promise<void>,
+  platform: string = process.platform,
+  launch: (command: string, args: string[], options: SpawnOptions) => ChildProcess = spawn,
+): Promise<WorkbenchToolOpenResult> {
+  const tool = personalWorkbenchToolSchema.parse(value)
+  if (!tool.launch) {
+    await openWebsite(tool.url)
+    return { destination: 'website', contextTransferred: false }
+  }
+
+  const application = tool.launch.application
+  let fallbackReason: WorkbenchToolOpenResult['fallbackReason'] = 'unsupported-platform'
+  if (platform === 'darwin') {
+    const applicationName = application === 'raycast' ? 'Raycast' : 'Orca'
+    const args = ['-a', applicationName]
+    if (tool.launch.application === 'raycast' && tool.launch.commandUrl)
+      args.push(tool.launch.commandUrl)
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const child = launch('/usr/bin/open', args, { shell: false, stdio: 'ignore' })
+        child.once('error', reject)
+        child.once('close', (code, signal) => {
+          if (code === 0)
+            resolve()
+          else
+            reject(new Error(`Application launcher failed: ${signal ?? code ?? 'unknown'}`))
+        })
+      })
+      return { destination: 'application', application, contextTransferred: false }
+    }
+    catch {
+      fallbackReason = 'application-unavailable'
+    }
+  }
+
+  await openWebsite(tool.url)
+  return { destination: 'website', application, contextTransferred: false, fallbackReason }
+}
 
 /** Check whether a resolved local target stays inside a resolved project root. */
 export function projectContainsPath(projectRoot: string, target: string): boolean {

@@ -14,6 +14,8 @@ function resolveTheme(theme: WorkbenchTheme): EffectiveTheme {
 function renderTheme(): void {
   effectiveTheme.value = resolveTheme(selectedTheme.value)
   document.documentElement.dataset.theme = effectiveTheme.value
+  document.documentElement.classList.toggle('ylf-theme-dark', effectiveTheme.value === 'dark')
+  document.documentElement.classList.toggle('ylf-theme-light', effectiveTheme.value === 'light')
   document.documentElement.style.colorScheme = effectiveTheme.value
 }
 

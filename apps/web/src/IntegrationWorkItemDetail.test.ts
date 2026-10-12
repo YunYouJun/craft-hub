@@ -14,6 +14,24 @@ afterEach(() => {
 })
 
 describe('work item detail and task handoff', () => {
+  it('reads details with the native item ID and complete source scope instead of the display ID', async () => {
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    useI18n().setLocale('en')
+    const sourceRef = { providerId: 'tasks', instanceId: 'personal-tasks', accountId: 'me', containerId: 'inbox', kind: 'task', itemId: 'native-task-1' }
+    const entity = { id: 'display-task-1', title: 'Review proposal', sourceRef, metadata: { workspaceId: 'legacy-scope', itemId: 'metadata-id' } }
+    const invoke = vi.spyOn(api, 'invokeIntegrationAction').mockResolvedValue(entity)
+    const start = vi.spyOn(api, 'startAgentTask')
+    const wrapper = mount(IntegrationWorkItemDetail, { props: { integrationId: 'personal-tasks', detailActionId: 'get', projectId: 'project-1', entity }, global: { plugins: [pinia] }, attachTo: document.body })
+    await wrapper.get('button').trigger('click')
+    await flushPromises()
+    expect(invoke).toHaveBeenCalledExactlyOnceWith('personal-tasks', 'get', { workspaceId: 'legacy-scope', itemId: 'native-task-1', sourceRef }, 'project-1')
+    expect(start).not.toHaveBeenCalled()
+    expect(entity.id).toBe('display-task-1')
+    expect(entity.metadata.itemId).toBe('metadata-id')
+    wrapper.unmount()
+  })
+
   it('reads full global details, strips executable markup and never starts a task merely by opening', async () => {
     const pinia = createPinia()
     setActivePinia(pinia)

@@ -1,13 +1,17 @@
 // @vitest-environment happy-dom
 /// <reference lib="dom" />
 
-import type { ProjectRecord, WorkspaceRecord } from 'craft-hub'
+import type { ProjectRecord, ResolvedIntegrationContribution, WorkspaceRecord } from 'craft-hub'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { nextTick } from 'vue'
 import { createMemoryHistory } from 'vue-router'
+import { api } from './api'
 import App from './App.vue'
+import EnvironmentWorkbench from './EnvironmentWorkbench.vue'
+import IntegrationWorkbench from './IntegrationWorkbench.vue'
+import PersonalWorkbench from './PersonalWorkbench.vue'
 import { createWorkbenchRouter } from './router'
 import { isMacPlatform } from './shortcuts'
 import { useWorkbenchStore } from './store'
@@ -54,7 +58,206 @@ async function mountApp(pinia: ReturnType<typeof createPinia>, path = '/') {
   }
 }
 
+function stubStartupData(): void {
+  vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+    const path = typeof input === 'string' ? input : input.toString()
+    const body = path === '/api/settings'
+      ? { explicitKeys: [], path: '/settings.json', revision: 'initial', settings: { 'workbench.locale': 'en', 'workbench.shortcuts': {}, 'workbench.theme': 'system' } }
+      : path === '/api/projects'
+        ? projects
+        : path === '/api/workspaces'
+          ? [workspace]
+          : path === '/api/workspaces/state'
+            ? { expandedWorkspaceIds: [] }
+            : path.endsWith('/pins')
+              ? { projectId: path.split('/')[3], capabilityIds: [] }
+              : []
+    return new Response(JSON.stringify(body), { status: 200 })
+  }))
+  vi.stubGlobal('EventSource', FakeEventSource)
+}
+
 describe('app startup', () => {
+  it('opens software discovery only from its route and returns to project navigation', async () => {
+    stubStartupData()
+    const catalog = vi.spyOn(api, 'softwareCatalog').mockResolvedValue({ version: 1, sources: [] })
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    const { wrapper, router } = await mountApp(pinia, '/overview')
+    await flushPromises()
+    expect(catalog).not.toHaveBeenCalled()
+    await wrapper.get('[data-testid="open-tools"]').trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.path).toBe('/tools')
+    expect(catalog).not.toHaveBeenCalled()
+    await wrapper.get('.section-navigation a[href="/software"]').trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.path).toBe('/software')
+    expect(wrapper.get('[data-testid="open-tools"]').classes()).toContain('active')
+    expect(wrapper.get('.section-navigation a[href="/software"]').attributes('aria-current')).toBe('page')
+    expect(catalog).toHaveBeenCalledOnce()
+    await wrapper.get('[data-testid="open-workbench"]').trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.path).toBe('/')
+    wrapper.unmount()
+  })
+
+  it('opens all tools from the home preview and keeps website deep links in the tools section', async () => {
+    stubStartupData()
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    const { wrapper, router } = await mountApp(pinia, '/overview')
+    await flushPromises()
+
+    await wrapper.get('[data-testid="view-all-tools"]').trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.path).toBe('/tools')
+    expect(wrapper.get('[data-testid="open-tools"]').attributes('aria-current')).toBe('page')
+    expect(wrapper.get('.section-navigation a[href="/tools"]').attributes('aria-current')).toBe('page')
+
+    await router.push('/navigation')
+    await flushPromises()
+    expect(wrapper.get('[data-testid="open-tools"]').attributes('aria-current')).toBe('page')
+    expect(wrapper.get('.section-navigation a[href="/navigation"]').attributes('aria-current')).toBe('page')
+    expect(wrapper.get('.section-navigation-header strong').text()).toBe('Tools')
+    expect(wrapper.find('[data-testid="open-navigation"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('keeps workspace source details within project navigation', async () => {
+    stubStartupData()
+    const startupFetch = globalThis.fetch
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      if (input === '/api/config-subscriptions') {
+        return Response.json({ connected: true, canConnect: false, provider: 'Git', subscriptions: [{
+          id: 'shared',
+          name: 'Shared development',
+          url: 'https://git.example.com/shared/development.git',
+          repository: 'shared/development',
+          branch: 'main',
+          directory: '.craft-hub',
+        }] })
+      }
+      return startupFetch(input)
+    }))
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    const { wrapper, router } = await mountApp(pinia, '/subscriptions/shared?panel=settings')
+    await flushPromises()
+
+    expect(router.currentRoute.value.name).toBe('subscriptions-detail')
+    expect(wrapper.get('.subscriptions-workbench h1').text()).toBe('Shared development')
+    expect(wrapper.get('[data-testid="open-workbench"]').attributes('aria-current')).toBe('page')
+    expect(wrapper.get('.section-navigation a[href="/subscriptions"]').attributes('aria-current')).toBe('page')
+    expect(wrapper.get('.section-navigation a[href="/"]').attributes('aria-current')).toBeUndefined()
+    expect(wrapper.get('.section-navigation-header strong').text()).toBe('Projects')
+    expect(wrapper.find('.activity-rail [data-testid="open-workspace-sources"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it.each(['/environment', '/integrations/profile/setup'])('groups declared configuration views under development environment from %s', async (initialPath) => {
+    stubStartupData()
+    const contribution: ResolvedIntegrationContribution = {
+      id: 'profile',
+      pluginId: 'profile',
+      source: 'host:profile',
+      provider: { id: 'example', requires: '^1.0.0' },
+      providerVersion: '1.0.0',
+      actions: [{ id: 'read', title: 'Inspect configuration', operation: 'configuration.read', effect: 'local-read', confirmation: 'never', effectiveConfirmation: 'never' }],
+      views: [{ id: 'setup', title: 'Configuration profiles', icon: 'builtin:settings', placement: 'primary-sidebar', scope: 'global', blocks: [{ id: 'profiles', type: 'configuration-manager', actionId: 'read' }] }],
+    }
+    vi.spyOn(api, 'integrations').mockResolvedValue({ integrations: [contribution], diagnostics: [] })
+    const invoke = vi.spyOn(api, 'invokeIntegrationAction').mockResolvedValue({ configuration: true, items: [] })
+    vi.spyOn(api, 'runtimeHealth').mockResolvedValue({
+      status: 'ok',
+      projectConfigSchemaRevision: 'current',
+      distribution: { id: 'community', name: 'Craft Hub' },
+      hostEnvironment: { kind: 'local', capabilities: { localProjectDirectories: true, localGitSync: true } },
+    })
+    vi.spyOn(api, 'localEnvironment').mockResolvedValue({
+      schemaVersion: 1,
+      checkedAt: '2026-10-12T00:00:00.000Z',
+      host: { platform: 'darwin', arch: 'arm64', osRelease: '25.6.0' },
+      runtime: { version: 'v24.18.0', executablePath: '/runtime/node', arch: 'arm64' },
+      searchDirectories: [],
+      tools: [],
+    })
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    const { wrapper, router } = await mountApp(pinia, initialPath)
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="open-environment"]').attributes('aria-current')).toBe('page')
+    expect(wrapper.get('[data-testid="open-workbenches"]').attributes('aria-current')).toBeUndefined()
+    expect(wrapper.get('.section-navigation-header strong').text()).toBe('Development environment')
+    const configuration = wrapper.get('.section-navigation a[href="/integrations/profile/setup"]')
+    expect(configuration.text()).toBe('Configuration profiles')
+    if (initialPath === '/environment') {
+      expect(invoke).not.toHaveBeenCalled()
+      await configuration.trigger('click')
+      await flushPromises()
+    }
+    expect(router.currentRoute.value.path).toBe('/integrations/profile/setup')
+    expect(wrapper.get('.section-navigation a[href="/integrations/profile/setup"]').attributes('aria-current')).toBe('page')
+    expect(wrapper.get('[data-testid="open-environment"]').attributes('aria-current')).toBe('page')
+    expect(invoke).toHaveBeenCalledWith('profile', 'read', {}, undefined)
+    expect(wrapper.find('[data-testid="open-integration-profile-setup"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('opens installed workbenches and other integrations from one workbench section', async () => {
+    stubStartupData()
+    vi.spyOn(api, 'integrations').mockResolvedValue({ integrations: [{
+      id: 'workspace',
+      pluginId: 'workspace',
+      source: 'host:workspace',
+      provider: { id: 'example', requires: '^1.0.0' },
+      providerVersion: '1.0.0',
+      actions: [],
+      views: [{ id: 'overview', title: 'Connected workspace', icon: 'builtin:workspace', placement: 'primary-sidebar', scope: 'global-and-project', blocks: [] }],
+    }], diagnostics: [] })
+    vi.spyOn(api, 'pluginWorkbenches').mockResolvedValue([{
+      id: 'daily',
+      pluginId: '@example/craft-hub-plugin-daily',
+      pluginName: 'Daily suite',
+      pluginVersion: '1.0.0',
+      title: 'Daily work',
+      views: [{ type: 'host', view: 'projects' }],
+    }])
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    const { wrapper, router } = await mountApp(pinia, '/overview')
+    await flushPromises()
+
+    await wrapper.get('[data-testid="open-workbenches"]').trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.path).toBe('/workbenches')
+    expect(wrapper.get('.workbenches-overview h1').text()).toBe('Workbenches')
+    expect(wrapper.get('[data-testid="open-workbenches"]').attributes('aria-current')).toBe('page')
+    expect(wrapper.get('.section-navigation a[href="/workbenches"]').attributes('aria-current')).toBe('page')
+
+    await wrapper.get('[data-testid="integration-entry-workspace-overview"]').trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.fullPath).toBe('/integrations/workspace/overview?scope=global')
+    expect(wrapper.get('[data-testid="open-workbenches"]').attributes('aria-current')).toBe('page')
+    expect(wrapper.get('.section-navigation a[href="/integrations/workspace/overview"]').attributes('aria-current')).toBe('page')
+
+    await router.push('/integrations/workspace/overview')
+    await flushPromises()
+    expect(wrapper.get('[data-testid="open-workbenches"]').attributes('aria-current')).toBe('page')
+    expect(wrapper.get('.section-navigation a[href="/integrations/workspace/overview"]').attributes('aria-current')).toBe('page')
+
+    await wrapper.get('[data-testid="open-workbenches"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-testid="workbench-entry-daily"]').trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.name).toBe('plugin-workbench')
+    expect(router.currentRoute.value.params).toEqual({ pluginId: '@example/craft-hub-plugin-daily', workbenchId: 'daily' })
+    expect(wrapper.get('[data-testid="open-workbenches"]').attributes('aria-current')).toBe('page')
+    expect(wrapper.get('.plugin-workbench-sidebar-header strong').text()).toBe('Daily work')
+    wrapper.unmount()
+  })
+
   afterEach(() => {
     vi.useRealTimers()
     FakeEventSource.instances = []
@@ -64,6 +267,170 @@ describe('app startup', () => {
     document.body.innerHTML = ''
     Reflect.deleteProperty(window, 'craftHubDesktop')
     delete window.craftHubDesktop
+  })
+
+  it('opens the environment route without projects and keeps probes out of startup and project refreshes', async () => {
+    stubStartupData()
+    const startupFetch = globalThis.fetch
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      if (input === '/api/projects' || input === '/api/workspaces')
+        return new Response(JSON.stringify([]), { status: 200 })
+      return startupFetch(input)
+    }))
+    vi.spyOn(api, 'runtimeHealth').mockResolvedValue({
+      status: 'ok',
+      projectConfigSchemaRevision: 'current',
+      distribution: { id: 'community', name: 'Craft Hub' },
+      hostEnvironment: { kind: 'local', capabilities: { localProjectDirectories: true, localGitSync: true } },
+    })
+    const inspect = vi.spyOn(api, 'localEnvironment').mockResolvedValue({
+      schemaVersion: 1,
+      checkedAt: '2026-10-09T10:00:00.000Z',
+      host: { platform: 'darwin', arch: 'arm64', osRelease: '25.6.0' },
+      runtime: { version: 'v24.18.0', executablePath: '/desktop/runtime/node', arch: 'arm64' },
+      searchDirectories: [],
+      tools: [],
+    })
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    const { router, wrapper } = await mountApp(pinia)
+    await flushPromises()
+    expect(router.currentRoute.value.name).toBe('overview')
+    expect(inspect).not.toHaveBeenCalled()
+
+    await wrapper.get('[data-testid="open-environment"]').trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.path).toBe('/environment')
+    expect(wrapper.findComponent(EnvironmentWorkbench).exists()).toBe(true)
+    expect(wrapper.get('[data-testid="open-environment"]').classes()).toContain('active')
+    expect(useWorkbenchStore().projects).toEqual([])
+    expect(inspect).toHaveBeenCalledOnce()
+
+    await useWorkbenchStore().refreshProjects(undefined, false)
+    await flushPromises()
+    expect(inspect).toHaveBeenCalledOnce()
+    await wrapper.get('[data-testid="open-overview"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.findComponent(EnvironmentWorkbench).exists()).toBe(false)
+    expect(inspect).toHaveBeenCalledOnce()
+    wrapper.unmount()
+  })
+
+  it('lands fresh loads on the personal overview and opens projects and workspaces in the existing workbench', async () => {
+    stubStartupData()
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    const { router, wrapper } = await mountApp(pinia)
+    await flushPromises()
+
+    expect(router.currentRoute.value.name).toBe('overview')
+    expect(router.currentRoute.value.path).toBe('/overview')
+    expect(wrapper.get('[data-testid="open-overview"]').classes()).toContain('active')
+    expect(wrapper.find('.workbench-splitter').exists()).toBe(false)
+
+    wrapper.getComponent(PersonalWorkbench).vm.$emit('openProject', projects[1]!.id)
+    await flushPromises()
+    expect(router.currentRoute.value.name).toBe('workbench')
+    expect(useWorkbenchStore().selectedProjectId).toBe(projects[1]!.id)
+
+    await wrapper.get('[data-testid="open-overview"]').trigger('click')
+    await flushPromises()
+    wrapper.getComponent(PersonalWorkbench).vm.$emit('openWorkspace', workspace.id)
+    await flushPromises()
+    expect(router.currentRoute.value.path).toBe('/')
+    expect(useWorkbenchStore().selectedWorkspace?.id).toBe(workspace.id)
+    expect(wrapper.get('.workspace-dashboard h2').text()).toBe(workspace.name)
+    wrapper.unmount()
+  })
+
+  it('keeps the overview usable and continues project loading after initial settings fail', async () => {
+    stubStartupData()
+    const startupFetch = globalThis.fetch
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const path = typeof input === 'string' ? input : input.toString()
+      if (path === '/api/settings')
+        return new Response(JSON.stringify({ error: 'settings unavailable' }), { status: 500 })
+      return startupFetch(input)
+    }))
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    const { router, wrapper } = await mountApp(pinia)
+    await flushPromises()
+
+    const store = useWorkbenchStore()
+    expect(router.currentRoute.value.name).toBe('overview')
+    expect(store.settingsLoadState).toBe('error')
+    expect(store.projectsLoadState).toBe('ready')
+    expect(store.projects).toEqual(projects)
+    expect(wrapper.findComponent(PersonalWorkbench).exists()).toBe(true)
+    expect(FakeEventSource.instances).toHaveLength(1)
+
+    wrapper.getComponent(PersonalWorkbench).vm.$emit('openProject', projects[1]!.id)
+    await flushPromises()
+    expect(router.currentRoute.value.name).toBe('workbench')
+    expect(store.selectedProjectId).toBe(projects[1]!.id)
+    wrapper.unmount()
+  })
+
+  it('preserves the global overview source scope while ordinary sidebar navigation retains project context', async () => {
+    stubStartupData()
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    const { router, wrapper } = await mountApp(pinia)
+    await flushPromises()
+    const store = useWorkbenchStore()
+    store.selectedProjectId = projects[1]!.id
+    store.integrationContributions = [{
+      id: 'issues',
+      pluginId: 'issues',
+      source: 'host:issues',
+      provider: { id: 'issues', requires: '^1.0.0' },
+      providerVersion: '1.0.0',
+      actions: [{ id: 'list', title: 'List work', operation: 'work-items.list', effect: 'remote-read', confirmation: 'never', effectiveConfirmation: 'never' }],
+      views: [{ id: 'work', title: 'Work', icon: 'builtin:list', placement: 'primary-sidebar', scope: 'global-and-project', blocks: [{ id: 'items', type: 'entity-list', actionId: 'list' }] }],
+    }]
+    const invoke = vi.spyOn(api, 'invokeIntegrationAction').mockResolvedValue({ items: [] })
+    await flushPromises()
+
+    wrapper.getComponent(PersonalWorkbench).vm.$emit('openIntegration', 'issues', 'work', 'global')
+    await flushPromises()
+    expect(router.currentRoute.value.query).toEqual({ scope: 'global' })
+    expect(wrapper.getComponent(IntegrationWorkbench).props('initialScope')).toBe('global')
+    expect(invoke).toHaveBeenLastCalledWith('issues', 'list', {}, undefined)
+    expect(store.selectedProjectId).toBe(projects[1]!.id)
+
+    expect(wrapper.get('[data-testid="open-workbenches"]').attributes('aria-current')).toBe('page')
+    await wrapper.get('.section-navigation a[href="/integrations/issues/work"]').trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.query).toEqual({})
+    expect(wrapper.getComponent(IntegrationWorkbench).props('initialScope')).toBeUndefined()
+    expect(invoke).toHaveBeenLastCalledWith('issues', 'list', {}, projects[1]!.id)
+    expect(store.selectedProjectId).toBe(projects[1]!.id)
+    wrapper.unmount()
+  })
+
+  it.each([true, false])('keeps a desktop project link on the existing workbench (queued before loading: %s)', async (queuedInitially) => {
+    stubStartupData()
+    const navigation = {
+      kind: 'project' as const,
+      reference: { repository: 'https://github.com/example/target', subdir: '.' },
+      matches: [projects[1]!],
+    }
+    window.craftHubDesktop = {
+      consumeDesktopNavigation: vi.fn()
+        .mockResolvedValueOnce(queuedInitially ? navigation : undefined)
+        .mockResolvedValueOnce(queuedInitially ? undefined : navigation),
+    }
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    const { router, wrapper } = await mountApp(pinia)
+    await flushPromises()
+
+    expect(router.currentRoute.value.name).toBe('workbench')
+    expect(useWorkbenchStore().selectedProjectId).toBe(projects[1]!.id)
+    expect(wrapper.findComponent(PersonalWorkbench).exists()).toBe(false)
+    expect(window.craftHubDesktop.consumeDesktopNavigation).toHaveBeenCalledTimes(2)
+    wrapper.unmount()
   })
 
   it('shows a project load error instead of a false empty-project welcome', async () => {
@@ -87,7 +454,7 @@ describe('app startup', () => {
     const pinia = createPinia()
     setActivePinia(pinia)
 
-    const { wrapper } = await mountApp(pinia)
+    const { wrapper } = await mountApp(pinia, '/?project=first')
     await flushPromises()
 
     expect(wrapper.get('[data-testid="project-load-error"]').text()).toContain('runtime unavailable')
@@ -126,7 +493,7 @@ describe('app startup', () => {
     const pinia = createPinia()
     setActivePinia(pinia)
 
-    const { wrapper } = await mountApp(pinia)
+    const { wrapper } = await mountApp(pinia, '/?project=first')
     await vi.waitFor(() => expect(useWorkbenchStore().projects).toHaveLength(1))
 
     const loadingState = {
@@ -266,7 +633,7 @@ describe('app startup', () => {
     const pinia = createPinia()
     setActivePinia(pinia)
 
-    const { wrapper } = await mountApp(pinia)
+    const { wrapper } = await mountApp(pinia, '/?project=first')
     await flushPromises()
 
     expect(wrapper.get('[data-testid="project-config-diagnostic"]').text()).toContain('Unrecognized key: "unknown"')
@@ -344,7 +711,7 @@ describe('app startup', () => {
     const pinia = createPinia()
     setActivePinia(pinia)
 
-    const { wrapper } = await mountApp(pinia)
+    const { wrapper } = await mountApp(pinia, '/?project=first')
     await flushPromises()
     await nextTick()
 
@@ -387,6 +754,8 @@ describe('app startup', () => {
     setActivePinia(pinia)
     const { wrapper } = await mountApp(pinia)
     await flushPromises()
+    await wrapper.get('[data-testid="open-workbench"]').trigger('click')
+    await flushPromises()
 
     expect(wrapper.get('.workspace-dashboard h2').text()).toBe(workspace.name)
     expect(wrapper.find('.project-toolbar').exists()).toBe(false)
@@ -419,7 +788,7 @@ describe('app startup', () => {
     await flushPromises()
 
     expect(router.currentRoute.value.path).toBe('/marketplace')
-    expect(wrapper.get('.marketplace-page').attributes('aria-label')).toBe('Plugin Marketplace')
+    await vi.waitFor(() => expect(wrapper.get('.marketplace-page').attributes('aria-label')).toBe('Plugin Marketplace'))
     expect(wrapper.get('[data-testid="open-marketplace"]').classes()).toContain('active')
 
     await wrapper.get('[data-testid="open-workbench"]').trigger('click')
@@ -493,7 +862,7 @@ describe('app startup', () => {
     await flushPromises()
 
     expect(router.currentRoute.value.path).toBe('/marketplace')
-    expect(wrapper.find('.marketplace-page').exists()).toBe(true)
+    await vi.waitFor(() => expect(wrapper.find('.marketplace-page').exists()).toBe(true))
     expect(wrapper.find('.workbench-splitter').exists()).toBe(false)
 
     wrapper.unmount()
@@ -595,6 +964,7 @@ describe('app startup', () => {
     await flushPromises()
 
     const store = useWorkbenchStore()
+    expect(router.currentRoute.value.fullPath).toBe('/?project=target')
     expect(store.selectedProjectId).toBe('target')
     expect(FakeEventSource.instances).toHaveLength(1)
     expect(FakeEventSource.instances[0]?.url).toBe('/api/events')
@@ -635,7 +1005,7 @@ describe('app startup', () => {
     await wrapper.get('[data-testid="open-marketplace"]').trigger('click')
     await flushPromises()
     expect(router.currentRoute.value.path).toBe('/marketplace')
-    expect(wrapper.get('.marketplace-page').attributes('aria-label')).toBe('Plugin Marketplace')
+    await vi.waitFor(() => expect(wrapper.get('.marketplace-page').attributes('aria-label')).toBe('Plugin Marketplace'))
     expect(wrapper.find('.dialog-overlay').exists()).toBe(false)
     expect(wrapper.get('[data-testid="open-marketplace"]').classes()).toContain('active')
 

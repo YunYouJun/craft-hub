@@ -23,11 +23,11 @@ const builtinIcon = computed(() => {
 </template>
 
 <style scoped>
-.workbench-view-header { display: flex; align-items: center; gap: var(--page-header-gap); min-height: var(--page-header-min-height); min-width: 0; margin-bottom: var(--page-section-gap); }
+.workbench-view-header { display: flex; align-items: center; gap: var(--page-header-gap); min-height: var(--page-header-min-height); min-width: 0; }
 .workbench-view-heading { flex: 1; min-width: 0; }
 .workbench-view-heading h1 { margin: 0; color: var(--text); font-size: var(--page-title-size); font-weight: var(--page-title-weight); line-height: var(--page-title-line-height); letter-spacing: -.02em; overflow-wrap: anywhere; }
 .workbench-view-heading p { margin: var(--page-heading-gap) 0 0; color: var(--muted); font-size: var(--page-description-size); line-height: var(--page-description-line-height); overflow-wrap: anywhere; }
-.workbench-view-mark { display: grid; flex: none; width: var(--page-header-mark-size); height: var(--page-header-mark-size); place-items: center; color: var(--accent); }
+.workbench-view-mark { display: grid; flex: none; width: var(--page-header-mark-size); height: var(--page-header-mark-size); place-items: center; border-radius: var(--control-radius); background: var(--accent-soft); color: var(--accent); }
 .workbench-view-mark :deep(.visual-icon), .workbench-view-mark :deep(.app-icon) { width: var(--page-header-icon-size); height: var(--page-header-icon-size); }
 .workbench-view-actions { display: flex; align-items: center; flex: none; gap: var(--space-2); }
 @media (max-width: 760px) {

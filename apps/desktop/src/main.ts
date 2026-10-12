@@ -25,7 +25,7 @@ import { DeviceVault } from './device-vault.ts'
 import { communityDesktopAboutBranding, communityDesktopDevelopmentProtocol, communityDesktopProtocol, communityDesktopUpdateBaseUrl, loadDesktopDistributionManifest, resolveDesktopDistributionAsset } from './distribution.ts'
 import { selectedDirectoryPath, selectedDirectoryPaths } from './folder-picker.ts'
 import { registerHostExtensionHandlers } from './host-extensions.ts'
-import { codexThreadUrl, editorTargetPaths, externalHttpUrl, focusCodexApplication, gitRemoteHttpUrl, macTerminalApplications, openCodexProject, openCursorEditor, openCustomEditor, openMacTerminalProject, projectContainsPath, vscodeUrl } from './open-targets.ts'
+import { codexThreadUrl, editorTargetPaths, externalHttpUrl, focusCodexApplication, gitRemoteHttpUrl, macTerminalApplications, openCodexProject, openCursorEditor, openCustomEditor, openMacTerminalProject, openPersonalWorkbenchTool, projectContainsPath, vscodeUrl } from './open-targets.ts'
 import { createDeferredOnceTask } from './shutdown-task.ts'
 import { DesktopUpdater } from './updater.ts'
 import { resolveWorkspaceLaunchTarget } from './workspace-launch-target.ts'
@@ -495,6 +495,18 @@ ipcMain.handle('craft-hub:open-dotfiles-in-terminal', async () => {
 
 ipcMain.handle('craft-hub:open-external-url', async (_event, url: string) => {
   await shell.openExternal(externalHttpUrl(url))
+})
+
+ipcMain.handle('craft-hub:open-workbench-tool', async (_event, toolId: unknown) => {
+  if (!craftHubServer)
+    throw new Error('Craft Hub is still starting')
+  if (typeof toolId !== 'string')
+    throw new TypeError('Workbench tool identifier is required')
+  const home = (await craftHubServer.runtime.settings.get()).settings['workbench.home']
+  const tool = home.tools.find(tool => tool.id === toolId)
+  if (!tool)
+    throw new Error('Unknown workbench tool')
+  return openPersonalWorkbenchTool(tool, url => shell.openExternal(url))
 })
 
 ipcMain.handle('craft-hub:open-settings-file', async () => {

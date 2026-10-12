@@ -41,7 +41,7 @@ const discoverPath = computed(() => {
   return `/subscriptions/discover${params.size ? `?${params}` : ''}`
 })
 const breadcrumbs = computed(() => [
-  { label: text('工作台', 'Workbench'), to: '/' },
+  { label: text('项目', 'Projects'), to: '/' },
   { label: text('工作区源', 'Workspace sources'), to: '/subscriptions' },
   { label: discover.value || marketPreview.value ? text('发现源', 'Discover sources') : text('我的源', 'My sources'), to: discover.value || marketPreview.value ? discoverPath.value : `/subscriptions${route.query.q ? `?q=${encodeURIComponent(String(route.query.q))}` : ''}` },
   ...(!listing.value ? [{ label: adding.value ? text('添加源', 'Add source') : marketPreview.value ? text('添加预览', 'Add preview') : detail.value?.name || detail.value?.repository || text('源详情', 'Source details'), to: detailId.value ? sourcePath(detailId.value) : undefined }] : []),
@@ -254,6 +254,7 @@ onMounted(async () => {
 
 <template>
   <WorkbenchPageShell :breadcrumbs="breadcrumbs">
+    <template v-if="$slots.sidebar" #sidebar><slot name="sidebar" /></template>
     <WorkbenchViewFrame ref="content" class="subscriptions-workbench" :title="detail ? detail.name || detail.repository : adding ? text('添加源', 'Add source') : text('工作区源', 'Workspace sources')" :description="text('订阅共享工作区，预览源更新，按需复制为个人工作区。', 'Subscribe to shared workspaces, preview updates, and create personal copies when needed.')" icon="builtin:workspace">
       <template #actions><Button v-if="listing" size="compact" :disabled="busy" @click="router.push('/subscriptions/new')">{{ text('添加源', 'Add source') }}</Button><Button v-if="!discover" size="compact" :disabled="busy" @click="run(load)">{{ text('刷新', 'Refresh') }}</Button></template>
       <p v-if="error" role="alert" class="subscription-error">{{ error }}</p>
@@ -337,7 +338,7 @@ onMounted(async () => {
 header, .subscription-connection, .subscription-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 h2 { font-size: var(--page-section-title-size); margin: 0 0 var(--space-4); }
 p, small { color: var(--muted); font-size: var(--font-size-body); line-height: 1.6; } p { margin: 6px 0; }
-.subscription-card { border: 1px solid var(--border); border-radius: var(--control-radius); background: var(--surface); padding: var(--space-4); margin-top: var(--page-section-gap); }
+.subscription-card { border: 1px solid var(--border); border-radius: var(--panel-radius); background: var(--surface); padding: var(--space-4); margin-top: var(--page-section-gap); }
 .subscription-connection { flex-wrap: wrap; gap: var(--space-2); padding-block: var(--space-1); margin-bottom: var(--space-3); }
 .subscription-connection-summary { display: flex; min-width: 0; align-items: center; flex-wrap: wrap; gap: var(--space-2); font-size: var(--font-size-body); }
 .subscription-connection-summary > .app-icon { width: 14px; height: 14px; color: var(--muted); }

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { IntegrationEntity, IntegrationStatusTransition, IntegrationStatusTransitionPage } from 'craft-hub'
+import { workItemActionInput } from 'craft-hub/work-items'
 import { computed, ref } from 'vue'
 import { api } from './api'
 import { Button as UiButton } from './components/ui/button'
@@ -29,8 +30,7 @@ const missingFields = computed(() => selected.value?.requiredFields.filter(name 
 
 function entityInput(): Record<string, unknown> {
   return {
-    ...props.entity.metadata,
-    itemId: props.entity.id,
+    ...workItemActionInput(props.entity),
     title: props.entity.title,
     currentStatus: props.entity.status ?? '',
   }

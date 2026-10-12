@@ -106,6 +106,7 @@ describe('detail panel desktop actions', () => {
       settings: {
         'workbench.codex': {},
         'workbench.editor': { default: 'cursor' },
+        'workbench.home': { tools: [] },
         'workbench.locale': 'en',
         'workbench.repositoriesRoot': '',
         'workbench.shortcuts': { 'workbench.showCommandPalette': 'Mod+K' },

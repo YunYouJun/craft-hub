@@ -1,4 +1,4 @@
-import type { AgentActionId, AgentActionSummary, AgentTaskRecord, Capability, CapabilityDiscoveryDiagnostic, CommandInputValues, CommandInvocation, CommandPackage, HostEnvironment, InstalledPluginWorkbench, IntegrationDiagnostic, OwnerScope, ProjectAccentColor, ProjectCatalogDiagnostic, ProjectChangeEvent, ProjectConfigInitializationResult, ProjectDescriptionApplication, ProjectDescriptionChange, ProjectOverview, ProjectRecord, ProjectRunSummary, ResolvedIntegrationContribution, RunRecord, SettingsSnapshot, TeamDeletionResult, TeamGitSyncStatus, UserConfigStatus, WorkbenchCodexSetting, WorkbenchDiagnosticSnapshot, WorkbenchEditorSetting, WorkbenchLocale, WorkbenchTheme, WorkspaceGroup, WorkspaceManifest, WorkspaceRecord } from 'craft-hub'
+import type { AgentActionId, AgentActionSummary, AgentTaskRecord, Capability, CapabilityDiscoveryDiagnostic, CommandInputValues, CommandInvocation, CommandPackage, HostEnvironment, InstalledPluginWorkbench, IntegrationDiagnostic, LocalEnvironmentSnapshot, OwnerScope, ProjectAccentColor, ProjectCatalogDiagnostic, ProjectChangeEvent, ProjectConfigInitializationResult, ProjectDescriptionApplication, ProjectDescriptionChange, ProjectOverview, ProjectRecord, ProjectRunSummary, ResolvedIntegrationContribution, RunRecord, SettingsSnapshot, TeamDeletionResult, TeamGitSyncStatus, UserConfigStatus, WorkbenchCodexSetting, WorkbenchDiagnosticSnapshot, WorkbenchEditorSetting, WorkbenchLocale, WorkbenchTheme, WorkspaceGroup, WorkspaceManifest, WorkspaceRecord } from 'craft-hub'
 import { projectConfigSchemaRevision } from 'craft-hub/project-config-schema-revision'
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
@@ -81,6 +81,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
   const error = ref('')
   const projectConfigInitialization = ref<ProjectConfigInitializationResult>()
   const integrationContributions = ref<ResolvedIntegrationContribution[]>([])
+  const integrationsLoadState = ref<'idle' | 'loading' | 'ready' | 'error'>('idle')
   const integrationDiagnostics = ref<IntegrationDiagnostic[]>([])
   const pluginWorkbenches = ref<InstalledPluginWorkbench[]>([])
   const workbenchDiagnostics = ref<WorkbenchDiagnosticSnapshot>({
@@ -90,7 +91,12 @@ export const useWorkbenchStore = defineStore('workbench', () => {
   })
   const workbenchDiagnosticsLoading = ref(false)
   const workbenchDiagnosticsError = ref('')
+  const localEnvironment = ref<LocalEnvironmentSnapshot>()
+  const localEnvironmentLoading = ref(false)
+  const localEnvironmentError = ref('')
+  const localEnvironmentAccess = ref<'idle' | 'local' | 'hosted'>('idle')
   const settings = ref<SettingsSnapshot>()
+  const settingsLoadState = ref<'idle' | 'loading' | 'ready' | 'error'>('idle')
   const userConfigStatus = ref<UserConfigStatus>()
   let snapshot = ''
   let refreshTail: Promise<void> = Promise.resolve()
@@ -164,22 +170,44 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     window.localStorage.setItem(recentProjectsStorageKey, JSON.stringify(recentProjectIds.value))
   }
 
+  let settingsApplyGeneration = 0
   async function applySettings(next: SettingsSnapshot): Promise<void> {
+    settingsApplyGeneration++
     const previousLocale = settings.value?.settings['workbench.locale']
     settings.value = next
+    settingsLoadState.value = 'ready'
     useI18n().setLocale(next.settings['workbench.locale'])
     applyWorkbenchTheme(next.settings['workbench.theme'])
     if (previousLocale && previousLocale !== next.settings['workbench.locale'] && projects.value.length)
-      await refreshProjects(undefined, false)
+      await refreshProjects(undefined, false).catch(() => {})
   }
 
-  async function loadSettings(): Promise<void> {
-    let next = await api.settings()
-    const legacyLocale = window.localStorage.getItem(legacyLocaleStorageKey)
-    if ((legacyLocale === 'en' || legacyLocale === 'zh-CN') && !next.explicitKeys.includes('workbench.locale'))
-      next = await api.updateSettings({ 'workbench.locale': legacyLocale }, next.revision)
-    window.localStorage.removeItem(legacyLocaleStorageKey)
-    await applySettings(next)
+  let settingsLoadPromise: Promise<void> | undefined
+  function loadSettings(): Promise<void> {
+    if (settingsLoadPromise)
+      return settingsLoadPromise
+    settingsLoadState.value = 'loading'
+    const generation = settingsApplyGeneration
+    settingsLoadPromise = (async () => {
+      try {
+        let next = await api.settings()
+        if (generation !== settingsApplyGeneration)
+          return
+        const legacyLocale = window.localStorage.getItem(legacyLocaleStorageKey)
+        if ((legacyLocale === 'en' || legacyLocale === 'zh-CN') && !next.explicitKeys.includes('workbench.locale'))
+          next = await api.updateSettings({ 'workbench.locale': legacyLocale }, next.revision)
+        window.localStorage.removeItem(legacyLocaleStorageKey)
+        if (generation === settingsApplyGeneration)
+          await applySettings(next)
+      }
+      catch (error) {
+        if (generation !== settingsApplyGeneration)
+          return
+        settingsLoadState.value = 'error'
+        throw error
+      }
+    })().finally(() => { settingsLoadPromise = undefined })
+    return settingsLoadPromise
   }
 
   async function loadUserConfigStatus(): Promise<void> {
@@ -187,14 +215,17 @@ export const useWorkbenchStore = defineStore('workbench', () => {
   }
 
   async function loadIntegrations(): Promise<void> {
+    integrationsLoadState.value = 'loading'
     try {
       const result = await api.integrations()
       integrationContributions.value = Array.isArray(result.integrations) ? result.integrations : []
       integrationDiagnostics.value = Array.isArray(result.diagnostics) ? result.diagnostics : []
+      integrationsLoadState.value = 'ready'
     }
     catch {
       integrationContributions.value = []
       integrationDiagnostics.value = []
+      integrationsLoadState.value = 'error'
     }
   }
 
@@ -221,6 +252,34 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     }
     finally {
       workbenchDiagnosticsLoading.value = false
+    }
+  }
+
+  async function loadLocalEnvironment(): Promise<void> {
+    if (localEnvironmentLoading.value)
+      return
+    localEnvironmentLoading.value = true
+    localEnvironmentError.value = ''
+    try {
+      const health = await api.runtimeHealth()
+      if (!health?.hostEnvironment)
+        throw new Error(useI18n().t('environmentHostUnknown'))
+      hostEnvironment.value = health.hostEnvironment
+      localEnvironmentAccess.value = health.hostEnvironment.kind
+      if (health.hostEnvironment.kind === 'hosted') {
+        localEnvironment.value = undefined
+        return
+      }
+      const snapshot = await api.localEnvironment()
+      if (snapshot.schemaVersion !== 1 || !snapshot.checkedAt || !snapshot.host || !snapshot.runtime || !Array.isArray(snapshot.tools) || !Array.isArray(snapshot.searchDirectories))
+        throw new Error(useI18n().t('environmentInvalidSnapshot'))
+      localEnvironment.value = snapshot
+    }
+    catch (caught) {
+      localEnvironmentError.value = caught instanceof Error ? caught.message : String(caught)
+    }
+    finally {
+      localEnvironmentLoading.value = false
     }
   }
 
@@ -1424,6 +1483,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     error,
     projectConfigInitialization,
     integrationContributions,
+    integrationsLoadState,
     integrationDiagnostics,
     integrationViews,
     pluginWorkbenches,
@@ -1431,7 +1491,12 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     workbenchDiagnostics,
     workbenchDiagnosticsLoading,
     workbenchDiagnosticsError,
+    localEnvironment,
+    localEnvironmentLoading,
+    localEnvironmentError,
+    localEnvironmentAccess,
     settings,
+    settingsLoadState,
     userConfigStatus,
     repositoriesRoot,
     applySettings,
@@ -1440,6 +1505,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     loadIntegrations,
     loadPluginWorkbenches,
     loadWorkbenchDiagnostics,
+    loadLocalEnvironment,
     applyUserConfigStatus,
     updateLocale,
     updateRepositoriesRoot,
