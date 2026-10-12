@@ -19,7 +19,7 @@ const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const mode = process.argv[2]
 
 if (mode !== 'desktop' && mode !== 'web')
-  throw new Error('Usage: tsx scripts/dev-environment.ts <desktop|web>')
+  throw new Error('Usage: node --import tsx scripts/dev-environment.ts <desktop|web>')
 
 const developmentSession = await acquireDevelopmentSessionLock().catch((error) => {
   process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`)
@@ -140,7 +140,8 @@ try {
             CRAFT_HUB_DEV_URL: initialWebServer.url,
           })
         }
-        return spawnWorkspace('Web Runtime', ['--filter', 'craft-hub', 'exec', 'tsx', 'src/cli.ts', 'ui'])
+        // Load TypeScript directly without the tsx CLI's unnecessary IPC server.
+        return spawnWorkspace('Web Runtime', ['--filter', 'craft-hub', 'exec', process.execPath, '--import', 'tsx', 'src/cli.ts', 'ui'])
       }, failRuntime, {
         ...(mode === 'desktop'
           ? { onCleanExit: (exit: { code: 0, signal: null }) => resolveRuntimeCleanExit({ ...exit, name: runtimeProcessName }) }
