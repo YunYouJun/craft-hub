@@ -10,7 +10,10 @@ import { DialogShell } from './components/ui/dialog'
 import { useI18n } from './i18n'
 import { Icon } from './icons'
 import { useWorkbenchStore } from './store'
-import { websiteToolIcon } from './tool-icons'
+import SoftwareIcon from './SoftwareIcon.vue'
+import SoftwareInstallStatus from './SoftwareInstallStatus.vue'
+import SoftwareLinks from './SoftwareLinks.vue'
+import SoftwareSources from './SoftwareSources.vue'
 import WorkbenchViewFrame from './WorkbenchViewFrame.vue'
 
 const store = useWorkbenchStore()
@@ -209,8 +212,13 @@ function sourceBusy(sourceId: string): boolean {
   return activeRuns.value.some(run => run.sourceId === sourceId)
 }
 
-function itemBusy(sourceId: string, softwareId: string): boolean {
-  return activeRuns.value.some(run => run.sourceId === sourceId && run.items.some(item => item.softwareId === softwareId && ['queued', 'running'].includes(item.state)))
+const activeItems = computed(() => new Map(activeRuns.value.flatMap(run => run.items.filter(item => ['queued', 'running'].includes(item.state)).map(item => [JSON.stringify([run.sourceId, item.softwareId]), { item, run }]))))
+
+function stopLabel(run: SoftwareInstallationRun): string {
+  const remaining = run.items.filter(item => ['queued', 'running'].includes(item.state))
+  if (remaining.length > 1)
+    return copy('停止整个安装任务（含剩余项目）', 'Stop the entire installation task, including remaining items')
+  return copy(`停止安装 ${text(remaining[0]?.title ?? { en: '' })}`, `Stop installing ${text(remaining[0]?.title ?? { en: '' })}`)
 }
 
 async function reviewInstallation(sourceId: string, softwareIds: string[]): Promise<void> {
@@ -407,6 +415,10 @@ async function addFavorite(item: SoftwareCatalogItem): Promise<void> {
       url: item.url,
       ...(item.downloadUrl ? { downloadUrl: item.downloadUrl } : {}),
       ...(item.repositoryUrl ? { repositoryUrl: item.repositoryUrl } : {}),
+      ...(item.iconUrl ? { iconUrl: item.iconUrl } : {}),
+      ...(item.macosIconUrl ? { macosIconUrl: item.macosIconUrl } : {}),
+      ...(item.iconStyle ? { iconStyle: item.iconStyle } : {}),
+      ...(item.iconScale !== undefined ? { iconScale: item.iconScale } : {}),
       ...(item.description ? { description: item.description.slice(0, 512) } : {}),
     }
     const next = personalWorkbenchHomeSchema.parse({ ...home, tools: [...home.tools, tool] })
@@ -422,11 +434,13 @@ defineExpose({ refresh: loadCatalog })
 </script>
 
 <template>
-  <WorkbenchViewFrame class="software-center" :title="copy('软件中心', 'Software center')" :description="copy('安装缺失的软件、查看进度，并打开本机应用。', 'Install missing software, follow progress and open local applications.')" icon="builtin:package">
+  <WorkbenchViewFrame class="software-center" :title="copy('软件中心', 'Software center')" :description="copy('浏览和收藏软件，连接本机插件后可检测、安装和打开应用。', 'Browse and favorite software. Connect a local plugin to detect, install and open applications.')" icon="builtin:package">
     <template #actions>
       <UiButton size="compact" :disabled="loading" data-testid="refresh-software" @click="loadCatalog"><Icon :name="loading ? 'loading' : 'refresh'" />{{ copy('刷新', 'Refresh') }}</UiButton>
     </template>
-    <p class="software-note">{{ copy('安装前先审阅来源提供的计划；仅安装选中的缺失软件。本机检测查找常见应用目录和可执行路径；未检测到不代表未安装。', 'Review the source installation plan first; only selected missing software is installed. Local detection checks common application directories and executable paths; an undetected app may be installed elsewhere.') }}</p>
+    <p v-if="snapshot?.sources.some(source => source.bundled)" class="software-note" data-testid="software-bundled-note">{{ copy('正在浏览内置目录，尚未检测本机安装状态。官网、下载和收藏可用；本机检测与自动安装需要本地软件管理插件。', 'Browsing the bundled catalog without local installation checks. Website, download and favorites are available; local detection and automatic installation require a local software management plugin.') }}</p>
+    <p v-if="snapshot?.sources.some(source => source.repositorySourceId && !source.canManage)" class="software-note" data-testid="software-repository-note">{{ copy('正在浏览仓库目录缓存，本机安装状态尚未检测。连接本机软件管理插件后可检测、安装和打开应用。', 'Browsing a cached repository catalog without local installation checks. Connect a local software management plugin to detect, install and open applications.') }}</p>
+    <p v-if="snapshot?.sources.some(source => !source.bundled && !source.error && (!source.repositorySourceId || source.canManage))" class="software-note">{{ copy('安装前先审阅来源提供的计划；仅安装选中的缺失软件。本机检测查找常见应用目录和可执行路径；未检测到不代表未安装。', 'Review the source installation plan first; only selected missing software is installed. Local detection checks common application directories and executable paths; an undetected app may be installed elsewhere.') }}</p>
     <Alert v-if="operationError && !planOpen" variant="danger" class="software-alert" data-testid="software-operation-error" role="alert">{{ operationError }}</Alert>
     <p v-if="operationNotice" class="software-note" role="status">{{ operationNotice }}</p>
     <Alert v-if="loadError" variant="danger" class="software-alert" data-testid="software-load-error">
@@ -435,13 +449,17 @@ defineExpose({ refresh: loadCatalog })
       <UiButton size="compact" :disabled="loading" @click="loadCatalog">{{ copy('重试', 'Retry') }}</UiButton>
     </Alert>
     <p v-if="loading" class="software-note" role="status">{{ snapshot ? copy('正在刷新目录…', 'Refreshing catalog…') : copy('正在读取软件目录…', 'Loading software catalog…') }}</p>
+    <SoftwareSources @changed="loadCatalog" />
     <details v-if="snapshot?.sources.length" class="software-sources" :open="snapshot.sources.some(source => source.error)">
       <summary>{{ copy('软件来源', 'Catalog sources') }}<span>{{ snapshot.sources.length }}</span></summary>
       <div class="software-source-list">
         <section v-for="source in snapshot.sources" :key="source.id" class="software-source" :data-source-id="source.id">
-          <a :href="source.url" target="_blank" rel="noopener noreferrer">{{ source.title }}<Icon name="externalLink" /></a>
+          <a v-if="source.url" :href="source.url" target="_blank" rel="noopener noreferrer">{{ source.title }}<Icon name="externalLink" /></a>
+          <span v-else>{{ source.title }}</span>
           <span v-if="!source.error">{{ copy(`${source.items.length} 款软件`, `${source.items.length} applications`) }}</span>
           <template v-else><span class="software-source-error" role="alert">{{ copy('目录不可用，请检查来源服务。', 'Catalog unavailable. Check the source service.') }}</span><UiButton size="compact" :disabled="loading" @click="loadCatalog">{{ copy('重试', 'Retry') }}</UiButton></template>
+          <Badge v-if="source.bundled">{{ copy('内置目录', 'Bundled catalog') }}</Badge>
+          <Badge v-if="source.repositorySourceId">{{ source.repositoryReadFrom === 'local' ? copy('本地目录缓存', 'Local catalog cache') : copy('线上目录缓存', 'Online catalog cache') }}</Badge>
         </section>
       </div>
     </details>
@@ -452,9 +470,9 @@ defineExpose({ refresh: loadCatalog })
       <header class="software-installations-header"><h2>{{ copy('安装记录', 'Installation history') }}</h2><UiButton size="compact" :disabled="runsLoading" data-testid="refresh-software-installations" @click="loadRuns()"><Icon :name="runsLoading ? 'loading' : 'refresh'" />{{ copy('刷新记录', 'Refresh history') }}</UiButton></header>
       <Alert v-if="runsError" variant="danger" class="software-alert" data-testid="software-history-error" role="alert">{{ copy('无法读取最新安装状态。下面保留上次记录，安装可能仍在进行。', 'Could not read the latest installation state. Previous records remain below; installation may still be running.') }}</Alert>
       <article v-for="run in displayedRuns" :key="JSON.stringify([run.sourceId, run.id])" class="software-installation-run" :data-run-id="run.id">
-        <header><div><Badge :variant="stateVariant(run.state)">{{ runStateLabel(run.state) }}</Badge><span>{{ copy(`已处理 ${settledCount(run)} / ${run.items.length} 项`, `${settledCount(run)} / ${run.items.length} items processed`) }}</span></div><time :datetime="run.createdAt">{{ new Date(run.createdAt).toLocaleString(zh ? 'zh-CN' : 'en') }}</time></header>
-        <ol class="software-installation-items"><li v-for="item in run.items" :key="item.softwareId" :data-install-item-id="item.softwareId"><div class="software-installation-item-title"><Icon v-if="item.state === 'running'" name="loading" /><strong>{{ text(item.title) }}</strong><Badge :variant="stateVariant(item.state)">{{ runStateLabel(item.state) }}</Badge></div><p v-if="item.message">{{ item.message }}</p><details v-if="item.log"><summary>{{ copy('安装日志', 'Installation log') }}</summary><pre>{{ item.log }}</pre></details></li></ol>
-        <footer><UiButton v-if="activeStates.has(run.state)" size="compact" variant="danger-secondary" :disabled="busyRunIds.includes(run.id) || run.state === 'cancelling'" data-testid="stop-software-installation" @click="cancelInstallation(run)"><Icon name="stop" />{{ copy('停止安装', 'Stop installation') }}</UiButton><UiButton v-if="!activeStates.has(run.state) && retryableItems(run).length" size="compact" :disabled="planning || installing || sourceBusy(run.sourceId)" data-testid="retry-software-installation" @click="reviewInstallation(run.sourceId, retryableItems(run))"><Icon name="refresh" />{{ copy('重新审阅未完成项', 'Review unfinished items again') }}</UiButton><UiButton v-if="!activeStates.has(run.state)" size="compact" :disabled="loading" @click="loadCatalog">{{ copy('重新检测软件', 'Check installed software') }}</UiButton></footer>
+        <header><div><Badge :variant="stateVariant(run.state)">{{ run.state === 'running' ? copy('安装进行中', 'Installation in progress') : runStateLabel(run.state) }}</Badge><span>{{ copy(`已处理 ${settledCount(run)} / ${run.items.length} 项`, `${settledCount(run)} / ${run.items.length} items processed`) }}</span></div><time :datetime="run.createdAt">{{ new Date(run.createdAt).toLocaleString(zh ? 'zh-CN' : 'en') }}</time></header>
+        <ol class="software-installation-items"><li v-for="item in run.items" :key="item.softwareId" :data-install-item-id="item.softwareId"><div class="software-installation-item-title"><strong>{{ text(item.title) }}</strong><SoftwareInstallStatus v-if="['running', 'queued'].includes(item.state)" :item="item" :stopping="run.state === 'cancelling'" :cancel-pending="busyRunIds.includes(run.id)" /><Badge v-else :variant="stateVariant(item.state)">{{ runStateLabel(item.state) }}</Badge></div><p v-if="item.state === 'running' && item.progress?.phase === 'downloading' && item.progress.resource" class="software-download-resource">{{ item.progress.resource }}</p><p v-if="item.message">{{ item.message }}</p><details v-if="item.log"><summary>{{ copy('安装日志', 'Installation log') }}</summary><pre>{{ item.log }}</pre></details></li></ol>
+        <footer><UiButton v-if="activeStates.has(run.state)" size="compact" variant="ghost" :disabled="busyRunIds.includes(run.id) || run.state === 'cancelling'" data-testid="stop-software-installation" @click="cancelInstallation(run)"><Icon name="stop" />{{ copy('停止安装', 'Stop installation') }}</UiButton><UiButton v-if="!activeStates.has(run.state) && retryableItems(run).length" size="compact" :disabled="planning || installing || sourceBusy(run.sourceId)" data-testid="retry-software-installation" @click="reviewInstallation(run.sourceId, retryableItems(run))"><Icon name="refresh" />{{ copy('重新审阅未完成项', 'Review unfinished items again') }}</UiButton><UiButton v-if="!activeStates.has(run.state)" size="compact" :disabled="loading" @click="loadCatalog">{{ copy('重新检测软件', 'Check installed software') }}</UiButton></footer>
       </article>
     </section>
     <template v-if="entries.length">
@@ -468,19 +486,31 @@ defineExpose({ refresh: loadCatalog })
       <p v-if="!visibleEntries.length" class="software-note" data-testid="software-no-results">{{ copy('没有匹配的软件，试试其他关键词或分类。', 'No matching applications. Try another search or category.') }}</p>
       <div class="software-grid">
         <article v-for="entry in visibleEntries" :key="entry.key" class="software-card" :data-software-id="entry.item.id" :data-source-id="entry.sourceId">
-          <header><div class="software-identity"><h2><span class="software-mark"><Icon :name="websiteToolIcon(entry.item.url)" /></span>{{ text(entry.item.title) }}</h2><p class="software-category">{{ text(entry.item.group.title) }} · {{ entry.sourceTitle }}</p></div><Badge :variant="entry.item.status === 'detected' ? 'success' : 'secondary'">{{ statusLabel(entry.item.status) }}</Badge></header>
-          <p v-if="entry.item.description" class="software-description">{{ entry.item.description }}</p>
-          <div class="software-links">
-            <a :href="entry.item.url" target="_blank" rel="noopener noreferrer" :aria-label="`${copy('官网', 'Website')} ${text(entry.item.title)}`">{{ copy('官网', 'Website') }}<Icon name="externalLink" /></a>
-            <a v-if="entry.item.downloadUrl" :href="entry.item.downloadUrl" target="_blank" rel="noopener noreferrer" :aria-label="`${copy('下载', 'Download')} ${text(entry.item.title)}`">{{ copy('下载', 'Download') }}<Icon name="externalLink" /></a>
-            <a v-if="entry.item.repositoryUrl" :href="entry.item.repositoryUrl" target="_blank" rel="noopener noreferrer" :aria-label="`${copy('GitHub / 源码', 'GitHub / source')} ${text(entry.item.title)}`">{{ copy('GitHub / 源码', 'GitHub / source') }}<Icon name="externalLink" /></a>
+          <header><div class="software-identity"><h2 :title="text(entry.item.title)"><SoftwareIcon class="software-mark" :url="entry.item.url" :icon-url="entry.item.iconUrl" :macos-icon-url="entry.item.macosIconUrl" :icon-style="entry.item.iconStyle" :icon-scale="entry.item.iconScale" /><span class="software-title">{{ text(entry.item.title) }}</span></h2><p class="software-category" :title="`${text(entry.item.group.title)} · ${entry.sourceTitle}`">{{ text(entry.item.group.title) }} · {{ entry.sourceTitle }}</p></div><Badge :variant="entry.item.status === 'detected' ? 'success' : 'secondary'">{{ statusLabel(entry.item.status) }}</Badge></header>
+          <p class="software-description" :title="entry.item.description">{{ entry.item.description }}</p>
+          <div class="software-card-actions">
+            <SoftwareLinks class="software-links" :title="text(entry.item.title)" :url="entry.item.url" :download-url="entry.item.downloadUrl" :repository-url="entry.item.repositoryUrl" />
+            <div class="software-install-actions">
+              <template v-if="entry.item.status === 'not-detected' && entry.canManage && entry.item.canInstall">
+                <div class="software-primary-action">
+                  <SoftwareInstallStatus v-if="activeItems.has(entry.key)" class="software-card-progress" :item="activeItems.get(entry.key)!.item" :stopping="activeItems.get(entry.key)!.run.state === 'cancelling'" cancellable :cancel-pending="busyRunIds.includes(activeItems.get(entry.key)!.run.id)" :stop-label="stopLabel(activeItems.get(entry.key)!.run)" @stop="cancelInstallation(activeItems.get(entry.key)!.run)" />
+                  <span v-else-if="sourceBusy(entry.sourceId)" class="software-waiting">{{ copy('等待其他安装', 'Waiting for another installation') }}</span>
+                  <button v-else type="button" class="software-store-button" :disabled="planning || installing" data-testid="install-software" @click="reviewInstallation(entry.sourceId, [entry.item.id])">{{ copy('安装', 'Install') }}</button>
+                </div>
+              </template>
+              <div v-if="entry.item.status === 'detected' && entry.canManage && entry.item.canOpen" class="software-primary-action">
+                <button type="button" class="software-store-button" :disabled="openingKeys.includes(entry.key)" :aria-label="`${copy('打开应用', 'Open application')} ${text(entry.item.title)}`" data-testid="open-software" @click="openApplication(entry.sourceId, entry.item)">{{ openingKeys.includes(entry.key) ? copy('正在打开', 'Opening') : copy('打开', 'Open') }}</button>
+              </div>
+            </div>
           </div>
-          <div class="software-install-actions">
-            <template v-if="entry.item.status === 'not-detected' && entry.canManage && entry.item.canInstall"><label class="software-select-item"><input v-model="selectedKeys" type="checkbox" :value="entry.key" :disabled="planning || installing || sourceBusy(entry.sourceId)" :aria-label="`${copy('选择安装', 'Select for installation')} ${text(entry.item.title)}`">{{ copy('选择', 'Select') }}</label><UiButton size="compact" variant="primary" :disabled="planning || installing || sourceBusy(entry.sourceId)" data-testid="install-software" @click="reviewInstallation(entry.sourceId, [entry.item.id])"><Icon :name="sourceBusy(entry.sourceId) ? 'loading' : 'package'" />{{ itemBusy(entry.sourceId, entry.item.id) ? copy('安装进行中', 'Installation in progress') : sourceBusy(entry.sourceId) ? copy('等待其他安装', 'Waiting for another installation') : copy('安装', 'Install') }}</UiButton></template>
-            <UiButton v-if="entry.item.status === 'detected' && entry.canManage && entry.item.canOpen" size="compact" variant="primary" :disabled="openingKeys.includes(entry.key)" data-testid="open-software" @click="openApplication(entry.sourceId, entry.item)"><Icon :name="openingKeys.includes(entry.key) ? 'loading' : 'play'" />{{ copy('打开应用', 'Open application') }}</UiButton>
-            <span v-if="entry.item.status === 'not-detected' && (!entry.canManage || !entry.item.canInstall)" class="software-package">{{ copy('通过官方下载页手动安装', 'Install manually from the official download page') }}</span>
-          </div>
-          <footer><UiButton size="compact" :disabled="saving || isFavorite(entry.item)" @click="addFavorite(entry.item)"><Icon :name="isFavorite(entry.item) ? 'check' : 'plus'" />{{ isFavorite(entry.item) ? copy('已在常用工具', 'In favorites') : copy('添加到常用', 'Add to favorites') }}</UiButton><span v-if="entry.item.installation.packageId && ['brew-cask', 'brew-formula'].includes(entry.item.installation.kind)" class="software-package">{{ entry.item.installation.kind === 'brew-cask' ? 'Homebrew cask' : 'Homebrew formula' }} · {{ entry.item.installation.packageId }}</span></footer>
+          <footer class="software-card-footer">
+            <div class="software-secondary-actions">
+              <UiButton size="compact" variant="ghost" :disabled="saving || isFavorite(entry.item)" @click="addFavorite(entry.item)"><Icon :name="isFavorite(entry.item) ? 'check' : 'plus'" />{{ isFavorite(entry.item) ? copy('已在常用工具', 'In favorites') : copy('添加到常用', 'Add to favorites') }}</UiButton>
+              <label v-if="entry.item.status === 'not-detected' && entry.canManage && entry.item.canInstall" class="software-select-item"><input v-model="selectedKeys" type="checkbox" :value="entry.key" :disabled="planning || installing || sourceBusy(entry.sourceId)" :aria-label="`${copy('选择安装', 'Select for installation')} ${text(entry.item.title)}`">{{ copy('选择', 'Select') }}</label>
+            </div>
+            <span v-if="entry.item.installation.packageId && ['brew-cask', 'brew-formula'].includes(entry.item.installation.kind)" class="software-package" :title="`${entry.item.installation.kind === 'brew-cask' ? 'Homebrew cask' : 'Homebrew formula'} · ${entry.item.installation.packageId}`">{{ entry.item.installation.packageId }}</span>
+            <span v-else-if="entry.item.status === 'not-detected' && (!entry.canManage || !entry.item.canInstall)" class="software-package" :title="copy('通过官方下载页手动安装', 'Install manually from the official download page')">{{ copy('手动安装', 'Manual install') }}</span>
+          </footer>
         </article>
       </div>
     </template>
@@ -532,9 +562,9 @@ defineExpose({ refresh: loadCatalog })
 .software-source { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); min-width: 0; padding: var(--space-3) var(--space-4); color: var(--muted); font-size: var(--font-size-control); }
 .software-source + .software-source { border-top: 1px solid var(--border); }
 .software-source > span { margin-left: auto; }
-.software-source a, .software-links a { display: inline-flex; align-items: center; gap: 4px; color: var(--accent); text-decoration: none; overflow-wrap: anywhere; }
-.software-source a:hover, .software-links a:hover { text-decoration: underline; }
-.software-source .app-icon, .software-links .app-icon { flex: none; width: 12px; height: 12px; }
+.software-source a { display: inline-flex; align-items: center; gap: 4px; color: var(--accent); text-decoration: none; overflow-wrap: anywhere; }
+.software-source a:hover { text-decoration: underline; }
+.software-source .app-icon { flex: none; width: 12px; height: 12px; }
 .software-source-error { color: var(--danger); }
 .software-empty { display: grid; justify-items: center; align-content: center; gap: var(--space-3); min-height: 280px; color: var(--muted); text-align: center; }
 .software-empty > .app-icon { width: 28px; height: 28px; }
@@ -546,22 +576,38 @@ defineExpose({ refresh: loadCatalog })
 .software-search:focus-within { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
 .software-group-label { display: flex; align-items: center; gap: var(--space-2); min-width: 0; color: var(--muted); font-size: var(--font-size-control); }
 .software-group-label select { min-width: 0; max-width: 240px; height: var(--control-height-default); padding-block: 4px; border: 1px solid var(--border); border-radius: var(--control-radius); background-color: var(--surface); color: var(--text); font: inherit; }
-.software-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); gap: var(--space-5); }
-.software-card { display: flex; flex-direction: column; gap: var(--space-3); min-width: 0; padding: var(--space-4); border: 1px solid var(--border); border-radius: var(--panel-radius); background: var(--surface); }
-.software-card header { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: var(--space-2); }
+.software-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); align-items: start; gap: var(--space-3); }
+.software-card { display: grid; grid-template-rows: 40px 40px minmax(32px, auto) auto; gap: var(--space-2); min-width: 0; padding: 14px; border: 1px solid var(--border); border-radius: var(--panel-radius); background: var(--surface); }
+.software-card > header { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: var(--space-2); }
 .software-identity { min-width: 0; min-height: 40px; }
-.software-card h2 { position: relative; min-width: 0; margin: 0; padding-left: 52px; color: var(--text); font-size: 14px; font-weight: 600; line-height: 1.45; overflow-wrap: anywhere; }
-.software-mark { position: absolute; inset: 0 auto auto 0; display: grid; place-items: center; width: 40px; height: 40px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-subtle); }
-.software-mark > .app-icon { width: 26px; height: 26px; }
+.software-card h2 { position: relative; min-width: 0; margin: 0; padding-left: 52px; color: var(--text); font-size: 14px; font-weight: 600; line-height: 20px; }
+.software-title { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.software-mark { position: absolute; inset: 0 auto auto 0; }
 .software-card p { margin: 0; overflow-wrap: anywhere; }
-.software-card .software-category { margin-top: 4px; padding-left: 52px; }
+.software-card .software-category { margin-top: 0; line-height: 20px; padding-left: 52px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .software-category, .software-package { color: var(--muted); font-size: var(--font-size-caption); line-height: 1.6; overflow-wrap: anywhere; }
-.software-description { color: var(--text-secondary); font-size: var(--font-size-body); line-height: 1.6; }
-.software-links { display: flex; flex-wrap: wrap; gap: var(--space-3); margin-top: auto; padding-top: var(--space-1); font-size: var(--font-size-control); }
-.software-links a { min-height: var(--control-height-compact); }
-.software-install-actions { min-height: var(--control-height-compact); }
-.software-install-actions:empty { display: none; }
-.software-card footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2); padding-top: var(--space-3); border-top: 1px solid var(--border); }
+.software-description { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; color: var(--text-secondary); font-size: 13px; line-height: 20px; }
+.software-card-actions { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); min-width: 0; }
+.software-links { flex: none; margin-left: -8px; }
+.software-install-actions { min-width: 0; margin-left: auto; }
+.software-primary-action { display: flex; align-items: center; justify-content: flex-end; min-width: 0; min-height: 32px; margin-left: auto; }
+.software-card-progress { flex-direction: row-reverse; }
+.software-store-button { display: inline-flex; align-items: center; justify-content: center; min-width: 76px; min-height: 28px; padding: 4px 18px; border: 1px solid transparent; border-radius: 999px; background: var(--surface-hover); color: var(--accent); font: inherit; font-size: var(--font-size-control); font-weight: 600; line-height: 18px; cursor: pointer; }
+.software-store-button:hover:not(:disabled) { background: var(--accent-soft); }
+.software-store-button:active:not(:disabled) { background: color-mix(in srgb, var(--accent) 16%, var(--surface)); }
+.software-store-button:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.software-store-button:disabled { color: var(--muted); cursor: default; }
+.software-waiting { color: var(--muted); font-size: var(--font-size-control); }
+@media (prefers-contrast: more) { .software-store-button { border-color: currentColor; } }
+@media (forced-colors: active) { .software-store-button { border-color: ButtonText; background: ButtonFace; color: ButtonText; } }
+@media (pointer: coarse) { .software-store-button { min-height: 44px; } }
+.software-card-footer { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); min-width: 0; padding-top: var(--space-2); border-top: 1px solid var(--border); }
+.software-secondary-actions { display: flex; flex: none; align-items: center; gap: var(--space-2); margin-left: -8px; }
+.software-secondary-actions > .ui-button { padding-inline: 8px; white-space: nowrap; }
+.software-secondary-actions .software-select-item { min-height: 28px; gap: 4px; white-space: nowrap; }
+.software-secondary-actions input { margin: 0; }
+.software-card-footer .software-package { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; text-align: right; }
+@media (pointer: coarse) { .software-card { grid-template-rows: 40px 40px minmax(44px, auto) auto; } }
 @media (max-width: 767.9px), (pointer: coarse) { .software-search input, .software-group-label select { font-size: 16px; } }
 @media (max-width: 600px) { .software-group-label { flex-basis: 100%; } .software-group-label select { flex: 1; max-width: none; } }
 </style>

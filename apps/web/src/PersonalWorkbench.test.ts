@@ -80,6 +80,7 @@ describe('personal workbench', () => {
     store.settings = snapshot()
     store.projectsLoadState = 'ready'
     store.integrationsLoadState = 'ready'
+    vi.spyOn(api, 'softwareCatalogMetadata').mockResolvedValue({ version: 1, sources: [] })
     vi.spyOn(api, 'navigationPanels').mockResolvedValue([])
     vi.spyOn(api, 'invokeIntegrationAction').mockResolvedValue({ items: [] })
   })
@@ -132,6 +133,26 @@ describe('personal workbench', () => {
     expect(icons.every(icon => icon.attributes('aria-hidden') === 'true')).toBe(true)
     expect(wrapper!.findAll('.home-tool strong').map(name => name.text())).toEqual(['My chat', 'Claude', 'Gemini', 'Perplexity', 'Raycast', 'Orca', 'Claude'])
     expect(wrapper!.find('.home-tool-mark img').exists()).toBe(false)
+  })
+
+  it('uses cached catalog artwork for older favorites and preserves explicit overrides', async () => {
+    const catalogIcon = 'https://example.com/editor.png'
+    const nativeIcon = 'https://example.com/editor-mac.png'
+    vi.mocked(api.softwareCatalogMetadata).mockResolvedValue({ version: 1, sources: [{ id: 'catalog', title: 'Catalog', items: [
+      { id: 'editor', title: { en: 'Editor' }, group: { id: 'tools', title: { en: 'Tools' } }, url: 'https://example.com/editor/', iconUrl: catalogIcon, macosIconUrl: nativeIcon, iconStyle: 'rounded', iconScale: 1.25, installation: { kind: 'manual' }, status: 'unknown' },
+    ] }] })
+    useWorkbenchStore().settings = snapshot({ tools: [
+      { id: 'old', title: 'Renamed editor', group: 'Tools', url: 'https://example.com/editor', iconUrl: catalogIcon },
+      { id: 'custom', title: 'Custom editor', group: 'Tools', url: 'https://example.com/editor/', iconUrl: 'https://example.com/custom.svg' },
+      { id: 'different', title: 'Editor', group: 'Tools', url: 'https://example.com/another-app' },
+    ] })
+    await openToolsPage()
+    expect(api.softwareCatalogMetadata).toHaveBeenCalledOnce()
+    expect(wrapper!.findAll('.home-tool-mark img').map(image => image.attributes('src'))).toEqual([nativeIcon, 'https://example.com/custom.svg'])
+    expect(wrapper!.findAll('.home-tool-mark img').map(image => (image.element as HTMLImageElement).style.getPropertyValue('--artwork-scale'))).toEqual(['1.25', '1'])
+    expect(wrapper!.findAll('.home-tool-mark')[2]!.find('img').exists()).toBe(false)
+    expect(useWorkbenchStore().settings!.settings['workbench.home'].tools[0]!.iconUrl).toBe(catalogIcon)
+    expect(wrapper!.findAll('.home-tool-mark').every(icon => icon.attributes('data-shape') === 'original')).toBe(true)
   })
 
   it('validates edited URLs before saving and cancels without changing persistent preferences', async () => {

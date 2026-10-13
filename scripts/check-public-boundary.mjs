@@ -26,7 +26,13 @@ const { stdout } = await execute('git', ['ls-files', '-co', '--exclude-standard'
 const paths = stdout.split('\0').filter(Boolean)
 const violations = []
 
+// Only this reviewed public catalog snapshot may contain third-party product names.
+// Validate its display-only contract before allowing the exact artifact through.
+await execute(process.execPath, ['--import', 'tsx', 'scripts/sync-software-catalog.ts', '--check'])
+
 for (const path of paths) {
+  if (path === 'packages/craft-hub/catalogs/workstation.config.ts')
+    continue
   const bytes = await readFile(path).catch((error) => {
     if (error.code === 'ENOENT')
       return undefined

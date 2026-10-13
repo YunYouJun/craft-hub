@@ -1,7 +1,17 @@
 import { describe, expect, it } from 'vitest'
-import { environmentToolIcon, websiteToolIcon } from './tool-icons'
+import { environmentToolIcon, softwareArtwork, websiteToolIcon } from './tool-icons'
 
 describe('workbench tool icons', () => {
+  it('upgrades copied catalog artwork without changing a user override', () => {
+    const catalog = { iconUrl: 'https://example.com/site.png', macosIconUrl: 'https://example.com/mac.png', iconStyle: 'rounded' as const, iconScale: 1.25 }
+    expect(softwareArtwork({}, catalog)).toEqual(catalog)
+    expect(softwareArtwork({ iconUrl: catalog.iconUrl }, catalog)).toEqual(catalog)
+    expect(softwareArtwork({ iconUrl: 'https://example.com/custom.svg' }, catalog)).toEqual({ iconUrl: 'https://example.com/custom.svg' })
+    expect(softwareArtwork({ iconUrl: catalog.iconUrl, iconStyle: 'original' }, catalog).iconStyle).toBe('original')
+    expect(softwareArtwork({ macosIconUrl: 'https://example.com/custom-mac.png' }, catalog).iconScale).toBeUndefined()
+    expect(softwareArtwork({ iconUrl: catalog.iconUrl, iconScale: 1.1 }, catalog).iconScale).toBe(1.1)
+  })
+
   it('keeps environment products distinct and uses semantic fallbacks without a verified brand', () => {
     expect(environmentToolIcon('git')).toBe('git')
     expect(environmentToolIcon('node')).toBe('nodejs')

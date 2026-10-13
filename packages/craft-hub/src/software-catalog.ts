@@ -1,3 +1,4 @@
+import type { SoftwareSource } from './software-sources'
 import { z } from 'zod'
 import { personalWorkbenchToolSchema } from './personal-workbench'
 
@@ -14,25 +15,46 @@ export const softwareInstallationConfirmationSchema = z.object({ planId: identif
 /** Only a trusted catalog application can be opened. */
 export const softwareApplicationRequestSchema = z.object({ softwareId: identifier }).strict()
 
-/** Display-only software metadata; executable commands never enter the browser contract. */
-export const softwareCatalogItemSchema = z.object({
+/** Portable catalog metadata; no machine observations or executable recipes. */
+export const softwareMetadataSchema = z.object({
   id: z.string().trim().min(1).max(128),
   title: localizedText,
   group: z.object({ id: z.string().trim().min(1).max(128), title: localizedText }).strict(),
   url: httpsUrl,
   downloadUrl: httpsUrl.optional(),
   repositoryUrl: httpsUrl.optional(),
+  iconUrl: httpsUrl.optional(),
+  macosIconUrl: httpsUrl.optional(),
+  iconStyle: personalWorkbenchToolSchema.shape.iconStyle,
+  iconScale: personalWorkbenchToolSchema.shape.iconScale,
   description: z.string().max(1024).optional(),
   installation,
+}).strict()
+
+/** Display metadata combined with fresh local observations from a trusted adapter. */
+export const softwareCatalogItemSchema = softwareMetadataSchema.extend({
   status: z.enum(['detected', 'not-detected', 'unknown']),
   canInstall: z.boolean().optional(),
   canOpen: z.boolean().optional(),
 }).strict()
 
+const catalogSource = z.object({ id: z.string().min(1).max(128), title: z.string().min(1).max(128), url: httpsUrl.optional() }).strict()
+
+/** Versioned parsed cache; revision is the SHA-256 of its ordered version/source/items JSON. */
+export const softwareCatalogManifestSchema = z.object({
+  version: z.literal(1),
+  source: catalogSource,
+  items: z.array(softwareMetadataSchema).min(1).max(1000).refine(items => new Set(items.map(item => item.id)).size === items.length, 'Software identifiers must be unique'),
+  revision: z.string().regex(/^[a-f0-9]{64}$/),
+}).strict()
+
+/** Portable software facts parsed from a catalog. */
+export type SoftwareCatalogManifest = z.infer<typeof softwareCatalogManifestSchema>
+
 /** One bounded, versioned catalog supplied by a trusted local host adapter. */
 export const softwareCatalogSchema = z.object({
   version: z.literal(1),
-  source: z.object({ id: z.string().min(1).max(128), title: z.string().min(1).max(128), url: httpsUrl }).strict(),
+  source: catalogSource,
   items: z.array(softwareCatalogItemSchema).max(1000).refine(items => new Set(items.map(item => item.id)).size === items.length, 'Software identifiers must be unique'),
 }).strict()
 
@@ -67,6 +89,11 @@ export const softwareInstallationRunSchema = z.object({
     state: z.enum(['queued', 'running', 'installed', 'skipped', 'failed', 'manual', 'cancelled', 'interrupted']),
     message: z.string().max(1024).optional(),
     log: z.string().max(16 * 1024),
+    progress: z.discriminatedUnion('phase', [
+      z.object({ phase: z.literal('preparing') }).strict(),
+      z.object({ phase: z.literal('downloading'), percent: z.number().finite().min(0).max(100).optional(), resource: z.string().max(256).optional() }).strict(),
+      z.object({ phase: z.literal('installing') }).strict(),
+    ]).optional(),
   }).strict()).min(1).max(50).refine(items => new Set(items.map(item => item.softwareId)).size === items.length, 'Software identifiers must be unique'),
   retryOf: identifier.optional(),
 }).strict()
@@ -122,6 +149,12 @@ export type SoftwareCatalogSource = SoftwareCatalog['source'] & {
   items: SoftwareCatalogItem[]
   error?: 'unavailable'
   canManage?: boolean
+  /** Static build snapshot; no installed state or management capability is implied. */
+  bundled?: boolean
+  /** Repository metadata is cached separately from local plugin observations. */
+  repositorySourceId?: string
+  repositoryReadFrom?: 'local' | 'remote'
+  repositoryStale?: boolean
 }
 /** Local software center snapshot, allowing an unavailable source to be retried independently. */
 export interface SoftwareCatalogSnapshot {
@@ -129,30 +162,79 @@ export interface SoftwareCatalogSnapshot {
   sources: SoftwareCatalogSource[]
 }
 
+function withFallbackIcon(item: SoftwareCatalogItem, fallback?: SoftwareCatalogItem): SoftwareCatalogItem {
+  if (!fallback || item.url !== fallback.url || (item.iconUrl && item.iconUrl !== fallback.iconUrl))
+    return item
+  const preferredIcon = item.macosIconUrl ?? fallback.macosIconUrl ?? item.iconUrl ?? fallback.iconUrl
+  return {
+    ...item,
+    ...(!item.iconUrl && fallback.iconUrl ? { iconUrl: fallback.iconUrl } : {}),
+    ...(!item.macosIconUrl && fallback.macosIconUrl ? { macosIconUrl: fallback.macosIconUrl } : {}),
+    ...(!item.iconStyle && fallback.iconStyle ? { iconStyle: fallback.iconStyle } : {}),
+    ...(item.iconScale === undefined && preferredIcon === (fallback.macosIconUrl ?? fallback.iconUrl) && fallback.iconScale !== undefined ? { iconScale: fallback.iconScale } : {}),
+  }
+}
+
 /** Validate and isolate independent catalogs without executing metadata or exposing raw errors. */
 export class SoftwareCatalogService {
-  constructor(private readonly providers: SoftwareCatalogProvider[] = []) {
+  private readonly bundledCatalogs: SoftwareCatalogManifest[]
+
+  constructor(private readonly providers: SoftwareCatalogProvider[] = [], bundledCatalogs: SoftwareCatalogManifest[] = []) {
     const ids = providers.map(provider => provider.id)
     if (new Set(ids).size !== ids.length)
       throw new Error('Software catalog provider identifiers must be unique')
     providers.forEach(({ id, title, url }) => softwareCatalogSchema.shape.source.parse({ id, title, url }))
+    this.bundledCatalogs = bundledCatalogs.map(catalog => softwareCatalogManifestSchema.parse(catalog))
+    if (new Set(this.bundledCatalogs.map(catalog => catalog.source.id)).size !== this.bundledCatalogs.length)
+      throw new Error('Bundled catalog source identifiers must be unique')
   }
 
   /** Read fresh metadata from configured host providers; no installation or project trust changes. */
-  async snapshot(): Promise<SoftwareCatalogSnapshot> {
-    return {
-      version: 1,
-      sources: await Promise.all(this.providers.map(async (provider): Promise<SoftwareCatalogSource> => {
+  async snapshot({ localDiscovery = true, repositories = [] }: { localDiscovery?: boolean, repositories?: { source: SoftwareSource, catalog: SoftwareCatalogManifest }[] } = {}): Promise<SoftwareCatalogSnapshot> {
+    const sources = new Map<string, SoftwareCatalogSource>(this.bundledCatalogs.map(catalog => [catalog.source.id, {
+      ...catalog.source,
+      bundled: true,
+      items: catalog.items.map(item => ({ ...structuredClone(item), status: 'unknown', canInstall: false, canOpen: false })),
+    }]))
+    for (const { source, catalog } of repositories) {
+      // A catalog claiming a plugin's id does not gain that plugin's authority.
+      const bundled = this.bundledCatalogs.find(item => item.source.id === catalog.source.id && (item.source.url === source.repository || (item.source.url?.startsWith('https://github.com/') && item.source.url.toLowerCase() === source.repository?.toLowerCase())) && source.catalogPath === 'software.config.ts')
+      const id = bundled?.source.id ?? `repository-${source.id}`
+      const fallbackItems = new Map(sources.get(id)?.items.map(item => [item.id, item]))
+      sources.set(id, {
+        ...catalog.source,
+        id,
+        repositorySourceId: source.id,
+        repositoryReadFrom: source.cache.readFrom,
+        repositoryStale: source.error === 'unavailable',
+        items: catalog.items.map(item => withFallbackIcon({ ...structuredClone(item), status: 'unknown', canInstall: false, canOpen: false }, fallbackItems.get(item.id))),
+      })
+    }
+    if (localDiscovery) {
+      const discovered = await Promise.all(this.providers.map(async (provider): Promise<SoftwareCatalogSource> => {
         const source = { id: provider.id, title: provider.title, url: provider.url, ...(provider.management ? { canManage: true } : {}) }
+        const fallback = sources.get(provider.id)
         try {
           const catalog = softwareCatalogSchema.parse(await provider.read())
           if (catalog.source.id !== provider.id)
             throw new Error('Unexpected software catalog identity')
-          return { ...source, items: catalog.items }
+          if (fallback?.repositorySourceId) {
+            const observed = new Map(catalog.items.map(item => [item.id, item]))
+            return { ...fallback, ...source, items: fallback.items.map((item) => {
+              const live = observed.get(item.id)
+              const sameApplication = live?.url === item.url && live.installation.kind === item.installation.kind && live.installation.packageId === item.installation.packageId
+              return live && sameApplication ? { ...item, status: live.status, canInstall: live.canInstall, canOpen: live.canOpen } : item
+            }) }
+          }
+          const items = new Map((fallback?.items ?? []).map(item => [item.id, item]))
+          catalog.items.forEach(item => items.set(item.id, withFallbackIcon(item, items.get(item.id))))
+          return { ...source, items: [...items.values()] }
         }
-        catch { return { ...source, items: [], error: 'unavailable' } }
-      })),
+        catch { return fallback ?? { ...source, items: [], error: 'unavailable' } }
+      }))
+      discovered.forEach(source => sources.set(source.id, source))
     }
+    return { version: 1, sources: [...sources.values()] }
   }
 
   /** Review selected identifiers through the configured provider without executing software. */
@@ -214,6 +296,8 @@ export class SoftwareCatalogService {
   private async operation<T>(sourceId: string, execute: (management: SoftwareManagementProvider) => Promise<T>): Promise<T> {
     identifier.parse(sourceId)
     const provider = this.providers.find(provider => provider.id === sourceId)
+    if (!provider && this.bundledCatalogs.some(catalog => catalog.source.id === sourceId))
+      throw new SoftwareOperationError(503, 'Connect a local software management plugin to manage this catalog.')
     if (!provider)
       throw new SoftwareOperationError(404, 'Software source is unavailable')
     if (!provider.management)

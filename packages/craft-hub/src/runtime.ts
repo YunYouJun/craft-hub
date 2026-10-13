@@ -15,6 +15,7 @@ import process from 'node:process'
 import { AccountSyncService } from './account-sync'
 import { AgentActionService } from './agent-actions'
 import { AgentTaskManager } from './agent-tasks'
+import { bundledSoftwareCatalog } from './bundled-software-catalog'
 import { resolveCommandContributions } from './command-contributions'
 import { resolveCommandInvocation, resolvePersistedCommandInvocation } from './command-inputs'
 import { applyProjectConfigInitialization, loadProjectConfig, previewProjectConfigInitialization } from './config'
@@ -38,6 +39,7 @@ import { ReleasePlanner } from './release-planner'
 import { CraftHubSettingsService } from './settings'
 import { localSkillActivationSettingsSchema, resolveSkillActivations } from './skill-activation'
 import { SoftwareCatalogService, SoftwareOperationError } from './software-catalog'
+import { SoftwareSourceService } from './software-sources'
 import { CraftHubStore } from './store'
 import { TeamGitSyncService } from './team-git-sync'
 import { TeamManager } from './teams'
@@ -63,6 +65,7 @@ export class CraftHubRuntime {
   readonly workspaceSubscriptions: WorkspaceSubscriptionService
   readonly workspaceCatalog: WorkspaceCatalogService
   private readonly softwareCatalog: SoftwareCatalogService
+  readonly softwareSources: SoftwareSourceService
   readonly workspaceImports: WorkspaceImportService
   readonly personalGitSync: PersonalGitSyncService
   readonly accountSync: AccountSyncService
@@ -92,7 +95,7 @@ export class CraftHubRuntime {
     this.distribution = normalizedOptions.distribution ?? communityDistribution
     const plugins = normalizedOptions.plugins ?? []
     assertUniquePluginIds(plugins)
-    this.softwareCatalog = new SoftwareCatalogService(plugins.flatMap(plugin => plugin.softwareCatalogProviders ?? []))
+    this.softwareCatalog = new SoftwareCatalogService(plugins.flatMap(plugin => plugin.softwareCatalogProviders ?? []), [bundledSoftwareCatalog])
     this.workspaceCatalog = new WorkspaceCatalogService(this.distribution.workspaceMarkets, [...(normalizedOptions.workspaceCatalogProviders ?? []), ...plugins.flatMap(plugin => plugin.workspaceCatalogProviders ?? [])])
     const accounts = plugins.flatMap(plugin => plugin.accountProvider ? [plugin.accountProvider] : [])
     if (accounts.length > 1)
@@ -100,6 +103,7 @@ export class CraftHubRuntime {
     this.accountProvider = accounts[0]
     this.hostPluginDiagnostics = structuredClone(normalizedOptions.pluginDiagnostics ?? [])
     this.store = new CraftHubStore(normalizedOptions.dataDir ?? getCraftHubDataDir(process.env, this.distribution.dataDirectoryName ?? this.distribution.name))
+    this.softwareSources = new SoftwareSourceService(this.store.dataDir, this.hostEnvironment.kind === 'local')
     this.pluginManager = new PluginManager(
       this.store.dataDir,
       this.distribution.marketplaceSources,
@@ -241,11 +245,9 @@ export class CraftHubRuntime {
     return this.environmentInspection
   }
 
-  /** Discover display-only software metadata on the local host, without executing install recipes. */
-  async softwareCatalogSnapshot(): Promise<SoftwareCatalogSnapshot> {
-    if (this.hostEnvironment.kind !== 'local')
-      throw new Error('Local software discovery is unavailable on a hosted workbench')
-    return this.softwareCatalog.snapshot()
+  /** Browse cached metadata; optionally overlay read-only plugin discovery on local hosts. */
+  async softwareCatalogSnapshot({ localDiscovery = true }: { localDiscovery?: boolean } = {}): Promise<SoftwareCatalogSnapshot> {
+    return this.softwareCatalog.snapshot({ localDiscovery: localDiscovery && this.hostEnvironment.kind === 'local', repositories: await this.softwareSources.catalogs() })
   }
 
   /** Review selected host software without changing project trust or installing packages. */

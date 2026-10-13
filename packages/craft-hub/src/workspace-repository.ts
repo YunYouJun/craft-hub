@@ -1,10 +1,11 @@
 import { Buffer } from 'node:buffer'
 import { execFile } from 'node:child_process'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { lstat, mkdtemp, readFile, realpath, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { isAbsolute, join, relative, resolve } from 'node:path'
 import process from 'node:process'
 import { promisify } from 'node:util'
+import { normalizeRepositoryUrl } from './project-reference'
 
 /** Safe, user-visible subscription failure without transport diagnostics or credentials. */
 export class WorkspaceSubscriptionError extends Error {
@@ -55,6 +56,60 @@ export function parseWorkspaceRepositoryUrl(value: string): { repository: string
 }
 
 const execute = promisify(execFile)
+
+/** Bound a declarative catalog path to a regular TypeScript file inside a repository. */
+export function validateRepositoryCatalogPath(path: string): string {
+  if (path.length > 256 || !/^[\w./-]+\.ts$/.test(path) || path.split('/').some(part => !part || part === '.' || part === '..' || part === '.git'))
+    throw new WorkspaceSubscriptionError(400, 'Catalog path must be a repository-relative TypeScript file')
+  return path
+}
+
+/** Read one public catalog at a fixed remote commit, without a checkout or running repository code. */
+export async function readRepositoryCatalogFile(repository: string, branch: string, path: string): Promise<{ content: string, commit: string }> {
+  validateRepositoryCatalogPath(path)
+  const url = new URL(repository)
+  if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash)
+    throw new WorkspaceSubscriptionError(400, 'Use an HTTPS repository URL without credentials')
+  if (!/^\w[\w./-]{0,199}$/.test(branch) || branch.includes('..') || branch.includes('//'))
+    throw new WorkspaceSubscriptionError(400, 'Invalid repository branch')
+  const cwd = await mkdtemp(join(tmpdir(), 'craft-hub-catalog-'))
+  try {
+    await git(cwd, ['init', '--bare', '--quiet'])
+    await git(cwd, ['fetch', '--depth=1', '--no-tags', '--quiet', '--', normalizeRepositoryUrl(repository), branch === 'HEAD' ? 'HEAD' : `refs/heads/${branch}`])
+    const commit = (await git(cwd, ['rev-parse', 'FETCH_HEAD^{commit}'])).trim()
+    const listing = await git(cwd, ['ls-tree', '-z', commit, '--', path])
+    const entry = /^(?:100644|100755) blob ([a-f0-9]+)\t([^\0]+)\0$/.exec(listing)
+    if (!entry || entry[2] !== path)
+      throw new WorkspaceSubscriptionError(404, 'The repository has not published a regular TypeScript catalog at this path')
+    const size = Number((await git(cwd, ['cat-file', '-s', entry[1]!])).trim())
+    if (!Number.isSafeInteger(size) || size > 2 * 1024 * 1024)
+      throw new WorkspaceSubscriptionError(400, 'Catalog exceeds the size limit')
+    return { commit, content: await git(cwd, ['cat-file', 'blob', entry[1]!]) }
+  }
+  finally { await rm(cwd, { recursive: true, force: true }) }
+}
+
+/** Identify a local checkout and read its current TypeScript config, including uncommitted changes, without execution. */
+export async function readLocalRepositoryCatalogFile(localPath: string, path: string): Promise<{ content: string, localPath: string, repository?: string, commit?: string }> {
+  validateRepositoryCatalogPath(path)
+  if (!isAbsolute(localPath))
+    throw new WorkspaceSubscriptionError(400, 'Select an absolute local repository path')
+  const root = await realpath(localPath)
+  const gitRoot = await realpath((await git(root, ['rev-parse', '--show-toplevel'])).trim())
+  if (root !== gitRoot)
+    throw new WorkspaceSubscriptionError(400, 'Select the repository root directory')
+  const file = resolve(root, path)
+  const resolvedFile = await realpath(file)
+  if (relative(root, resolvedFile).startsWith('..') || isAbsolute(relative(root, resolvedFile)) || !(await lstat(file)).isFile())
+    throw new WorkspaceSubscriptionError(400, 'Catalog must be a regular file inside the selected repository')
+  if ((await lstat(file)).size > 2 * 1024 * 1024)
+    throw new WorkspaceSubscriptionError(400, 'Catalog exceeds the size limit')
+  const origin = await git(root, ['config', '--get', 'remote.origin.url']).catch(() => '')
+  const repository = origin.trim() ? normalizeRepositoryUrl(origin.trim()) : undefined
+  const commit = await git(root, ['rev-parse', '--verify', 'HEAD^{commit}']).then(value => value.trim()).catch(() => undefined)
+  return { content: await readFile(file, 'utf8'), localPath: root, repository, commit }
+}
+
 /** Run read-only Git operations in an isolated repository without checkout, hooks or credential helpers. */
 async function git(cwd: string, args: string[], transport?: { origin: string, header: string }): Promise<string> {
   try {

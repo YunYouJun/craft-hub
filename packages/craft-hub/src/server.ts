@@ -23,6 +23,7 @@ import { IntegrationConfirmationRequiredError } from './integrations'
 import { CraftHubRuntime } from './runtime'
 import { SettingsConflictError, SettingsValidationError } from './settings'
 import { softwareApplicationRequestSchema, softwareInstallationConfirmationSchema, softwareInstallationRequestSchema, SoftwareOperationError } from './software-catalog'
+import { softwareSourceCommandSchema, SoftwareSourceError } from './software-sources'
 import { TeamLifecycleValidationError } from './teams'
 import { PERSONAL_OWNER_SCOPE_ID, projectAccentColors } from './types'
 import { ProjectWatcher } from './watcher'
@@ -236,12 +237,35 @@ export async function startCraftHubServer(options: CraftHubServerOptions = {}): 
         return sendJson(response, 405, { error: 'Method not allowed' })
       }
 
-      if (request.method === 'GET' && url.pathname === '/api/software') {
-        if (runtime.hostEnvironment.kind !== 'local')
-          return sendJson(response, 403, { error: 'Local software discovery is unavailable on this host', code: 'LOCAL_SOFTWARE_UNAVAILABLE' })
+      if (url.pathname === '/api/software-sources') {
+        const declaredOrigin = options.publicOrigin ?? runtime.accountProvider?.publicOrigin
+        const origin = declaredOrigin ? new URL(declaredOrigin).origin : `http://${request.headers.host}`
+        if ((!declaredOrigin && !addressesThisSocket(request.headers.host ?? '', request))
+          || request.headers['sec-fetch-site'] === 'cross-site'
+          || (request.headers.origin && request.headers.origin !== origin)
+          || (request.method !== 'GET' && request.headers['content-type']?.split(';')[0]?.trim().toLowerCase() !== 'application/json')) {
+          return sendJson(response, 403, { error: 'Repository sources require a same-origin JSON request' })
+        }
         if (url.search)
-          return sendJson(response, 400, { error: 'Software discovery accepts no request parameters' })
-        return sendJson(response, 200, await runtime.softwareCatalogSnapshot())
+          return sendJson(response, 400, { error: 'Repository sources accept no query parameters' })
+        if (request.method === 'GET')
+          return sendJson(response, 200, await runtime.softwareSources.snapshot())
+        if (request.method !== 'POST')
+          return sendJson(response, 405, { error: 'Method not allowed' })
+        const input = softwareSourceCommandSchema.parse(await jsonBody(request, 16 * 1024))
+        if (input.operation === 'preview')
+          return sendJson(response, 200, await runtime.softwareSources.preview(input.input))
+        if (input.operation === 'apply')
+          return sendJson(response, 200, await runtime.softwareSources.apply(input.previewId))
+        if (input.operation === 'refresh')
+          return sendJson(response, 200, await runtime.softwareSources.refresh(input.id))
+        return sendJson(response, 200, await runtime.softwareSources.remove(input.id, input.revision))
+      }
+
+      if (request.method === 'GET' && url.pathname === '/api/software') {
+        if (url.search && url.search !== '?discovery=none')
+          return sendJson(response, 400, { error: 'Software discovery only accepts discovery=none' })
+        return sendJson(response, 200, await runtime.softwareCatalogSnapshot({ localDiscovery: !url.search }))
       }
 
       if (parts[0] === 'api' && parts[1] === 'software' && parts.length >= 3) {
@@ -1183,7 +1207,7 @@ export async function startCraftHubServer(options: CraftHubServerOptions = {}): 
         return sendJson(response, 409, { error: error.message, actualRevision: error.actualRevision })
       if (error instanceof WorkItemProjectError)
         return sendJson(response, error.status, { error: error.message })
-      if (error instanceof SoftwareOperationError)
+      if (error instanceof SoftwareOperationError || error instanceof SoftwareSourceError)
         return sendJson(response, error.status, { error: error.message })
       if (error instanceof SettingsConflictError)
         return sendJson(response, 409, { error: error.message, actualRevision: error.actualRevision })

@@ -84,7 +84,7 @@ describe('global settings', () => {
     const { root, service } = await settingsFixture()
     const initial = await service.get()
     const home: PersonalWorkbenchHome = {
-      tools: [{ id: 'docs', title: 'Project docs', url: 'https://docs.example.com/project', group: 'Projects', description: 'Project reference' }],
+      tools: [{ id: 'docs', title: 'Project docs', url: 'https://docs.example.com/project', iconUrl: 'https://docs.example.com/icon.svg', group: 'Projects', description: 'Project reference' }],
       pinnedProjectIds: ['project-a', 'project-b'],
     }
     const updated = await service.update({ 'workbench.home': home }, initial.revision)
@@ -119,6 +119,9 @@ describe('global settings', () => {
 
     await expect(service.update({
       'workbench.home': { tools: [{ id: 'tool', title: 'Tool', url, group: 'Tools' }] },
+    }, initial.revision)).rejects.toThrow()
+    await expect(service.update({
+      'workbench.home': { tools: [{ id: 'tool', title: 'Tool', url: 'https://example.com/', iconUrl: url, group: 'Tools' }] },
     }, initial.revision)).rejects.toThrow()
     expect((await service.get()).revision).toBe(initial.revision)
     expect(await readdir(root)).not.toContain('settings.json')

@@ -1,11 +1,10 @@
 // @vitest-environment happy-dom
 /// <reference lib="dom" />
 
-import type { IntegrationEntity, IntegrationEntityPage } from 'craft-hub'
+import type { IntegrationContribution, IntegrationEntity, IntegrationEntityPage } from 'craft-hub'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { createWorkstationPlugin } from '../../../packages/craft-hub-plugin-workstation/src/index'
 import { api } from './api'
 import { useI18n } from './i18n'
 import IntegrationActionForm from './IntegrationActionForm.vue'
@@ -67,7 +66,16 @@ describe('integration workbench', () => {
   })
 
   it('translates Workstation connection errors and preserves unknown diagnostics', async () => {
-    const integration = createWorkstationPlugin().integrations![0]!
+    const message = 'Workstation is unavailable. Configure the versioned local CLI on this host.'
+    const integration = {
+      id: 'workstation',
+      provider: { id: 'workstation', requires: '^1.0.0' },
+      translations: {
+        'zh-CN': { [message]: '无法连接 Workstation。请在本机配置支持当前版本接口的本地 CLI。' },
+      },
+      actions: [{ id: 'inspect', title: 'Inspect configuration', operation: 'configuration.read', effect: 'local-read', confirmation: 'never' }],
+      views: [{ id: 'environment', title: 'Environment configuration', icon: 'builtin:terminal', placement: 'primary-sidebar', scope: 'global-and-project', blocks: [{ id: 'configuration', type: 'configuration-manager', actionId: 'inspect' }] }],
+    } satisfies IntegrationContribution
     const store = useWorkbenchStore()
     store.integrationContributions = [{
       ...integration,
@@ -76,7 +84,6 @@ describe('integration workbench', () => {
       providerVersion: '1.0.0',
       actions: integration.actions.map(action => ({ ...action, effectiveConfirmation: action.confirmation })),
     }]
-    const message = 'Workstation is unavailable. Configure the versioned local CLI on this host.'
     const invoke = vi.spyOn(api, 'invokeIntegrationAction').mockRejectedValue(new Error(message))
     useI18n().setLocale('zh-CN')
     const wrapper = mount(IntegrationWorkbench, { props: { integrationId: 'workstation', viewId: 'environment' }, global: { plugins: [pinia] } })

@@ -16,6 +16,9 @@ catalogs:
     '@antfu/utils':
       specifier: ^9.3.0
       version: 9.3.0
+    '@babel/parser':
+      specifier: ^7.29.8
+      version: 7.29.8
     '@cloudbase/js-sdk':
       specifier: 3.8.1
       version: 3.8.1
@@ -580,6 +583,9 @@ importers:
 
   packages/craft-hub:
     dependencies:
+      '@babel/parser':
+        specifier: 'catalog:'
+        version: 7.29.8
       '@modelcontextprotocol/sdk':
         specifier: 'catalog:'
         version: 1.31.0(supports-color@10.2.2)(zod@4.4.3)
@@ -8835,6 +8841,7 @@ snapshots:
 
   craft-hub@file:packages/craft-hub(supports-color@10.2.2):
     dependencies:
+      '@babel/parser': 7.29.8
       '@modelcontextprotocol/sdk': 1.31.0(supports-color@10.2.2)(zod@4.6.5)
       cac: 7.0.0
       chokidar: 5.0.0

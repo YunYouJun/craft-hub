@@ -38,6 +38,27 @@ describe('local software management', () => {
     expect(softwareInstallationRunSchema.safeParse({ ...run, items: [{ ...run.items[0], log: 'x'.repeat(16385) }] }).success).toBe(false)
   })
 
+  it('validates optional per-file download progress while accepting older adapters', async () => {
+    const observation = { ...run, state: 'running' as const, items: [{ ...run.items[0], state: 'running' as const, progress: { phase: 'downloading' as const, percent: 42, resource: 'Cask editor' } }] }
+    const adapter = provider()
+    vi.mocked(adapter.management.runs).mockResolvedValue({ version: 1, runs: [observation] })
+    expect(await new SoftwareCatalogService([adapter]).runs(source.id)).toEqual({ version: 1, runs: [observation] })
+    expect(softwareInstallationRunSchema.parse(run)).toEqual(run)
+    for (const progress of [
+      { phase: 'downloading', percent: -1 },
+      { phase: 'downloading', percent: 101 },
+      { phase: 'downloading', percent: Number.NaN },
+      { phase: 'downloading', percent: Infinity },
+      { phase: 'downloading', resource: 'x'.repeat(257) },
+      { phase: 'installing', percent: 100 },
+      { phase: 'preparing', command: 'arbitrary' },
+      { phase: 'unknown' },
+    ]) {
+      expect(softwareInstallationRunSchema.safeParse({ ...observation, items: [{ ...observation.items[0], progress }] }).success).toBe(false)
+    }
+    expect(softwareInstallationRunSchema.safeParse({ ...observation, items: [{ ...observation.items[0], progress: { phase: 'downloading' } }] }).success).toBe(true)
+  })
+
   it('requires review confirmation and validates identifiers before invoking adapters', async () => {
     const adapter = provider()
     const service = new SoftwareCatalogService([adapter])

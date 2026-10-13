@@ -46,6 +46,7 @@ export default defineConfig({
     'i-ri-code-s-slash-line',
     'i-ri-compass-3-line',
     'i-ri-database-2-line',
+    'i-ri-download-2-line',
     'i-ri-draggable',
     'i-ri-edit-line',
     'i-ri-error-warning-fill',

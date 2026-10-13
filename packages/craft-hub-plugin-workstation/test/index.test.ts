@@ -9,6 +9,30 @@ import { createWorkstationPlugin, workstationTransport } from '../src/index'
 const transport = () => vi.fn(async (request: Record<string, unknown>) => ({ version: 1, ...(request.operation === 'inspect' ? { items: [] } : request.operation === 'history' ? { plans: [] } : { repositories: [] }) }))
 
 describe('workstation host adapter', () => {
+  it('preserves download observations through the CLI transport and runtime validation', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'craft-hub-download-progress-'))
+    const observation = {
+      version: 1,
+      id: 'download-run',
+      sourceId: 'workstation',
+      planId: 'reviewed-plan',
+      createdAt: '2026-10-13T00:00:00.000Z',
+      updatedAt: '2026-10-13T00:00:01.000Z',
+      state: 'running',
+      items: [{ softwareId: 'editor', title: { en: 'Editor' }, state: 'running', log: '', progress: { phase: 'downloading', percent: 37, resource: 'Cask editor' } }],
+    }
+    try {
+      const script = join(directory, 'fixture.cjs')
+      await writeFile(script, `process.stdin.resume(); process.stdin.on('end', () => process.stdout.write(${JSON.stringify(JSON.stringify({ ok: true, result: { version: 1, runs: [observation] } }))}))`)
+      const software = workstationTransport(process.execPath, [script], 'software-json')
+      const management = createWorkstationPlugin(transport(), software).softwareCatalogProviders![0].management!
+      expect(await management.runs()).toEqual({ version: 1, runs: [observation] })
+      const runtime = new CraftHubRuntime({ dataDir: join(directory, 'state'), plugins: [createWorkstationPlugin(transport(), software)] })
+      expect(await runtime.softwareInstallationRuns('workstation')).toEqual({ version: 1, runs: [observation] })
+    }
+    finally { await rm(directory, { recursive: true, force: true }) }
+  })
+
   it('reads software from its independent versioned API without requesting configuration writes', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'craft-hub-software-adapter-'))
     const call = transport()
@@ -16,11 +40,14 @@ describe('workstation host adapter', () => {
     const software = vi.fn(async () => catalog)
     try {
       const runtime = new CraftHubRuntime({ dataDir: directory, plugins: [createWorkstationPlugin(call, software)] })
-      expect(await runtime.softwareCatalogSnapshot()).toEqual({ version: 1, sources: [{ ...catalog.source, items: [], canManage: true }] })
+      const snapshot = await runtime.softwareCatalogSnapshot()
+      expect(snapshot).toMatchObject({ version: 1, sources: [{ ...catalog.source, canManage: true }] })
+      expect(snapshot.sources).toHaveLength(1)
+      expect(snapshot.sources[0]!.items.length).toBeGreaterThan(0)
       expect(software).toHaveBeenCalledExactlyOnceWith({ operation: 'catalog' })
       expect(call).not.toHaveBeenCalled()
       const hosted = new CraftHubRuntime({ dataDir: join(directory, 'hosted'), hostEnvironment: 'hosted', plugins: [createWorkstationPlugin(call, software)] })
-      await expect(hosted.softwareCatalogSnapshot()).rejects.toThrow('hosted')
+      expect(await hosted.softwareCatalogSnapshot()).toMatchObject({ sources: [{ id: 'workstation', bundled: true }] })
       expect(software).toHaveBeenCalledOnce()
     }
     finally { await rm(directory, { recursive: true, force: true }) }

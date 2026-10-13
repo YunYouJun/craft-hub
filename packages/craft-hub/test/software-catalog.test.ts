@@ -2,6 +2,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
+import { bundledSoftwareCatalog } from '../src/bundled-software-catalog'
 import { CraftHubRuntime } from '../src/runtime'
 import { startCraftHubServer } from '../src/server'
 import { softwareCatalogSchema, SoftwareCatalogService } from '../src/software-catalog'
@@ -18,6 +19,8 @@ describe('read-only software catalogs', () => {
       { ...catalog, items: [item, item] },
       { ...catalog, items: [{ ...item, downloadUrl: 'javascript:alert(1)' }] },
       { ...catalog, items: [{ ...item, repositoryUrl: 'https://user:password@example.com/' }] },
+      { ...catalog, items: [{ ...item, iconUrl: 'file:///private/icon.png' }] },
+      { ...catalog, items: [{ ...item, iconUrl: 'https://user:password@example.com/icon.png' }] },
       { ...catalog, items: [{ ...item, installCommand: 'arbitrary command' }] },
     ]) expect(softwareCatalogSchema.safeParse(malformed).success).toBe(false)
   })
@@ -36,7 +39,7 @@ describe('read-only software catalogs', () => {
     expect(() => new SoftwareCatalogService([providers[0], providers[0]])).toThrow('unique')
   })
 
-  it('allows local read-only discovery without project trust and denies hosted access or browser selectors', async () => {
+  it('allows catalog browsing without project trust; hosted browsing never invokes local discovery', async () => {
     const root = await mkdtemp(join(tmpdir(), 'craft-hub-software-'))
     const read = vi.fn(async () => catalog)
     const plugin = { id: 'software-fixture', softwareCatalogProviders: [{ ...source, read }] }
@@ -47,16 +50,68 @@ describe('read-only software catalogs', () => {
       const project = await local.addProject(root)
       const response = await fetch(`${apps[0].url}/api/software`)
       expect(response.status).toBe(200)
-      expect(await response.json()).toEqual({ version: 1, sources: [{ ...source, items: [item] }] })
+      expect(await response.json()).toMatchObject({ version: 1, sources: [{ id: 'workstation', bundled: true }, { ...source, items: [item] }] })
       expect((await local.projects.get(project.id)).trust).toBe('untrusted')
       expect((await fetch(`${apps[0].url}/api/software?operation=install`)).status).toBe(400)
-      expect((await fetch(`${apps[1].url}/api/software`)).status).toBe(403)
-      await expect(hosted.softwareCatalogSnapshot()).rejects.toThrow('hosted')
+      const hostedResponse = await fetch(`${apps[1].url}/api/software`)
+      expect(hostedResponse.status).toBe(200)
+      expect(await hostedResponse.json()).toMatchObject({ sources: [{ id: 'workstation', bundled: true }] })
+      expect((await hosted.softwareCatalogSnapshot()).sources).toHaveLength(1)
+      const metadataOnly = await fetch(`${apps[0].url}/api/software?discovery=none`)
+      expect(metadataOnly.status).toBe(200)
+      expect(await metadataOnly.json()).toMatchObject({ sources: [{ id: 'workstation', bundled: true }] })
       expect(read).toHaveBeenCalledOnce()
+      expect((await fetch(`${apps[0].url}/api/software?discovery=none&operation=install`)).status).toBe(400)
     }
     finally {
       await Promise.all(apps.map(app => app.close()))
       await rm(root, { recursive: true, force: true })
     }
+  })
+
+  it('browses bundled metadata without a plugin and never offers execution', async () => {
+    const service = new SoftwareCatalogService([], [bundledSoftwareCatalog])
+    const snapshot = await service.snapshot()
+    expect(snapshot.sources).toHaveLength(1)
+    expect(snapshot.sources[0]).toMatchObject({ id: 'workstation', bundled: true })
+    expect(snapshot.sources[0]!.canManage).not.toBe(true)
+    expect(snapshot.sources[0]!.items).toHaveLength(bundledSoftwareCatalog.items.length)
+    expect(snapshot.sources[0]!.items.every(item => item.status === 'unknown' && item.canInstall === false && item.canOpen === false)).toBe(true)
+    await expect(service.preview('workstation', [bundledSoftwareCatalog.items[0]!.id])).rejects.toMatchObject({ status: 503 })
+    await expect(service.open('workstation', bundledSoftwareCatalog.items[0]!.id)).rejects.toMatchObject({ status: 503 })
+  })
+
+  it('preserves native artwork for older plugins only when application and icon identities match', async () => {
+    const { iconUrl, macosIconUrl, iconStyle, iconScale, ...metadata } = bundledSoftwareCatalog.items.find(item => item.macosIconUrl)!
+    expect(macosIconUrl).toBeTruthy()
+    const read = vi.fn(async () => ({ version: 1 as const, source: bundledSoftwareCatalog.source, items: [{ ...metadata, iconUrl, status: 'detected' as const }] }))
+    const service = new SoftwareCatalogService([{ ...bundledSoftwareCatalog.source, url: bundledSoftwareCatalog.source.url!, read }], [bundledSoftwareCatalog])
+    const liveItem = async () => (await service.snapshot()).sources[0]!.items.find(item => item.id === metadata.id)!
+    expect(await liveItem()).toMatchObject({ iconUrl, macosIconUrl, iconScale, ...(iconStyle ? { iconStyle } : {}) })
+    read.mockResolvedValueOnce({ version: 1, source: bundledSoftwareCatalog.source, items: [{ ...metadata, iconUrl: 'https://example.com/custom.svg', status: 'detected' }] })
+    const custom = await liveItem()
+    expect(custom).not.toHaveProperty('macosIconUrl')
+    expect(custom).not.toHaveProperty('iconScale')
+    read.mockResolvedValueOnce({ version: 1, source: bundledSoftwareCatalog.source, items: [{ ...metadata, iconUrl, url: 'https://different.example.com/', status: 'detected' }] })
+    const different = await liveItem()
+    expect(different).not.toHaveProperty('macosIconUrl')
+    expect(different).not.toHaveProperty('iconScale')
+  })
+
+  it('merges live entries by identity and restores the static catalog when discovery fails', async () => {
+    const metadata = bundledSoftwareCatalog.items[0]!
+    const read = vi.fn(async () => ({ version: 1 as const, source: bundledSoftwareCatalog.source, items: [{ ...metadata, status: 'detected' as const, canOpen: true }] }))
+    const service = new SoftwareCatalogService([{ ...bundledSoftwareCatalog.source, url: bundledSoftwareCatalog.source.url!, read }], [bundledSoftwareCatalog])
+    const live = (await service.snapshot()).sources[0]!
+    expect(live.bundled).not.toBe(true)
+    expect(live.items).toHaveLength(bundledSoftwareCatalog.items.length)
+    expect(live.items[0]).toMatchObject({ id: metadata.id, status: 'detected', canOpen: true })
+    expect(live.items[1]).toMatchObject({ status: 'unknown', canInstall: false, canOpen: false })
+    read.mockRejectedValueOnce(new Error('local CLI unavailable'))
+    const fallback = (await service.snapshot()).sources[0]!
+    expect(fallback).toMatchObject({ bundled: true })
+    expect(fallback.canManage).not.toBe(true)
+    expect(fallback.items[0]).toMatchObject({ status: 'unknown', canOpen: false })
+    expect((await service.snapshot()).sources[0]!.items).toEqual(live.items)
   })
 })

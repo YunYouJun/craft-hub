@@ -1,8 +1,8 @@
 # Craft Hub
 
-Craft Hub is a personal software and development-environment workbench. Its direction is to bring software setup, everyday tool access, environment checks and reviewed configuration migration into one place. The current alpha provides a personal overview, local tool inspection, project capabilities, tool handoff and configuration review; selected software installation and the machine-setup workflow are planned.
+Craft Hub is a personal software and development-environment workbench. Its direction is to bring software setup, everyday tool access, environment checks and reviewed configuration migration into one place. The current alpha provides a personal overview, local tool inspection, project capabilities, tool handoff and configuration review; selected software installation is available through a local plugin, while the machine-setup workflow is planned.
 
-Use Orca or your preferred coding workbench for daily coding, agent sessions, worktrees, terminals, and code review. Use Raycast for quick actions and installed extension commands. Craft Hub's proposed home will present machine readiness and setup workflows, with existing project and provider views available alongside them. Workstation remains the configuration-management backend; its selected software installation interfaces still need to be added. Basic local tool inspection works independently of Workstation. The shared runtime discovers repository commands, validates execution, and exposes capabilities through the CLI, local API, and MCP.
+Use Orca or your preferred coding workbench for daily coding, agent sessions, worktrees, terminals, and code review. Use Raycast for quick actions and installed extension commands. Craft Hub's proposed home will present machine readiness and setup workflows, with existing project and provider views available alongside them. Workstation remains the configuration-management backend; its plugin also owns reviewed software installation and progress. Basic local tool inspection works independently of Workstation. The shared runtime discovers repository commands, validates execution, and exposes capabilities through the CLI, local API, and MCP.
 
 > Early alpha. The `craft-hub` CLI is published on npm under the `next` tag; APIs and persisted formats may still change before the first stable release.
 
@@ -13,7 +13,7 @@ Use Orca or your preferred coding workbench for daily coding, agent sessions, wo
 - Prepare a work-item or project handoff, select the target project explicitly, review the text, and copy it for your external tool
 - Pin commonly used projects locally and open their existing project workbench
 - Enter installed plugin navigation and integration views from the overview
-- Browse the Workstation software catalog in **Software center** (`/software`), review selected missing-app installations, follow persistent per-item progress, retry unfinished items and open detected macOS apps
+- Browse the [bundled software catalog](docs/guide/software-catalog.md) in **Software center** (`/software`) even without Workstation installed; connect the local plugin to review missing-app installations, follow progress, retry unfinished items and open detected macOS apps
 - Inspect Git, Node.js, pnpm, fnm, Homebrew and Workstation in **Local environment** (`/environment`), with version, path, probe status and search locations; the backend's bundled Node is reported separately
 - Preview real provider work items through configured, read-only `work-items.list` actions
 - Register and switch between local projects

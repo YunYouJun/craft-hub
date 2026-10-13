@@ -1,14 +1,17 @@
 <script setup lang="ts">
 import type { PersonalWorkbenchHome, PersonalWorkbenchTool } from 'craft-hub'
 import { personalWorkbenchHomeSchema } from 'craft-hub/personal-workbench'
-import { computed, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { api } from './api'
 import { Button as UiButton } from './components/ui/button'
 import { DialogShell } from './components/ui/dialog'
 import { Icon } from './icons'
 import { useI18n } from './i18n'
 import { useWorkbenchStore } from './store'
-import { websiteToolIcon } from './tool-icons'
+import SoftwareIcon from './SoftwareIcon.vue'
+import type { SoftwareArtwork } from './tool-icons'
+import { softwareArtwork, softwareWebsiteIdentity } from './tool-icons'
+import SoftwareLinks from './SoftwareLinks.vue'
 
 const props = withDefaults(defineProps<{ compact?: boolean }>(), { compact: false })
 const emit = defineEmits<{ openNavigation: [] }>()
@@ -17,6 +20,24 @@ const { locale } = useI18n()
 const zh = computed(() => locale.value === 'zh-CN')
 const copy = (chinese: string, english: string) => zh.value ? chinese : english
 const query = ref('')
+const catalogIcons = ref(new Map<string, SoftwareArtwork>())
+const toolArtwork = (tool: PersonalWorkbenchTool) => softwareArtwork(tool, catalogIcons.value.get(softwareWebsiteIdentity(tool.url)))
+onMounted(async () => {
+  try {
+    // Read cached display metadata only; visiting favorites must not invoke local plugins.
+    const catalog = await api.softwareCatalogMetadata()
+    const icons = new Map<string, SoftwareArtwork>()
+    for (const source of catalog.sources) {
+      for (const item of source.items) {
+        const key = softwareWebsiteIdentity(item.url)
+        if (key && (item.iconUrl || item.macosIconUrl) && !icons.has(key))
+          icons.set(key, { iconUrl: item.iconUrl, macosIconUrl: item.macosIconUrl, iconStyle: item.iconStyle, iconScale: item.iconScale })
+      }
+    }
+    catalogIcons.value = icons
+  }
+  catch { /* Keep shortcuts usable with their local fallback icons. */ }
+})
 const home = computed<PersonalWorkbenchHome>(() => store.settings?.settings['workbench.home'] ?? { tools: [] })
 const settingsError = ref('')
 const saving = ref(false)
@@ -112,6 +133,8 @@ async function saveTools(): Promise<void> {
       delete next.downloadUrl
     if (!next.repositoryUrl?.trim())
       delete next.repositoryUrl
+    if (!next.iconUrl?.trim())
+      delete next.iconUrl
     if (next.launch?.application === 'raycast' && !next.launch.commandUrl?.trim())
       next.launch = { application: 'raycast' }
     return next
@@ -149,13 +172,10 @@ async function reloadDraft(): Promise<void> {
     <div class="home-tool-groups">
       <section v-for="group in toolGroups" :key="group.title" class="home-tool-group"><h3>{{ displayGroup(group.title) }}</h3><div class="home-tool-grid">
         <div v-for="tool in group.tools" :key="tool.id" class="home-tool-card">
-          <a class="home-tool" :href="tool.url" target="_blank" rel="noopener noreferrer" :title="tool.description || tool.url" :aria-busy="openingToolId === tool.id" @click="openTool(tool, $event)">
-            <span class="home-tool-mark" aria-hidden="true"><Icon :name="websiteToolIcon(tool.url)" /></span><span class="home-tool-copy"><strong>{{ tool.title }}</strong><small>{{ tool.launch ? (supportsNativeTools ? (tool.launch.application === 'raycast' && tool.launch.commandUrl ? copy('运行已配置的 Raycast 命令', 'Run configured Raycast command') : copy('打开本机应用', 'Open local application')) : copy('浏览器模式 · 打开网站', 'Browser mode · Open website')) : tool.description || domain(tool.url) }}</small></span><Icon :name="openingToolId === tool.id ? 'loading' : 'externalLink'" />
+          <a class="home-tool" :href="tool.url" target="_blank" rel="noopener noreferrer" :title="`${tool.title} · ${tool.description || tool.url}`" :aria-busy="openingToolId === tool.id" @click="openTool(tool, $event)">
+            <SoftwareIcon class="home-tool-mark" :url="tool.url" v-bind="toolArtwork(tool)" /><span class="home-tool-copy"><strong>{{ tool.title }}</strong><small>{{ tool.launch ? (supportsNativeTools ? (tool.launch.application === 'raycast' && tool.launch.commandUrl ? copy('运行已配置的 Raycast 命令', 'Run configured Raycast command') : copy('打开本机应用', 'Open local application')) : copy('浏览器模式 · 打开网站', 'Browser mode · Open website')) : tool.description || domain(tool.url) }}</small></span><Icon :name="openingToolId === tool.id ? 'loading' : 'externalLink'" />
           </a>
-          <div v-if="tool.downloadUrl || tool.repositoryUrl" class="home-tool-links">
-            <a v-if="tool.downloadUrl" :href="tool.downloadUrl" target="_blank" rel="noopener noreferrer" :aria-label="`${copy('下载', 'Download')} ${tool.title}`">{{ copy('下载', 'Download') }}<Icon name="externalLink" /></a>
-            <a v-if="tool.repositoryUrl" :href="tool.repositoryUrl" target="_blank" rel="noopener noreferrer" :aria-label="`${copy('GitHub / 源码', 'GitHub / source')} ${tool.title}`">{{ copy('GitHub / 源码', 'GitHub / source') }}<Icon name="externalLink" /></a>
-          </div>
+          <SoftwareLinks v-if="tool.downloadUrl || tool.repositoryUrl" class="home-tool-links" :title="tool.title" :download-url="tool.downloadUrl" :repository-url="tool.repositoryUrl" />
         </div>
       </div></section>
     </div>
@@ -169,7 +189,7 @@ async function reloadDraft(): Promise<void> {
     <template #description>{{ copy('配置网站或本机执行工具。浏览器模式使用 HTTPS 网站入口，设置保存在本机。', 'Configure websites or local work tools. Browser mode uses the HTTPS website destination. Settings stay on this device.') }}</template>
     <template #header-actions><button class="home-icon-button" :disabled="saving" :aria-label="copy('关闭', 'Close')" @click="editing = false"><Icon name="close" /></button></template>
     <form id="home-tools-form" class="home-tools-form" @submit.prevent="saveTools">
-      <fieldset v-for="(tool, index) in draft" :key="tool.id" :disabled="saving" class="home-tool-editor"><legend>{{ copy('工具', 'Tool') }} {{ index + 1 }}</legend><label>{{ copy('名称', 'Name') }}<input v-model="tool.title" required maxlength="128" :placeholder="copy('工具名称', 'Tool name')"></label><label>{{ copy('分组', 'Group') }}<input v-model="tool.group" required maxlength="64" list="home-tool-groups"></label><label class="home-url-field">{{ copy('打开方式', 'Open with') }}<select :value="tool.launch?.application || 'website'" @change="setLaunch(tool, $event)"><option value="website">{{ copy('网站', 'Website') }}</option><option value="raycast">Raycast</option><option value="orca">Orca</option></select></label><label class="home-url-field">{{ copy('网站入口（浏览器回退）', 'Website destination (browser fallback)') }}<input v-model="tool.url" required type="url" maxlength="4096" placeholder="https://example.com"></label><label class="home-url-field">{{ copy('下载链接（可选）', 'Download URL (optional)') }}<input v-model="tool.downloadUrl" type="url" maxlength="4096" name="downloadUrl" placeholder="https://example.com/download"></label><label class="home-url-field">{{ copy('GitHub / 源码链接（可选）', 'GitHub / source URL (optional)') }}<input v-model="tool.repositoryUrl" type="url" maxlength="4096" name="repositoryUrl" placeholder="https://github.com/owner/repository"></label><label v-if="tool.launch?.application === 'raycast'" class="home-url-field">{{ copy('Raycast 命令链接（可选）', 'Raycast command deeplink (optional)') }}<input v-model="tool.launch.commandUrl" maxlength="4096" placeholder="raycast://extensions/owner/extension/command"><span>{{ copy('从已安装命令复制 Deeplink，留空则打开 Raycast。不支持链接参数。', 'Copy Deeplink from an installed command. Leave blank to open Raycast. URL parameters are not supported.') }}</span></label><label class="home-url-field">{{ copy('描述（可选）', 'Description (optional)') }}<input v-model="tool.description" maxlength="512"></label><button type="button" class="home-remove-tool" @click="draft.splice(index, 1)">{{ copy('删除工具', 'Remove tool') }}</button></fieldset>
+      <fieldset v-for="(tool, index) in draft" :key="tool.id" :disabled="saving" class="home-tool-editor"><legend>{{ copy('工具', 'Tool') }} {{ index + 1 }}</legend><label>{{ copy('名称', 'Name') }}<input v-model="tool.title" required maxlength="128" :placeholder="copy('工具名称', 'Tool name')"></label><label>{{ copy('分组', 'Group') }}<input v-model="tool.group" required maxlength="64" list="home-tool-groups"></label><label class="home-url-field">{{ copy('打开方式', 'Open with') }}<select :value="tool.launch?.application || 'website'" @change="setLaunch(tool, $event)"><option value="website">{{ copy('网站', 'Website') }}</option><option value="raycast">Raycast</option><option value="orca">Orca</option></select></label><label class="home-url-field">{{ copy('网站入口（浏览器回退）', 'Website destination (browser fallback)') }}<input v-model="tool.url" required type="url" maxlength="4096" placeholder="https://example.com"></label><label class="home-url-field">{{ copy('下载链接（可选）', 'Download URL (optional)') }}<input v-model="tool.downloadUrl" type="url" maxlength="4096" name="downloadUrl" placeholder="https://example.com/download"></label><label class="home-url-field">{{ copy('GitHub / 源码链接（可选）', 'GitHub / source URL (optional)') }}<input v-model="tool.repositoryUrl" type="url" maxlength="4096" name="repositoryUrl" placeholder="https://github.com/owner/repository"></label><label class="home-url-field">{{ copy('官方图标链接（可选）', 'Official icon URL (optional)') }}<input v-model="tool.iconUrl" type="url" maxlength="4096" name="iconUrl" placeholder="https://example.com/icon.png" @input="delete tool.macosIconUrl; delete tool.iconStyle; delete tool.iconScale"></label><label v-if="tool.iconUrl && !toolArtwork(tool).macosIconUrl" class="home-url-field">{{ copy('图标外形', 'Icon shape') }}<select :value="toolArtwork(tool).iconStyle || 'original'" @change="tool.iconStyle = ($event.target as HTMLSelectElement).value as 'original' | 'rounded'"><option value="original">{{ copy('保留原有形状', 'Preserve original shape') }}</option><option value="rounded">{{ copy('方形图片添加圆角', 'Round square artwork') }}</option></select></label><label v-if="tool.launch?.application === 'raycast'" class="home-url-field">{{ copy('Raycast 命令链接（可选）', 'Raycast command deeplink (optional)') }}<input v-model="tool.launch.commandUrl" maxlength="4096" placeholder="raycast://extensions/owner/extension/command"><span>{{ copy('从已安装命令复制 Deeplink，留空则打开 Raycast。不支持链接参数。', 'Copy Deeplink from an installed command. Leave blank to open Raycast. URL parameters are not supported.') }}</span></label><label class="home-url-field">{{ copy('描述（可选）', 'Description (optional)') }}<input v-model="tool.description" maxlength="512"></label><button type="button" class="home-remove-tool" @click="draft.splice(index, 1)">{{ copy('删除工具', 'Remove tool') }}</button></fieldset>
       <datalist id="home-tool-groups"><option v-for="group in [...new Set(draft.map(tool => tool.group))]" :key="group" :value="group" /></datalist>
       <UiButton type="button" :disabled="saving || draft.length >= 100" @click="addTool"><Icon name="plus" />{{ copy('添加工具', 'Add tool') }}</UiButton>
       <p v-if="!draft.length" class="home-hint">{{ copy('尚无常用工具，可添加网站或本机应用。', 'No favorite tools yet. Add a website or local application.') }}</p>
@@ -204,15 +224,10 @@ async function reloadDraft(): Promise<void> {
 .home-tool-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 170px), 1fr)); gap: 8px; }
 .home-tool { display: flex; align-items: center; gap: 10px; min-width: 0; min-height: 64px; padding: 10px; border: 0; border-radius: var(--control-radius); color: var(--text); background: var(--surface-subtle); text-decoration: none; }
 .home-tool:hover { background: var(--surface-hover); }
-.home-tool-card { display: flex; flex-direction: column; min-width: 0; border: 0; border-radius: var(--control-radius); background: var(--surface-subtle); }
+.home-tool-card { display: grid; grid-template-rows: 64px 32px; padding-bottom: 8px; min-width: 0; border: 0; border-radius: var(--control-radius); background: var(--surface-subtle); }
 .home-tool-card:hover, .home-tool-card:focus-within { background: var(--surface-hover); }
-.home-tool-card > .home-tool { flex: 1; background: transparent; }
-.home-tool-links { display: flex; flex-wrap: wrap; gap: 4px 12px; padding: 0 10px 8px 52px; }
-.home-tool-links a { display: inline-flex; align-items: center; gap: 4px; min-height: 20px; color: var(--accent); font-size: var(--font-size-caption); text-decoration: none; }
-.home-tool-links a:hover { text-decoration: underline; }
-.home-tool-links .app-icon { width: 12px; height: 12px; }
-.home-tool-mark { display: flex; flex: none; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: 7px; color: var(--text); background: var(--surface); font-size: 16px; font-weight: 600; }
-.home-tool-mark :deep(.app-icon) { width: 22px; height: 22px; }
+.home-tool-card > .home-tool { background: transparent; }
+.home-tool-links { padding: 0 10px 0 52px; }
 .home-tool-copy { min-width: 0; flex: 1; }
 .home-tool strong, .home-tool small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .home-tool strong { font-size: var(--font-size-body); font-weight: 500; line-height: 20px; }
@@ -233,9 +248,9 @@ async function reloadDraft(): Promise<void> {
 .home-icon-button > .app-icon { width: 15px; height: 15px; }
 .home-icon-button:hover { background: var(--surface-hover); color: var(--text); }
 .home-icon-button:disabled { opacity: .55; cursor: default; }
-.home-text-button:focus-visible, .home-icon-button:focus-visible, .home-tool:focus-visible, .home-tool-links a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.home-text-button:focus-visible, .home-icon-button:focus-visible, .home-tool:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 @media (max-width: 767.9px), (pointer: coarse) { .home-tool-editor input, .home-tool-editor select { font-size: 16px; } }
-@media (max-width: 600px) { .home-tools { padding: 16px; } .home-tool-editor { grid-template-columns: 1fr; } .home-tool-grid { grid-template-columns: 1fr; } .home-tool-links { padding-left: 10px; } }
+@media (max-width: 600px) { .home-tools { padding: 16px; } .home-tool-editor { grid-template-columns: 1fr; } .home-tool-grid { grid-template-columns: 1fr; } }
 </style>
 
 <style>

@@ -14,6 +14,8 @@ Keep the runtime vendor-neutral. Agent integrations belong behind adapters; edit
 
 Keep runtime code, fixtures, examples, documentation, and tests free of organization-specific product, account-system, package-scope, registry, editor, and intranet-domain names. Those belong only in downstream distributions. Run `pnpm check:public-boundary`; CI treats any denylist match as a hard failure.
 
+The sole data exception is `packages/craft-hub/catalogs/workstation.config.ts`: this copied, statically parsed catalog may name public third-party software. Workstation owns `software.config.ts`; never edit the snapshot manually. Refresh it with `pnpm software-catalog:sync <software.config.ts>` as described in `docs/guide/software-catalog.md`. Private sources and machine state stay outside the catalog.
+
 ## Safety boundary
 
 Capability discovery is read-only. A new project is `untrusted`, and command execution requires explicit trust. Represent execution as `command` plus `args`, set `shell: false`, and preserve the project working directory. Add raw shell support only through an explicit future config surface with its own review.

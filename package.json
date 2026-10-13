@@ -8,7 +8,7 @@
     "node": "^22.18.0 || ^24.11.0 || >=26.0.0"
   },
   "scripts": {
-    "build": "nr -r build && node packages/craft-hub/scripts/prepare-package.mjs",
+    "build": "pnpm software-catalog:check && nr -r build && node packages/craft-hub/scripts/prepare-package.mjs",
     "build:mac": "pnpm build && pnpm run package:mac",
     "build:tauri": "pnpm build && pnpm --filter @craft-hub/tauri-trial build:trial",
     "dev": "tsx scripts/dev-environment.ts desktop",
@@ -26,6 +26,8 @@
     "release": "bumpp -r",
     "schema:project": "tsx scripts/generate-project-config-schema.ts",
     "schema:project:check": "tsx scripts/generate-project-config-schema.ts --check",
+    "software-catalog:sync": "tsx scripts/sync-software-catalog.ts",
+    "software-catalog:check": "tsx scripts/sync-software-catalog.ts --check",
     "test": "vitest",
     "typecheck": "tsc --noEmit",
     "prepare": "simple-git-hooks"

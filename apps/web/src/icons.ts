@@ -1,7 +1,7 @@
 import type { VNode } from 'vue'
 import { h } from 'vue'
 
-export type IconName = 'arrowDown' | 'arrowRight' | 'briefcase' | 'calendar' | 'chart' | 'chatgpt' | 'check' | 'claude' | 'close' | 'cloud' | 'code' | 'codex' | 'collection' | 'compass' | 'copy' | 'cursor' | 'database' | 'design' | 'docs' | 'drag' | 'edit' | 'error' | 'experiment' | 'externalLink' | 'folder' | 'folderOpen' | 'gemini' | 'git' | 'gitMerge' | 'gitRepository' | 'help' | 'homebrew' | 'hub' | 'keyboard' | 'link' | 'list' | 'loading' | 'mobile' | 'more' | 'nodejs' | 'package' | 'palette' | 'perplexity' | 'personal' | 'plugins' | 'plus' | 'pnpm' | 'raycast' | 'rocket' | 'search' | 'security' | 'settings' | 'source' | 'star' | 'starFilled' | 'stop' | 'team' | 'terminal' | 'terminalApp' | 'skill' | 'play' | 'transfer' | 'trusted' | 'untrusted' | 'refresh' | 'vscode' | 'web' | 'workspace'
+export type IconName = 'arrowDown' | 'arrowRight' | 'briefcase' | 'calendar' | 'chart' | 'chatgpt' | 'check' | 'claude' | 'close' | 'cloud' | 'code' | 'codex' | 'collection' | 'compass' | 'copy' | 'cursor' | 'database' | 'design' | 'docs' | 'download' | 'drag' | 'edit' | 'error' | 'experiment' | 'externalLink' | 'folder' | 'folderOpen' | 'gemini' | 'git' | 'gitMerge' | 'gitRepository' | 'help' | 'homebrew' | 'hub' | 'keyboard' | 'link' | 'list' | 'loading' | 'mobile' | 'more' | 'nodejs' | 'package' | 'palette' | 'perplexity' | 'personal' | 'plugins' | 'plus' | 'pnpm' | 'raycast' | 'rocket' | 'search' | 'security' | 'settings' | 'source' | 'star' | 'starFilled' | 'stop' | 'team' | 'terminal' | 'terminalApp' | 'skill' | 'play' | 'transfer' | 'trusted' | 'untrusted' | 'refresh' | 'vscode' | 'web' | 'workspace'
 
 export const visualIconNames = ['workspace', 'folder', 'hub', 'briefcase', 'code', 'docs', 'design', 'database', 'package', 'rocket', 'team', 'experiment', 'security', 'cloud', 'mobile', 'web', 'terminal', 'skill', 'settings', 'calendar', 'chart', 'list'] as const satisfies readonly IconName[]
 
@@ -23,6 +23,7 @@ export const iconClasses: Record<Exclude<IconName, 'codex' | 'cursor' | 'plugins
   database: 'i-ri-database-2-line',
   design: 'i-ri-brush-line',
   docs: 'i-ri-file-text-line',
+  download: 'i-ri-download-2-line',
   drag: 'i-ri-draggable',
   edit: 'i-ri-edit-line',
   error: 'i-ri-error-warning-fill',

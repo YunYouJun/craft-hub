@@ -55,6 +55,10 @@ const catalog: SoftwareCatalogSnapshot = {
         title: { en: 'Assistant', zh: '智能助手' },
         group: { id: 'ai', title: { en: 'AI tools', zh: 'AI 工具' } },
         url: 'https://assistant.example.com/',
+        iconUrl: 'https://assistant.example.com/icon.png',
+        macosIconUrl: 'https://assistant.example.com/mac.png',
+        iconScale: 1.25,
+        iconStyle: 'rounded',
         downloadUrl: 'https://downloads.example.com/special-build',
         repositoryUrl: 'https://github.com/example/special-source',
         description: 'A local coding assistant',
@@ -134,6 +138,7 @@ describe('software center', () => {
     useI18n().setLocale('en')
     useWorkbenchStore().settings = settings()
     vi.spyOn(api, 'softwareCatalog').mockResolvedValue(structuredClone(catalog))
+    vi.spyOn(api, 'softwareSources').mockResolvedValue({ version: 1, revision: 'empty', localAvailable: true, sources: [] })
     vi.spyOn(api, 'softwareInstallationRuns').mockResolvedValue({ version: 1, runs: [] })
     vi.spyOn(api, 'softwareInstallationPlan').mockImplementation(async (_sourceId, ids) => plan(ids))
     vi.spyOn(api, 'installSoftware').mockResolvedValue(run())
@@ -165,7 +170,8 @@ describe('software center', () => {
     expect(wrapper!.get('[data-software-id="editor"] h2 .app-icon').classes()).toContain('vscode-icon')
     expect(wrapper!.get('[data-software-id="assistant"] h2 .app-icon').classes()).toContain('i-ri-global-line')
     expect(wrapper!.text()).toContain('an undetected app may be installed elsewhere')
-    expect(wrapper!.find('img').exists()).toBe(false)
+    expect(wrapper!.find('[data-software-id="cli"] img').exists()).toBe(false)
+    expect(wrapper!.get('[data-software-id="assistant"] .software-icon img').attributes('src')).toBe('https://assistant.example.com/mac.png')
     expect(wrapper!.find('a a').exists()).toBe(false)
     expect(wrapper!.get('[aria-label="Download Assistant"]').attributes()).toMatchObject({ href: 'https://downloads.example.com/special-build', target: '_blank', rel: 'noopener noreferrer' })
     expect(wrapper!.get('[aria-label="GitHub / source Assistant"]').attributes('href')).toBe('https://github.com/example/special-source')
@@ -184,6 +190,40 @@ describe('software center', () => {
     expect(wrapper!.findAll('.software-card')).toHaveLength(2)
   })
 
+  it('browses, filters and favorites bundled software, then refreshes into local management', async () => {
+    const bundled = structuredClone(catalog)
+    bundled.sources[0]!.bundled = true
+    bundled.sources[0]!.items.forEach((item) => {
+      item.status = 'unknown'
+      item.canInstall = false
+      item.canOpen = false
+    })
+    vi.mocked(api.softwareCatalog).mockResolvedValueOnce(bundled)
+    await open()
+    expect(wrapper!.get('[data-testid="software-bundled-note"]').text()).toContain('without local installation checks')
+    expect(api.softwareInstallationRuns).not.toHaveBeenCalled()
+    expect(wrapper!.find('[data-testid="install-software"]').exists()).toBe(false)
+    expect(wrapper!.find('[data-testid="open-software"]').exists()).toBe(false)
+    await wrapper!.get('select').setValue(JSON.stringify(['local-source', 'ai']))
+    await wrapper!.get('input[type="search"]').setValue('special-build')
+    expect(wrapper!.findAll('.software-card')).toHaveLength(1)
+    await wrapper!.get('[data-software-id="assistant"] footer button').trigger('click')
+    await flushPromises()
+    expect(api.updateSettings).toHaveBeenCalledOnce()
+    expect(api.softwareInstallationPlan).not.toHaveBeenCalled()
+    expect(api.installSoftware).not.toHaveBeenCalled()
+    await wrapper!.get('select').setValue('')
+    await wrapper!.get('input[type="search"]').setValue('')
+    vi.mocked(api.softwareCatalog).mockResolvedValueOnce(managedCatalog())
+    await wrapper!.get('[data-testid="refresh-software"]').trigger('click')
+    await flushPromises()
+    expect(wrapper!.find('[data-testid="software-bundled-note"]').exists()).toBe(false)
+    expect(wrapper!.find('.software-source-error').exists()).toBe(false)
+    expect(wrapper!.findAll('[data-software-id="assistant"]')).toHaveLength(1)
+    expect(wrapper!.find('[data-testid="install-software"]').exists()).toBe(true)
+    expect(api.softwareInstallationRuns).toHaveBeenCalledOnce()
+  })
+
   it('reacts to locale changes without reading the catalog again', async () => {
     await open()
     useI18n().setLocale('zh-CN')
@@ -194,6 +234,18 @@ describe('software center', () => {
     expect(wrapper!.get('[data-software-id="editor"] h2').text()).toBe('Visual Studio Code')
     expect(wrapper!.get('select').text()).toContain('编辑器')
     expect(api.softwareCatalog).toHaveBeenCalledOnce()
+  })
+
+  it('explains that a repository cache does not include local installation checks', async () => {
+    const cached = structuredClone(catalog)
+    cached.sources[0]!.repositorySourceId = 'a'.repeat(24)
+    cached.sources[0]!.repositoryReadFrom = 'local'
+    cached.sources[0]!.items.forEach(item => item.status = 'unknown')
+    vi.mocked(api.softwareCatalog).mockResolvedValueOnce(cached)
+    await open()
+    expect(wrapper!.get('[data-testid="software-repository-note"]').text()).toContain('without local installation checks')
+    expect(wrapper!.find('[data-testid="install-software"]').exists()).toBe(false)
+    expect(wrapper!.text()).not.toContain('Review the source installation plan first')
   })
 
   it('adds independent links with the existing revision and retains pins and tools', async () => {
@@ -254,6 +306,7 @@ describe('software center', () => {
     await flushPromises()
     expect(useWorkbenchStore().settings!.settings['workbench.home'].tools).toHaveLength(1)
     expect(useWorkbenchStore().settings!.settings['workbench.home'].tools[0]!.title).toBe('Assistant')
+    expect(useWorkbenchStore().settings!.settings['workbench.home'].tools[0]!).toMatchObject({ iconUrl: 'https://assistant.example.com/icon.png', macosIconUrl: 'https://assistant.example.com/mac.png', iconScale: 1.25, iconStyle: 'rounded' })
   })
 
   it('retains the catalog and offers settings reload after a revision conflict before retrying', async () => {
@@ -314,7 +367,8 @@ describe('software center', () => {
     await open()
     expect(api.softwareInstallationRuns).not.toHaveBeenCalled()
     expect(wrapper!.find('[data-testid="install-software"]').exists()).toBe(false)
-    expect(wrapper!.get('[data-software-id="assistant"]').text()).toContain('Install manually from the official download page')
+    expect(wrapper!.get('[data-software-id="assistant"] .software-package').text()).toBe('Manual install')
+    expect(wrapper!.get('[data-software-id="assistant"] .software-package').attributes('title')).toBe('Install manually from the official download page')
     expect(wrapper!.get('[aria-label="Download Assistant"]').attributes('href')).toBe('https://downloads.example.com/special-build')
   })
 
@@ -357,6 +411,81 @@ describe('software center', () => {
     expect(dialog.textContent).toContain('Install the package manager first')
     expect(bodyButton('confirm-software-installation').disabled).toBe(true)
     expect(api.installSoftware).not.toHaveBeenCalled()
+  })
+
+  it('restores real download percentages in cards and history and replaces them with installation state', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    vi.mocked(api.softwareCatalog).mockResolvedValue(managedCatalog())
+    const downloading = run()
+    downloading.items[1]!.progress = { phase: 'downloading', percent: 42, resource: 'Bottle command-tool' }
+    vi.mocked(api.softwareInstallationRuns).mockResolvedValue({ version: 1, runs: [downloading] })
+    await open()
+    const card = () => wrapper!.get('[data-software-id="missing-cli"]')
+    const history = () => wrapper!.get('[data-install-item-id="missing-cli"]')
+    for (const area of [card(), history()]) {
+      expect(area.get('[role="progressbar"]').attributes('aria-valuenow')).toBe('42')
+      expect(area.text()).toContain('Downloading')
+    }
+    expect(history().text()).toContain('Bottle command-tool')
+    expect(card().find('[data-testid="install-software"]').exists()).toBe(false)
+    expect(card().get('[data-testid="stop-software-card-installation"]').attributes('aria-label')).toBe('Stop installing Missing CLI')
+    expect(card().find('button button').exists()).toBe(false)
+    wrapper!.unmount()
+    await open()
+    expect(card().get('[role="progressbar"]').attributes('aria-valuenow')).toBe('42')
+    expect(api.installSoftware).not.toHaveBeenCalled()
+
+    const unknown = structuredClone(downloading)
+    unknown.items[1]!.progress = { phase: 'downloading', resource: 'Next dependency' }
+    vi.mocked(api.softwareInstallationRuns).mockResolvedValue({ version: 1, runs: [unknown] })
+    await vi.advanceTimersByTimeAsync(1500)
+    await flushPromises()
+    expect(card().find('[role="progressbar"]').exists()).toBe(false)
+    expect(card().text()).toContain('Downloading')
+    expect(card().text()).not.toContain('%')
+
+    const installing = structuredClone(downloading)
+    installing.items[1]!.progress = { phase: 'installing' }
+    vi.mocked(api.softwareInstallationRuns).mockResolvedValue({ version: 1, runs: [installing] })
+    await vi.advanceTimersByTimeAsync(1500)
+    await flushPromises()
+    expect(wrapper!.find('[role="progressbar"]').exists()).toBe(false)
+    expect(card().text()).toContain('Installing')
+    expect(history().text()).toContain('Installing')
+
+    vi.mocked(api.cancelSoftwareInstallation).mockResolvedValue({ ...downloading, state: 'cancelling' })
+    await wrapper!.get('[data-testid="stop-software-installation"]').trigger('click')
+    await flushPromises()
+    expect(card().text()).toContain('Stopping')
+    expect(wrapper!.find('[role="progressbar"]').exists()).toBe(false)
+  })
+
+  it('stops the whole installation task from the card ring and prevents repeat requests while stopping', async () => {
+    vi.mocked(api.softwareCatalog).mockResolvedValue(managedCatalog())
+    const downloading = run()
+    downloading.items[0]!.state = 'queued'
+    downloading.items[1]!.progress = { phase: 'downloading', percent: 42 }
+    vi.mocked(api.softwareInstallationRuns).mockResolvedValue({ version: 1, runs: [downloading] })
+    let acknowledge!: (result: SoftwareInstallationRun) => void
+    vi.mocked(api.cancelSoftwareInstallation).mockImplementation(() => new Promise(resolve => acknowledge = resolve))
+    await open()
+    const card = wrapper!.get('[data-software-id="missing-cli"]')
+    const stop = card.get('[data-testid="stop-software-card-installation"]')
+    expect(stop.attributes('aria-label')).toBe('Stop the entire installation task, including remaining items')
+    expect(card.get('.software-progress-percent').text()).toBe('42%')
+    expect(card.get('.download-ring').text()).toBe('')
+    await stop.trigger('click')
+    expect(api.cancelSoftwareInstallation).toHaveBeenCalledExactlyOnceWith('local-source', 'run-one')
+    expect(stop.attributes('disabled')).toBeDefined()
+    expect(card.text()).toContain('Stopping')
+    expect(wrapper!.get('[data-install-item-id="missing-cli"]').text()).toContain('Stopping')
+    expect(wrapper!.get('[data-software-id="missing-editor"] [data-testid="stop-software-card-installation"]').attributes('disabled')).toBeDefined()
+    await stop.trigger('click')
+    expect(api.cancelSoftwareInstallation).toHaveBeenCalledOnce()
+    acknowledge({ ...downloading, state: 'cancelled', items: downloading.items.map(item => ({ ...item, state: 'cancelled', progress: undefined })) })
+    await flushPromises()
+    expect(card.find('[data-testid="stop-software-card-installation"]').exists()).toBe(false)
+    expect(card.get('[data-testid="install-software"]').attributes('disabled')).toBeUndefined()
   })
 
   it('polls only active jobs, refreshes detection after completion and stops polling on unmount', async () => {
