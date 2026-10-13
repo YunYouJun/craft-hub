@@ -202,7 +202,7 @@ describe('project rail', () => {
     wrapper.unmount()
   })
 
-  it('collects contributed workbenches under one workbenches destination without flattening extensions', async () => {
+  it('opens each contributed workbench directly and selects it independently without flattening member views', async () => {
     const store = useWorkbenchStore()
     store.integrationContributions = [{
       id: 'acme-issues',
@@ -221,6 +221,14 @@ describe('project rail', () => {
       title: 'Engineering',
       icon: 'builtin:briefcase',
       views: [{ type: 'integration', plugin: '@acme/craft-hub-plugin-issues', integration: 'acme-issues', view: 'overview' }],
+    }, {
+      id: 'engineering',
+      pluginId: '@acme/craft-hub-plugin-team',
+      pluginName: 'Acme Team',
+      pluginVersion: '1.0.0',
+      title: 'Team workspace',
+      icon: 'emoji:🌱',
+      views: [{ type: 'host', view: 'projects' }],
     }]
     const wrapper = mount(ProjectRail, {
       attachTo: document.body,
@@ -232,17 +240,44 @@ describe('project rail', () => {
     })
 
     expect(wrapper.find('[data-testid="open-integration-acme-issues-overview"]').exists()).toBe(false)
-    expect(wrapper.find('[data-testid="open-plugin-workbench-engineering"]').exists()).toBe(false)
-    const button = wrapper.get('[data-testid="open-workbenches"]')
-    expect(button.classes()).toContain('active')
-    expect(button.attributes('aria-current')).toBe('page')
+    const buttons = wrapper.findAll('.plugin-workbench-button')
+    expect(buttons.map(button => button.get('.activity-label').text())).toEqual(['Engineering', 'Team workspace'])
+    expect(buttons[0]!.find('.visual-icon .i-ri-briefcase-4-line').exists()).toBe(true)
+    expect(buttons[1]!.get('.visual-icon-emoji').text()).toBe('🌱')
+    expect(buttons[0]!.classes()).toContain('active')
+    expect(buttons[0]!.attributes('aria-current')).toBe('page')
+    expect(buttons[1]!.attributes('aria-current')).toBeUndefined()
+    expect(wrapper.get('[data-testid="open-workbenches"]').attributes('aria-current')).toBeUndefined()
     expect(wrapper.findAll('.activity-button[aria-current="page"]')).toHaveLength(1)
-    await button.trigger('click')
 
-    expect(wrapper.emitted('openWorkbenches')).toEqual([[]])
+    await buttons[0]!.trigger('click')
+    await wrapper.setProps({ collapsed: true })
+    expect(wrapper.get('.project-rail').classes()).toContain('activity-collapsed')
+    expect(buttons[1]!.attributes('aria-label')).toBe('Team workspace')
+    expect(buttons[1]!.attributes('title')).toBe('Team workspace')
+    await buttons[1]!.trigger('click')
+    expect(wrapper.emitted('openPluginWorkbench')).toEqual([
+      ['@acme/craft-hub-plugin-suite', 'engineering'],
+      ['@acme/craft-hub-plugin-team', 'engineering'],
+    ])
+    await wrapper.setProps({ activePluginWorkbenchPluginId: '@acme/craft-hub-plugin-team' })
+    expect(buttons[0]!.attributes('aria-current')).toBeUndefined()
+    expect(buttons[1]!.attributes('aria-current')).toBe('page')
+    expect(wrapper.findAll('.activity-button[aria-current="page"]')).toHaveLength(1)
+
     store.integrationContributions[0]!.views[0]!.showInSidebar = true
     await flushPromises()
     expect(wrapper.find('[data-testid="open-integration-acme-issues-overview"]').exists()).toBe(false)
+    await wrapper.setProps({ activeView: 'overview' })
+    expect(wrapper.findAll('.plugin-workbench-button[aria-current="page"]')).toHaveLength(0)
+    expect(wrapper.get('[data-testid="open-overview"]').attributes('aria-current')).toBe('page')
+
+    await wrapper.setProps({ activeView: 'plugin-workbench' })
+    store.pluginWorkbenches = store.pluginWorkbenches.slice(0, 1)
+    await flushPromises()
+    expect(wrapper.findAll('.plugin-workbench-button')).toHaveLength(1)
+    expect(wrapper.get('[data-testid="open-workbenches"]').attributes('aria-current')).toBe('page')
+    expect(wrapper.findAll('.activity-button[aria-current="page"]')).toHaveLength(1)
     wrapper.unmount()
   })
 

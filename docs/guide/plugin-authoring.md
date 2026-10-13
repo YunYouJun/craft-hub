@@ -141,6 +141,8 @@ This protocol requires a matching local source build until released. Do not publ
 
 Workbench view references accept an optional localized `group` (a string or `{ default, "zh-CN" }` object). The host resolves group copy and displays the ordered views in a grouped sidebar, with compact horizontal navigation on narrow screens. References still point to the original integration or navigation view; grouping adds no new execution capability.
 
+Each active contributed workbench also gets its own entry in the host's main navigation, using its localized title and icon. The entry opens the workbench directly and stays available when switching between projects and other workbenches, including with the sidebar collapsed. Workbenches remain listed on the home page and in the workbench overview; their member views stay grouped inside the workbench.
+
 Entity list and search blocks can declare `statusFilter: "active"` or `"all"`. Filtering applies to loaded results, can be combined with text search, and never changes remote data. Providers may return `statusLabel` and `statusCategory` alongside the native `status` code. Categories are `open`, `active`, `resolved`, `done`, `closed`, `cancelled`, and `unknown`. The active filter excludes the four terminal categories; missing or unknown categories remain visible. Always preserve the native code for transitions, and return the original `url` for source navigation.
 
 ### Work item identity and personal membership

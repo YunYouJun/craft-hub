@@ -26,7 +26,7 @@ const props = withDefaults(defineProps<{
   activePluginWorkbenchId?: string
   activePluginWorkbenchPluginId?: string
 }>(), { collapsed: false, activeView: 'workbench', activeIntegrationId: '', activeIntegrationViewId: '', activePluginWorkbenchId: '', activePluginWorkbenchPluginId: '' })
-const emit = defineEmits<{ openDiagnostics: [], openEnvironment: [], openTools: [], openWorkbenches: [], openIntegration: [integrationId: string, viewId: string], openMarketplace: [], openOverview: [], openSettings: [], openWorkbench: [] }>()
+const emit = defineEmits<{ openDiagnostics: [], openEnvironment: [], openTools: [], openWorkbenches: [], openPluginWorkbench: [pluginId: string, workbenchId: string], openIntegration: [integrationId: string, viewId: string], openMarketplace: [], openOverview: [], openSettings: [], openWorkbench: [] }>()
 const store = useWorkbenchStore()
 const { t, locale } = useI18n()
 const router = useRouter()
@@ -119,7 +119,12 @@ const hasSearchResults = computed(() => filteredWorkspaces.value.length > 0 || v
 const teamSyncNeedsAttention = computed(() => Boolean(store.activeTeamSyncStatus
   && (store.activeTeamSyncStatus.state !== 'clean' || store.activeTeamSyncStatus.workingTreeChanged)))
 const diagnosticCount = computed(() => store.workbenchDiagnostics.summary.errors + store.workbenchDiagnostics.summary.warnings)
-const activeSection = computed(() => classifyWorkbenchSection(props.activeView, store.integrationViews.find(view => view.integrationId === props.activeIntegrationId && view.id === props.activeIntegrationViewId)))
+const activePluginWorkbench = computed(() => props.activeView === 'plugin-workbench'
+  ? store.pluginWorkbenches.find(workbench => workbench.pluginId === props.activePluginWorkbenchPluginId && workbench.id === props.activePluginWorkbenchId)
+  : undefined)
+const activeSection = computed(() => activePluginWorkbench.value
+  ? undefined
+  : classifyWorkbenchSection(props.activeView, store.integrationViews.find(view => view.integrationId === props.activeIntegrationId && view.id === props.activeIntegrationViewId)))
 
 async function switchOwnerScope(value: unknown): Promise<void> {
   if (typeof value !== 'string')
@@ -891,6 +896,21 @@ function openWorkspace(workspaceId: string): void {
         <span class="activity-label" aria-hidden="true">{{ locale === 'zh-CN' ? '工作台' : 'Workbenches' }}</span>
       </button>
       <button
+        v-for="workbench in store.pluginWorkbenches"
+        :key="`${workbench.pluginId}:${workbench.id}`"
+        type="button"
+        class="activity-button plugin-workbench-button"
+        :class="{ active: activePluginWorkbench === workbench }"
+        :aria-current="activePluginWorkbench === workbench ? 'page' : undefined"
+        :data-testid="`open-plugin-workbench-${workbench.pluginId}-${workbench.id}`"
+        :aria-label="workbench.title"
+        :title="workbench.title"
+        @click="emit('openPluginWorkbench', workbench.pluginId, workbench.id)"
+      >
+        <VisualIcon :icon="workbench.icon" fallback="briefcase" />
+        <span class="activity-label" aria-hidden="true">{{ workbench.title }}</span>
+      </button>
+      <button
         type="button"
         class="activity-button marketplace-button"
         :class="{ active: activeView === 'marketplace' }"
@@ -1481,7 +1501,7 @@ function openWorkspace(workspaceId: string): void {
 <style scoped>
 .activity-rail { align-items: stretch; gap: 2px; padding: 10px 8px 8px; }
 .activity-rail .activity-button { display: flex; align-items: center; gap: 9px; width: 100%; height: 32px; min-width: 0; padding: 0 10px; border-radius: 6px; text-align: start; }
-.activity-rail .activity-button > .app-icon { width: 18px; height: 18px; flex: none; }
+.activity-rail .activity-button > .app-icon, .activity-rail .activity-button > .visual-icon { width: 18px; height: 18px; flex: none; }
 .activity-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; line-height: 1.3; }
 .activity-rail .activity-badge { position: static; flex: none; height: 18px; min-width: 18px; border: 0; border-radius: 9px; padding: 0 4px; font-size: 10px; }
 .activity-collapsed .activity-rail { padding-inline: 7px; }

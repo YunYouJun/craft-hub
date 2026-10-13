@@ -205,7 +205,7 @@ describe('app startup', () => {
     wrapper.unmount()
   })
 
-  it('opens installed workbenches and other integrations from one workbench section', async () => {
+  it('opens workbenches from the overview and switches them directly from main navigation and projects', async () => {
     stubStartupData()
     vi.spyOn(api, 'integrations').mockResolvedValue({ integrations: [{
       id: 'workspace',
@@ -222,6 +222,13 @@ describe('app startup', () => {
       pluginName: 'Daily suite',
       pluginVersion: '1.0.0',
       title: 'Daily work',
+      views: [{ type: 'host', view: 'projects' }],
+    }, {
+      id: 'daily',
+      pluginId: '@example/craft-hub-plugin-team',
+      pluginName: 'Team suite',
+      pluginVersion: '1.0.0',
+      title: 'Team work',
       views: [{ type: 'host', view: 'projects' }],
     }])
     const pinia = createPinia()
@@ -249,11 +256,27 @@ describe('app startup', () => {
 
     await wrapper.get('[data-testid="open-workbenches"]').trigger('click')
     await flushPromises()
-    await wrapper.get('[data-testid="workbench-entry-daily"]').trigger('click')
+    await wrapper.findAll('[data-testid="workbench-entry-daily"]')[0]!.trigger('click')
     await flushPromises()
     expect(router.currentRoute.value.name).toBe('plugin-workbench')
     expect(router.currentRoute.value.params).toEqual({ pluginId: '@example/craft-hub-plugin-daily', workbenchId: 'daily' })
-    expect(wrapper.get('[data-testid="open-workbenches"]').attributes('aria-current')).toBe('page')
+    expect(wrapper.get('[data-testid="open-workbenches"]').attributes('aria-current')).toBeUndefined()
+    expect(wrapper.get('[data-testid="open-plugin-workbench-@example/craft-hub-plugin-daily-daily"]').attributes('aria-current')).toBe('page')
+    expect(wrapper.get('.plugin-workbench-sidebar-header strong').text()).toBe('Daily work')
+
+    await wrapper.get('[data-testid="open-plugin-workbench-@example/craft-hub-plugin-team-daily"]').trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.params).toEqual({ pluginId: '@example/craft-hub-plugin-team', workbenchId: 'daily' })
+    expect(wrapper.get('.plugin-workbench-sidebar-header strong').text()).toBe('Team work')
+    expect(wrapper.get('[data-testid="open-plugin-workbench-@example/craft-hub-plugin-team-daily"]').attributes('aria-current')).toBe('page')
+    expect(wrapper.findAll('.activity-button[aria-current="page"]')).toHaveLength(1)
+
+    await wrapper.get('[data-testid="open-workbench"]').trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.path).toBe('/')
+    await wrapper.get('[data-testid="open-plugin-workbench-@example/craft-hub-plugin-daily-daily"]').trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.params).toEqual({ pluginId: '@example/craft-hub-plugin-daily', workbenchId: 'daily' })
     expect(wrapper.get('.plugin-workbench-sidebar-header strong').text()).toBe('Daily work')
     wrapper.unmount()
   })
