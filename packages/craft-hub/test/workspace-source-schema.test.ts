@@ -74,7 +74,7 @@ describe('workspace source schema', () => {
   it('ships a stable offline schema with the complete strict workspace structure', async () => {
     const content = await readFile(join(import.meta.dirname, '..', 'schema', 'workspace-source-v1.schema.json'), 'utf8')
     const schema = workspaceSourceJsonSchema()
-    expect(content).toBe(`${JSON.stringify(schema, null, 2)}\n`)
+    expect(content.replaceAll('\r\n', '\n')).toBe(`${JSON.stringify(schema, null, 2)}\n`)
     expect(workspaceSourceJsonSchema()).toEqual(schema)
     expect(schema).toMatchObject({
       $schema: 'https://json-schema.org/draft/2020-12/schema',
