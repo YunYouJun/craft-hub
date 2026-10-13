@@ -94,7 +94,7 @@ it('removes the CLI in explicit lightweight mode while retaining the SDK and nat
   await expect(access(join(root, 'node_modules/node-pty/prebuilds/darwin-arm64/spawn-helper'))).resolves.toBeUndefined()
 })
 
-it('refuses to prune a dependency linked outside the staging directory', async () => {
+it.each(['dir', 'junction'] as const)('refuses to prune a dependency linked outside the staging directory with a %s link', async (linkType) => {
   const root = await fixture()
   const external = await mkdtemp(join(tmpdir(), 'craft-hub-external-package-'))
   directories.push(external)
@@ -102,8 +102,35 @@ it('refuses to prune a dependency linked outside the staging directory', async (
   await writeFile(join(external, 'package.json'), JSON.stringify({ name: 'craft-hub' }))
   await writeFile(join(external, 'web/index.html'), 'external Web UI')
   await rm(join(root, 'node_modules/craft-hub'), { recursive: true })
-  await symlink(external, join(root, 'node_modules/craft-hub'))
+  await symlink(external, join(root, 'node_modules/craft-hub'), linkType)
 
   await expect(prepareDesktopPackage(root)).rejects.toThrow('must stay inside the deployed directory')
   expect(await readFile(join(external, 'web/index.html'), 'utf8')).toBe('external Web UI')
+})
+
+it('allows a dependency linked to another directory inside staging', async () => {
+  const root = await fixture()
+  const runtime = join(root, 'node_modules/craft-hub')
+  const internal = join(root, 'runtime-store/craft-hub')
+  await cp(runtime, internal, { recursive: true })
+  await rm(runtime, { recursive: true })
+  await symlink(internal, runtime, 'junction')
+
+  await prepareDesktopPackage(root)
+  await expect(access(join(internal, 'web'))).rejects.toThrow()
+  expect(await readFile(join(internal, 'dist/index.mjs'), 'utf8')).toBe('node_modules/craft-hub/dist/index.mjs')
+})
+
+it('refuses to traverse an external PTY prebuild directory sharing the staging path prefix', async () => {
+  const root = await fixture()
+  const external = `${root}-external`
+  directories.push(external)
+  await mkdir(join(external, 'win32-x64'), { recursive: true })
+  await writeFile(join(external, 'win32-x64/pty.node'), 'external native binary')
+  const prebuilds = join(root, 'node_modules/node-pty/prebuilds')
+  await rm(prebuilds, { recursive: true })
+  await symlink(external, prebuilds, 'junction')
+
+  await expect(prepareDesktopPackage(root)).rejects.toThrow('must stay inside the deployed directory')
+  expect(await readFile(join(external, 'win32-x64/pty.node'), 'utf8')).toBe('external native binary')
 })

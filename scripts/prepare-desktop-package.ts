@@ -1,6 +1,6 @@
 import type { DesktopCodexMode } from '../apps/desktop/src/build-info.ts'
 import { access, readdir, readFile, realpath, rm } from 'node:fs/promises'
-import { join, relative, resolve } from 'node:path'
+import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 
 /** Remove only known build inputs and duplicated resources from a deployed macOS desktop. */
 export async function prepareDesktopPackage(desktopDirectory: string, codexMode: DesktopCodexMode = 'bundled'): Promise<void> {
@@ -136,7 +136,7 @@ async function deployedDependency(root: string, name: string, expectedName = nam
 async function stagedDirectory(root: string, path: string): Promise<string> {
   const directory = await realpath(path)
   const offset = relative(root, directory)
-  if (offset === '..' || offset.startsWith('../') || resolve(root, offset) !== directory)
+  if (offset === '..' || offset.startsWith(`..${sep}`) || isAbsolute(offset) || resolve(root, offset) !== directory)
     throw new Error(`Desktop dependency must stay inside the deployed directory: ${path}`)
   return directory
 }
