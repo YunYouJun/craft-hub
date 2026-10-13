@@ -108,6 +108,10 @@ export interface CraftHubServerOptions {
   runtime?: CraftHubRuntime
   /** Canonical origin this host is reached through, required when a reverse proxy terminates TLS. */
   publicOrigin?: string
+  /** Optional host access gate, checked before static files, host adapters, and runtime routes. */
+  authorizeRequest?: (request: IncomingMessage) => boolean
+  /** Respond to a host adapter route after authorization; return true when the response is handled. */
+  handleHostRequest?: (request: IncomingMessage, response: ServerResponse) => boolean | Promise<boolean>
 }
 
 export interface CraftHubServerCloseOptions {
@@ -177,6 +181,8 @@ export async function startCraftHubServer(options: CraftHubServerOptions = {}): 
   let heartbeat: ReturnType<typeof setInterval> | undefined
   const handleRequest = async (request: IncomingMessage, response: ServerResponse): Promise<void> => {
     try {
+      if (await options.handleHostRequest?.(request, response))
+        return
       if (await handleAgentConnectionRequest(agentConnection, loopbackOrigin(), request, response))
         return
       if (await handleAccountRequest(runtime.accountProvider, request, response))
@@ -1197,9 +1203,24 @@ export async function startCraftHubServer(options: CraftHubServerOptions = {}): 
     }
   }
   const server = createServer((request, response) => {
-    const path = new URL(request.url ?? '/', 'http://localhost').pathname
-    const configurationRoute = /^\/api\/(?:owner-scopes|workspaces|workspace-groups|config-subscriptions|team-subscriptions)(?:\/|$)/.test(path)
-    void (configurationRoute ? runtime.withConfiguration(() => handleRequest(request, response)) : handleRequest(request, response))
+    try {
+      if (options.authorizeRequest && !options.authorizeRequest(request)) {
+        sendJson(response, 403, { error: 'Host access denied' })
+        return
+      }
+      const path = new URL(request.url ?? '/', 'http://localhost').pathname
+      const configurationRoute = /^\/api\/(?:owner-scopes|workspaces|workspace-groups|config-subscriptions|team-subscriptions)(?:\/|$)/.test(path)
+      const pending = configurationRoute ? runtime.withConfiguration(() => handleRequest(request, response)) : handleRequest(request, response)
+      void pending.catch(() => {
+        if (response.headersSent)
+          response.destroy()
+        else
+          sendJson(response, 500, { error: 'Request failed' })
+      })
+    }
+    catch {
+      sendJson(response, 400, { error: 'Invalid request' })
+    }
   })
 
   /** Loopback origin of this listening socket, used where only this device may reach the host. */

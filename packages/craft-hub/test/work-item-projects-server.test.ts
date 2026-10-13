@@ -74,6 +74,22 @@ it('rejects cross-site and non-JSON mutations and mismatched origins for reads a
   }
 })
 
+it('applies host authorization before association reads and writes', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'work-item-projects-host-access-'))
+  const runtime = new CraftHubRuntime({ dataDir: join(root, 'data'), configDir: join(root, 'config') })
+  const server = await startCraftHubServer({ runtime, port: 0, authorizeRequest: request => request.headers.authorization === 'Bearer authorized' })
+  try {
+    const endpoint = `${server.url}/api/work-item-projects`
+    expect((await fetch(endpoint)).status).toBe(403)
+    expect((await fetch(endpoint, { method: 'PATCH', headers, body: '{}' })).status).toBe(403)
+    expect((await fetch(endpoint, { headers: { authorization: 'Bearer authorized' } })).status).toBe(200)
+  }
+  finally {
+    await server.close()
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
 it('rejects a Host header that addresses another origin even for read-only association access', async () => {
   const root = await mkdtemp(join(tmpdir(), 'work-item-projects-rebinding-'))
   const runtime = new CraftHubRuntime({ dataDir: join(root, 'data'), configDir: join(root, 'config') })

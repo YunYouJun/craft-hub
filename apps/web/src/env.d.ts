@@ -10,6 +10,7 @@ type DesktopNavigation
 interface Window {
   craftHubDesktop?: {
     platform?: string
+    hostKind?: string
     copyText?: (text: string) => Promise<void>
     hostExtensions?: () => Promise<import('craft-hub').HostExtensionStatus>
     installHostExtension?: () => Promise<import('craft-hub').HostExtensionStatus>

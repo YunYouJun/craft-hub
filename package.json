@@ -10,8 +10,10 @@
   "scripts": {
     "build": "nr -r build && node packages/craft-hub/scripts/prepare-package.mjs",
     "build:mac": "pnpm build && pnpm run package:mac",
+    "build:tauri": "pnpm build && pnpm --filter @craft-hub/tauri-trial build:trial",
     "dev": "tsx scripts/dev-environment.ts desktop",
     "dev:web": "node --import tsx scripts/dev-environment.ts web",
+    "dev:tauri": "pnpm --filter @craft-hub/tauri-trial dev:trial",
     "check:public-boundary": "node scripts/check-public-boundary.mjs",
     "lint": "pnpm check:public-boundary && eslint --cache .",
     "package:mac": "tsx scripts/run-package-macos.ts",
