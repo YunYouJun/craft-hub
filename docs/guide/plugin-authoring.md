@@ -143,6 +143,37 @@ Workbench view references accept an optional localized `group` (a string or `{ d
 
 Entity list and search blocks can declare `statusFilter: "active"` or `"all"`. Filtering applies to loaded results, can be combined with text search, and never changes remote data. Providers may return `statusLabel` and `statusCategory` alongside the native `status` code. Categories are `open`, `active`, `resolved`, `done`, `closed`, `cancelled`, and `unknown`. The active filter excludes the four terminal categories; missing or unknown categories remain visible. Always preserve the native code for transitions, and return the original `url` for source navigation.
 
+### Work item identity and personal membership
+
+Host Providers can add `sourceRef` to a work item without changing legacy entity fields. The reference contains `providerId`, `instanceId`, `accountId`, `containerId`, `kind`, and the native `itemId`. The runtime supplies `context.integrationId`; use it for `instanceId`, and use the registered provider ID for `providerId`. These two fields are validated at the adapter boundary. Identity strings are nonempty, bounded and free of control characters; they retain their original case and whitespace. Equal display IDs in different accounts, containers or entity kinds remain distinct.
+
+Use `personalMembership: { accountId, relation: 'owned' | 'assigned' | 'unknown' }` for a source that can prove personal ownership or assignment. Its account must match the source reference and the page's authenticated `currentUser.id` before the host includes it in personal work. Do not invent assignees for personal tasks. Legacy providers retain exact assignee matching; missing identity never implies personal membership. Optional `dueDate: { dateTime, timeZone }` preserves provider-local time, while `updatedAt` and page `fetchedAt` are ISO instants with an offset.
+
+`work-items.get`, `list`, `search`, and status-update results validate the added fields. `workItemActionInput()` from `craft-hub/work-items` prepares the native `itemId`, full reference and legacy metadata for an adapter call. Providers remain responsible for authenticated access, native status mapping and business filters.
+
+### Pagination and reusable host views
+
+List and search providers return an opaque `nextCursor` on each page and accept it in the next query. Preserve the selected account, project, query and declarative block input across pages. Optional `coverage: 'complete' | 'partial'` describes the selected query scope; cursor exhaustion alone does not prove that all remote work was queried. A page may be empty and still offer a next cursor. The host deduplicates complete source identities, replaces old pages when account identity changes, rejects repeated cursors, and shows retry and stale-result states.
+
+A workbench may reference host-rendered views alongside integration and navigation views:
+
+```json
+{
+  "views": [
+    { "type": "host", "view": "work-items", "group": "Work items", "integrations": ["example-tasks"] },
+    { "type": "host", "view": "projects", "group": "Development" }
+  ]
+}
+```
+
+Omit `integrations` to use all eligible installed sources, or pass an empty array to select none. The work-items view only discovers global, unconfirmed read actions; it does not grant a plugin additional access or run project commands. Host references accept no scripts or execution options. These new references require a matching source build until released; set the published plugin's minimum host version to a release that contains this contract.
+
+The personal overview and host work-items view share their list and handoff components. A complete `sourceRef` enables a reviewed project link: an item override takes precedence over its typed container default, explicit `null` means no project, and clearing an override restores the default. A legacy item can still be handed off manually but cannot acquire a fabricated persistent identity.
+
+Links are stored separately from portable configuration in `work-item-projects.json` in the OS data directory. The file is version 1 and contains source references and project IDs; current project availability and trust come from the host registry. Missing directories and unregistered projects remain visible as unavailable links. Reading, linking and clearing do not grant trust, execute commands or change remote tasks. A new installation starts with empty links; existing handoff drafts had no persisted associations to migrate. Invalid or unsupported state files are preserved and reported.
+
+`GET /api/work-item-projects` returns a revisioned snapshot. `PATCH` accepts `{ revision, target: { type: 'item' | 'container', ref }, projectId }`; the container reference omits `itemId`. `DELETE` accepts `{ revision, target }`. Stale revisions return 409 and require a reviewed retry. Mutations require a same-origin JSON request and a local host. Cross-process writes use a SQLite transaction sidecar so process termination releases the lock; the association JSON itself is saved atomically. Do not include either machine-local file in shared settings or project metadata.
+
 ## Installing local host extensions
 
 Use the ordinary Craft Hub application for both public and private plugins. Host extensions supply executable providers, while Marketplace plugins declare their views and actions. A separate branded distribution is optional; installing private capabilities does not require one.
