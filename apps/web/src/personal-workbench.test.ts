@@ -51,6 +51,37 @@ describe('personal workbench data', () => {
     expect(new Set(sources.map(source => source.key)).size).toBe(3)
   })
 
+  it('includes only connection checks that can run globally without confirmation or writes', () => {
+    const safe = contribution('safe')
+    safe.actions.push({ id: 'status', title: 'Connection', operation: 'connection.status', effect: 'local-read', confirmation: 'never', effectiveConfirmation: 'never' })
+    safe.views[0]!.blocks.unshift({ id: 'connection', type: 'connection-status', actionId: 'status', input: { account: 'personal' } })
+    expect(homeWorkSources([safe], 'zh-CN')[0]!.connection).toEqual({ actionId: 'status', input: { account: 'personal', locale: 'zh-CN' } })
+
+    const confirmed = structuredClone(safe)
+    confirmed.actions[1]!.effectiveConfirmation = 'always'
+    const write = structuredClone(safe)
+    write.actions[1]!.effect = 'local-write'
+    const projectRequired = structuredClone(safe)
+    projectRequired.views[0]!.blocks[0]!.requiresProject = true
+    const missing = structuredClone(safe)
+    missing.actions.pop()
+    for (const source of [confirmed, write, projectRequired, missing])
+      expect(homeWorkSources([source], 'en')[0]!.connection).toBeUndefined()
+  })
+
+  it('uses localized block titles for grouped lists and falls back to the action title', () => {
+    const source = contribution()
+    source.translations = { 'zh-CN': { 'My work': '我的工作', 'Project todos': '项目待办', 'Work items': '工作项' } }
+    source.views[0]!.blocks[0]!.title = 'Project todos'
+    source.actions.push({ ...source.actions[0]!, id: 'work-items', title: 'Work items' })
+    source.views[0]!.blocks.push({ id: 'work-items', type: 'entity-list', actionId: 'work-items' })
+
+    expect(homeWorkSources([source], 'zh-CN')).toMatchObject([
+      { title: '我的工作', sectionTitle: '项目待办' },
+      { title: '我的工作', sectionTitle: '工作项' },
+    ])
+  })
+
   it('requires an exact account ID and omits archived and terminal work', () => {
     const page: IntegrationEntityPage = {
       currentUser: { id: 'user-1', label: 'Alice' },

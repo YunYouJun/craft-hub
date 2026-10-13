@@ -86,6 +86,7 @@ describe('global settings', () => {
     const home: PersonalWorkbenchHome = {
       tools: [{ id: 'docs', title: 'Project docs', url: 'https://docs.example.com/project', iconUrl: 'https://docs.example.com/icon.svg', group: 'Projects', description: 'Project reference' }],
       pinnedProjectIds: ['project-a', 'project-b'],
+      workItems: { groupByList: true, density: 'compact', showEmptyLists: false },
     }
     const updated = await service.update({ 'workbench.home': home }, initial.revision)
 
@@ -158,6 +159,8 @@ describe('global settings', () => {
     expect(() => personalWorkbenchHomeSchema.parse({ tools: Array.from({ length: 101 }, (_, index) => ({ ...tool, id: `tool-${index}` })) })).toThrow()
     expect(() => personalWorkbenchHomeSchema.parse({ tools: [], pinnedProjectIds: Array.from({ length: 201 }, (_, index) => `project-${index}`) })).toThrow()
     expect(() => personalWorkbenchHomeSchema.parse({ tools: [{ ...tool, command: 'open' }] })).toThrow()
+    expect(() => personalWorkbenchHomeSchema.parse({ tools: [], workItems: { groupByList: true, density: 'tiny', showEmptyLists: false } })).toThrow()
+    expect(() => personalWorkbenchHomeSchema.parse({ tools: [], workItems: { groupByList: true, density: 'compact', showEmptyLists: 'false' } })).toThrow()
   })
 
   it('keeps personal home settings local when exporting or importing portable settings', async () => {

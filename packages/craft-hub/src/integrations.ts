@@ -193,6 +193,11 @@ export interface IntegrationEntity {
   assignees?: Array<{ id: string, label?: string, url?: string, urlLabel?: string }>
   /** Provider-normalized presentation; native priority values remain in metadata. */
   priority?: { label: string, tone?: 'danger' | 'warning' | 'success' | 'info' | 'neutral' }
+  /** Provider-declared importance, independent of translated labels and presentation colors. */
+  important?: boolean
+  /** Provider-native project and item type, with display names for local classification. */
+  project?: { id: string, title: string }
+  type?: { id: string, title: string }
   description?: string
   metadata?: Record<string, string | number | boolean | null>
   /** Root-to-parent context, independent of this item's status and the current result filters. */
@@ -211,6 +216,8 @@ export interface IntegrationEntityQuery {
 
 export interface IntegrationEntityPage {
   items: IntegrationEntity[]
+  /** Available source containers, including empty lists; IDs match sourceRef.containerId. */
+  collections?: Array<{ id: string, title: string }>
   /** Identity of the account authorized with this provider, never inferred from the host user. */
   currentUser?: { id: string, label?: string }
   nextCursor?: string

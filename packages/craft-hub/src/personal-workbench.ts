@@ -54,17 +54,22 @@ export const personalWorkbenchToolSchema = z.object({
   launch: toolLaunchSchema.optional(),
 }).strict()
 
-/** Validate personal home links and locally pinned project identifiers without Node dependencies. */
+/** Validate personal home links, project pins and task display preferences without Node dependencies. */
 export const personalWorkbenchHomeSchema = z.object({
   tools: z.array(personalWorkbenchToolSchema).max(100).refine(tools => new Set(tools.map(tool => tool.id)).size === tools.length, 'Tool identifiers must be unique'),
   pinnedProjectIds: z.array(z.string().trim().min(1).max(128).refine(value => !value.includes('\0'), 'Pinned project identifier cannot contain NUL')).max(200).refine(ids => new Set(ids).size === ids.length, 'Pinned project identifiers must be unique').optional(),
+  workItems: z.object({
+    groupByList: z.boolean(),
+    density: z.enum(['comfortable', 'compact']),
+    showEmptyLists: z.boolean(),
+  }).strict().optional(),
 }).strict()
 
 /** One grouped tool entry with HTTPS website, download and source links and an optional application launcher. */
 export type PersonalWorkbenchTool = z.infer<typeof personalWorkbenchToolSchema>
 /** Supported application launch presets; Orca intentionally receives no project context. */
 export type PersonalWorkbenchToolLaunch = z.infer<typeof toolLaunchSchema>
-/** Personal tool shortcuts and project pins stored in the operating-system data directory. */
+/** Personal shortcuts, project pins and task display preferences stored in the operating-system data directory. */
 export type PersonalWorkbenchHome = z.infer<typeof personalWorkbenchHomeSchema>
 
 /** Outcome of a user-initiated tool handoff; Craft Hub does not transfer project or task context automatically. */

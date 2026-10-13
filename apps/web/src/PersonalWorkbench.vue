@@ -91,18 +91,18 @@ function prepareHandoff(projectId = '', work?: { source: HomeWorkSource, item: I
 </script>
 
 <template>
-  <WorkbenchViewFrame :title="copy('首页', 'Home')" :description="copy('汇总工作事项，确认项目上下文，交给合适的工具。', 'Review your work, confirm project context and hand off to the right tool.')" icon="builtin:hub">
+  <WorkbenchViewFrame :title="copy('首页', 'Home')" icon="builtin:hub">
     <div class="personal-home" data-testid="personal-workbench">
-      <div class="home-columns">
-        <div class="home-card"><WorkItemsOverview compact :refresh-key="props.refreshKey" @prepare-handoff="work => prepareHandoff('', work)" @open-integration="(id, view, scope) => emit('openIntegration', id, view, scope)" @open-marketplace="emit('openMarketplace')" /></div>
+      <div class="home-work-column"><WorkItemsOverview compact tabbed :refresh-key="props.refreshKey" @prepare-handoff="work => prepareHandoff('', work)" @open-integration="(id, view, scope) => emit('openIntegration', id, view, scope)" @open-marketplace="emit('openMarketplace')" /></div>
 
+      <aside class="home-support-column" :aria-label="copy('项目与工具', 'Projects and tools')">
         <section class="home-card home-projects">
           <div class="home-section-heading"><h2>{{ copy('常用项目', 'Projects') }}</h2><button v-if="store.hostEnvironment.capabilities.localProjectDirectories" class="home-text-button" :disabled="addingProject" @click="addProject"><Icon name="plus" />{{ copy('添加项目', 'Add project') }}</button></div>
           <p v-if="['idle', 'loading'].includes(store.projectsLoadState) && !displayedProjects.length" class="home-hint" role="status">{{ copy('正在读取项目…', 'Loading projects…') }}</p>
           <p v-else-if="store.projectsLoadState === 'error'" class="home-error" role="alert">{{ copy('项目未载入。', 'Projects could not be loaded.') }}<button class="home-text-button" @click="store.loadProjects()">{{ copy('重试', 'Retry') }}</button></p>
           <div v-else-if="!displayedProjects.length" class="home-empty"><Icon name="folder" /><strong>{{ copy('把项目放到工作台', 'Bring your projects here') }}</strong><p>{{ copy('添加本机项目，或从工作区订阅中导入。', 'Add a local project or import a workspace subscription.') }}</p></div>
           <div class="home-project-list"><div v-for="project in displayedProjects" :key="project.id" class="home-project-row">
-            <button class="home-project-open" @click="emit('openProject', project.id)"><span class="home-project-icon"><VisualIcon :icon="project.icon" fallback="folder" /></span><span><strong>{{ project.name }}</strong><small>{{ project.path }}</small></span></button>
+            <button class="home-project-open" :title="project.path" @click="emit('openProject', project.id)"><span class="home-project-icon"><VisualIcon :icon="project.icon" fallback="folder" /></span><span><strong>{{ project.name }}</strong><small>{{ project.path }}</small></span></button>
             <button class="home-icon-button" :aria-label="`${copy('准备交接', 'Prepare handoff')} ${project.name}`" @click="prepareHandoff(project.id)"><Icon name="copy" /></button>
             <button class="home-pin" :class="{ pinned: home.pinnedProjectIds?.includes(project.id) }" :disabled="saving || !store.settings" :aria-pressed="home.pinnedProjectIds?.includes(project.id) ?? false" :aria-label="`${home.pinnedProjectIds?.includes(project.id) ? copy('取消收藏', 'Unpin') : copy('收藏', 'Pin')} ${project.name}`" @click="togglePin(project.id)"><Icon :name="home.pinnedProjectIds?.includes(project.id) ? 'starFilled' : 'star'" /></button>
           </div></div>
@@ -110,9 +110,8 @@ function prepareHandoff(projectId = '', work?: { source: HomeWorkSource, item: I
           <div v-if="workspaces.length" class="home-workspaces"><span>{{ copy('工作区', 'Workspaces') }}</span><button v-for="workspace in workspaces" :key="workspace.id" @click="emit('openWorkspace', workspace.id)"><VisualIcon :icon="workspace.icon" fallback="workspace" />{{ workspace.name }}<Icon name="arrowRight" /></button></div>
           <p v-if="actionError" class="home-error" role="alert">{{ actionError }}</p>
         </section>
-      </div>
-
-      <PersonalTools compact @open-navigation="emit('openNavigation')" />
+        <PersonalTools compact @open-navigation="emit('openNavigation')" />
+      </aside>
 
       <section v-if="store.pluginWorkbenches.length || entries.length" class="home-integrations"><div class="home-section-heading"><h2>{{ copy('已接入的工作台', 'Connected workbenches') }}</h2><button class="home-text-button" @click="emit('openMarketplace')">{{ copy('管理插件', 'Manage plugins') }}<Icon name="arrowRight" /></button></div><div class="home-entry-grid">
         <button v-for="workbench in store.pluginWorkbenches" :key="`${workbench.pluginId}:${workbench.id}`" @click="emit('openPluginWorkbench', workbench.pluginId, workbench.id)"><VisualIcon :icon="workbench.icon" fallback="workspace" /><span><strong>{{ workbench.title }}</strong><small>{{ workbench.pluginName }}</small></span><Icon name="arrowRight" /></button>
@@ -126,12 +125,12 @@ function prepareHandoff(projectId = '', work?: { source: HomeWorkSource, item: I
 </template>
 
 <style scoped>
-.personal-home { display: grid; gap: 20px; }
-.home-columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; align-items: stretch; }
-.home-card, .home-integrations { min-width: 0; border: 1px solid var(--border); border-radius: var(--panel-radius); padding: 20px; background: var(--surface); }
-.home-card { min-height: 292px; }
-.home-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 28px; margin-bottom: 12px; }
-.home-section-heading h2 { margin: 0; font-size: var(--font-size-subheading); font-weight: 600; line-height: 22px; }
+.personal-home { display: grid; gap: 16px; }
+.home-support-column { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; gap: 16px; min-width: 0; }
+.home-card, .home-integrations { min-width: 0; border: 1px solid var(--border); border-radius: var(--panel-radius); padding: 12px 16px; background: var(--surface); }
+.home-work-column { min-width: 0; }
+.home-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 28px; margin-bottom: 6px; }
+.home-section-heading h2 { margin: 0; font-size: var(--font-size-body); font-weight: 600; line-height: 22px; }
 .home-text-button { display: inline-flex; align-items: center; justify-content: center; gap: 5px; min-height: 28px; border: 0; border-radius: 4px; padding: 3px 0; background: none; color: var(--accent); font: inherit; font-size: var(--font-size-control); cursor: pointer; }
 .home-text-button:hover { text-decoration: underline; }
 .home-text-button > .app-icon { flex: none; width: 14px; height: 14px; }
@@ -143,21 +142,20 @@ function prepareHandoff(projectId = '', work?: { source: HomeWorkSource, item: I
 .home-pin:disabled { opacity: .5; cursor: default; }
 .home-text-button:focus-visible, .home-icon-button:focus-visible, .home-pin:focus-visible, .home-project-open:focus-visible, .home-work-item:focus-visible, .home-workspaces > button:focus-visible, .home-entry-grid > button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .home-project-list { display: grid; }
-.home-project-row { display: flex; align-items: center; min-width: 0; min-height: 56px; gap: 2px; }
+.home-project-row { display: flex; align-items: center; min-width: 0; min-height: 50px; gap: 2px; }
 .home-project-row + .home-project-row { border-top: 1px solid var(--border); }
 .home-project-row:hover { background: var(--surface-subtle); }
-.home-project-open { display: flex; flex: 1; gap: 10px; align-items: center; min-width: 0; min-height: 56px; padding: 8px 6px 8px 0; border: 0; border-radius: 4px; background: none; text-align: left; color: var(--text); cursor: pointer; font: inherit; }
+.home-project-open { display: flex; flex: 1; gap: 8px; align-items: center; min-width: 0; min-height: 50px; padding: 6px 4px 6px 0; border: 0; border-radius: 4px; background: none; text-align: left; color: var(--text); cursor: pointer; font: inherit; }
 .home-project-icon { display: flex; flex: none; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 6px; background: var(--surface-subtle); color: var(--muted); }
 .home-project-icon :deep(.app-icon) { width: 18px; height: 18px; }
 .home-project-open > span:last-child { flex: 1; min-width: 0; }
 .home-project-open strong, .home-project-open small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.home-project-open strong { font-size: var(--font-size-body); font-weight: 500; line-height: 20px; }
+.home-project-open strong { font-size: 13px; font-weight: 500; line-height: 20px; }
 .home-project-open small { margin-top: 2px; font-size: var(--font-size-caption); line-height: 16px; color: var(--muted); }
 .home-show-projects { width: 100%; margin-top: 8px; }
-.home-workspaces { display: grid; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border); }
-.home-workspaces > span { margin-bottom: 6px; color: var(--muted); font-size: var(--font-size-caption); font-weight: 500; line-height: 18px; }
+.home-workspaces { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2px 12px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
+.home-workspaces > span { grid-column: 1 / -1; margin-bottom: 6px; color: var(--muted); font-size: var(--font-size-caption); font-weight: 500; line-height: 18px; }
 .home-workspaces > button, .home-entry-grid > button { display: flex; align-items: center; gap: 10px; min-width: 0; min-height: 38px; padding: 8px 0; border: 0; border-radius: 4px; background: none; color: var(--text); text-align: left; font: inherit; font-size: var(--font-size-body); cursor: pointer; }
-.home-workspaces > button + button { border-top: 1px solid var(--border); border-radius: 0; }
 .home-workspaces > button:hover, .home-entry-grid > button:hover { background: var(--surface-subtle); }
 .home-workspaces > button :deep(.app-icon) { flex: none; width: 16px; height: 16px; color: var(--muted); }
 .home-workspaces > button > .app-icon:last-child { margin-left: auto; width: 13px; height: 13px; }
@@ -182,6 +180,8 @@ function prepareHandoff(projectId = '', work?: { source: HomeWorkSource, item: I
 .home-work-item small { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 3px; color: var(--muted); font-size: var(--font-size-caption); line-height: 16px; }
 .home-entry-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); gap: 8px 20px; }
 .home-entry-grid > button { min-height: 56px; border-top: 1px solid var(--border); border-radius: 0; }
+.home-entry-grid > button > .visual-icon { flex: none; width: 24px; height: 24px; }
+.home-entry-grid > button :deep(.visual-icon-emoji) { font-size: 22px; }
 .home-entry-grid > button :deep(.app-icon) { flex: none; width: 18px; height: 18px; color: var(--muted); }
 .home-entry-grid > button > .app-icon:last-child { width: 13px; height: 13px; }
 .home-entry-grid > button > span:nth-child(2) { flex: 1; min-width: 0; }
@@ -197,6 +197,6 @@ function prepareHandoff(projectId = '', work?: { source: HomeWorkSource, item: I
 .home-handoff-preview { resize: vertical; font-size: var(--font-size-control) !important; line-height: 1.6; }
 .home-handoff-tools { display: flex; flex-wrap: wrap; gap: 16px; }
 @media (max-width: 767.9px), (pointer: coarse) { .home-tool-editor input, .home-tool-editor select, .home-handoff-form select, .home-handoff-form textarea { font-size: 16px; } }
-@media (max-width: 1000px) { .home-columns { grid-template-columns: 1fr; } .home-card { min-height: auto; } }
+@media (max-width: 680px) { .home-support-column { grid-template-columns: 1fr; } }
 @media (max-width: 600px) { .personal-home { gap: 16px; } .home-card, .home-integrations { padding: 16px; } .home-status { gap: 10px; } .home-status > span { flex-basis: calc(100% - 120px); } }
 </style>

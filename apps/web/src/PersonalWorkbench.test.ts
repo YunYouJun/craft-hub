@@ -370,7 +370,7 @@ describe('personal workbench', () => {
 
     expect(wrapper!.get('.home-projects [role="alert"]').text()).toContain('Projects could not be loaded')
     expect(wrapper!.get('.home-work [role="alert"]').text()).toContain('Work sources could not be loaded')
-    expect(wrapper!.find('[role="status"]').exists()).toBe(false)
+    expect(wrapper!.find('.home-work [role="status"]').exists()).toBe(false)
     expect(wrapper!.text()).not.toContain('Bring your projects here')
     expect(wrapper!.text()).not.toContain('Connect your work items')
     expect(api.invokeIntegrationAction).not.toHaveBeenCalled()

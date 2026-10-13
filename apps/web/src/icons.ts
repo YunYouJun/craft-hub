@@ -1,11 +1,18 @@
 import type { VNode } from 'vue'
 import { h } from 'vue'
 
-export type IconName = 'arrowDown' | 'arrowRight' | 'briefcase' | 'calendar' | 'chart' | 'chatgpt' | 'check' | 'claude' | 'close' | 'cloud' | 'code' | 'codex' | 'collection' | 'compass' | 'copy' | 'cursor' | 'database' | 'design' | 'docs' | 'download' | 'drag' | 'edit' | 'error' | 'experiment' | 'externalLink' | 'folder' | 'folderOpen' | 'gemini' | 'git' | 'gitMerge' | 'gitRepository' | 'help' | 'homebrew' | 'hub' | 'keyboard' | 'link' | 'list' | 'loading' | 'mobile' | 'more' | 'nodejs' | 'package' | 'palette' | 'perplexity' | 'personal' | 'plugins' | 'plus' | 'pnpm' | 'raycast' | 'rocket' | 'search' | 'security' | 'settings' | 'source' | 'star' | 'starFilled' | 'stop' | 'team' | 'terminal' | 'terminalApp' | 'skill' | 'play' | 'transfer' | 'trusted' | 'untrusted' | 'refresh' | 'vscode' | 'web' | 'workspace'
+export type IconName = 'bug' | 'story' | 'task' | 'pending' | 'progress' | 'review' | 'sun' | 'arrowDown' | 'arrowRight' | 'briefcase' | 'calendar' | 'chart' | 'chatgpt' | 'check' | 'claude' | 'close' | 'cloud' | 'code' | 'codex' | 'collection' | 'compass' | 'copy' | 'cursor' | 'database' | 'design' | 'docs' | 'download' | 'drag' | 'edit' | 'error' | 'experiment' | 'externalLink' | 'folder' | 'folderOpen' | 'gemini' | 'git' | 'gitMerge' | 'gitRepository' | 'help' | 'homebrew' | 'hub' | 'keyboard' | 'link' | 'list' | 'loading' | 'mobile' | 'more' | 'nodejs' | 'package' | 'palette' | 'perplexity' | 'personal' | 'plugins' | 'plus' | 'pnpm' | 'raycast' | 'rocket' | 'search' | 'security' | 'settings' | 'source' | 'star' | 'starFilled' | 'stop' | 'team' | 'terminal' | 'terminalApp' | 'skill' | 'play' | 'transfer' | 'trusted' | 'untrusted' | 'refresh' | 'vscode' | 'web' | 'workspace'
 
 export const visualIconNames = ['workspace', 'folder', 'hub', 'briefcase', 'code', 'docs', 'design', 'database', 'package', 'rocket', 'team', 'experiment', 'security', 'cloud', 'mobile', 'web', 'terminal', 'skill', 'settings', 'calendar', 'chart', 'list'] as const satisfies readonly IconName[]
 
 export const iconClasses: Record<Exclude<IconName, 'codex' | 'cursor' | 'plugins' | 'vscode'>, string> = {
+  bug: 'i-ri-bug-line',
+  story: 'i-ri-bookmark-line',
+  task: 'i-ri-checkbox-line',
+  pending: 'i-ri-checkbox-blank-circle-line',
+  progress: 'i-ri-progress-4-line',
+  review: 'i-ri-git-pull-request-line',
+  sun: 'i-ri-sun-line',
   arrowDown: 'i-ri-arrow-down-s-line',
   arrowRight: 'i-ri-arrow-right-s-line',
   briefcase: 'i-ri-briefcase-4-line',

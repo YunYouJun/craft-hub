@@ -7,8 +7,30 @@ export interface HomeWorkSource {
   integrationId: string
   viewId: string
   title: string
+  icon?: string
+  sectionTitle?: string
   actionId: string
   input: Record<string, unknown>
+  connection?: { actionId: string, input: Record<string, unknown> }
+}
+
+export interface HomeWorkGroup {
+  integrationId: string
+  title: string
+  sources: HomeWorkSource[]
+}
+
+/** Group lists by integration identity while preserving each list's read and navigation target. */
+export function homeWorkGroups(sources: HomeWorkSource[]): HomeWorkGroup[] {
+  const groups = new Map<string, HomeWorkGroup>()
+  for (const source of sources) {
+    const group = groups.get(source.integrationId)
+    if (group)
+      group.sources.push(source)
+    else
+      groups.set(source.integrationId, { integrationId: source.integrationId, title: source.title, sources: [source] })
+  }
+  return [...groups.values()]
 }
 
 /** Only unconfirmed, global reads may run when the overview opens. */
@@ -18,6 +40,11 @@ export function homeWorkSources(contributions: ResolvedIntegrationContribution[]
     for (const view of contribution.views) {
       if (view.scope === 'project')
         continue
+      const connectionBlock = view.blocks.find((block) => {
+        const action = contribution.actions.find(action => action.id === block.actionId)
+        return block.type === 'connection-status' && !block.requiresProject && action?.operation === 'connection.status'
+          && ['local-read', 'remote-read'].includes(action.effect) && action.effectiveConfirmation === 'never'
+      })
       for (const block of view.blocks) {
         const action = contribution.actions.find(action => action.id === block.actionId)
         if (block.type !== 'entity-list' || block.requiresProject || action?.operation !== 'work-items.list' || !['local-read', 'remote-read'].includes(action.effect) || action.effectiveConfirmation !== 'never')
@@ -29,9 +56,12 @@ export function homeWorkSources(contributions: ResolvedIntegrationContribution[]
             key,
             integrationId: contribution.id,
             viewId: view.id,
+            icon: view.icon,
             title: contribution.translations?.[locale]?.[view.title] ?? view.title,
+            sectionTitle: contribution.translations?.[locale]?.[block.title ?? action.title] ?? block.title ?? action.title,
             actionId: action.id,
             input,
+            ...(connectionBlock ? { connection: { actionId: connectionBlock.actionId, input: { ...connectionBlock.input, locale } } } : {}),
           })
         }
       }
@@ -52,6 +82,8 @@ export function workHandoffText(options: {
   if (options.work) {
     const { source, item } = options.work
     lines.push(`${label('事项', 'Work item')}: ${item.title}`, `${label('来源', 'Source')}: ${source.title} (${source.integrationId})`, `${label('事项 ID', 'Item ID')}: ${item.id}`)
+    if (source.sectionTitle)
+      lines.push(`${label('列表', 'List')}: ${source.sectionTitle}`)
     for (const key of ['workspaceId', 'type']) {
       if (item.metadata?.[key] !== undefined && item.metadata[key] !== null)
         lines.push(`${key}: ${item.metadata[key]}`)

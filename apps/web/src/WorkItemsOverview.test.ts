@@ -2,7 +2,7 @@
 /// <reference lib="dom" />
 
 import type { VueWrapper } from '@vue/test-utils'
-import type { IntegrationEntity, IntegrationEntityPage, ResolvedIntegrationContribution } from 'craft-hub'
+import type { IntegrationConnectionStatus, IntegrationEntity, IntegrationEntityPage, ResolvedIntegrationContribution } from 'craft-hub'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -31,6 +31,23 @@ function ownedItem(instanceId: string, title: string, containerId = 'list-1', ac
     personalMembership: { accountId, relation: 'owned' },
     statusCategory: 'unknown',
   }
+}
+
+function connectedWorkSource(id: string): ResolvedIntegrationContribution {
+  const source = workSource(id)
+  source.actions.push({ id: 'status', title: 'Connection', operation: 'connection.status', effect: 'remote-read', confirmation: 'never', effectiveConfirmation: 'never' })
+  source.views[0]!.blocks.unshift({ id: 'connection', type: 'connection-status', actionId: 'status' })
+  return source
+}
+
+function groupedWorkSource(): ResolvedIntegrationContribution {
+  const source = connectedWorkSource('source-a')
+  source.views[0]!.title = 'Issue tracker'
+  source.views[0]!.blocks[1]!.title = 'Project todos'
+  source.actions.push({ ...source.actions[0]!, id: 'work-items', title: 'Work items' })
+  source.views[0]!.blocks.push({ id: 'work-items', type: 'entity-list', actionId: 'work-items' })
+  source.views.push({ ...source.views[0]!, id: 'personal', title: 'Personal todos', blocks: [source.views[0]!.blocks[0]!, { id: 'personal', type: 'entity-list', actionId: 'list', title: 'Personal todos', input: { mode: 'personal' } }] })
+  return source
 }
 
 describe('shared work items overview', () => {
@@ -73,6 +90,282 @@ describe('shared work items overview', () => {
       throw new Error(`Missing source button: ${label}`)
     return candidate
   }
+
+  it('switches provider tabs with the keyboard, retains filters and keeps focus aggregated across providers', async () => {
+    useWorkbenchStore().integrationContributions = [connectedWorkSource('source-a'), connectedWorkSource('source-b')]
+    vi.mocked(api.invokeIntegrationAction).mockImplementation(async (id, action) => action === 'status'
+      ? { connected: true }
+      : { currentUser: { id: 'me' }, collections: [{ id: 'list-1', title: 'Personal' }, { id: 'list-2', title: 'Work' }], items: [ownedItem(id, `${id} personal`), ownedItem(id, `${id} work`, 'list-2')], coverage: 'complete' })
+    wrapper = mount(WorkItemsOverview, { props: { compact: true, tabbed: true }, attachTo: document.body })
+    await flushPromises()
+
+    const tabs = wrapper.get('[aria-label="Work sources"]').findAll('[role="tab"]')
+    expect(tabs[0]!.attributes('aria-selected')).toBe('true')
+    expect(source().isVisible()).toBe(true)
+    expect(source(1).isVisible()).toBe(false)
+    await source().get('.collection-choice[title="Work"]').trigger('click')
+    expect(source().text()).not.toContain('source-a personal')
+    vi.mocked(api.invokeIntegrationAction).mockClear()
+    ;(tabs[0]!.element as HTMLElement).focus()
+    await tabs[0]!.trigger('keydown', { key: 'ArrowRight' })
+    await vi.waitFor(() => expect(tabs[1]!.attributes('aria-selected')).toBe('true'))
+    expect(source().isVisible()).toBe(false)
+    expect(source(1).isVisible()).toBe(true)
+    expect(tabs[1]!.attributes('aria-controls')).toBe(source(1).attributes('id'))
+    expect(source(1).attributes('aria-labelledby')).toBe(tabs[1]!.attributes('id'))
+    expect(wrapper.findComponent({ name: 'TodayFocus' }).props('entries')).toHaveLength(4)
+    expect(api.invokeIntegrationAction).not.toHaveBeenCalled()
+
+    await tabs[0]!.trigger('keydown', { key: 'Enter' })
+    await flushPromises()
+    expect(source().get('.collection-choice[title="Work"]').attributes('aria-pressed')).toBe('true')
+    expect(source().text()).toContain('source-a work')
+    expect(source().text()).not.toContain('source-a personal')
+    await source().get('[aria-label="Refresh source-a"]').trigger('click')
+    await flushPromises()
+    expect(vi.mocked(api.invokeIntegrationAction).mock.calls.map(call => call[0])).toEqual(['source-a', 'source-a'])
+    expect(source().get('.collection-choice[title="Work"]').attributes('aria-pressed')).toBe('true')
+  })
+
+  it('shows only one grouped list at a time and retains list selection when changing providers', async () => {
+    useWorkbenchStore().integrationContributions = [groupedWorkSource(), workSource('source-b')]
+    vi.mocked(api.invokeIntegrationAction).mockImplementation(async (id, action, input) => action === 'status'
+      ? { connected: true }
+      : { currentUser: { id: 'me' }, items: [ownedItem(id, `${action} ${input?.mode ?? 'items'}`)] })
+    await open({ compact: true, tabbed: true })
+    const listTabs = source().get('[aria-label="Issue tracker lists"]').findAll('[role="tab"]')
+    const lists = source().findAll('.home-work-list')
+    expect(lists.map(list => list.isVisible())).toEqual([true, false, false])
+    await listTabs[2]!.trigger('keydown', { key: 'Enter' })
+    await flushPromises()
+    expect(lists.map(list => list.isVisible())).toEqual([false, false, true])
+    await lists[2]!.findAll('button').find(button => button.text() === 'View all')!.trigger('click')
+    expect(wrapper!.emitted('openIntegration')).toEqual([['source-a', 'personal', 'global']])
+
+    const tabs = wrapper!.get('[aria-label="Work sources"]').findAll('[role="tab"]')
+    await tabs[1]!.trigger('keydown', { key: 'Enter' })
+    await tabs[0]!.trigger('keydown', { key: 'Enter' })
+    await flushPromises()
+    expect(listTabs[2]!.attributes('aria-selected')).toBe('true')
+    expect(lists.map(list => list.isVisible())).toEqual([false, false, true])
+  })
+
+  it('exposes disconnected tabs, connects from the selected panel and falls back when a provider is removed', async () => {
+    const store = useWorkbenchStore()
+    const first = connectedWorkSource('source-a')
+    store.integrationContributions = [first, connectedWorkSource('source-b')]
+    vi.mocked(api.invokeIntegrationAction).mockImplementation(async (id, action) => action === 'status'
+      ? { connected: id !== 'source-b', message: 'Sign in to continue.' }
+      : { currentUser: { id: 'me' }, items: [] })
+    await open({ compact: true, tabbed: true })
+    const tabs = wrapper!.get('[aria-label="Work sources"]').findAll('[role="tab"]')
+    expect(tabs[1]!.find('.home-tab-attention').exists()).toBe(true)
+    await tabs[1]!.trigger('keydown', { key: 'Enter' })
+    await flushPromises()
+    expect(source(1).get('.home-connection').isVisible()).toBe(true)
+    expect(source(1).text()).toContain('Sign in to continue.')
+    await button('Connect account', 1).trigger('click')
+    expect(wrapper!.emitted('openIntegration')).toEqual([['source-b', 'work', 'global']])
+    store.integrationContributions = [first]
+    await flushPromises()
+    expect(source().isVisible()).toBe(true)
+    expect(wrapper!.get('[aria-label="Work sources"] [role="tab"]').attributes('aria-selected')).toBe('true')
+  })
+
+  it('groups lists from one integration across views while retaining distinct integrations and navigation', async () => {
+    const other = workSource('source-b')
+    other.views[0]!.title = 'Issue tracker'
+    useWorkbenchStore().integrationContributions = [groupedWorkSource(), other]
+    vi.mocked(api.invokeIntegrationAction).mockImplementation(async (id, action, input) => action === 'status'
+      ? { connected: true }
+      : { currentUser: { id: 'me' }, items: [ownedItem(id, `${id} ${action} ${input?.mode ?? 'items'}`)] })
+    await open({ compact: true })
+
+    expect(wrapper!.findAll('.home-work-source')).toHaveLength(2)
+    expect(source().get('.home-group-heading strong').text()).toBe('Issue tracker')
+    const lists = source().findAll('.home-work-list')
+    expect(lists).toHaveLength(3)
+    expect(lists.map(list => list.get('.home-list-heading strong').text())).toEqual(['Project todos', 'Work items', 'Personal todos'])
+    expect(lists.map(list => list.get('.home-work-item').text())).toEqual(['source-a list personal', 'source-a work-items items', 'source-a list personal'])
+    expect(source(1).findAll('.home-work-row')).toHaveLength(1)
+    await lists[2]!.findAll('button').find(button => button.text() === 'View all')!.trigger('click')
+    expect(wrapper!.emitted('openIntegration')).toEqual([['source-a', 'personal', 'global']])
+    await lists[1]!.get('[aria-label="Prepare handoff source-a work-items items"]').trigger('click')
+    expect(wrapper!.emitted('prepareHandoff')![0]![0]).toMatchObject({ source: { integrationId: 'source-a', actionId: 'work-items', sectionTitle: 'Work items' } })
+  })
+
+  it('shares the account check and connection notice then refreshes all lists from the group header', async () => {
+    useWorkbenchStore().integrationContributions = [groupedWorkSource()]
+    let connected = false
+    vi.mocked(api.invokeIntegrationAction).mockImplementation(async (_id, action) => action === 'status'
+      ? { connected, message: 'Connect your issue tracker account.' }
+      : { currentUser: { id: 'me' }, items: [] })
+    await open()
+
+    expect(wrapper!.findAll('.home-work-source')).toHaveLength(1)
+    expect(source().findAll('.home-connection')).toHaveLength(1)
+    expect(source().findAll('.home-work-list')).toHaveLength(3)
+    expect(api.invokeIntegrationAction).toHaveBeenCalledExactlyOnceWith('source-a', 'status', { locale: 'en' })
+    await button('Connect account').trigger('click')
+    expect(wrapper!.emitted('openIntegration')).toEqual([['source-a', 'work', 'global']])
+
+    connected = true
+    vi.mocked(api.invokeIntegrationAction).mockClear()
+    await source().get('[aria-label="Refresh Issue tracker"]').trigger('click')
+    await flushPromises()
+    expect(source().find('.home-connection').exists()).toBe(false)
+    expect(api.invokeIntegrationAction).toHaveBeenCalledTimes(4)
+    expect(api.invokeIntegrationAction).toHaveBeenCalledWith('source-a', 'list', { mode: 'personal', limit: 20 })
+    expect(api.invokeIntegrationAction).toHaveBeenCalledWith('source-a', 'work-items', {})
+    expect(api.invokeIntegrationAction).toHaveBeenCalledWith('source-a', 'list', { mode: 'personal' })
+  })
+
+  it('keeps grouped list failures, retries and pagination independent', async () => {
+    const grouped = groupedWorkSource()
+    grouped.views.pop()
+    useWorkbenchStore().integrationContributions = [grouped]
+    vi.mocked(api.invokeIntegrationAction).mockImplementation(async (_id, action, input) => {
+      if (action === 'status')
+        return { connected: true }
+      if (action === 'work-items')
+        throw new Error('Unavailable')
+      return { currentUser: { id: 'me' }, items: [ownedItem('source-a', input?.cursor ? 'Next todo' : 'First todo', input?.cursor ? 'list-2' : 'list-1')], ...(input?.cursor ? {} : { nextCursor: 'next' }) }
+    })
+    await open()
+
+    expect(wrapper!.findAll('.home-work-source')).toHaveLength(1)
+    const lists = source().findAll('.home-work-list')
+    expect(lists[0]!.text()).toContain('First todo')
+    expect(lists[0]!.find('[role="alert"]').exists()).toBe(false)
+    expect(lists[1]!.get('[role="alert"]').text()).toContain('Could not load work items')
+    await lists[0]!.findAll('button').find(button => button.text() === 'Load more')!.trigger('click')
+    await flushPromises()
+    expect(lists[0]!.findAll('.home-work-row')).toHaveLength(2)
+    vi.mocked(api.invokeIntegrationAction).mockClear().mockResolvedValue({ currentUser: { id: 'me' }, items: [ownedItem('source-a', 'Recovered work item')] })
+    await lists[1]!.findAll('button').find(button => button.text() === 'Retry')!.trigger('click')
+    await flushPromises()
+    expect(api.invokeIntegrationAction).toHaveBeenCalledWith('source-a', 'work-items', {})
+    expect(api.invokeIntegrationAction).not.toHaveBeenCalledWith('source-a', 'list', expect.anything())
+    expect(lists[1]!.text()).toContain('Recovered work item')
+    expect(lists[0]!.findAll('.home-work-row')).toHaveLength(2)
+  })
+
+  it('keeps separate account checks and connection entries distinct within one integration', async () => {
+    const grouped = groupedWorkSource()
+    grouped.views[0]!.blocks[0]!.input = { account: 'personal' }
+    grouped.views[1]!.blocks[0] = { ...grouped.views[1]!.blocks[0]!, input: { account: 'team' } }
+    useWorkbenchStore().integrationContributions = [grouped]
+    vi.mocked(api.invokeIntegrationAction).mockImplementation(async (_id, _action, input) => ({ connected: false, message: `Connect ${input?.account}` }))
+    await open()
+
+    expect(wrapper!.findAll('.home-work-source')).toHaveLength(1)
+    expect(source().findAll('.home-connection').map(notice => notice.text())).toEqual([
+      expect.stringContaining('Connect personal'),
+      expect.stringContaining('Connect team'),
+    ])
+    expect(api.invokeIntegrationAction).toHaveBeenCalledTimes(2)
+    expect(api.invokeIntegrationAction).toHaveBeenCalledWith('source-a', 'status', { account: 'personal', locale: 'en' })
+    expect(api.invokeIntegrationAction).toHaveBeenCalledWith('source-a', 'status', { account: 'team', locale: 'en' })
+    const notices = source().findAll('.home-connection')
+    await notices[1]!.get('button').trigger('click')
+    expect(wrapper!.emitted('openIntegration')).toEqual([['source-a', 'personal', 'global']])
+  })
+
+  it('shows the authorization reason and a connection entry before attempting an unauthenticated work read', async () => {
+    useWorkbenchStore().integrationContributions = [connectedWorkSource('source-a')]
+    vi.mocked(api.invokeIntegrationAction).mockResolvedValue({ connected: false, message: 'Authorize your personal account to read tasks.' })
+    await open()
+
+    expect(api.invokeIntegrationAction).toHaveBeenCalledExactlyOnceWith('source-a', 'status', { locale: 'en' })
+    expect(source().get('[role="status"]').text()).toContain('Account connection required')
+    expect(source().text()).toContain('Authorize your personal account')
+    expect(source().find('[role="alert"]').exists()).toBe(false)
+    await button('Connect account').trigger('click')
+    expect(wrapper!.emitted('openIntegration')).toEqual([['source-a', 'work', 'global']])
+    expect(api.invokeIntegrationAction).toHaveBeenCalledOnce()
+  })
+
+  it('loads work after authorization and clears previous results if the account is disconnected', async () => {
+    useWorkbenchStore().integrationContributions = [connectedWorkSource('source-a')]
+    let connected = false
+    vi.mocked(api.invokeIntegrationAction).mockImplementation(async (_integrationId, actionId) => actionId === 'status'
+      ? { connected }
+      : { currentUser: { id: 'me' }, items: [ownedItem('source-a', 'Authorized task')], fetchedAt: '2026-10-12T01:00:00Z' })
+    await open({ compact: true })
+    expect(source().text()).toContain('Account connection required')
+
+    connected = true
+    await wrapper!.get('[aria-label="Refresh my work"]').trigger('click')
+    await flushPromises()
+    expect(source().text()).toContain('Authorized task')
+    expect(source().text()).not.toContain('Account connection required')
+
+    connected = false
+    await wrapper!.setProps({ refreshKey: 1 })
+    await flushPromises()
+    expect(source().text()).not.toContain('Authorized task')
+    expect(source().find('time').exists()).toBe(false)
+    expect(source().text()).toContain('Account connection required')
+  })
+
+  it('keeps work readable if an optional connection check fails and offers connection settings on a read failure', async () => {
+    useWorkbenchStore().integrationContributions = [connectedWorkSource('source-a')]
+    vi.mocked(api.invokeIntegrationAction).mockImplementation(async (_integrationId, actionId) => {
+      if (actionId === 'status')
+        throw new Error('Status unavailable')
+      return { currentUser: { id: 'me' }, items: [ownedItem('source-a', 'Available task')] }
+    })
+    await open()
+    expect(source().text()).toContain('Available task')
+
+    vi.mocked(api.invokeIntegrationAction).mockRejectedValue(new Error('Offline'))
+    await wrapper!.setProps({ refreshKey: 1 })
+    await flushPromises()
+    expect(source().get('[role="alert"]').text()).toContain('Check connection')
+    await button('Check connection').trigger('click')
+    expect(wrapper!.emitted('openIntegration')).toEqual([['source-a', 'work', 'global']])
+  })
+
+  it('does not start a work read from a late connection response for a removed source', async () => {
+    useWorkbenchStore().integrationContributions = [connectedWorkSource('source-a')]
+    let finish!: (status: IntegrationConnectionStatus) => void
+    vi.mocked(api.invokeIntegrationAction).mockImplementationOnce(() => new Promise(resolve => finish = resolve))
+    await open()
+    await wrapper!.setProps({ integrations: [] })
+    finish({ connected: true })
+    await flushPromises()
+
+    expect(api.invokeIntegrationAction).toHaveBeenCalledOnce()
+    expect(wrapper!.find('.home-work-source').exists()).toBe(false)
+  })
+
+  it('filters complete results by list, retains empty lists and refreshes only the selected source', async () => {
+    useWorkbenchStore().integrationContributions = [connectedWorkSource('source-a'), workSource('source-b')]
+    let refreshed = false
+    vi.mocked(api.invokeIntegrationAction).mockImplementation(async (id, actionId) => actionId === 'status'
+      ? { connected: true, accountLabel: 'Reader' }
+      : { currentUser: { id: 'me' }, collections: [{ id: 'list-1', title: 'Personal' }, { id: 'list-2', title: 'Work' }, { id: 'empty', title: 'Empty' }], items: [ownedItem(id, 'Personal task'), { ...ownedItem(id, refreshed ? 'Refreshed work task' : 'Work task', 'list-2'), priority: { label: 'Important' } }], coverage: 'complete' })
+    await open({ compact: true })
+    const choice = (title: string) => source().findAll('.collection-choice').find(button => button.attributes('title') === title)!
+    expect(choice('Empty').text()).toContain('0')
+    expect(source().text()).toContain('Connected')
+    await choice('Work').trigger('click')
+    await flushPromises()
+    expect(source().text()).toContain('Work task')
+    expect(source().text()).toContain('Important')
+    expect(source().text()).not.toContain('Personal task')
+    vi.mocked(api.invokeIntegrationAction).mockClear()
+    refreshed = true
+    await source().get('[aria-label="Refresh source-a"]').trigger('click')
+    await flushPromises()
+    expect(source().text()).toContain('Refreshed work task')
+    expect(choice('Work').attributes('aria-pressed')).toBe('true')
+    expect(vi.mocked(api.invokeIntegrationAction).mock.calls.map(call => call[0])).toEqual(['source-a', 'source-a'])
+    await choice('Empty').trigger('click')
+    await flushPromises()
+    expect(source().findAll('.home-work-row')).toHaveLength(0)
+    expect(source().text()).toContain('No pending work')
+  })
 
   it('shows owned personal work without assignees and keeps the same native IDs separate across integrations', async () => {
     const store = useWorkbenchStore()
@@ -257,7 +550,7 @@ describe('shared work items overview', () => {
     })
     await open({ compact: true })
 
-    expect(wrapper!.get('h2').text()).toBe('My work')
+    expect(wrapper!.get('.home-work h2').text()).toBe('My work')
     expect(source().findAll('.home-work-row')).toHaveLength(5)
     expect(source().text()).toContain('Partial preview')
     await button('Show loaded items').trigger('click')

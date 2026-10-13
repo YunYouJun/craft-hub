@@ -76,6 +76,15 @@ describe('work-item identities', () => {
 })
 
 describe('work-item presentation contracts', () => {
+  it('accepts provider-declared importance without inferring it from display labels', () => {
+    expect(workItemFieldsSchema.parse({ project: { id: 'p', title: 'Project' }, type: { id: 'story', title: 'Story' } })).toMatchObject({ project: { id: 'p' } })
+    expect(() => workItemFieldsSchema.parse({ project: { id: '', title: 'Invalid' } })).toThrow()
+    expect(() => workItemFieldsSchema.parse({ type: { id: 'story', title: 123 } })).toThrow()
+    expect(workItemFieldsSchema.parse({ important: true })).toEqual({ important: true })
+    expect(workItemFieldsSchema.parse({ priority: { label: 'Important' } })).not.toHaveProperty('important')
+    expect(() => workItemFieldsSchema.parse({ important: 'true' })).toThrow()
+  })
+
   it('keeps local due dates and timezone labels while requiring valid instant timestamps', () => {
     expect(workItemDueDateSchema.parse({ dateTime: '2026-10-15T18:00:00.0000000', timeZone: 'Pacific Standard Time' }))
       .toEqual({ dateTime: '2026-10-15T18:00:00.0000000', timeZone: 'Pacific Standard Time' })
@@ -95,6 +104,14 @@ describe('work-item presentation contracts', () => {
     expect(() => workItemPersonalMembershipSchema.parse({ accountId: 'account-1', relation: 'watching' })).toThrow()
     expect(() => workItemPersonalMembershipSchema.parse({ accountId: 'account-1', relation: 'owned', label: 'Me' })).toThrow()
     expect(() => workItemFieldsSchema.parse(ownedItem({ personalMembership: { accountId: 'account-2', relation: 'owned' } }))).toThrow(/source account/)
+  })
+
+  it('preserves optional deadline precision while keeping existing provider deadlines valid', () => {
+    const due = { dateTime: '2026-10-15T00:00:00', timeZone: 'UTC' }
+    expect(workItemDueDateSchema.parse(due)).toEqual(due)
+    expect(workItemDueDateSchema.parse({ ...due, precision: 'date' })).toEqual({ ...due, precision: 'date' })
+    expect(workItemFieldsSchema.parse({ dueDate: { ...due, precision: 'datetime' } })).toEqual({ dueDate: { ...due, precision: 'datetime' } })
+    expect(() => workItemDueDateSchema.parse({ ...due, precision: 'month' })).toThrow()
   })
 })
 

@@ -6,6 +6,7 @@ const identitySchema = z.string().min(1).max(512).refine(
   'Work item identities cannot contain control characters',
 )
 const instantSchema = z.iso.datetime({ offset: true }).max(64)
+const classificationSchema = z.object({ id: identitySchema, title: z.string().min(1).max(512) }).strict()
 
 /** Validate the provider, installation, account and typed container owning a work item. */
 export const workItemContainerRefSchema = z.object({
@@ -25,10 +26,11 @@ export const workItemPersonalMembershipSchema = z.object({
   relation: z.enum(['owned', 'assigned', 'unknown']),
 }).strict()
 
-/** Preserve the provider's due date and timezone; local date-times are not converted to UTC. */
+/** Preserve the provider's due date, precision and timezone without converting local values to UTC. */
 export const workItemDueDateSchema = z.object({
   dateTime: z.iso.datetime({ local: true, offset: true }).max(64),
   timeZone: identitySchema,
+  precision: z.enum(['date', 'datetime']).optional(),
 }).strict()
 
 /** Additional work-item fields accepted at a provider result boundary alongside legacy fields. */
@@ -37,6 +39,9 @@ export const workItemFieldsSchema = z.object({
   personalMembership: workItemPersonalMembershipSchema.optional(),
   dueDate: workItemDueDateSchema.optional(),
   updatedAt: instantSchema.optional(),
+  important: z.boolean().optional(),
+  project: classificationSchema.optional(),
+  type: classificationSchema.optional(),
 }).passthrough().superRefine((item, context) => {
   if (item.sourceRef && item.personalMembership && item.sourceRef.accountId !== item.personalMembership.accountId) {
     context.addIssue({
@@ -49,6 +54,7 @@ export const workItemFieldsSchema = z.object({
 
 /** Provider-declared coverage and snapshot time, independent of opaque pagination cursors. */
 export const workItemPageFieldsSchema = z.object({
+  collections: z.array(z.object({ id: identitySchema, title: z.string().min(1).max(512) }).strict()).optional(),
   coverage: z.enum(['complete', 'partial']).optional(),
   fetchedAt: instantSchema.optional(),
   nextCursor: z.string().min(1).max(8192).optional(),
@@ -60,7 +66,7 @@ export type WorkItemContainerRef = z.infer<typeof workItemContainerRefSchema>
 export type WorkItemSourceRef = z.infer<typeof workItemSourceRefSchema>
 /** Personal relationship declared by the provider rather than inferred from a host identity. */
 export type WorkItemPersonalMembership = z.infer<typeof workItemPersonalMembershipSchema>
-/** Provider-local deadline with its explicit timezone. */
+/** Provider-local deadline; date precision applies to the whole day in its explicit timezone. */
 export type WorkItemDueDate = z.infer<typeof workItemDueDateSchema>
 
 /** Return a collision-safe container key, preserving every identity field exactly. */
