@@ -1,10 +1,10 @@
 <script setup lang="ts">
+import { copyText } from './clipboard'
 import type { WorkspaceRecord } from 'craft-hub'
 import { computed, ref, watch } from 'vue'
 import AgentTaskOutput from './AgentTaskOutput.vue'
 import { Button as UiButton } from './components/ui/button'
 import { DialogShell } from './components/ui/dialog'
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from './components/ui/dropdown-menu'
 import EditorLauncher from './EditorLauncher.vue'
 import { Icon } from './icons'
 import { useI18n } from './i18n'
@@ -18,13 +18,11 @@ const selectedProjectIds = ref<string[]>([])
 const primaryProjectId = ref('')
 const openingCodex = ref(false)
 const openingLauncher = ref('')
-const startingInBackground = ref(false)
-const taskMenuOpen = ref(false)
 const error = ref('')
 const notice = ref('')
 const taskForm = ref<HTMLFormElement>()
 const promptInput = ref<HTMLTextAreaElement>()
-const pendingTrustedStart = ref<'codex' | 'background'>()
+const pendingTrustedStart = ref(false)
 
 const workspace = computed(() => store.selectedWorkspace)
 const projects = computed(() => workspace.value ? store.workspaceProjects(workspace.value) : [])
@@ -67,7 +65,7 @@ async function performStartInCodex(): Promise<void> {
       notice.value = t('codexPromptCopied')
     }
     else {
-      await navigator.clipboard.writeText(workspacePrompt)
+      await copyText(workspacePrompt)
       const query = new URLSearchParams({ path: primaryProject.path })
       window.location.href = `codex://threads/new?${query}`
       notice.value = t('codexPromptCopied')
@@ -82,44 +80,14 @@ async function performStartInCodex(): Promise<void> {
   }
 }
 
-async function performStartInBackground(): Promise<void> {
-  if (!workspace.value || !primaryProjectId.value || !selectedProjectIds.value.includes(primaryProjectId.value) || !prompt.value.trim())
-    return
-  startingInBackground.value = true
-  error.value = ''
-  notice.value = ''
-  try {
-    await store.startAgentTask(prompt.value.trim(), selectedProjectIds.value, primaryProjectId.value, workspace.value.id)
-    prompt.value = ''
-    notice.value = t('codexBackgroundStarted')
-  }
-  catch (caught) {
-    error.value = caught instanceof Error ? caught.message : String(caught)
-  }
-  finally {
-    startingInBackground.value = false
-  }
-}
-
 async function startInCodex(): Promise<void> {
   if (!workspace.value || !primaryProjectId.value || !selectedProjectIds.value.includes(primaryProjectId.value) || !prompt.value.trim())
     return
   if (selectedUntrustedProjects.value.length) {
-    pendingTrustedStart.value = 'codex'
+    pendingTrustedStart.value = true
     return
   }
   await performStartInCodex()
-}
-
-async function startInBackground(): Promise<void> {
-  taskMenuOpen.value = false
-  if (!workspace.value || !primaryProjectId.value || !selectedProjectIds.value.includes(primaryProjectId.value) || !prompt.value.trim())
-    return
-  if (selectedUntrustedProjects.value.length) {
-    pendingTrustedStart.value = 'background'
-    return
-  }
-  await performStartInBackground()
 }
 
 async function savePrimary(): Promise<void> {
@@ -162,19 +130,15 @@ function prepareWorkspaceCodexTask(): void {
 
 function updateTrustDialog(open: boolean): void {
   if (!open)
-    pendingTrustedStart.value = undefined
+    pendingTrustedStart.value = false
 }
 
 async function trustWorkspaceProjectsAndStart(): Promise<void> {
-  const action = pendingTrustedStart.value
   const projectIds = selectedUntrustedProjects.value.map(project => project.id)
-  if (!action || !await store.trustProjectsById(projectIds))
+  if (!pendingTrustedStart.value || !await store.trustProjectsById(projectIds))
     return
-  pendingTrustedStart.value = undefined
-  if (action === 'codex')
-    await performStartInCodex()
-  else
-    await performStartInBackground()
+  pendingTrustedStart.value = false
+  await performStartInCodex()
 }
 
 async function openWorkspaceInEditor(): Promise<void> {
@@ -269,21 +233,10 @@ async function openThread(threadId: string): Promise<void> {
       </ul>
       <p v-if="error" class="error-message">{{ error }}</p>
       <p v-if="notice" class="success-message">{{ notice }}</p>
-      <div class="agent-task-split-action">
-        <UiButton variant="primary" type="submit" data-testid="start-in-codex" :disabled="openingCodex || startingInBackground || !prompt.trim() || !primaryProjectId || (Boolean(desktopActions?.startWorkspaceInCodex) && !selectedProjectIds.includes(primaryProjectId))">
+      <div class="agent-task-actions">
+        <UiButton variant="primary" type="submit" data-testid="start-in-codex" :disabled="openingCodex || !prompt.trim() || !primaryProjectId || (Boolean(desktopActions?.startWorkspaceInCodex) && !selectedProjectIds.includes(primaryProjectId))">
           <Icon name="codex" /> {{ openingCodex ? t('openingCodex') : t('startInCodex') }}
         </UiButton>
-        <div class="agent-task-action-menu" :data-state="taskMenuOpen ? 'open' : 'closed'">
-          <DropdownMenu v-model:open="taskMenuOpen">
-            <DropdownMenuTrigger :aria-label="t('moreCodexTaskActions')" :title="t('moreCodexTaskActions')"><Icon name="arrowDown" /></DropdownMenuTrigger>
-            <DropdownMenuContent class="agent-task-action-menu-content" align="start">
-              <DropdownMenuItem data-testid="start-in-background" :disabled="openingCodex || startingInBackground || !prompt.trim() || !primaryProjectId || !selectedProjectIds.includes(primaryProjectId)" @select="startInBackground">
-                <Icon name="refresh" /> {{ startingInBackground ? t('startingTask') : t('runInCraftHubBackground') }}
-              </DropdownMenuItem>
-              <small>{{ t('codexTaskPermission') }}</small>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
       </div>
     </form>
 
@@ -299,7 +252,7 @@ async function openThread(threadId: string): Promise<void> {
       <p v-if="!tasks.length" class="empty">{{ t('noCodexTasks') }}</p>
     </section>
 
-    <DialogShell :open="Boolean(pendingTrustedStart)" content-class="workspace-trust-dialog" data-testid="workspace-trust-dialog" @update:open="updateTrustDialog">
+    <DialogShell :open="pendingTrustedStart" content-class="workspace-trust-dialog" data-testid="workspace-trust-dialog" @update:open="updateTrustDialog">
       <template #title>{{ t('trustWorkspaceProjectsTitle') }}</template>
       <template #description>{{ t('trustWorkspaceProjectsDescription', { count: String(selectedUntrustedProjects.length) }) }}</template>
       <ul class="workspace-trust-projects" data-testid="workspace-trust-projects">
@@ -311,7 +264,7 @@ async function openThread(threadId: string): Promise<void> {
       <p class="trust-scope-note"><Icon name="untrusted" /> <span><strong>{{ t('projectTrustScope') }}</strong>{{ t('projectTrustScopeDescription') }}</span></p>
       <p v-if="store.error" class="error-message" role="alert">{{ store.error }}</p>
       <footer>
-        <UiButton :disabled="store.busy" @click="pendingTrustedStart = undefined">{{ t('cancel') }}</UiButton>
+        <UiButton :disabled="store.busy" @click="pendingTrustedStart = false">{{ t('cancel') }}</UiButton>
         <UiButton data-testid="trust-workspace-projects-confirm" variant="warning" :disabled="store.busy" @click="trustWorkspaceProjectsAndStart"><Icon name="trusted" /> {{ store.busy ? t('allowingExecution') : t('trustAndStart') }}</UiButton>
       </footer>
     </DialogShell>

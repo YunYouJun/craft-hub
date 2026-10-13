@@ -106,9 +106,6 @@ describe('workspace Codex tasks', () => {
     expect((checkbox.element as HTMLInputElement).checked).toBe(true)
     expect(checkbox.attributes('disabled')).toBeUndefined()
     expect(wrapper.find('.project-trust').exists()).toBe(false)
-    await wrapper.get('.agent-task-action-menu [data-slot="dropdown-menu-trigger"]').trigger('click')
-    await flushPromises()
-    expect(document.body.querySelector<HTMLElement>('[data-testid="start-in-background"]')?.getAttribute('data-disabled')).toBeNull()
     expect(wrapper.text()).not.toContain('excluded')
 
     await wrapper.get('form').trigger('submit')
@@ -153,29 +150,6 @@ describe('workspace Codex tasks', () => {
     expect(trustProjectsById).toHaveBeenCalledWith([project.id, second.id])
     expect(startWorkspaceInCodex).toHaveBeenCalledWith(workspace.id, [project.id, second.id], project.id, 'Use Craft Hub workspace workspace-id.\n\nInspect both projects')
     expect(document.querySelector('[data-testid="workspace-trust-dialog"]')).toBeNull()
-  })
-
-  it('keeps unattended SDK execution in the secondary menu', async () => {
-    window.craftHubDesktop = { startProjectInCodex: vi.fn(async () => {}) }
-    const { store, wrapper } = setup()
-    const startAgentTask = vi.spyOn(store, 'startAgentTask').mockResolvedValue({
-      id: 'task-id',
-      provider: 'codex',
-      projectIds: [project.id],
-      primaryProjectId: project.id,
-      prompt: 'Run in background',
-      startedAt: '2026-01-01T00:00:00.000Z',
-      status: 'running',
-    } satisfies AgentTaskRecord)
-    await flushPromises()
-
-    await wrapper.get('textarea').setValue('Run in background')
-    await wrapper.get('.agent-task-action-menu [data-slot="dropdown-menu-trigger"]').trigger('click')
-    document.body.querySelector<HTMLElement>('[data-testid="start-in-background"]')?.click()
-    await flushPromises()
-
-    expect(startAgentTask).toHaveBeenCalledWith('Run in background', [project.id], project.id, workspace.id)
-    expect(wrapper.text()).toContain('running in Craft Hub')
   })
 
   it('keeps an SDK-owned running thread in Craft Hub until it is released', async () => {
