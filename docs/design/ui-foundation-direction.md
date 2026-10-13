@@ -11,7 +11,7 @@
 ## 实际接入方式
 
 - 使用 pnpm catalog 固定 `@yunlefun/ui@0.0.6`，导入其已发布的 `@yunlefun/ui/css`。
-- 官方 main `45ad5ba3788de14144a282d0aea0a975fb6c121c` 已提供 Admin / Editor CSS，但 CSS `0.0.6` 发布包尚未包含这两个入口。暂存该提交的原始 `admin.css`，随后导入本地语义 token；来源见 [vendor 记录](../../apps/web/src/styles/vendor/yunlefun/README.md)。
+- 官方 main `45ad5ba3788de14144a282d0aea0a975fb6c121c` 已提供 Admin / Editor CSS，但 CSS `0.0.6` 发布包尚未包含这两个入口。暂存该提交的原始 `admin.css`，随后导入本地语义 token；来源见 [vendor 记录](https://github.com/YunYouJun/craft-hub/blob/main/apps/web/src/styles/vendor/yunlefun/README.md)。
 - MIT 许可保存在 Web 的 public/licenses 中，随 Vite 产物和桌面 Web 资源分发。上游 Admin 入口正式发布后，验证一致性并切换包入口。
 - `styles/tokens.css` 将表面、文本、品牌、焦点、状态、字体和间距映射到上游变量；保留工作台页面几何和特定业务状态。根元素的 `.ylf-theme-light` / `.ylf-theme-dark` 与原有 `data-theme` 由同一主题偏好驱动，body 下的 Portal 继承同一套主题。
 - 状态文字、实色填充和填充前景分别映射，避免把状态文字色直接用作按钮底色。共享按钮、输入和选择控件消费密度变量，工作台规则不覆盖 Button 的 size 接口。
@@ -49,7 +49,7 @@
 
 生产 CSS 中九个品牌规则合并为 30.44 KiB，独立 gzip 10.46 KiB；发布基础 CSS 为 11.79 KiB，独立 gzip 2.35 KiB。独立压缩数值不等于整个安装包的增量，完整图标集合未进入 Web 运行时。
 
-证据：[场景入口](https://github.com/YunLeFun/design/blob/45ad5ba3788de14144a282d0aea0a975fb6c121c/packages/guide/admin.md)、[接入与成熟度](https://github.com/YunLeFun/design/blob/45ad5ba3788de14144a282d0aea0a975fb6c121c/packages/guide/adoption.md)、[现有组件约定](../../apps/web/src/components/ui/README.md)。
+证据：[场景入口](https://github.com/YunLeFun/design/blob/45ad5ba3788de14144a282d0aea0a975fb6c121c/packages/guide/admin.md)、[接入与成熟度](https://github.com/YunLeFun/design/blob/45ad5ba3788de14144a282d0aea0a975fb6c121c/packages/guide/adoption.md)、[现有组件约定](https://github.com/YunYouJun/craft-hub/blob/main/apps/web/src/components/ui/README.md)。
 
 ## 日常工作流的界面约定
 
