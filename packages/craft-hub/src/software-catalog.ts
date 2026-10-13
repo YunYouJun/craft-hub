@@ -1,5 +1,6 @@
 import type { SoftwareSource } from './software-sources'
 import { z } from 'zod'
+import { operationSupportSchema } from './configuration-management'
 import { personalWorkbenchToolSchema } from './personal-workbench'
 
 const httpsUrl = personalWorkbenchToolSchema.shape.url
@@ -56,6 +57,7 @@ export const softwareCatalogSchema = z.object({
   version: z.literal(1),
   source: catalogSource,
   items: z.array(softwareCatalogItemSchema).max(1000).refine(items => new Set(items.map(item => item.id)).size === items.length, 'Software identifiers must be unique'),
+  operationSupport: operationSupportSchema.optional(),
 }).strict()
 
 /** Immutable preview; persistence and plan freshness are owned by the trusted adapter. */
@@ -149,6 +151,7 @@ export type SoftwareCatalogSource = SoftwareCatalog['source'] & {
   items: SoftwareCatalogItem[]
   error?: 'unavailable'
   canManage?: boolean
+  operationSupport?: SoftwareCatalog['operationSupport']
   /** Static build snapshot; no installed state or management capability is implied. */
   bundled?: boolean
   /** Repository metadata is cached separately from local plugin observations. */
@@ -218,17 +221,21 @@ export class SoftwareCatalogService {
           const catalog = softwareCatalogSchema.parse(await provider.read())
           if (catalog.source.id !== provider.id)
             throw new Error('Unexpected software catalog identity')
+          const support = catalog.operationSupport
+          const supported = (operation: string): boolean => !support || (support.state === 'available' && support.operations[operation]?.supported === true)
+          const observedItems = catalog.items.map(item => ({ ...item, ...(item.canInstall !== undefined ? { canInstall: item.canInstall && supported('preview') && supported('install') } : {}), ...(item.canOpen !== undefined ? { canOpen: item.canOpen && supported('open') } : {}) }))
+          const supportedSource = { ...source, ...(support ? { operationSupport: support } : {}) }
           if (fallback?.repositorySourceId) {
-            const observed = new Map(catalog.items.map(item => [item.id, item]))
-            return { ...fallback, ...source, items: fallback.items.map((item) => {
+            const observed = new Map(observedItems.map(item => [item.id, item]))
+            return { ...fallback, ...supportedSource, items: fallback.items.map((item) => {
               const live = observed.get(item.id)
               const sameApplication = live?.url === item.url && live.installation.kind === item.installation.kind && live.installation.packageId === item.installation.packageId
               return live && sameApplication ? { ...item, status: live.status, canInstall: live.canInstall, canOpen: live.canOpen } : item
             }) }
           }
           const items = new Map((fallback?.items ?? []).map(item => [item.id, item]))
-          catalog.items.forEach(item => items.set(item.id, withFallbackIcon(item, items.get(item.id))))
-          return { ...source, items: [...items.values()] }
+          observedItems.forEach(item => items.set(item.id, withFallbackIcon(item, items.get(item.id))))
+          return { ...supportedSource, items: [...items.values()] }
         }
         catch { return fallback ?? { ...source, items: [], error: 'unavailable' } }
       }))

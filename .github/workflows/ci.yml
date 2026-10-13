@@ -34,6 +34,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm audit --prod --audit-level high
       - run: pnpm schema:project:check
+      - run: pnpm schema:source:check
       - run: pnpm lint
       - run: pnpm typecheck
 

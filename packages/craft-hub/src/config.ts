@@ -225,7 +225,8 @@ function jsonPointer(path: PropertyKey[]): string {
   return `/${path.map(part => String(part).replaceAll('~', '~0').replaceAll('/', '~1')).join('/')}`
 }
 
-function parseProjectConfig(content: string): ProjectConfig {
+/** Validate project JSONC content with the same parser used for discovery and edits. */
+export function parseProjectConfig(content: string): ProjectConfig {
   const errors: ParseError[] = []
   const parsed = parseJsonc(content, errors, { allowTrailingComma: true }) as unknown
   if (errors.length) {

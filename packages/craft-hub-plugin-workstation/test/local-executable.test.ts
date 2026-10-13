@@ -145,7 +145,8 @@ describe('lazy Workstation transport lookup', () => {
     const plugin = createWorkstationPlugin()
     expect(lookup).not.toHaveBeenCalled()
     await expect(plugin.softwareCatalogProviders![0].read()).rejects.toThrow('Workstation is unavailable')
-    expect(lookup).toHaveBeenCalledOnce()
+    // Both negotiation and the legacy read are lazy host operations.
+    expect(lookup).toHaveBeenCalledTimes(2)
   })
 
   it('refreshes command and Node-shim PATH on each call while retaining trusted host arguments', async () => {

@@ -4,9 +4,11 @@ import type { PluginDiagnostic } from './plugins'
 import type { SettingsSnapshot } from './settings'
 import type { ProjectCatalogSnapshot } from './types'
 import type { UserConfigStatus } from './user-config'
+import { z } from 'zod'
 
 export type WorkbenchDiagnosticKind
   = 'host-plugin'
+    | 'host-provider'
     | 'integration'
     | 'marketplace-plugin'
     | 'marketplace-source'
@@ -22,6 +24,118 @@ export interface WorkbenchDiagnosticTarget {
   sourceId?: string
 }
 
+/** One read-only check reported by a trusted host diagnostic provider. */
+export interface HostDiagnosticCheck {
+  code: string
+  severity: 'info' | 'warning' | 'error'
+  message: string
+  path?: string
+  target?: WorkbenchDiagnosticTarget
+}
+
+/** Versioned diagnostic output; checks remain authoritative over optional counts. */
+export interface HostDiagnosticReport {
+  version: 1
+  checkedAt: string
+  checks: HostDiagnosticCheck[]
+  summary?: { errors: number, warnings: number, passed: number }
+  metadata?: { version?: string, platform?: string }
+}
+
+/** Trusted host seam for structured read-only checks; execution stays with its owner. */
+export interface HostDiagnosticProvider {
+  id: string
+  title: string
+  /** Never invoke this provider on a hosted API server. */
+  localOnly?: boolean
+  read: () => Promise<HostDiagnosticReport>
+}
+
+/** Availability and checked counts for one provider, including empty or failed reports. */
+export interface HostDiagnosticProviderSnapshot {
+  id: string
+  title: string
+  pluginId: string
+  state: 'ready' | 'empty' | 'error' | 'skipped'
+  checkedAt?: string
+  summary?: { errors: number, warnings: number, passed: number }
+  metadata?: { version?: string, platform?: string }
+  message?: string
+}
+
+/** Validated checks and status used when collecting the shared diagnostic snapshot. */
+export interface HostDiagnosticProviderResult {
+  provider: HostDiagnosticProviderSnapshot
+  checks: HostDiagnosticCheck[]
+}
+
+function boundedText(maximum: number): z.ZodString | z.ZodType<string> {
+  return z.string().min(1).max(maximum).refine(value => !/\p{Cc}/u.test(value), 'Control characters are unavailable')
+}
+const targetIdentifier = boundedText(256)
+const diagnosticTargetSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('integration'), integrationId: targetIdentifier }),
+  z.object({ type: z.literal('marketplace'), package: targetIdentifier.optional(), sourceId: targetIdentifier.optional() }),
+  z.object({ type: z.literal('project'), projectId: targetIdentifier }),
+  z.object({ type: z.literal('settings') }),
+])
+const countSchema = z.number().int().min(0).max(200)
+const hostDiagnosticReportSchema = z.object({
+  version: z.literal(1),
+  checkedAt: z.string().max(64).datetime({ offset: true }),
+  checks: z.array(z.object({
+    code: boundedText(128),
+    severity: z.enum(['info', 'warning', 'error']),
+    message: boundedText(2000),
+    path: boundedText(4096).optional(),
+    target: diagnosticTargetSchema.optional(),
+  })).max(200),
+  summary: z.object({ errors: countSchema, warnings: countSchema, passed: countSchema }).optional(),
+  metadata: z.object({ version: boundedText(128).optional(), platform: boundedText(128).optional() }).optional(),
+})
+
+/** Read independently bounded reports; failures never expose a provider exception. */
+export async function readHostDiagnosticProviders(
+  providers: ReadonlyArray<{ pluginId: string, provider: HostDiagnosticProvider }>,
+  local: boolean,
+): Promise<HostDiagnosticProviderResult[]> {
+  return Promise.all(providers.map(async ({ pluginId, provider }) => {
+    const identity = { id: `${pluginId}:${provider.id}`, title: provider.title, pluginId }
+    if (provider.localOnly && !local)
+      return { provider: { ...identity, state: 'skipped' as const }, checks: [] }
+    let timeout: ReturnType<typeof setTimeout> | undefined
+    try {
+      const raw = await Promise.race([
+        Promise.resolve().then(() => provider.read()),
+        new Promise<never>((_, reject) => {
+          timeout = setTimeout(() => reject(new Error('Diagnostic provider timed out')), 15_000)
+        }),
+      ])
+      if (raw && typeof raw === 'object' && Array.isArray(raw.checks) && raw.checks.length > 200)
+        throw new Error('Too many diagnostic checks')
+      const report = hostDiagnosticReportSchema.parse(raw)
+      const summary = {
+        errors: report.checks.filter(check => check.severity === 'error').length,
+        warnings: report.checks.filter(check => check.severity === 'warning').length,
+        passed: report.checks.filter(check => check.severity === 'info').length,
+      }
+      return {
+        provider: { ...identity, state: report.checks.length ? 'ready' as const : 'empty' as const, checkedAt: report.checkedAt, summary, metadata: report.metadata },
+        checks: report.checks,
+      }
+    }
+    catch {
+      return {
+        provider: { ...identity, state: 'error' as const, message: 'Diagnostic provider could not complete. Refresh to retry.' },
+        checks: [],
+      }
+    }
+    finally {
+      clearTimeout(timeout)
+    }
+  }))
+}
+
 /** One actionable problem collected from a host-owned configuration or extension seam. */
 export interface WorkbenchDiagnostic {
   id: string
@@ -33,6 +147,8 @@ export interface WorkbenchDiagnostic {
   line?: number
   column?: number
   target?: WorkbenchDiagnosticTarget
+  providerId?: string
+  code?: string
 }
 
 /** Deterministic diagnostic collection returned to every Craft Hub client. */
@@ -43,6 +159,8 @@ export interface WorkbenchDiagnosticSnapshot {
     errors: number
     warnings: number
   }
+  /** Optional for compatibility with older API hosts. */
+  providers?: HostDiagnosticProviderSnapshot[]
 }
 
 export interface WorkbenchDiagnosticSources {
@@ -53,6 +171,7 @@ export interface WorkbenchDiagnosticSources {
   projects: ProjectCatalogSnapshot
   settings: SettingsSnapshot
   userConfig: UserConfigStatus
+  providers?: readonly HostDiagnosticProviderResult[]
 }
 
 /**
@@ -66,6 +185,17 @@ export function collectWorkbenchDiagnostics(
 ): WorkbenchDiagnosticSnapshot {
   const projectNames = new Map(sources.projects.projects.map(project => [project.id, project.name]))
   const diagnostics: Array<Omit<WorkbenchDiagnostic, 'id'>> = []
+
+  for (const { provider, checks } of sources.providers ?? []) {
+    if (provider.state === 'error') {
+      diagnostics.push({ kind: 'host-provider', severity: 'error', message: provider.message ?? 'Diagnostic provider could not complete. Refresh to retry.', subject: provider.title, providerId: provider.id })
+    }
+    for (const check of checks) {
+      if (check.severity === 'info')
+        continue
+      diagnostics.push({ kind: 'host-provider', severity: check.severity, message: check.message, subject: provider.title, path: check.path, target: check.target, providerId: provider.id, code: check.code })
+    }
+  }
 
   if (sources.settings.diagnostic) {
     diagnostics.push({
@@ -163,11 +293,15 @@ export function collectWorkbenchDiagnostics(
       errors: unique.filter(diagnostic => diagnostic.severity === 'error').length,
       warnings: unique.filter(diagnostic => diagnostic.severity === 'warning').length,
     },
+    providers: sources.providers?.map(result => result.provider) ?? [],
   }
 }
 
 function diagnosticKey(diagnostic: Omit<WorkbenchDiagnostic, 'id'>): string {
-  return [diagnostic.kind, diagnostic.subject, diagnostic.path, diagnostic.message]
+  const parts = [diagnostic.kind, diagnostic.subject, diagnostic.path, diagnostic.message]
+  if (diagnostic.providerId)
+    parts.push(diagnostic.providerId, diagnostic.code)
+  return parts
     .map(value => encodeURIComponent(value ?? ''))
     .join(':')
 }

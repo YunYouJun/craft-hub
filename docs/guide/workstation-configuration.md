@@ -31,6 +31,31 @@ The backend uses workstation's existing public source and connected private mani
 
 Unmanaged user skills appear in inventory. Connect their **local** directory sources through the existing private manifest's `skills.install` entries to enable synchronization. Only configuration data belongs in the private checkout. Symlinks, hidden/system roots, Codex plugin cache and installer lock entries continue to use their original installer.
 
+## Skills inventory and audit
+
+The configuration page includes client, scope and managing-tool filters, provenance details, and a **Skills audit** tab. Workstation supplies the existing bounded Skills audit for Codex and shared `.agents/skills`; when a project is selected, its `.agents/skills` is inspected separately and remains read-only. These are observed files and configuration destinations, not proof that a running Agent has loaded a Skill.
+
+The audit shows the last observation time, discovered Skill count, implicit versus explicit-only counts, duplicate names, invalid metadata, and manifest/lock/hash diagnostics. It reads the existing APM, Skills CLI and Workstation provenance records. Unknown ownership stays unknown; an arbitrary external link is not automatically attributed to another manager. Installer-owned Skills and native plugin assets remain outside configuration writes.
+
+Original-tool entries link to the owning tool's documentation. Magpie can also be opened through its existing software-catalog action; a missing application reports an error and retains its documentation link. Opening a tool does not install it or transfer configuration ownership. No Skillshare dependency is required.
+
+A v1 CLI that lacks the additive audit fields displays **Audit not supported**, while a failed or malformed report displays an audit error without replacing configuration review or recovery. Build the updated Workstation CLI and configure `CRAFT_HUB_WORKSTATION_COMMAND` as above to enable the report. Refresh reads new observations; the existing preview, application and guarded recovery workflows are preserved.
+
+## CLI capabilities and diagnostics
+
+Workstation exposes a read-only `host-json` interface for CLI/protocol versions and platform operation support. Its structured doctor shares the terminal doctor's inspection kernel and returns bounded codes, severities, messages, paths and counts, excluding configuration contents, secrets and subprocess output:
+
+```sh
+printf '%s\n' '{"version":1,"operation":"capabilities"}' | workstation host-json
+printf '%s\n' '{"version":1,"operation":"doctor"}' | workstation host-json
+```
+
+The diagnostic center shows the Workstation source, CLI version, platform, check time and problems, linking back to environment configuration. Independent provider failures retain other results. Hosted workbenches skip local Workstation checks; empty, failed and skipped reports do not imply readiness.
+
+Configuration and software controls follow negotiated operations, and the Host adapter negotiates again before actual operations. Configuration management supports macOS/Linux; Windows retains read-only operations. Automatic software installation and application opening currently require macOS. Platform support is separate from dependency readiness, which doctor and installation previews report. Windows npm/pnpm `.cmd` launchers are not discovered automatically; a trusted host can explicitly configure a Node executable with fixed CLI script arguments while retaining `shell: false`.
+
+Legacy CLIs without negotiation retain read-only inventories and recovery history, while management controls require an upgrade. Prepared previews and loaded history remain visible. Refresh capabilities after upgrading the CLI.
+
 ## Git is a separate workflow
 
 Review uncommitted files, unpushed commits, remote-leading counts and divergence. Counts reflect the last fetch; an absent upstream is shown as unknown. Fetch updates only the source checkout. To commit, select the declared managed files and enter a message, review, then explicitly confirm. Existing staged changes block commits. Review outgoing commit IDs and changed-line counts before publishing. Publication uses workstation's existing scan and non-forced push; divergence and remote-leading branches must be resolved first.

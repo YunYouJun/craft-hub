@@ -53,13 +53,32 @@ const activeStates = new Set(['queued', 'running', 'cancelling'])
 const activeRuns = computed(() => runs.value.filter(run => activeStates.has(run.state)))
 const displayedRuns = computed(() => [...runs.value].sort((left, right) => right.createdAt.localeCompare(left.createdAt)))
 
+function supports(sourceId: string, operation: string): boolean {
+  const source = snapshot.value?.sources.find(source => source.id === sourceId)
+  if (!source?.canManage) return false
+  const support = source.operationSupport
+  return !support || (support.state === 'available' && support.operations[operation]?.supported === true)
+}
+
+function supportReason(sourceId: string, operation: string): string | undefined {
+  if (supports(sourceId, operation)) return undefined
+  const support = snapshot.value?.sources.find(source => source.id === sourceId)?.operationSupport
+  const reason = support?.operations[operation]?.reason
+  if (reason === 'unsupported-platform') return copy('当前平台尚不支持此操作。', 'This operation is unavailable on this platform.')
+  if (reason === 'unsupported-version' || support?.state === 'unsupported') return copy('请更新本机 CLI 以启用此操作。', 'Update the local CLI to enable this operation.')
+  if (reason === 'unavailable' || support?.state === 'unavailable') return copy('本机 CLI 不可用，请检查连接后刷新。', 'The local CLI is unavailable. Check its connection and refresh.')
+  return reason ?? copy('当前来源尚不支持此操作。', 'The provider does not support this operation.')
+}
+const canRefreshRuns = computed(() => snapshot.value?.sources.some(source => supports(source.id, 'runs')) ?? false)
+const planSupportReason = computed(() => installationPlan.value ? supportReason(installationPlan.value.sourceId, 'install') : undefined)
+
 const entries = computed(() => (snapshot.value?.sources ?? []).filter(source => !source.error).flatMap(source => source.items.map(item => ({
   key: JSON.stringify([source.id, item.id]),
   sourceId: source.id,
   sourceTitle: source.title,
   canManage: source.canManage === true,
   groupKey: JSON.stringify([source.id, item.group.id]),
-  item,
+  item: { ...item, canInstall: item.canInstall && supports(source.id, 'preview') && supports(source.id, 'install'), canOpen: item.canOpen && supports(source.id, 'open') },
 }))))
 const selectedEntries = computed(() => entries.value.filter(entry => selectedKeys.value.includes(entry.key)
   && entry.canManage && entry.item.canInstall && entry.item.status === 'not-detected'))
@@ -118,7 +137,7 @@ async function loadCatalog(): Promise<void> {
     if (!groups.value.some(group => group.value === selectedGroup.value))
       selectedGroup.value = ''
     selectedKeys.value = selectedEntries.value.map(entry => entry.key)
-    await loadRuns(result.sources.filter(source => source.canManage).map(source => source.id))
+    await loadRuns(result.sources.filter(source => supports(source.id, 'runs')).map(source => source.id))
   }
   catch {
     if (current === generation)
@@ -148,7 +167,7 @@ function upsertRun(run: SoftwareInstallationRun): void {
 
 function schedulePolling(): void {
   clearTimeout(pollingTimer)
-  if (!mounted || !activeRuns.value.length)
+  if (!mounted || !activeRuns.value.some(run => supports(run.sourceId, 'runs')))
     return
   pollingTimer = setTimeout(() => {
     if (mounted)
@@ -159,10 +178,10 @@ function schedulePolling(): void {
 async function loadRuns(sourceIds?: string[]): Promise<void> {
   if (!mounted || runsLoading.value)
     return
-  const ids = sourceIds ?? [...new Set([
+  const ids = (sourceIds ?? [...new Set([
     ...(snapshot.value?.sources.filter(source => source.canManage).map(source => source.id) ?? []),
     ...runs.value.map(run => run.sourceId),
-  ])]
+  ])]).filter(sourceId => supports(sourceId, 'runs'))
   if (!ids.length)
     return
   runsLoading.value = true
@@ -224,6 +243,10 @@ function stopLabel(run: SoftwareInstallationRun): string {
 async function reviewInstallation(sourceId: string, softwareIds: string[]): Promise<void> {
   if (planning.value || installing.value || sourceBusy(sourceId))
     return
+  if (!supports(sourceId, 'preview') || !supports(sourceId, 'install')) {
+    operationError.value = supportReason(sourceId, 'preview') ?? supportReason(sourceId, 'install') ?? ''
+    return
+  }
   planning.value = true
   if (installationUncertain.value && installationPlan.value) {
     await loadRuns([installationPlan.value.sourceId])
@@ -231,6 +254,11 @@ async function reviewInstallation(sourceId: string, softwareIds: string[]): Prom
       planning.value = false
       return
     }
+  }
+  if (!supports(sourceId, 'preview') || !supports(sourceId, 'install')) {
+    planning.value = false
+    operationError.value = supportReason(sourceId, 'preview') ?? supportReason(sourceId, 'install') ?? ''
+    return
   }
   operationError.value = ''
   operationNotice.value = ''
@@ -256,6 +284,10 @@ async function confirmInstallation(): Promise<void> {
   const plan = installationPlan.value
   if (!plan || installing.value || installationUncertain.value || !planInstallCount.value || plan.prerequisites.length || sourceBusy(plan.sourceId))
     return
+  if (!supports(plan.sourceId, 'install')) {
+    operationError.value = supportReason(plan.sourceId, 'install') ?? ''
+    return
+  }
   installing.value = true
   operationError.value = ''
   try {
@@ -286,6 +318,10 @@ async function confirmInstallation(): Promise<void> {
 async function cancelInstallation(run: SoftwareInstallationRun): Promise<void> {
   if (busyRunIds.value.includes(run.id))
     return
+  if (!supports(run.sourceId, 'cancel')) {
+    operationError.value = supportReason(run.sourceId, 'cancel') ?? ''
+    return
+  }
   busyRunIds.value.push(run.id)
   operationError.value = ''
   try {
@@ -313,6 +349,11 @@ async function openApplication(sourceId: string, item: SoftwareCatalogItem): Pro
   const key = JSON.stringify([sourceId, item.id])
   if (openingKeys.value.includes(key))
     return
+  const current = entries.value.find(entry => entry.sourceId === sourceId && entry.item.id === item.id)
+  if (!supports(sourceId, 'open') || !current?.item.canOpen || current.item.status !== 'detected') {
+    operationError.value = supportReason(sourceId, 'open') ?? copy('请刷新本机检测。', 'Refresh local detection.')
+    return
+  }
   openingKeys.value.push(key)
   operationError.value = ''
   operationNotice.value = ''
@@ -438,6 +479,7 @@ defineExpose({ refresh: loadCatalog })
     <template #actions>
       <UiButton size="compact" :disabled="loading" data-testid="refresh-software" @click="loadCatalog"><Icon :name="loading ? 'loading' : 'refresh'" />{{ copy('刷新', 'Refresh') }}</UiButton>
     </template>
+    <p v-for="source in snapshot?.sources.filter(source => source.operationSupport)" :key="`support-${source.id}`" class="software-note" data-testid="software-operation-support">{{ source.title }} · {{ source.operationSupport?.platform }}<template v-if="source.operationSupport?.cliVersion"> · CLI {{ source.operationSupport.cliVersion }}</template><template v-if="supportReason(source.id, 'install')"> · {{ supportReason(source.id, 'install') }}</template></p>
     <p v-if="snapshot?.sources.some(source => source.bundled)" class="software-note" data-testid="software-bundled-note">{{ copy('正在浏览内置目录，尚未检测本机安装状态。官网、下载和收藏可用；本机检测与自动安装需要本地软件管理插件。', 'Browsing the bundled catalog without local installation checks. Website, download and favorites are available; local detection and automatic installation require a local software management plugin.') }}</p>
     <p v-if="snapshot?.sources.some(source => source.repositorySourceId && !source.canManage)" class="software-note" data-testid="software-repository-note">{{ copy('正在浏览仓库目录缓存，本机安装状态尚未检测。连接本机软件管理插件后可检测、安装和打开应用。', 'Browsing a cached repository catalog without local installation checks. Connect a local software management plugin to detect, install and open applications.') }}</p>
     <p v-if="snapshot?.sources.some(source => !source.bundled && !source.error && (!source.repositorySourceId || source.canManage))" class="software-note">{{ copy('安装前先审阅来源提供的计划；仅安装选中的缺失软件。本机检测查找常见应用目录和可执行路径；未检测到不代表未安装。', 'Review the source installation plan first; only selected missing software is installed. Local detection checks common application directories and executable paths; an undetected app may be installed elsewhere.') }}</p>
@@ -467,12 +509,14 @@ defineExpose({ refresh: loadCatalog })
       <Icon name="package" /><h2>{{ copy('尚未接入软件目录', 'No software catalog connected') }}</h2><p>{{ copy('接入 Workstation 软件目录后，即可在这里浏览和收藏常用软件。', 'Connect a Workstation software catalog to browse and favorite applications here.') }}</p>
     </section>
     <section v-if="runs.length || runsError" class="software-installations" data-testid="software-installations" :aria-label="copy('安装记录', 'Installation history')">
-      <header class="software-installations-header"><h2>{{ copy('安装记录', 'Installation history') }}</h2><UiButton size="compact" :disabled="runsLoading" data-testid="refresh-software-installations" @click="loadRuns()"><Icon :name="runsLoading ? 'loading' : 'refresh'" />{{ copy('刷新记录', 'Refresh history') }}</UiButton></header>
+      <header class="software-installations-header"><h2>{{ copy('安装记录', 'Installation history') }}</h2><UiButton size="compact" :disabled="runsLoading || !canRefreshRuns" data-testid="refresh-software-installations" @click="loadRuns()"><Icon :name="runsLoading ? 'loading' : 'refresh'" />{{ copy('刷新记录', 'Refresh history') }}</UiButton></header>
       <Alert v-if="runsError" variant="danger" class="software-alert" data-testid="software-history-error" role="alert">{{ copy('无法读取最新安装状态。下面保留上次记录，安装可能仍在进行。', 'Could not read the latest installation state. Previous records remain below; installation may still be running.') }}</Alert>
       <article v-for="run in displayedRuns" :key="JSON.stringify([run.sourceId, run.id])" class="software-installation-run" :data-run-id="run.id">
         <header><div><Badge :variant="stateVariant(run.state)">{{ run.state === 'running' ? copy('安装进行中', 'Installation in progress') : runStateLabel(run.state) }}</Badge><span>{{ copy(`已处理 ${settledCount(run)} / ${run.items.length} 项`, `${settledCount(run)} / ${run.items.length} items processed`) }}</span></div><time :datetime="run.createdAt">{{ new Date(run.createdAt).toLocaleString(zh ? 'zh-CN' : 'en') }}</time></header>
+        <p v-if="!supports(run.sourceId, 'runs')" class="software-note">{{ supportReason(run.sourceId, 'runs') }} {{ copy('仍可审阅已载入的记录。', 'Previously loaded records remain available to review.') }}</p>
+        <p v-if="activeStates.has(run.state) && !supports(run.sourceId, 'cancel')" class="software-note">{{ supportReason(run.sourceId, 'cancel') }}</p>
         <ol class="software-installation-items"><li v-for="item in run.items" :key="item.softwareId" :data-install-item-id="item.softwareId"><div class="software-installation-item-title"><strong>{{ text(item.title) }}</strong><SoftwareInstallStatus v-if="['running', 'queued'].includes(item.state)" :item="item" :stopping="run.state === 'cancelling'" :cancel-pending="busyRunIds.includes(run.id)" /><Badge v-else :variant="stateVariant(item.state)">{{ runStateLabel(item.state) }}</Badge></div><p v-if="item.state === 'running' && item.progress?.phase === 'downloading' && item.progress.resource" class="software-download-resource">{{ item.progress.resource }}</p><p v-if="item.message">{{ item.message }}</p><details v-if="item.log"><summary>{{ copy('安装日志', 'Installation log') }}</summary><pre>{{ item.log }}</pre></details></li></ol>
-        <footer><UiButton v-if="activeStates.has(run.state)" size="compact" variant="ghost" :disabled="busyRunIds.includes(run.id) || run.state === 'cancelling'" data-testid="stop-software-installation" @click="cancelInstallation(run)"><Icon name="stop" />{{ copy('停止安装', 'Stop installation') }}</UiButton><UiButton v-if="!activeStates.has(run.state) && retryableItems(run).length" size="compact" :disabled="planning || installing || sourceBusy(run.sourceId)" data-testid="retry-software-installation" @click="reviewInstallation(run.sourceId, retryableItems(run))"><Icon name="refresh" />{{ copy('重新审阅未完成项', 'Review unfinished items again') }}</UiButton><UiButton v-if="!activeStates.has(run.state)" size="compact" :disabled="loading" @click="loadCatalog">{{ copy('重新检测软件', 'Check installed software') }}</UiButton></footer>
+        <footer><UiButton v-if="activeStates.has(run.state)" size="compact" variant="ghost" :disabled="busyRunIds.includes(run.id) || run.state === 'cancelling' || !supports(run.sourceId, 'cancel')" :title="supportReason(run.sourceId, 'cancel')" data-testid="stop-software-installation" @click="cancelInstallation(run)"><Icon name="stop" />{{ copy('停止安装', 'Stop installation') }}</UiButton><UiButton v-if="!activeStates.has(run.state) && retryableItems(run).length" size="compact" :disabled="planning || installing || sourceBusy(run.sourceId) || !supports(run.sourceId, 'preview') || !supports(run.sourceId, 'install')" :title="supportReason(run.sourceId, 'preview') ?? supportReason(run.sourceId, 'install')" data-testid="retry-software-installation" @click="reviewInstallation(run.sourceId, retryableItems(run))"><Icon name="refresh" />{{ copy('重新审阅未完成项', 'Review unfinished items again') }}</UiButton><UiButton v-if="!activeStates.has(run.state)" size="compact" :disabled="loading" @click="loadCatalog">{{ copy('重新检测软件', 'Check installed software') }}</UiButton></footer>
       </article>
     </section>
     <template v-if="entries.length">
@@ -493,7 +537,7 @@ defineExpose({ refresh: loadCatalog })
             <div class="software-install-actions">
               <template v-if="entry.item.status === 'not-detected' && entry.canManage && entry.item.canInstall">
                 <div class="software-primary-action">
-                  <SoftwareInstallStatus v-if="activeItems.has(entry.key)" class="software-card-progress" :item="activeItems.get(entry.key)!.item" :stopping="activeItems.get(entry.key)!.run.state === 'cancelling'" cancellable :cancel-pending="busyRunIds.includes(activeItems.get(entry.key)!.run.id)" :stop-label="stopLabel(activeItems.get(entry.key)!.run)" @stop="cancelInstallation(activeItems.get(entry.key)!.run)" />
+                  <SoftwareInstallStatus v-if="activeItems.has(entry.key)" class="software-card-progress" :item="activeItems.get(entry.key)!.item" :stopping="activeItems.get(entry.key)!.run.state === 'cancelling'" :cancellable="supports(entry.sourceId, 'cancel')" :cancel-pending="busyRunIds.includes(activeItems.get(entry.key)!.run.id)" :stop-label="stopLabel(activeItems.get(entry.key)!.run)" @stop="cancelInstallation(activeItems.get(entry.key)!.run)" />
                   <span v-else-if="sourceBusy(entry.sourceId)" class="software-waiting">{{ copy('等待其他安装', 'Waiting for another installation') }}</span>
                   <button v-else type="button" class="software-store-button" :disabled="planning || installing" data-testid="install-software" @click="reviewInstallation(entry.sourceId, [entry.item.id])">{{ copy('安装', 'Install') }}</button>
                 </div>
@@ -519,12 +563,13 @@ defineExpose({ refresh: loadCatalog })
       <template #description>{{ copy('仅执行下列安装项；已有软件会跳过。安装日志和结果会保留在本机。', 'Only the install items below will run; existing software is skipped. Logs and results are retained locally.') }}</template>
       <template #header-actions><UiButton size="icon" variant="ghost" :disabled="installing" :aria-label="copy('关闭安装计划', 'Close installation plan')" @click="planOpen = false"><Icon name="close" /></UiButton></template>
       <template v-if="installationPlan">
-        <Alert v-if="operationError" variant="danger" class="software-alert" role="alert">{{ operationError }}<UiButton size="compact" :disabled="runsLoading" @click="loadRuns()">{{ copy('刷新安装记录', 'Refresh installation history') }}</UiButton></Alert>
+        <Alert v-if="planSupportReason" class="software-alert" data-testid="software-plan-operation-support">{{ planSupportReason }}</Alert>
+        <Alert v-if="operationError" variant="danger" class="software-alert" role="alert">{{ operationError }}<UiButton size="compact" :disabled="runsLoading || !canRefreshRuns" @click="loadRuns()">{{ copy('刷新安装记录', 'Refresh installation history') }}</UiButton></Alert>
         <Alert v-if="installationPlan.prerequisites.length" class="software-alert" data-testid="software-install-prerequisites"><strong>{{ copy('先完成以下准备', 'Complete these prerequisites first') }}</strong><ul><li v-for="prerequisite in installationPlan.prerequisites" :key="prerequisite">{{ prerequisite }}</li></ul></Alert>
         <ol class="software-plan-items"><li v-for="item in installationPlan.items" :key="item.softwareId"><div class="software-installation-item-title"><strong>{{ text(item.title) }}</strong><Badge :variant="item.action === 'install' ? 'secondary' : 'warning'">{{ planActionLabel(item.action) }}</Badge></div><code v-if="item.installation.packageId">{{ item.installation.kind === 'brew-cask' ? 'Homebrew cask' : 'Homebrew formula' }} · {{ item.installation.packageId }}</code><p v-if="item.reason">{{ item.reason }}</p></li></ol>
         <p v-if="!planInstallCount" class="software-note">{{ copy('本计划没有可自动安装的缺失软件。手动安装项请使用官方下载入口。', 'This plan has no missing software that can be installed automatically. Use the official download link for manual items.') }}</p>
       </template>
-      <template #footer><UiButton size="compact" :disabled="installing" @click="planOpen = false">{{ copy('取消', 'Cancel') }}</UiButton><UiButton size="compact" variant="primary" :disabled="installing || installationUncertain || !planInstallCount || !!installationPlan?.prerequisites.length" data-testid="confirm-software-installation" @click="confirmInstallation"><Icon v-if="installing" name="loading" />{{ installing ? copy('正在开始安装…', 'Starting installation…') : copy(`确认安装 ${planInstallCount} 项`, `Confirm installation of ${planInstallCount} ${planInstallCount === 1 ? 'item' : 'items'}`) }}</UiButton></template>
+      <template #footer><UiButton size="compact" :disabled="installing" @click="planOpen = false">{{ copy('取消', 'Cancel') }}</UiButton><UiButton size="compact" variant="primary" :disabled="installing || installationUncertain || !planInstallCount || !!installationPlan?.prerequisites.length || !supports(installationPlan!.sourceId, 'install')" :title="planSupportReason" data-testid="confirm-software-installation" @click="confirmInstallation"><Icon v-if="installing" name="loading" />{{ installing ? copy('正在开始安装…', 'Starting installation…') : copy(`确认安装 ${planInstallCount} 项`, `Confirm installation of ${planInstallCount} ${planInstallCount === 1 ? 'item' : 'items'}`) }}</UiButton></template>
     </DialogShell>
   </WorkbenchViewFrame>
 </template>

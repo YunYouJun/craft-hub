@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { ConfigurationManagementPage, ResolvedIntegrationContribution } from 'craft-hub'
+import type { ConfigurationManagementItem, ConfigurationManagementPage, ConfigurationManagementTool, ResolvedIntegrationContribution } from 'craft-hub'
 import { computed, reactive, ref, watch } from 'vue'
 import { api } from './api'
 import FilePreview from './FilePreview.vue'
@@ -24,16 +24,46 @@ const selected = ref('')
 const filter = ref('')
 const kind = ref('all')
 const status = ref('all')
+const client = ref('all')
+const scope = ref('all')
+const manager = ref('all')
 const section = ref('configuration')
 const previewOpen = ref(false)
 const choices = reactive<Record<string, string>>({})
 const fields = reactive<Record<string, Record<string, string>>>({})
 const busy = ref(false)
 const error = ref('')
+const openingTool = ref('')
+const toolResult = ref<{ id: string, state: 'success' | 'error', message: string }>()
 const gitReview = ref<{ repository: string, revision: string, action: string, paths: string[], message: string, outgoing?: string[], diff?: string }>()
 const commitMessage = ref('Update workstation configuration')
 const commitPaths = reactive<Record<string, string[]>>({})
-const rows = computed(() => props.page.items.filter(item => (kind.value === 'all' || item.kind === kind.value) && (status.value === 'all' || (status.value === 'attention' ? !['synced', 'read-only'].includes(item.status) : item.status === status.value)) && `${item.title} ${label(item.status)} ${label(item.origin)}`.toLowerCase().includes(filter.value.toLowerCase())))
+function declaredSupport(operation: string): boolean {
+  const support = props.page.operationSupport
+  return !support || (support.state === 'available' && support.operations[operation]?.supported === true)
+}
+function supports(operation: string): boolean {
+  // Inspect requests refresh negotiation; the provider guards actual CLI reads until supported.
+  return operation === 'inspect' || declaredSupport(operation)
+}
+const refreshCapabilitiesOnly = computed(() => props.page.operationSupport?.state === 'available' && !declaredSupport('inspect'))
+function supportReason(operation: string): string | undefined {
+  if (declaredSupport(operation)) return undefined
+  const support = props.page.operationSupport!
+  const reason = support.operations[operation]?.reason
+  if (reason === 'unsupported-platform') return copy('This operation is unavailable on this platform.', '当前平台尚不支持此操作。')
+  if (reason === 'unsupported-version' || support.state === 'unsupported') return copy('Update the local CLI to enable this operation.', '请更新本机 CLI 以启用此操作。')
+  if (reason === 'unavailable' || support.state === 'unavailable') return copy('The local CLI is unavailable. Check its connection and refresh.', '本机 CLI 不可用，请检查连接后刷新。')
+  return reason ? translate(reason) : copy('The provider does not support this operation.', '当前来源尚不支持此操作。')
+}
+const canStage = computed(() => supports('preview') && supports('apply'))
+const stageReason = computed(() => supportReason('preview') ?? supportReason('apply'))
+const rows = computed(() => props.page.items.filter(item => (kind.value === 'all' || item.kind === kind.value)
+  && (status.value === 'all' || (status.value === 'attention' ? !['synced', 'read-only'].includes(item.status) : item.status === status.value))
+  && (client.value === 'all' || (item.client ?? 'unknown') === client.value)
+  && (scope.value === 'all' || (item.scope ?? 'unknown') === scope.value)
+  && (manager.value === 'all' || (item.manager ?? 'unknown') === manager.value)
+  && [item.title, label(item.status), label(item.origin), item.client, clientLabel(item.client), scopeLabel(item.scope), item.manager, managerLabel(item.manager), item.provenance?.label, item.provenance ? translate(item.provenance.label) : '', item.provenance?.path, item.localPath, item.sourcePath].join(' ').toLowerCase().includes(filter.value.toLowerCase())))
 const item = computed(() => props.page.items.find(row => row.id === selected.value))
 const labels: Record<string, [string, string]> = {
   synced: ['Synchronized', '已同步'], 'local-modified': ['Local changes', '本机修改'], 'source-modified': ['Source changes', '源端修改'], conflict: ['Conflict', '双方冲突'],
@@ -43,13 +73,60 @@ const labels: Record<string, [string, string]> = {
   applied: ['Applied', '已应用'], restored: ['Restored', '已恢复'], failed: ['Failed · recovery available', '失败 · 可检查恢复'], applying: ['Interrupted · inspect recovery', '未完成 · 检查恢复'], preview: ['Preview only', '仅预览'],
 }
 const label = (value: string) => labels[value] ? copy(...labels[value]) : value
-const decisions = computed(() => props.page.items.filter(item => choices[item.id] && choices[item.id] !== 'skip').map(item => ({ id: item.id, revision: item.revision, choice: choices[item.id], fields: fields[item.id] })))
+const clientLabel = (value?: string) => value === 'codex' ? 'Codex' : value === 'shared' ? copy('Shared Skills directory', '共享 Skills 目录') : (!value || value === 'unknown') ? copy('Unknown', '未知') : value
+const scopeLabel = (value?: string) => value === 'global' ? copy('Global', '全局') : value === 'project' ? copy('Project', '项目') : copy('Unknown', '未知')
+const managerLabels: Record<string, string> = { workstation: 'Workstation', apm: 'APM', 'skills-cli': 'Skills CLI' }
+const managerLabel = (value?: string) => value === 'native-plugin' ? copy('Native plugin', '原生插件') : value === 'project' ? copy('Project', '项目') : value === 'external' ? copy('External tool', '外部工具') : (!value || value === 'unknown') ? copy('Unknown', '未知') : managerLabels[value] ?? value
+const filterOptions = (field: 'client' | 'scope' | 'manager', title: string, format: (value?: string) => string) => [{ value: 'all', label: title }, ...[...new Set(props.page.items.map(item => item[field] ?? 'unknown'))].map(value => ({ value, label: format(value) }))]
+const clientOptions = computed(() => filterOptions('client', copy('All clients', '全部客户端'), clientLabel))
+const scopeOptions = computed(() => filterOptions('scope', copy('All scopes', '全部作用域'), scopeLabel))
+const managerOptions = computed(() => filterOptions('manager', copy('All managers', '全部管理器'), managerLabel))
+const decisions = computed(() => canStage.value ? props.page.items.filter(item => isWritable(item) && choices[item.id] && choices[item.id] !== 'skip').map(item => ({ id: item.id, revision: item.revision, choice: choices[item.id], fields: fields[item.id] })) : [])
 const kindOptions = computed(() => [{ value: 'all', label: copy('All types', '全部类型') }, { value: 'mcp', label: 'MCP' }, { value: 'skill', label: 'Skills' }, { value: 'instructions', label: copy('Global instructions', '全局指令') }, { value: 'terminal', label: copy('Terminal', '终端') }])
 const choiceOptions = computed(() => [{ value: 'skip', label: copy('Defer', '暂不处理') }, { value: 'local', label: copy('Keep local → update source', '保留本机 → 更新源文件') }, { value: 'source', label: copy('Use source → update local', '使用源配置 → 更新本机') }, { value: 'merge', label: copy('Choose fields → update both', '按字段合并 → 更新双方') }])
 const fieldOptions = computed(() => [{ value: 'local', label: copy('Local', '本机') }, { value: 'source', label: copy('Source', '源端') }])
 const statusOptions = computed(() => [{ value: 'all', label: copy('All states', '全部状态') }, { value: 'attention', label: copy('Needs review', '待审阅') }, ...['conflict', 'first-adoption', 'local-modified', 'source-modified', 'synced', 'unmanaged', 'read-only', 'error'].map(value => ({ value, label: label(value) }))])
 const attentionCount = computed(() => props.page.items.filter(item => !['synced', 'read-only'].includes(item.status)).length)
-const writable = computed(() => item.value?.sourcePath && !['error', 'read-only'].includes(item.value.status))
+function isWritable(value: ConfigurationManagementItem): boolean {
+  return !!value.sourcePath && !['error', 'read-only'].includes(value.status)
+    && value.owner === 'user'
+    && !['installer', 'external', 'project'].includes(value.origin)
+    && (!value.manager || value.manager === 'workstation')
+}
+const writable = computed(() => item.value ? isWritable(item.value) : false)
+const inventoryOnly = computed(() => item.value?.kind === 'skill' && item.value.owner !== 'user')
+const managementTools = computed(() => props.page.managementTools ?? [])
+const itemTool = computed(() => item.value?.manager ? managementTools.value.find(tool => tool.id === item.value?.manager) : undefined)
+const audit = computed(() => props.page.skillsAudit)
+const checkedAt = computed(() => {
+  if (!audit.value?.checkedAt) return undefined
+  const date = new Date(audit.value.checkedAt)
+  return Number.isNaN(date.getTime()) ? audit.value.checkedAt : date.toLocaleString(locale.value)
+})
+function safeToolUrl(value: string): string | undefined {
+  try {
+    const url = new URL(value)
+    return ['https:', 'http:'].includes(url.protocol) && !url.username && !url.password ? url.href : undefined
+  }
+  catch { return undefined }
+}
+async function openTool(tool: ConfigurationManagementTool): Promise<void> {
+  if (!tool.software || openingTool.value) return
+  if (!supports('software-open')) {
+    toolResult.value = { id: tool.id, state: 'error', message: supportReason('software-open')! }
+    return
+  }
+  openingTool.value = tool.id
+  toolResult.value = undefined
+  try {
+    await api.openSoftwareApplication(tool.software.sourceId, tool.software.softwareId)
+    toolResult.value = { id: tool.id, state: 'success', message: copy(`Launch requested for ${translate(tool.title)}.`, `已请求启动 ${translate(tool.title)}。`) }
+  }
+  catch (caught) {
+    toolResult.value = { id: tool.id, state: 'error', message: caught instanceof Error ? caught.message : String(caught) }
+  }
+  finally { openingTool.value = '' }
+}
 const tone = (state: string) => state === 'synced' ? 'success' : ['error', 'conflict', 'failed'].includes(state) ? 'danger' : ['first-adoption', 'local-modified', 'source-modified'].includes(state) ? 'warning' : 'secondary'
 const choiceLabel = (id: string) => choiceOptions.value.find(option => option.value === choices[id])?.label
 watch(rows, (next) => {
@@ -60,7 +137,7 @@ function clearChoices() {
   for (const key of Object.keys(choices)) delete choices[key]
   for (const key of Object.keys(fields)) delete fields[key]
 }
-const canPreview = computed(() => decisions.value.length > 0 && decisions.value.every(decision => decision.choice !== 'merge' || props.page.items.find(item => item.id === decision.id)!.fields.every(field => fields[decision.id]?.[field])))
+const canPreview = computed(() => canStage.value && decisions.value.length > 0 && decisions.value.every(decision => decision.choice !== 'merge' || props.page.items.find(item => item.id === decision.id)!.fields.every(field => fields[decision.id]?.[field])))
 
 watch(() => props.page, () => {
   for (const repo of props.page.repositories ?? []) commitPaths[repo.id] = (commitPaths[repo.id] ?? []).filter(path => repo.paths?.some(entry => entry.path === path))
@@ -70,11 +147,19 @@ watch(() => props.page, () => {
   }
 }, { immediate: true })
 function choose(id: string, value: string) {
+  const target = props.page.items.find(item => item.id === id)
+  if (!target || !isWritable(target) || !canStage.value) return
   choices[id] = value
   fields[id] ??= {}
 }
 async function invoke(operation: string, input: Record<string, unknown> = {}) {
   if (busy.value) return
+  const supportedOperation = operation === 'git-action' ? `git-${String(input.action)}` : operation
+  if (!supports(supportedOperation) || (operation === 'preview' && !canStage.value)) {
+    error.value = supportReason(supportedOperation) ?? stageReason.value ?? ''
+    return
+  }
+  if (operation === 'preview') input = { ...input, decisions: decisions.value }
   busy.value = true
   error.value = ''
   try {
@@ -95,20 +180,28 @@ async function invoke(operation: string, input: Record<string, unknown> = {}) {
       <p>{{ copy('Review differences, choose a direction, then preview before applying.', '查看差异、选择处理方向，再预览并应用。') }}</p>
       <Badge :variant="attentionCount ? 'warning' : 'success'">{{ attentionCount }} {{ copy('need review', '项待审阅') }}</Badge>
     </div>
-    <Alert v-if="error" variant="danger"><p>{{ translate(error) }}</p><UiButton size="compact" :disabled="busy" @click="invoke('inspect')">{{ copy('Refresh and inspect recovery', '刷新并检查恢复记录') }}</UiButton></Alert>
+    <p v-if="refreshCapabilitiesOnly" class="configuration-note" data-testid="configuration-inspection-unavailable">{{ supportReason('inspect') }} {{ copy('Refresh capabilities to check whether inspection is available.', '刷新能力以检查是否可读取配置。') }}</p>
+    <p v-if="page.operationSupport" class="configuration-note" data-testid="configuration-operation-support">{{ page.operationSupport.platform }}<template v-if="page.operationSupport.cliVersion"> · CLI {{ page.operationSupport.cliVersion }}</template><template v-if="stageReason"> · {{ stageReason }}</template></p>
+    <Alert v-if="error" variant="danger"><p>{{ translate(error) }}</p><UiButton size="compact" :disabled="busy || !supports('inspect')" :title="supportReason('inspect')" @click="invoke('inspect')">{{ refreshCapabilitiesOnly ? copy('Refresh capabilities', '刷新能力') : copy('Refresh and inspect recovery', '刷新并检查恢复记录') }}</UiButton></Alert>
     <p v-if="page.message" role="status" class="configuration-message"><Icon name="check" />{{ label(page.message) }}</p>
     <TabsRoot v-model="section" class="configuration-tabs">
       <TabsList class="workbench-tabs" :aria-label="copy('Configuration management', '配置管理')">
         <TabsTrigger value="configuration">{{ copy('Review configurations', '配置审阅') }} <small>{{ page.items.length }}</small></TabsTrigger>
+        <TabsTrigger value="skills-audit">{{ copy('Skills audit', 'Skills 审计') }}<small v-if="audit?.state === 'available' && audit.summary">{{ audit.summary.warningCount + audit.summary.errorCount }}</small></TabsTrigger>
         <TabsTrigger value="repositories">{{ copy('Repository sync', '仓库同步') }}</TabsTrigger>
         <TabsTrigger value="history">{{ copy('Recovery history', '恢复记录') }} <small>{{ page.history?.length ?? 0 }}</small></TabsTrigger>
       </TabsList>
       <TabsContent value="configuration">
         <div class="configuration-toolbar">
-          <Input v-model="filter" type="search" :aria-label="copy('Filter configuration', '筛选配置')" :placeholder="copy('Search name, source or status…', '搜索名称、来源或状态…')" />
+          <Input v-model="filter" type="search" :aria-label="copy('Filter configuration', '筛选配置')" :placeholder="copy('Search name, source or manager…', '搜索名称、来源或管理器…')" />
           <FormSelect v-model="kind" :options="kindOptions" :aria-label="copy('Configuration type', '配置类型')" />
           <FormSelect v-model="status" :options="statusOptions" :aria-label="copy('Configuration status', '配置状态')" />
-          <UiButton size="compact" :disabled="busy" @click="invoke('inspect')"><Icon :name="busy ? 'loading' : 'refresh'" />{{ copy('Refresh', '刷新') }}</UiButton>
+          <UiButton size="compact" :disabled="busy || !supports('inspect')" :title="supportReason('inspect')" @click="invoke('inspect')"><Icon :name="busy ? 'loading' : 'refresh'" />{{ refreshCapabilitiesOnly ? copy('Refresh capabilities', '刷新能力') : copy('Refresh', '刷新') }}</UiButton>
+        </div>
+        <div class="configuration-metadata-filters">
+          <FormSelect v-model="client" :options="clientOptions" :aria-label="copy('Configuration client', '配置客户端')" />
+          <FormSelect v-model="scope" :options="scopeOptions" :aria-label="copy('Configuration scope', '配置作用域')" />
+          <FormSelect v-model="manager" :options="managerOptions" :aria-label="copy('Configuration manager', '配置管理器')" />
         </div>
         <div class="configuration-columns">
           <aside class="configuration-list" :aria-label="copy('Configuration inventory', '配置清单')">
@@ -118,6 +211,7 @@ async function invoke(operation: string, input: Record<string, unknown> = {}) {
                 <button type="button" class="configuration-item" :aria-pressed="row.id === selected" @click="selected = row.id">
                   <span class="configuration-item-title"><Icon :name="row.kind === 'mcp' ? 'plugins' : row.kind === 'skill' ? 'skill' : row.kind === 'terminal' ? 'terminal' : 'docs'" /><strong>{{ row.title }}</strong><Icon v-if="choices[row.id] && choices[row.id] !== 'skip'" name="check" /></span>
                   <span class="configuration-item-meta"><Badge :variant="tone(row.status)">{{ label(row.status) }}</Badge><small>{{ label(row.origin) }}</small></span>
+                  <small class="configuration-item-ownership">{{ clientLabel(row.client) }} · {{ scopeLabel(row.scope) }} · {{ managerLabel(row.manager) }}</small>
                   <small v-if="choices[row.id] && choices[row.id] !== 'skip'" class="configuration-choice-summary">{{ choiceLabel(row.id) }}</small>
                 </button>
               </li>
@@ -127,22 +221,38 @@ async function invoke(operation: string, input: Record<string, unknown> = {}) {
           <section v-if="item" class="configuration-diff" :aria-label="copy('Configuration difference', '配置差异')">
             <header class="configuration-detail-heading"><h3>{{ item.title }}</h3><Badge :variant="tone(item.status)">{{ label(item.status) }}</Badge></header>
             <p class="configuration-note">{{ label(item.origin) }} · {{ label(item.owner) }}</p>
+            <dl class="configuration-ownership">
+              <div><dt>{{ copy('Client destination', '客户端目标') }}</dt><dd>{{ clientLabel(item.client) }}</dd></div>
+              <div><dt>{{ copy('Scope', '作用域') }}</dt><dd>{{ scopeLabel(item.scope) }}</dd></div>
+              <div><dt>{{ copy('Managed by', '管理归属') }}</dt><dd>{{ managerLabel(item.manager) }}</dd></div>
+              <div><dt>{{ copy('Source', '来源') }}</dt><dd>{{ item.provenance ? translate(item.provenance.label) : copy('Source not identified', '尚未识别来源') }}<code v-if="item.provenance?.path">{{ item.provenance.path }}</code></dd></div>
+            </dl>
+            <p v-if="item.kind === 'mcp' || item.kind === 'skill'" class="configuration-note">{{ copy('Client destinations describe files found on disk. They do not confirm that a running Agent loaded them.', '客户端目标表示磁盘上发现的配置，不代表运行中的 Agent 已加载。') }}</p>
+            <div v-if="itemTool" class="configuration-item-tool">
+              <strong>{{ translate(itemTool.title) }}</strong>
+              <a v-if="safeToolUrl(itemTool.url)" :href="safeToolUrl(itemTool.url)" target="_blank" rel="noopener noreferrer">{{ copy('Management documentation', '管理文档') }}<Icon name="externalLink" /></a>
+              <UiButton v-if="itemTool.software" size="compact" :disabled="!!openingTool || !supports('software-open')" :title="supportReason('software-open')" @click="openTool(itemTool)">{{ copy('Open', '打开') }} {{ translate(itemTool.title) }}</UiButton>
+            </div>
             <Alert v-if="item.status === 'first-adoption'">{{ copy('No previous baseline. Review both versions before adopting this configuration.', '没有历史基线。请审阅双方内容后决定如何接管。') }}</Alert>
-            <p v-if="item.management" class="configuration-note">{{ item.management }}</p>
+            <p v-if="item.management" class="configuration-note">{{ translate(item.management) }}</p>
             <FieldGroup class="configuration-decision">
               <Field v-if="writable">
                 <FieldLabel :for="`decision-${item.id}`">{{ copy('Resolution', '处理方式') }}</FieldLabel>
-                <FormSelect :id="`decision-${item.id}`" :model-value="choices[item.id] ?? 'skip'" :options="choiceOptions" :aria-label="`${copy('Decision', '处理方式')} ${item.title}`" :disabled="busy || !!page.preview" @update:model-value="choose(item.id, $event)" />
+                <FormSelect :id="`decision-${item.id}`" :model-value="choices[item.id] ?? 'skip'" :options="choiceOptions" :aria-label="`${copy('Decision', '处理方式')} ${item.title}`" :disabled="busy || !!page.preview || !canStage" @update:model-value="choose(item.id, $event)" />
                 <small>{{ copy('Your selection is staged only. Preview lists the exact files before application.', '选择仅加入待处理清单，预览会列出准确的修改文件。') }}</small>
               </Field>
               <p v-else class="configuration-note">{{ copy('This item cannot be written here. Use its supported management entry.', '此项不可在这里写入，请使用其所属管理入口。') }}</p>
               <Field v-for="field in item.fields" v-if="choices[item.id] === 'merge'" :key="field">
                 <FieldLabel :for="`merge-${item.id}-${field}`">{{ field }}</FieldLabel>
-                <FormSelect :id="`merge-${item.id}-${field}`" v-model="fields[item.id]![field]" :options="fieldOptions" :placeholder="copy('Choose explicitly', '请选择')" :aria-label="`${copy('Merge field', '合并字段')} ${field}`" :disabled="busy || !!page.preview" />
+                <FormSelect :id="`merge-${item.id}-${field}`" v-model="fields[item.id]![field]" :options="fieldOptions" :placeholder="copy('Choose explicitly', '请选择')" :aria-label="`${copy('Merge field', '合并字段')} ${field}`" :disabled="busy || !!page.preview || !canStage" />
               </Field>
             </FieldGroup>
             <p v-if="item.fields.length" class="configuration-note">{{ copy('Changed fields', '变化字段') }}: {{ item.fields.join(', ') }}</p>
-            <FileDiffPreview v-if="item.local && item.source"
+            <div v-if="inventoryOnly" class="configuration-inventory-content">
+              <p class="configuration-note">{{ copy('Skill content and updates remain with the original tool or project. This page shows inventory and diagnostics.', 'Skill 内容及更新由原工具或项目维护，此处展示盘点和诊断。') }}</p>
+              <code>{{ item.localPath }}</code>
+            </div>
+            <FileDiffPreview v-else-if="item.sourcePath && item.local && item.source"
               :before="item.local" :after="item.source"
               :before-path="item.localPath" :after-path="item.sourcePath"
               :before-label="copy('Local file', '本机文件')" :after-label="copy('Repository source', '仓库源文件')"
@@ -158,13 +268,41 @@ async function invoke(operation: string, input: Record<string, unknown> = {}) {
         <footer class="configuration-review-bar">
           <span>{{ decisions.length }} {{ copy('selected · no files changed', '项待处理 · 尚未修改文件') }}<small v-if="decisions.length && !canPreview">{{ copy('Choose every merge field to continue.', '请先选择每个合并字段。') }}</small></span>
           <div><UiButton v-if="decisions.length && !page.preview" size="compact" :disabled="busy" @click="clearChoices">{{ copy('Clear choices', '清空选择') }}</UiButton>
-          <UiButton size="compact" variant="primary" v-if="!page.preview" :disabled="busy || !canPreview" @click="invoke('preview', { decisions })"><Icon :name="busy ? 'loading' : 'arrowRight'" />{{ copy('Preview selected changes', '预览所选修改') }} ({{ decisions.length }})</UiButton>
+          <UiButton size="compact" variant="primary" v-if="!page.preview" :disabled="busy || !canPreview" :title="stageReason" @click="invoke('preview', { decisions })"><Icon :name="busy ? 'loading' : 'arrowRight'" />{{ copy('Preview selected changes', '预览所选修改') }} ({{ decisions.length }})</UiButton>
           <UiButton v-else size="compact" variant="primary" @click="previewOpen = true">{{ copy('Review prepared plan', '查看待应用方案') }}</UiButton></div>
         </footer>
+      </TabsContent>
+      <TabsContent value="skills-audit">
+        <section class="configuration-skills-audit" :aria-label="copy('Skills audit report', 'Skills 审计报告')">
+          <header class="configuration-detail-heading"><h3>{{ copy('Workstation Skills audit', 'Workstation Skills 审计') }}</h3><UiButton size="compact" :disabled="busy || !supports('inspect')" :title="supportReason('inspect')" @click="invoke('inspect')"><Icon :name="busy ? 'loading' : 'refresh'" />{{ refreshCapabilitiesOnly ? copy('Refresh capabilities', '刷新能力') : copy('Refresh audit', '刷新审计') }}</UiButton></header>
+          <p class="configuration-note">{{ copy('Read-only checks of skill files, metadata, duplicate names and managed dependencies.', '只读检查 Skill 文件、元数据、重名项和纳管依赖。') }}</p>
+          <p v-if="checkedAt" class="configuration-note">{{ copy('Checked at', '检查时间') }}: <time :datetime="audit?.checkedAt">{{ checkedAt }}</time></p>
+          <Alert v-if="!audit">{{ copy('This provider has not returned a Skills audit. Refresh with a supported Workstation version to read diagnostics.', '当前提供者尚未返回 Skills 审计。请使用支持审计的 Workstation 版本刷新诊断。') }}</Alert>
+          <Alert v-else-if="audit.state === 'unsupported'">{{ copy('Skills audit is unavailable in this Workstation version.', '当前 Workstation 版本尚不支持 Skills 审计。') }}<p v-if="audit.message">{{ translate(audit.message) }}</p></Alert>
+          <Alert v-else-if="audit.state === 'error'" variant="danger">{{ copy('Skills audit failed. No successful audit result is available.', 'Skills 审计失败，当前没有成功的审计结果。') }}<p v-if="audit.message">{{ translate(audit.message) }}</p></Alert>
+          <template v-else>
+            <dl v-if="audit.summary" class="configuration-audit-summary">
+              <div><dt>{{ copy('Skill files', 'Skill 文件') }}</dt><dd>{{ audit.summary.skillFileCount }}</dd></div>
+              <div><dt>{{ copy('Implicit invocation allowed', '允许隐式调用') }}</dt><dd>{{ audit.summary.implicitSkillCount }}</dd></div>
+              <div><dt>{{ copy('Explicit invocation only', '仅显式调用') }}</dt><dd>{{ audit.summary.explicitOnlySkillCount }}</dd></div>
+              <div><dt>{{ copy('Warnings', '警告') }}</dt><dd>{{ audit.summary.warningCount }}</dd></div>
+              <div><dt>{{ copy('Errors', '错误') }}</dt><dd>{{ audit.summary.errorCount }}</dd></div>
+            </dl>
+            <p v-if="audit.message" class="configuration-note">{{ translate(audit.message) }}</p>
+            <p v-if="!audit.findings.length" class="configuration-note">{{ copy('No diagnostic findings were returned.', '未返回诊断问题。') }}</p>
+          </template>
+          <ul v-if="audit?.findings.length" class="configuration-audit-findings">
+            <li v-for="(finding, index) in audit.findings" :key="`${finding.code}-${index}`">
+              <Badge :variant="finding.severity === 'error' ? 'danger' : 'warning'">{{ finding.severity === 'error' ? copy('Error', '错误') : copy('Warning', '警告') }}</Badge><strong>{{ finding.code }}</strong>
+              <p>{{ translate(finding.message) }}</p><code v-for="path in finding.paths" :key="path">{{ path }}</code>
+            </li>
+          </ul>
+        </section>
       </TabsContent>
       <TabsContent value="repositories">
     <section class="configuration-repositories">
       <h3>{{ copy('Repository synchronization', '仓库同步') }}</h3>
+      <p v-if="!supports('git-status')" class="configuration-note">{{ supportReason('git-status') }} {{ copy('Previously loaded repository observations remain available to review.', '仍可审阅已载入的仓库状态。') }}</p>
       <p>{{ copy('Ahead / behind reflects the last fetch. Fetch updates the checkout only. Publish never force-pushes.', '领先 / 落后基于上次拉取。拉取仅更新仓库；发布不会强推。') }}</p>
       <article v-for="repo in page.repositories" :key="repo.id">
         <strong>{{ label(repo.id) }}</strong><code>{{ repo.root }}</code><p v-if="repo.error" role="alert">{{ translate(repo.error) }}</p>
@@ -176,29 +314,49 @@ async function invoke(operation: string, input: Record<string, unknown> = {}) {
             <pre v-if="repo.workingDiff">{{ repo.workingDiff }}</pre>
             <Input v-model="commitMessage" :aria-label="copy('Commit message', '提交说明')" />
           </details>
-          <UiButton size="compact" v-for="action in ['fetch', 'commit', 'publish']" :key="action" :disabled="busy || !repo.revision || (action === 'commit' && !commitPaths[repo.id]?.length)" @click="gitReview = { repository: repo.id, revision: repo.revision!, action, paths: action === 'commit' ? commitPaths[repo.id] ?? [] : [], message: commitMessage, outgoing: repo.outgoing, diff: action === 'publish' ? repo.outgoingDiff : repo.workingDiff }">{{ copy(`Review ${action}`, ({ fetch: '审阅拉取', commit: '审阅提交', publish: '审阅发布' } as Record<string, string>)[action]!) }}</UiButton>
+          <UiButton size="compact" v-for="action in ['fetch', 'commit', 'publish']" :key="action" :disabled="busy || !supports(`git-${action}`) || !repo.revision || (action === 'commit' && !commitPaths[repo.id]?.length)" :title="supportReason(`git-${action}`)" @click="gitReview = { repository: repo.id, revision: repo.revision!, action, paths: action === 'commit' ? commitPaths[repo.id] ?? [] : [], message: commitMessage, outgoing: repo.outgoing, diff: action === 'publish' ? repo.outgoingDiff : repo.workingDiff }">{{ copy(`Review ${action}`, ({ fetch: '审阅拉取', commit: '审阅提交', publish: '审阅发布' } as Record<string, string>)[action]!) }}</UiButton>
         </template>
       </article>
       <section v-if="gitReview" class="configuration-preview">
         <h4>{{ gitReview.repository }} · {{ gitReview.action }}</h4><p>{{ gitReview.paths.join(', ') }}</p><p v-if="gitReview.action === 'publish'">{{ copy('Publish all reviewed outgoing commits', '发布全部已审阅的待推送提交') }}: {{ gitReview.outgoing?.join(', ') }}</p><pre v-if="gitReview.action !== 'fetch'">{{ gitReview.diff }}</pre><p v-if="gitReview.action === 'commit'">{{ gitReview.message }}</p>
         <p>{{ copy('This operation affects the repository. Local configuration is applied separately.', '此操作修改仓库状态。本机配置需单独应用。') }}</p>
-        <UiButton size="compact" :disabled="busy" @click="invoke('git-action', gitReview)">{{ copy('Confirm repository operation', '确认仓库操作') }}</UiButton><UiButton size="compact" :disabled="busy" @click="gitReview = undefined">{{ copy('Cancel', '取消') }}</UiButton>
+        <p v-if="!supports(`git-${gitReview.action}`)" class="configuration-note">{{ supportReason(`git-${gitReview.action}`) }}</p>
+        <UiButton size="compact" :disabled="busy || !supports(`git-${gitReview.action}`)" :title="supportReason(`git-${gitReview.action}`)" @click="invoke('git-action', gitReview)">{{ copy('Confirm repository operation', '确认仓库操作') }}</UiButton><UiButton size="compact" :disabled="busy" @click="gitReview = undefined">{{ copy('Cancel', '取消') }}</UiButton>
       </section>
     </section>      </TabsContent>
       <TabsContent value="history">
     <section class="configuration-history">
+      <p v-if="!supports('history')" class="configuration-note">{{ supportReason('history') }} {{ copy('Previously loaded records remain available to review.', '仍可审阅已载入的记录。') }}</p>
+      <p v-if="!supports('restore') && page.history?.length" class="configuration-note">{{ supportReason('restore') }}</p>
       <h3>{{ copy('Application and recovery history', '应用与恢复记录') }}</h3><p class="configuration-note">{{ copy('Restore only files unchanged since application. Later edits are protected.', '仅恢复应用后未再次修改的文件，后续修改会受到保护。') }}</p><p v-if="!page.history?.length">{{ copy('No application history yet.', '暂无应用记录。') }}</p>
       <article v-for="plan in page.history" :key="plan.planId"><code>{{ plan.planId }}</code> · {{ label(plan.state) }}<small>{{ plan.createdAt }}</small><code v-for="path in plan.paths" :key="path">{{ path }}</code><p v-if="plan.error">{{ translate(plan.error) }}</p>
-        <UiButton size="compact" v-if="['applied', 'failed', 'applying'].includes(plan.state)" :disabled="busy" @click="invoke('restore', { planId: plan.planId })">{{ copy('Restore unchanged files from backup', '从备份恢复未再次修改的文件') }}</UiButton>
+        <UiButton size="compact" v-if="['applied', 'failed', 'applying'].includes(plan.state)" :disabled="busy || !supports('restore')" :title="supportReason('restore')" @click="invoke('restore', { planId: plan.planId })">{{ copy('Restore unchanged files from backup', '从备份恢复未再次修改的文件') }}</UiButton>
       </article>
     </section>
       </TabsContent>
     </TabsRoot>
+    <section v-if="managementTools.length" class="configuration-management-tools" :aria-label="copy('Original management tools', '原管理工具')">
+      <h3>{{ copy('Original management tools', '原管理工具') }}</h3>
+      <p class="configuration-note">{{ copy('Use the owning tool to install, update or manage its configuration, then refresh this page.', '使用所属工具安装、更新或管理配置后，再刷新此页。') }}</p>
+      <p v-if="managementTools.some(tool => tool.software) && !supports('software-open')" class="configuration-note">{{ supportReason('software-open') }}</p>
+      <ul>
+        <li v-for="tool in managementTools" :key="tool.id">
+          <strong>{{ translate(tool.title) }}</strong>
+          <a v-if="safeToolUrl(tool.url)" :href="safeToolUrl(tool.url)" target="_blank" rel="noopener noreferrer" :aria-label="`${copy('Documentation', '文档')} ${translate(tool.title)}`">{{ copy('Documentation', '文档') }}<Icon name="externalLink" /></a>
+          <UiButton v-if="tool.software" size="compact" :disabled="!!openingTool || !supports('software-open')" :title="supportReason('software-open')" @click="openTool(tool)"><Icon v-if="openingTool === tool.id" name="loading" />{{ copy('Open', '打开') }} {{ translate(tool.title) }}</UiButton>
+        </li>
+      </ul>
+      <Alert v-if="toolResult" :variant="toolResult.state === 'error' ? 'danger' : undefined" :role="toolResult.state === 'error' ? 'alert' : 'status'">
+        <p>{{ translate(toolResult.message) }}</p>
+        <p v-if="toolResult.state === 'error'">{{ copy('Use the tool documentation or Software center to check its availability.', '可通过工具文档或软件中心检查是否可用。') }} <a href="/software">{{ copy('Software center', '软件中心') }}</a></p>
+      </Alert>
+    </section>
     <DialogShell :open="previewOpen && !!page.preview" layout="panel" @update:open="previewOpen = $event">
       <template #title>{{ copy('Review modification scope', '审阅修改范围') }}</template>
       <template #description>{{ copy('Only the listed files will change. Commit and publish are separate actions.', '仅修改下列文件。提交和发布需另行操作。') }}</template>
       <template #header-actions><UiButton size="icon" variant="ghost" :aria-label="copy('Close preview', '关闭预览')" @click="previewOpen = false"><Icon name="close" /></UiButton></template>
       <section v-if="page.preview" class="configuration-preview" aria-label="Change preview">
+        <p v-if="!supports('apply')" class="configuration-note">{{ supportReason('apply') }}</p>
         <Alert v-if="error" variant="danger">{{ translate(error) }}</Alert>
         <article v-for="change in page.preview.changes" :key="change.path">
           <Badge :variant="change.deletion ? 'danger' : 'secondary'">{{ label(change.direction) }}</Badge><code>{{ change.path }}</code>
@@ -207,7 +365,7 @@ async function invoke(operation: string, input: Record<string, unknown> = {}) {
         </article>
         <p v-if="!page.preview.changes.length">{{ copy('No file changes; record the reviewed baseline.', '无需修改文件，仅记录已审阅基线。') }}</p>
       </section>
-      <template #footer><UiButton size="compact" :disabled="busy" @click="invoke('inspect')">{{ copy('Discard preview', '放弃预览') }}</UiButton><UiButton size="compact" variant="primary" :disabled="busy || !page.preview" @click="invoke('apply', { planId: page.preview!.planId })"><Icon v-if="busy" name="loading" />{{ copy('Apply reviewed plan', '应用已审阅方案') }}</UiButton></template>
+      <template #footer><UiButton size="compact" :disabled="busy || !supports('inspect')" :title="supportReason('inspect')" @click="invoke('inspect')">{{ copy('Discard preview', '放弃预览') }}</UiButton><UiButton size="compact" variant="primary" :disabled="busy || !page.preview || !supports('apply')" :title="supportReason('apply')" @click="invoke('apply', { planId: page.preview!.planId })"><Icon v-if="busy" name="loading" />{{ copy('Apply reviewed plan', '应用已审阅方案') }}</UiButton></template>
     </DialogShell>
   </section>
 </template>
@@ -218,8 +376,9 @@ async function invoke(operation: string, input: Record<string, unknown> = {}) {
 .configuration-overview p { margin: 0; color: var(--muted); }
 .configuration-note, small { color: var(--muted); line-height: var(--line-height-emphasis); }
 .configuration-message { display: flex; align-items: center; gap: var(--space-2); color: var(--success); }
-.configuration-tabs .workbench-tabs { margin-bottom: var(--space-3); }
+.configuration-tabs .workbench-tabs { margin-bottom: var(--space-3); max-width: 100%; overflow-x: auto; }
 .configuration-toolbar { display: grid; grid-template-columns: minmax(120px, 1fr) minmax(110px, 160px) minmax(120px, 180px) auto; align-items: center; gap: var(--space-2); margin-bottom: var(--space-3); }
+.configuration-metadata-filters { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-2); margin-bottom: var(--space-3); }
 .configuration-columns { display: grid; grid-template-columns: minmax(220px, 30%) minmax(0, 1fr); height: clamp(260px, calc(100dvh - 430px), 700px); min-height: 0; border: 1px solid var(--border); border-radius: var(--control-radius); overflow: hidden; }
 .configuration-list { min-height: 0; overflow: auto; border-right: 1px solid var(--border); background: var(--workbench-sidebar-background); scrollbar-width: thin; }
 .configuration-list-heading { display: flex; justify-content: space-between; padding: var(--space-3); color: var(--muted); border-bottom: 1px solid var(--border); }
@@ -231,9 +390,28 @@ async function invoke(operation: string, input: Record<string, unknown> = {}) {
 .configuration-item-title strong { flex: 1; min-width: 0; overflow-wrap: anywhere; font-weight: 500; }
 .configuration-item .app-icon { flex: none; width: 14px; height: 14px; color: var(--muted); }
 .configuration-item-meta { flex-wrap: wrap; }
+.configuration-item-ownership { overflow-wrap: anywhere; }
 .configuration-choice-summary { color: var(--accent); }
 .configuration-diff { padding: var(--space-4); min-width: 0; min-height: 0; overflow: auto; scrollbar-width: thin; }
 .configuration-detail-heading { flex-wrap: wrap; justify-content: space-between; }
+.configuration-ownership, .configuration-audit-summary { display: grid; gap: var(--space-3); margin-block: var(--space-3); }
+.configuration-ownership { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.configuration-audit-summary { grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); }
+.configuration-ownership dt, .configuration-audit-summary dt { color: var(--muted); font-size: var(--font-size-control); }
+.configuration-ownership dd, .configuration-audit-summary dd { margin: var(--space-1) 0 0; overflow-wrap: anywhere; }
+.configuration-audit-summary > div { padding: var(--space-3); border: 1px solid var(--border); border-radius: var(--control-radius); }
+.configuration-audit-summary dd { font-size: var(--page-section-title-size); }
+.configuration-ownership code { margin-block: var(--space-1); }
+.configuration-item-tool, .configuration-management-tools li { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; }
+.configuration-item-tool a, .configuration-management-tools a { display: inline-flex; align-items: center; gap: var(--space-1); color: var(--accent); }
+.configuration-item-tool .app-icon, .configuration-management-tools .app-icon { width: 14px; height: 14px; flex: none; }
+.configuration-management-tools { border-top: 1px solid var(--border); margin-top: var(--space-3); padding-top: var(--space-3); }
+.configuration-management-tools ul, .configuration-audit-findings { list-style: none; margin: 0; padding: 0; }
+.configuration-management-tools li { padding-block: var(--space-2); }
+.configuration-management-tools li > strong { margin-right: auto; }
+.configuration-audit-findings li { padding-block: var(--space-3); border-bottom: 1px solid var(--border); overflow-wrap: anywhere; }
+.configuration-audit-findings li > strong { margin-inline-start: var(--space-2); }
+.configuration-management-tools p, .configuration-skills-audit p { overflow-wrap: anywhere; }
 h3 { margin: 0; font-size: var(--page-section-title-size); overflow-wrap: anywhere; }
 h4 { display: flex; align-items: center; gap: var(--space-2); margin: 0; font-size: var(--font-size-body); }
 h4 .app-icon { width: 14px; height: 14px; }
@@ -257,6 +435,7 @@ summary { cursor: pointer; padding-block: var(--space-2); }
  .configuration-manager { padding: var(--space-3); }
  .configuration-toolbar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
  .configuration-toolbar > :first-child { grid-column: 1 / -1; }
+ .configuration-metadata-filters { grid-template-columns: 1fr; }
  .configuration-columns { grid-template-columns: 1fr; height: auto; }
  .configuration-list { max-height: 240px; border-right: 0; border-bottom: 1px solid var(--border); }
  .configuration-diff { max-height: none; }

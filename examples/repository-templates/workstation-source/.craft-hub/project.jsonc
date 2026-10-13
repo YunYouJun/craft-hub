@@ -1,0 +1,10 @@
+{
+  "$schema": "https://raw.githubusercontent.com/YunYouJun/craft-hub/main/packages/craft-hub/schema/project-v1.schema.json",
+  "version": 1,
+  // Describe the source repository itself, independently of its published workspaces.
+  "project": {
+    "name": "Example developer configuration source",
+    "description": "Shared workspace, checkout and software declarations.",
+    "readme": "./README.md"
+  }
+}

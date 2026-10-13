@@ -1,0 +1,121 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "$schema": {
+      "description": "Editor schema hint only; Craft Hub does not fetch or execute this URL",
+      "type": "string"
+    },
+    "schemaVersion": {
+      "type": "number",
+      "const": 1
+    },
+    "id": {
+      "type": "string",
+      "maxLength": 100,
+      "pattern": "^[\\w-]+$"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "workspaces": {
+      "maxItems": 200,
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/workspace"
+      }
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "id",
+    "name",
+    "workspaces"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "workspace": {
+      "type": "object",
+      "properties": {
+        "$schema": {
+          "description": "Editor schema hint only; Craft Hub does not fetch or execute this URL",
+          "type": "string"
+        },
+        "schemaVersion": {
+          "type": "number",
+          "const": 1
+        },
+        "id": {
+          "type": "string",
+          "maxLength": 100,
+          "pattern": "^[\\w-]+$"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "icon": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "color": {
+          "type": "string",
+          "enum": [
+            "blue",
+            "cyan",
+            "green",
+            "orange",
+            "pink",
+            "purple",
+            "red",
+            "yellow"
+          ]
+        },
+        "primaryProject": {
+          "type": "string",
+          "description": "Credential-free HTTPS Git repository URL with a repository path, without a query or fragment; validated and normalized by Craft Hub"
+        },
+        "members": {
+          "maxItems": 200,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "project": {
+                "type": "string",
+                "description": "Credential-free HTTPS Git repository URL with a repository path, without a query or fragment; validated and normalized by Craft Hub"
+              },
+              "label": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "pinned": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "project"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "id",
+        "name",
+        "members"
+      ],
+      "additionalProperties": false,
+      "description": "Portable workspace; primaryProject must be a member and repository identities must be unique"
+    }
+  },
+  "$id": "https://raw.githubusercontent.com/YunYouJun/craft-hub/main/packages/craft-hub/schema/workspace-source-v1.schema.json",
+  "title": "Craft Hub workspace source",
+  "description": "Repository-owned source identity and portable workspace definitions. Individual workspace documents use #/$defs/workspace.",
+  "$comment": "Run the Craft Hub read-only repository validator for HTTPS repository identity, duplicate workspace ids, duplicate project references, primary project membership, and configuration size limits. JSON Schema does not replace those semantic checks."
+}

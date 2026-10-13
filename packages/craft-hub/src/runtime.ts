@@ -1,6 +1,6 @@
 import type { Buffer } from 'node:buffer'
 import type { AccountProvider } from './accounts'
-import type { WorkbenchDiagnosticSnapshot } from './diagnostics'
+import type { HostDiagnosticProvider, WorkbenchDiagnosticSnapshot } from './diagnostics'
 import type { RunHandle } from './executor'
 import type { CapabilityProvider, CraftHubOptions, DistributionConfig } from './extensions'
 import type { ApplyGitIntegrationRequest, GitIntegrationPlan, GitIntegrationRequest, GitIntegrationResult } from './git-integration'
@@ -19,7 +19,7 @@ import { bundledSoftwareCatalog } from './bundled-software-catalog'
 import { resolveCommandContributions } from './command-contributions'
 import { resolveCommandInvocation, resolvePersistedCommandInvocation } from './command-inputs'
 import { applyProjectConfigInitialization, loadProjectConfig, previewProjectConfigInitialization } from './config'
-import { collectWorkbenchDiagnostics } from './diagnostics'
+import { collectWorkbenchDiagnostics, readHostDiagnosticProviders } from './diagnostics'
 import { DotfilesManager } from './dotfiles-manager'
 import { executeCommand } from './executor'
 import { builtinCapabilityProvider, communityDistribution } from './extensions'
@@ -82,6 +82,7 @@ export class CraftHubRuntime {
   readonly distribution: DistributionConfig
   private readonly capabilityProviders: Array<{ pluginId?: string, provider: CapabilityProvider }>
   private readonly hostPluginDiagnostics: readonly PluginDiagnostic[]
+  private readonly diagnosticProviders: Array<{ pluginId: string, provider: HostDiagnosticProvider }>
   private readonly activeRuns = new Map<string, RunHandle>()
   private readonly capabilityDiscoveryRequests = new Map<string, Promise<CapabilityDiscoveryResult>>()
   private readonly lastRuns = new Map<string, Pick<ProjectRunSummary, 'lastFinishedAt' | 'lastStatus'>>()
@@ -118,6 +119,7 @@ export class CraftHubRuntime {
       source: `host:${plugin.id}`,
     })))
     this.integrationRegistry = new IntegrationRegistry(plugins.flatMap(plugin => plugin.integrationProviders ?? []))
+    this.diagnosticProviders = plugins.flatMap(plugin => (plugin.diagnosticProviders ?? []).map(provider => ({ pluginId: plugin.id, provider })))
     this.capabilityProviders = [
       { provider: builtinCapabilityProvider },
       { provider: this.pluginManager.capabilityProvider },
@@ -216,13 +218,14 @@ export class CraftHubRuntime {
   /** Collect current host, extension, and configuration failures for client presentation. */
   async diagnosticSnapshot(): Promise<WorkbenchDiagnosticSnapshot> {
     await Promise.allSettled([this.ownerScopes.list(), this.workspaces.list()])
-    const [projects, settings, userConfig, plugins, marketplaceSources, integrations] = await Promise.all([
+    const [projects, settings, userConfig, plugins, marketplaceSources, integrations, providers] = await Promise.all([
       this.projects.snapshot(),
       this.settings.get(),
       this.userConfig.status(),
       this.pluginManager.listInstalled(),
       this.pluginManager.listSources(),
       this.integrationContributions(),
+      readHostDiagnosticProviders(this.diagnosticProviders, this.hostEnvironment.kind === 'local'),
     ])
     return collectWorkbenchDiagnostics({
       hostPlugins: this.getPluginDiagnostics(),
@@ -232,6 +235,7 @@ export class CraftHubRuntime {
       projects,
       settings,
       userConfig,
+      providers,
     })
   }
 

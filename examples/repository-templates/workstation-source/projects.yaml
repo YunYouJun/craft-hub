@@ -1,0 +1,7 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/YunYouJun/workstation/main/schemas/projects.schema.json
+# Select the checkout root on each machine; this shared declaration omits root.
+groups:
+  common:
+    repositories:
+      - name: github.com/example/app
+        url: https://github.com/example/app.git

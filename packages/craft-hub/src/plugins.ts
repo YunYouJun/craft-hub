@@ -1,6 +1,8 @@
 import type { AccountProvider } from './accounts'
+import type { HostDiagnosticProvider } from './diagnostics'
 import type { CapabilityProvider } from './extensions'
 import type { IntegrationContribution, IntegrationProvider } from './integrations'
+import type { RepositoryValidationProvider } from './repository-validation'
 import type { SoftwareCatalogProvider } from './software-catalog'
 import type { WorkspaceCatalogProvider } from './workspace-catalog'
 import type { WorkspaceRepositoryProvider } from './workspace-repository'
@@ -9,6 +11,7 @@ import { isAbsolute, resolve } from 'node:path'
 import process from 'node:process'
 import { pathToFileURL } from 'node:url'
 import { integrationContributionSchema } from './integrations'
+import { assertRepositoryValidationProviders } from './repository-validation'
 
 /** A trusted, host-installed extension to the Craft Hub runtime. */
 export interface CraftHubPlugin {
@@ -22,6 +25,10 @@ export interface CraftHubPlugin {
   softwareCatalogProviders?: SoftwareCatalogProvider[]
   capabilityProviders?: CapabilityProvider[]
   integrationProviders?: IntegrationProvider[]
+  /** Read-only host diagnostics; local providers are never called by hosted runtimes. */
+  diagnosticProviders?: HostDiagnosticProvider[]
+  /** Pure content validators explicitly loaded for read-only repository validation. */
+  repositoryValidationProviders?: RepositoryValidationProvider[]
   /** Declarative views shipped with an explicitly loaded trusted Host Plugin. */
   integrations?: IntegrationContribution[]
 }
@@ -108,4 +115,21 @@ function assertPlugin(value: unknown, specifier: string): asserts value is Craft
     throw new TypeError(`Plugin ${specifier} integrationProviders must be an array`)
   if (plugin.softwareCatalogProviders !== undefined && !Array.isArray(plugin.softwareCatalogProviders))
     throw new TypeError(`Plugin ${specifier} softwareCatalogProviders must be an array`)
+  if (plugin.repositoryValidationProviders !== undefined)
+    assertRepositoryValidationProviders(plugin.repositoryValidationProviders)
+  if (plugin.diagnosticProviders !== undefined) {
+    if (!Array.isArray(plugin.diagnosticProviders) || plugin.diagnosticProviders.length > 20)
+      throw new TypeError(`Plugin ${specifier} diagnosticProviders must be an array with at most 20 providers`)
+    const ids = new Set<string>()
+    for (const provider of plugin.diagnosticProviders) {
+      if (!provider || typeof provider.id !== 'string' || !/^[a-z0-9][a-z0-9._-]{0,127}$/.test(provider.id)
+        || typeof provider.title !== 'string' || !provider.title || provider.title.length > 256 || /\p{Cc}/u.test(provider.title)
+        || typeof provider.read !== 'function' || (provider.localOnly !== undefined && typeof provider.localOnly !== 'boolean')) {
+        throw new TypeError(`Plugin ${specifier} has an invalid diagnostic provider`)
+      }
+      if (ids.has(provider.id))
+        throw new TypeError(`Plugin ${specifier} has duplicate diagnostic provider ids`)
+      ids.add(provider.id)
+    }
+  }
 }

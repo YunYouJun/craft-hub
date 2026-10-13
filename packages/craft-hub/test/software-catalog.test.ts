@@ -25,6 +25,37 @@ describe('read-only software catalogs', () => {
     ]) expect(softwareCatalogSchema.safeParse(malformed).success).toBe(false)
   })
 
+  it('validates bounded capability reports and intersects them with item observations', async () => {
+    const operationSupport = { state: 'available' as const, cliVersion: '1.0.0', platform: 'linux', operations: {
+      catalog: { supported: true },
+      preview: { supported: true },
+      install: { supported: false, reason: 'unsupported-platform' },
+      open: { supported: false, reason: 'unsupported-platform' },
+    } }
+    const observed = { ...catalog, operationSupport, items: [{ ...item, canInstall: true, canOpen: true }] }
+    const service = new SoftwareCatalogService([{ ...source, read: async () => observed }])
+    expect((await service.snapshot()).sources[0]).toMatchObject({ operationSupport, items: [{ canInstall: false, canOpen: false }] })
+    const permitted = new SoftwareCatalogService([{ ...source, read: async () => ({ ...observed, operationSupport: { ...operationSupport, operations: { preview: { supported: true }, install: { supported: true }, open: { supported: true } } } }) }])
+    expect((await permitted.snapshot()).sources[0]!.items[0]).toMatchObject({ canInstall: true, canOpen: true })
+    const legacy = new SoftwareCatalogService([{ ...source, read: async () => ({ ...catalog, items: observed.items }) }])
+    expect((await legacy.snapshot()).sources[0]!.items[0]).toMatchObject({ canInstall: true, canOpen: true })
+    for (const malformed of [
+      { ...operationSupport, state: 'unexpected' },
+      { ...operationSupport, operations: { open: { supported: 'yes' } } },
+      { ...operationSupport, operations: { open: { supported: true, executable: 'open' } } },
+      { ...operationSupport, operations: { 'shell command': { supported: true } } },
+      { ...operationSupport, message: 'x'.repeat(1025) },
+      { ...operationSupport, operations: Object.fromEntries(Array.from({ length: 101 }, (_, index) => [`operation-${index}`, { supported: true }])) },
+    ]) expect(softwareCatalogSchema.safeParse({ ...observed, operationSupport: malformed }).success).toBe(false)
+  })
+
+  it.each(['unsupported', 'unavailable'] as const)('does not expose item writes for %s capability reports', async (state) => {
+    const operationSupport = { state, operations: { preview: { supported: true }, install: { supported: true }, open: { supported: true } } }
+    const result = await new SoftwareCatalogService([{ ...source, read: async () => ({ ...catalog, operationSupport, items: [{ ...item, canInstall: true, canOpen: true }] }) }]).snapshot()
+    expect(result.sources[0]!.operationSupport).toEqual(operationSupport)
+    expect(result.sources[0]!.items[0]).toMatchObject({ canInstall: false, canOpen: false })
+  })
+
   it('isolates invalid and unavailable sources without forwarding external diagnostics', async () => {
     const providers = [
       { ...source, read: async () => catalog },

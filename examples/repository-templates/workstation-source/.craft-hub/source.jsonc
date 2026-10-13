@@ -1,0 +1,18 @@
+{
+  "$schema": "https://raw.githubusercontent.com/YunYouJun/craft-hub/main/packages/craft-hub/schema/workspace-source-v1.schema.json",
+  "schemaVersion": 1,
+  "id": "example-development",
+  "name": "Example developer environment",
+  // Workspace members are independent of projects.yaml checkout groups.
+  "workspaces": [
+    {
+      "schemaVersion": 1,
+      "id": "daily-development",
+      "name": "Daily development",
+      "primaryProject": "https://github.com/example/app",
+      "members": [
+        { "project": "https://github.com/example/app", "label": "Example app" }
+      ]
+    }
+  ]
+}

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { WorkbenchDiagnostic, WorkbenchDiagnosticKind, WorkbenchDiagnosticTarget } from 'craft-hub'
+import type { HostDiagnosticProviderSnapshot, WorkbenchDiagnostic, WorkbenchDiagnosticKind, WorkbenchDiagnosticTarget } from 'craft-hub'
 import { computed, onMounted } from 'vue'
 import { Icon } from './icons'
 import { useI18n } from './i18n'
@@ -13,6 +13,8 @@ const { t } = useI18n()
 
 const diagnostics = computed(() => store.workbenchDiagnostics.diagnostics)
 const total = computed(() => store.workbenchDiagnostics.summary.errors + store.workbenchDiagnostics.summary.warnings)
+const providers = computed(() => store.workbenchDiagnostics.providers ?? [])
+const reportsComplete = computed(() => providers.value.every(provider => provider.state === 'ready'))
 const groups = computed(() => [...diagnostics.value.reduce((result, diagnostic) => {
   const entries = result.get(diagnostic.kind) ?? []
   entries.push(diagnostic)
@@ -28,6 +30,7 @@ onMounted(() => {
 function kindLabel(kind: WorkbenchDiagnosticKind): string {
   switch (kind) {
     case 'host-plugin': return t('diagnosticKind_hostPlugin')
+    case 'host-provider': return t('diagnosticKind_hostProvider')
     case 'integration': return t('diagnosticKind_integration')
     case 'marketplace-plugin': return t('diagnosticKind_marketplacePlugin')
     case 'marketplace-source': return t('diagnosticKind_marketplaceSource')
@@ -35,6 +38,16 @@ function kindLabel(kind: WorkbenchDiagnosticKind): string {
     case 'settings': return t('diagnosticKind_settings')
     case 'user-config': return t('diagnosticKind_userConfig')
   }
+}
+
+function providerStateLabel(provider: HostDiagnosticProviderSnapshot): string {
+  return t(`diagnosticProviderState_${provider.state}`)
+}
+
+function diagnosticMessage(diagnostic: WorkbenchDiagnostic): string {
+  return diagnostic.kind === 'host-provider' && diagnostic.message === 'Diagnostic provider could not complete. Refresh to retry.'
+    ? t('diagnosticProviderFailed')
+    : diagnostic.message
 }
 
 function openLabel(target: WorkbenchDiagnosticTarget): string {
@@ -64,14 +77,35 @@ function openLabel(target: WorkbenchDiagnosticTarget): string {
         <p>{{ t('loadingDiagnostics') }}</p>
       </section>
 
-      <section v-else-if="!total" class="diagnostics-state diagnostics-clear" data-testid="diagnostics-clear">
-        <span><Icon name="check" /></span>
-        <h2>{{ t('diagnosticsClear') }}</h2>
-        <p>{{ t('diagnosticsClearDescription') }}</p>
-      </section>
-
       <template v-else>
-        <div class="diagnostics-summary" data-testid="diagnostics-summary">
+        <section v-if="providers.length" class="diagnostics-providers" :aria-label="t('diagnosticProviders')" data-testid="diagnostics-providers">
+          <article v-for="provider in providers" :key="provider.id" class="diagnostic-provider" :data-state="provider.state">
+            <header>
+              <strong>{{ provider.title }}</strong>
+              <span>{{ providerStateLabel(provider) }}</span>
+            </header>
+            <p class="diagnostic-provider-source">{{ t('diagnosticProviderSource') }}: {{ provider.pluginId }}</p>
+            <p v-if="provider.metadata?.version || provider.metadata?.platform" class="diagnostic-provider-metadata">
+              <span v-if="provider.metadata.version">{{ t('diagnosticProviderVersion') }}: {{ provider.metadata.version }}</span>
+              <span v-if="provider.metadata.platform">{{ t('diagnosticProviderPlatform') }}: {{ provider.metadata.platform }}</span>
+            </p>
+            <p v-if="provider.state === 'ready' && provider.summary" class="diagnostic-provider-counts">
+              <span>{{ t('diagnosticPassedCount', { count: String(provider.summary.passed) }) }}</span>
+              <span>{{ t('diagnosticWarningCount', { count: String(provider.summary.warnings) }) }}</span>
+              <span>{{ t('diagnosticErrorCount', { count: String(provider.summary.errors) }) }}</span>
+            </p>
+            <p v-if="provider.state === 'error'">{{ t('diagnosticProviderFailed') }}</p>
+            <p v-if="provider.state === 'empty'">{{ t('diagnosticProviderEmpty') }}</p>
+            <p v-if="provider.state === 'skipped'">{{ t('diagnosticProviderSkipped') }}</p>
+            <small v-if="provider.checkedAt">{{ t('diagnosticProviderCheckedAt') }}: <time :datetime="provider.checkedAt">{{ provider.checkedAt }}</time></small>
+          </article>
+        </section>
+        <section v-if="!total && reportsComplete" class="diagnostics-state diagnostics-clear" data-testid="diagnostics-clear">
+          <span><Icon name="check" /></span>
+          <h2>{{ t('diagnosticsClear') }}</h2>
+          <p>{{ t('diagnosticsClearDescription') }}</p>
+        </section>
+        <div v-if="total" class="diagnostics-summary" data-testid="diagnostics-summary">
           <span>{{ t('diagnosticErrorCount', { count: String(store.workbenchDiagnostics.summary.errors) }) }}</span>
           <span>{{ t('diagnosticWarningCount', { count: String(store.workbenchDiagnostics.summary.warnings) }) }}</span>
         </div>
@@ -84,7 +118,7 @@ function openLabel(target: WorkbenchDiagnosticTarget): string {
             <span class="diagnostic-icon"><Icon name="error" /></span>
             <div class="diagnostic-copy">
               <strong v-if="diagnostic.subject">{{ diagnostic.subject }}</strong>
-              <p>{{ diagnostic.message }}</p>
+              <p>{{ diagnosticMessage(diagnostic) }}</p>
               <small v-if="diagnostic.path">{{ diagnostic.path }}<template v-if="diagnostic.line">:{{ diagnostic.line }}<template v-if="diagnostic.column">:{{ diagnostic.column }}</template></template></small>
             </div>
             <button v-if="diagnostic.target" type="button" @click="emit('openTarget', diagnostic.target)">
@@ -102,6 +136,16 @@ function openLabel(target: WorkbenchDiagnosticTarget): string {
 .diagnostic-row > button:hover { border-color: var(--border-strong); background: var(--surface-hover); color: var(--text); }
 .diagnostic-row > button .app-icon { width: 15px; height: 15px; }
 .diagnostics-summary { display: flex; flex-wrap: wrap; gap: var(--space-4); margin-bottom: var(--page-section-gap); color: var(--muted); font-size: var(--font-size-body); font-variant-numeric: tabular-nums; }
+.diagnostics-providers { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); gap: var(--space-4); margin-bottom: var(--page-section-gap); }
+.diagnostic-provider { display: grid; align-content: start; gap: var(--space-2); min-width: 0; border: 1px solid var(--border); border-radius: var(--panel-radius); padding: var(--space-4); background: var(--surface); }
+.diagnostic-provider header { display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; gap: var(--space-2); }
+.diagnostic-provider header strong { color: var(--text); overflow-wrap: anywhere; }
+.diagnostic-provider header span, .diagnostic-provider small { color: var(--muted); font-size: var(--font-size-caption); }
+.diagnostic-provider[data-state='error'] header span { color: var(--danger); }
+.diagnostic-provider p { margin: 0; color: var(--text-secondary); font-size: var(--font-size-body); line-height: 1.5; overflow-wrap: anywhere; }
+.diagnostic-provider small { overflow-wrap: anywhere; }
+.diagnostic-provider-metadata, .diagnostic-provider-counts { display: flex; flex-wrap: wrap; gap: var(--space-4); }
+.diagnostic-provider .diagnostic-provider-source { color: var(--muted); }
 .diagnostics-group { border: 1px solid var(--border); border-radius: var(--panel-radius); background: var(--surface); padding: var(--space-4); }
 .diagnostics-group + .diagnostics-group { margin-top: 28px; }
 .diagnostics-group > header { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 5px; padding: 0 2px 8px; }

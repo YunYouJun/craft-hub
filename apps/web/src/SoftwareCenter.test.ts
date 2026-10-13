@@ -2,11 +2,12 @@
 /// <reference lib="dom" />
 
 import type { VueWrapper } from '@vue/test-utils'
-import type { PersonalWorkbenchHome, SettingsSnapshot, SoftwareCatalogSnapshot, SoftwareInstallationPlan, SoftwareInstallationRun } from 'craft-hub'
+import type { OperationSupport, PersonalWorkbenchHome, SettingsSnapshot, SoftwareCatalogSnapshot, SoftwareInstallationPlan, SoftwareInstallationRun } from 'craft-hub'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { api } from './api'
+import { Button as UiButton } from './components/ui/button'
 import { useI18n } from './i18n'
 import SoftwareCenter from './SoftwareCenter.vue'
 import { useWorkbenchStore } from './store'
@@ -94,6 +95,10 @@ function managedCatalog(): SoftwareCatalogSnapshot {
   return result
 }
 
+function operationSupport(overrides: Partial<OperationSupport> = {}): OperationSupport {
+  return { state: 'available', platform: 'linux', cliVersion: '1.0.0', operations: Object.fromEntries(['catalog', 'preview', 'install', 'runs', 'cancel', 'open'].map(operation => [operation, { supported: true }])), ...overrides }
+}
+
 function plan(ids = ['missing-editor', 'missing-cli']): SoftwareInstallationPlan {
   return {
     version: 1,
@@ -158,6 +163,64 @@ describe('software center', () => {
     await flushPromises()
     return wrapper
   }
+
+  it.each(['linux', 'win32'])('intersects %s capabilities with local item flags and retains manual links', async (platform) => {
+    const result = managedCatalog()
+    result.sources[0]!.operationSupport = operationSupport({ platform, operations: { catalog: { supported: true }, runs: { supported: true }, preview: { supported: false, reason: 'unsupported-platform' }, install: { supported: false, reason: 'unsupported-platform' }, open: { supported: false, reason: 'unsupported-platform' } } })
+    vi.mocked(api.softwareCatalog).mockResolvedValue(result)
+    await open()
+    expect(wrapper!.get('[data-testid="software-operation-support"]').text()).toContain(platform)
+    expect(wrapper!.get('[data-testid="software-operation-support"]').text()).toContain('unavailable on this platform')
+    expect(wrapper!.find('[data-testid="install-software"]').exists()).toBe(false)
+    expect(wrapper!.find('[data-testid="open-software"]').exists()).toBe(false)
+    expect(wrapper!.get('[aria-label="Download Assistant"]').attributes('href')).toBe('https://downloads.example.com/special-build')
+    expect(api.softwareInstallationPlan).not.toHaveBeenCalled()
+    expect(api.openSoftwareApplication).not.toHaveBeenCalled()
+  })
+
+  it('retains a prepared plan but rejects confirmation after capabilities become unavailable', async () => {
+    const result = managedCatalog()
+    result.sources[0]!.operationSupport = operationSupport()
+    vi.mocked(api.softwareCatalog).mockResolvedValue(result)
+    await open()
+    await wrapper!.get('[data-software-id="missing-editor"] [data-testid="install-software"]').trigger('click')
+    await flushPromises()
+    const changed = structuredClone(result)
+    changed.sources[0]!.operationSupport = operationSupport({ state: 'unavailable', operations: {} })
+    vi.mocked(api.softwareCatalog).mockResolvedValue(changed)
+    await wrapper!.get('[data-testid="refresh-software"]').trigger('click')
+    await flushPromises()
+    expect(bodyButton('confirm-software-installation').disabled).toBe(true)
+    expect(document.body.querySelector('[data-testid="software-plan-operation-support"]')?.textContent).toContain('Check its connection and refresh')
+    const confirm = wrapper!.findAllComponents(UiButton).find(button => button.attributes('data-testid') === 'confirm-software-installation')!
+    confirm.vm.$emit('click')
+    await flushPromises()
+    expect(api.installSoftware).not.toHaveBeenCalled()
+    expect(document.body.querySelector('[data-testid="software-install-plan"]')?.textContent).toContain('Missing editor')
+  })
+
+  it('retains loaded runs while blocking cancellation and history reads after an old CLI is detected', async () => {
+    const result = managedCatalog()
+    result.sources[0]!.operationSupport = operationSupport()
+    vi.mocked(api.softwareCatalog).mockResolvedValue(result)
+    vi.mocked(api.softwareInstallationRuns).mockResolvedValue({ version: 1, runs: [run()] })
+    await open()
+    expect(api.softwareInstallationRuns).toHaveBeenCalledOnce()
+    const changed = structuredClone(result)
+    changed.sources[0]!.operationSupport = operationSupport({ state: 'unsupported', operations: {} })
+    vi.mocked(api.softwareCatalog).mockResolvedValue(changed)
+    await wrapper!.get('[data-testid="refresh-software"]').trigger('click')
+    await flushPromises()
+    expect(wrapper!.get('[data-run-id="run-one"]').text()).toContain('Installed package')
+    expect(wrapper!.get('[data-testid="stop-software-installation"]').attributes('disabled')).toBeDefined()
+    expect(wrapper!.get('[data-testid="refresh-software-installations"]').attributes('disabled')).toBeDefined()
+    wrapper!.findAllComponents(UiButton).find(button => button.attributes('data-testid') === 'stop-software-installation')!.vm.$emit('click')
+    wrapper!.findAllComponents(UiButton).find(button => button.attributes('data-testid') === 'refresh-software-installations')!.vm.$emit('click')
+    await flushPromises()
+    expect(api.cancelSoftwareInstallation).not.toHaveBeenCalled()
+    expect(api.softwareInstallationRuns).toHaveBeenCalledOnce()
+    expect(wrapper!.get('[data-testid="software-operation-support"]').text()).toContain('Update the local CLI')
+  })
 
   it('reads metadata without writes and distinguishes partial detection with offline brand icons', async () => {
     await open()

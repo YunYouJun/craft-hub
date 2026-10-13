@@ -1,0 +1,10 @@
+{
+  "$schema": "https://raw.githubusercontent.com/YunYouJun/craft-hub/main/packages/craft-hub/schema/project-v1.schema.json",
+  "version": 1,
+  // Shared metadata; local path bindings and execution trust stay on each machine.
+  "project": {
+    "name": "Example project",
+    "description": "Replace with the purpose of this project.",
+    "readme": "./README.md"
+  }
+}

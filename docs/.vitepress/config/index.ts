@@ -37,6 +37,7 @@ const EN_GUIDES: DefaultTheme.NavItemWithLink[] = [
   { text: 'Author a Plugin', link: '/guide/plugin-authoring' },
   { text: 'Nuxt Web Application', link: '/guide/web-app' },
   { text: 'Configuration', link: '/guide/configuration' },
+  { text: 'Repository Integration', link: '/guide/repository-format' },
 ]
 
 const ZH_GUIDES: DefaultTheme.NavItemWithLink[] = [
@@ -49,6 +50,7 @@ const ZH_GUIDES: DefaultTheme.NavItemWithLink[] = [
   { text: '编写插件', link: '/zh/guide/plugin-authoring' },
   { text: 'Nuxt Web 应用', link: '/zh/guide/web-app' },
   { text: '配置', link: '/zh/guide/configuration' },
+  { text: '仓库接入约定', link: '/zh/guide/repository-format' },
 ]
 
 const EN_VERSIONS: (DefaultTheme.NavItemWithLink | DefaultTheme.NavItemChildren)[] = [

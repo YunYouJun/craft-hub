@@ -10,6 +10,8 @@ import { launchCraftHubApp, launchCraftHubProject } from './app'
 import { pairDeliveryDevice } from './delivery/connection'
 import { createLocalCraftHubRuntime } from './local-runtime'
 import { initializeMarketplacePlugin, packMarketplacePlugin, validateMarketplacePlugin } from './plugin-authoring'
+import { loadCraftHubPlugins } from './plugins'
+import { validateRepository } from './repository-validation'
 import { CraftHubRuntime } from './runtime'
 import { startCraftHubServer } from './server'
 import { craftHubVersion } from './version'
@@ -17,6 +19,34 @@ import { resolveCraftHubWebDirectory } from './web-assets'
 
 const cli = cac('craft-hub')
 const runtime = new CraftHubRuntime()
+
+cli.command('repo:validate <directory>', 'Validate repository declarations without importing, trusting or executing them')
+  .option('--json', 'Print a versioned structured validation report')
+  .option('--host-plugin <module>', 'Explicitly load one trusted host validator; repository declarations cannot select it')
+  .action(async (directory: string, options: { json?: boolean, hostPlugin?: string }) => {
+    const loaded = options.hostPlugin ? await loadCraftHubPlugins([options.hostPlugin]) : { plugins: [], diagnostics: [] }
+    const report = await validateRepository(resolve(directory), loaded.plugins.flatMap(plugin => plugin.repositoryValidationProviders ?? []))
+    if (loaded.diagnostics.length) {
+      report.valid = false
+      report.issues.push({ code: 'host-plugin-unavailable', path: '/', message: 'The explicitly configured host validator could not load. Check its installed module and version.' })
+      report.summary.errors += 1
+    }
+    if (options.json) {
+      console.log(JSON.stringify(report, null, 2))
+    }
+    else {
+      for (const file of report.files) {
+        console.log(`${file.status}: ${file.file} (${file.validator})`)
+        for (const issue of file.issues)
+          console.log(`  ${issue.path}${issue.line ? `:${issue.line}:${issue.column ?? 1}` : ''} [${issue.code}] ${issue.message}`)
+      }
+      for (const issue of report.issues)
+        console.log(`[${issue.code}] ${issue.message}`)
+      console.log(`${report.valid ? 'Valid' : 'Validation incomplete'}: ${report.summary.checked} declarations, ${report.summary.errors} errors, ${report.summary.unsupported} unsupported`)
+    }
+    if (!report.valid)
+      process.exitCode = 1
+  })
 
 cli.command('device:pair', 'Pair this device with a delivery broker after browser confirmation')
   .option('--url <origin>', 'HTTPS broker origin')
