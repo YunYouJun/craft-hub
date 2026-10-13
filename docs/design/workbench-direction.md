@@ -135,7 +135,7 @@ Electron 分发包含 Chromium 与 Node.js。[官方介绍](https://www.electron
 | 其中 Rust 宿主 | 7,285,344 B（6.95 MiB） |
 | 其中 Web 资源，含试验桥注入 | 12,384,952 B（11.81 MiB） |
 
-Node 已占完整应用约 83%；当前最小壳层实验不能承诺几 MiB 的完整安装包。运行 `pnpm build:tauri` 可重建；试用及兼容范围见 [Tauri 说明](../../apps/tauri/README.md)。本地 ZIP 输出到 `release/tauri/Craft-Hub-Tauri-Trial-arm64.zip`，不纳入 Git。产物仅作本机验证，使用 ad hoc 签名，最低 macOS 13.5；实测系统为 macOS 26.6.2 arm64。
+Node 已占完整应用约 83%；当前最小壳层实验不能承诺几 MiB 的完整安装包。运行 `pnpm build:tauri` 可重建；试用及兼容范围见 [Tauri 说明](https://github.com/YunYouJun/craft-hub/blob/main/apps/tauri/README.md)。本地 ZIP 输出到 `release/tauri/Craft-Hub-Tauri-Trial-arm64.zip`，不纳入 Git。产物仅作本机验证，使用 ad hoc 签名，最低 macOS 13.5；实测系统为 macOS 26.6.2 arm64。
 
 - [x] 用不含用户 Node 的 `PATH` 启动完整应用，确认总览与诊断加载。
 - [x] 在实际 Tauri 窗口中选择 Sample Project，确认新增项目；输入中文与 emoji 交接目标并复制，UI 成功状态与剪贴板实际回读一致。
