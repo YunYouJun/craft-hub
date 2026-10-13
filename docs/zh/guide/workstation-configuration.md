@@ -47,3 +47,5 @@ pnpm --filter craft-hub exec tsx src/cli.ts ui \
 恢复记录保存在设备的 `~/.local/state/workstation/configuration-v1`。其中可能包含真实密钥，目录和文件有受限权限，不应提交到 Git 或迁移到其他设备。
 
 合并后的页面复用社区宿主的工作台标题、共享控件和主题变量，下游发行版使用同一份渲染代码。配置同步适配器与现有 Codex 配置查看功能共存；云端宿主禁止访问这两类本机配置入口。
+
+软件中心与配置适配器在调用时才查找 Workstation CLI；除 PATH 外，也检查 macOS 的常见 pnpm 目录和已安装 fnm Node 目录，不执行 shell 初始化。缺少 CLI 不会阻止工作台启动；软件安装和配置操作仍由单独安装的 Workstation 执行。

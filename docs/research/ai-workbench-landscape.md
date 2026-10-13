@@ -2,6 +2,8 @@
 
 > 调研日期：2026-08-25。采用度数据是动态快照；GitHub stars 只用于判断社区覆盖面，不等同于活跃用户或架构质量。
 
+> 2026-10-08 定位调整：本文保留为历史调研。通用 Agent 工作台与 Workflow Studio 的扩展建议已由[项目能力与集成层决策](../adr/0009-focus-on-project-capabilities-and-integrations.md)取代；外部工作台选择参见[新的工具对比](./agent-workbench-selection.md)。
+
 ## 结论先行
 
 Craft Hub 最有价值的定位不是另一个通用聊天、RAG 或模型管理平台，而是 **本地、跨项目、可审计的开发能力控制平面**：发现项目能力，解释它将做什么，在信任和权限边界内执行，并把命令、Agent 与未来工作流统一为可观察的 Run。
@@ -215,4 +217,3 @@ Plugin Host
 4. [n8n Executions](https://docs.n8n.io/workflows/executions/)：设计 Run Ledger 与失败恢复。
 5. [Open WebUI Workspace](https://docs.openwebui.com/features/workspace/)：设计 AI 构件与 Context Pack。
 6. [Dify Workflow](https://docs.dify.ai/en/guides/workflow)：设计 Workflow Studio 的声明模型。
-

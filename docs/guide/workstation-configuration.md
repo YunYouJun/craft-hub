@@ -16,7 +16,7 @@ pnpm --filter craft-hub exec tsx src/cli.ts ui \
   --host-plugin /absolute/path/to/craft-hub/packages/craft-hub-plugin-workstation/dist/index.mjs
 ```
 
-For the desktop, set the same environment variable before starting the desktop process. The adapter is bundled; the workstation CLI remains the separate, versioned backend. The `workstation` executable on PATH is used when no override is set. An older CLI without the JSON API produces an explicit connection error.
+For the desktop, set the same environment variable before starting the desktop process. The adapter is bundled; the workstation CLI remains the separate, versioned backend. Without an override, the adapter locates the `workstation` executable on PATH and common host locations, including pnpm and installed fnm Node directories on macOS. Lookup is lazy and does not execute shell initialization; the workbench can start when the CLI is missing. An older CLI without the JSON API produces an explicit connection error.
 
 The backend uses workstation's existing public source and connected private manifest. `DOTFILES_REPO_ROOT`, `WORKSTATION_PRIVATE_MANIFEST`, `DOTFILES_HOME` and `CODEX_HOME` retain their normal meanings. Connect a private repository using the existing `workstation private connect` workflow. Credentials remain in the existing secret store or on the device.
 

@@ -1,8 +1,36 @@
 # Craft Hub Workbench
 
-Craft Hub organizes local development projects into safe execution boundaries and reusable personal or team working contexts without taking ownership of their repositories.
+Craft Hub brings software, development environments and configuration migration into a personal workbench, while preserving local execution boundaries and personal or team working contexts.
 
 ## Language
+
+**Software Item**:
+An identified application or command-line tool with installation sources and relevant local availability. It is distinct from a plugin or a website shortcut.
+_Avoid_: Marketplace Plugin, bookmark, arbitrary install command
+
+**Environment Snapshot**:
+An observation of this machine's tools, versions, locations and configuration readiness. It describes actual state rather than a desired setup.
+_Avoid_: Setup Profile, portable environment, complete environment variables
+
+**Setup Profile**:
+A portable selection of desired Software Items and configuration sources for a purpose. It does not contain machine-local paths, login sessions or observed installation state.
+_Avoid_: Workspace, machine backup, Environment Snapshot
+
+**Configuration Migration**:
+A reviewed restoration of selected configuration from its managed sources onto a machine. Software installation, account sign-in and project trust remain separate outcomes.
+_Avoid_: Full machine clone, automatic overwrite, application installation
+
+**Work Item**:
+A unit of work whose identity, assignment and workflow state belong to its connected source. A Craft Hub preview does not become a separate authoritative task.
+_Avoid_: Agent task, local execution, copied todo
+
+**Work Handoff**:
+A reviewed package of source identity, explicitly selected Project context and the user's objective for an external tool. Preparing or copying it does not establish that the destination received or executed it.
+_Avoid_: Task dispatch, agent session, completed work
+
+**External Tool Launch**:
+A user-initiated request to open an application or invoke a configured external command. A successful launch is distinct from context reception and work completion.
+_Avoid_: Work Handoff receipt, task execution, status update
 
 **Project**:
 A registered local directory that owns capability discovery, trust, and command execution.

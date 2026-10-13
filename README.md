@@ -1,11 +1,21 @@
 # Craft Hub
 
-Craft Hub is a local, cross-project developer workbench. Its Project Palette discovers the commands and agent skills already present in each repository, lets you inspect exactly what will run, and keeps execution behind an explicit project trust boundary.
+Craft Hub is a personal software and development-environment workbench. Its direction is to bring software setup, everyday tool access, environment checks and reviewed configuration migration into one place. The current alpha provides a personal overview, local tool inspection, project capabilities, tool handoff and configuration review; selected software installation and the machine-setup workflow are planned.
+
+Use Orca or your preferred coding workbench for daily coding, agent sessions, worktrees, terminals, and code review. Use Raycast for quick actions and installed extension commands. Craft Hub's proposed home will present machine readiness and setup workflows, with existing project and provider views available alongside them. Workstation remains the configuration-management backend; its selected software installation interfaces still need to be added. Basic local tool inspection works independently of Workstation. The shared runtime discovers repository commands, validates execution, and exposes capabilities through the CLI, local API, and MCP.
 
 > Early alpha. The `craft-hub` CLI is published on npm under the `next` tag; APIs and persisted formats may still change before the first stable release.
 
 ## What works
 
+- Start at the personal overview (`/overview`) with commonly used projects, tools, and connected work items
+- Add, edit, remove, and group HTTPS tool destinations, with optional Raycast or Orca application launch presets on macOS
+- Prepare a work-item or project handoff, select the target project explicitly, review the text, and copy it for your external tool
+- Pin commonly used projects locally and open their existing project workbench
+- Enter installed plugin navigation and integration views from the overview
+- Browse the Workstation software catalog in **Software center** (`/software`), review selected missing-app installations, follow persistent per-item progress, retry unfinished items and open detected macOS apps
+- Inspect Git, Node.js, pnpm, fnm, Homebrew and Workstation in **Local environment** (`/environment`), with version, path, probe status and search locations; the backend's bundled Node is reported separately
+- Preview real provider work items through configured, read-only `work-items.list` actions
 - Register and switch between local projects
 - Register projects and organize portable workspaces from the Craft Hub MCP adapter
 - Discover root and pnpm workspace `package.json` scripts, Makefile targets, and Taskfile tasks
@@ -17,6 +27,24 @@ Craft Hub is a local, cross-project developer workbench. Its Project Palette dis
 - Review host, configuration, Marketplace, plugin, and integration problems in one diagnostics workbench
 - Use the same runtime from the CLI, web workbench, and Electron shell
 - Connect your own agent with scoped, revocable read access from **Settings → Agent connection**; see the [connection guide](docs/guide/agent-connection.md)
+- Review work items and provider-defined status transitions through installed Host extensions
+- Review configuration changes and integration diagnostics in focused browser views
+
+## Product scope
+
+The product direction is a machine-oriented workbench: observe the installed state, choose desired software and configuration, review changes, prepare the machine, and open the tools used for daily work. Craft Hub owns presentation and orchestration; Workstation owns configuration interpretation, plans, writes, backups and synchronization, while existing package managers own software installation. The [machine workbench roadmap](docs/design/machine-workbench-direction.md) distinguishes delivered capabilities from proposed ones. The current UI still uses the project/work-item overview; the new machine-readiness home is not implemented yet.
+
+Existing local project organization, capability discovery, structured command execution, integration providers and configuration review remain available during this refinement. Specific external systems are supplied by optional Host extensions; the community package supplies their contracts and shared UI.
+
+Tool destinations keep a required HTTPS website fallback. In the macOS desktop, explicit application presets launch Raycast or Orca; Raycast can also target a configured command deeplink copied from an installed command. This first version rejects deeplink parameters and arbitrary protocols. The browser uses websites, and the desktop reports website fallback if the application cannot be launched. Launching a tool does not transmit this handoff context or prove it was received; a configured Raycast command may perform its own actions.
+
+Prepare a handoff from a provider item or a local project. Choose the project, add an objective, review and copy the context, then paste it in the external workbench. Craft Hub does not infer local project bindings from provider metadata, automatically inject prompts, or maintain a second work-item database. Home preferences stay in the operating-system settings directory under `workbench.home`; project pins are machine-local, and portable export currently excludes this setting.
+
+Work-item previews use installed providers and their declared read actions. They are views of the connected source, not a separate task database. Provider-defined writes and status transitions remain in the existing integration views with their validation and confirmation.
+
+General agent orchestration, session management, worktree lifecycle, interactive terminal hosting, and repository merge/review interfaces are outside the new product scope. The command runner still needs output, cancellation, and any supported command input. Workspace and configuration Git persistence remains part of Craft Hub's own data management.
+
+The [machine workbench decision](docs/adr/0011-focus-on-machine-setup-and-environment.md) sets the current product priority. The [earlier direction and implementation backlog](docs/design/workbench-direction.md) records the personal overview, tool handoff and host experiments. The [integration-layer decision](docs/adr/0009-focus-on-project-capabilities-and-integrations.md) records the dependency-aware removal sequence for redundant coding features. The [workbench selection research](docs/research/agent-workbench-selection.md) compares external tools; using Craft Hub does not require any one of them.
 
 ## Develop
 
@@ -79,6 +107,8 @@ pnpm run reinstall:mac
 Set `CRAFT_HUB_DESKTOP_INSTALL_DIR` to install into a different application directory.
 
 The lower-level `package:mac` script packages existing build output and is used by the release workflow.
+
+An optional macOS Tauri trial reuses the Web UI and ships its own Node backend. Run `pnpm build:tauri` to build it or `pnpm dev:tauri` after building the Web UI. It uses separate trial data and excludes the embedded Codex SDK/CLI; it does not yet replace the Electron distribution's extensions, cloud, updates, or agent connections. See the [trial guide](./apps/tauri/README.md) and [distribution measurements](./docs/design/workbench-direction.md#2026-10-09瘦身与-tauri-验证实现).
 
 ## CLI
 
@@ -150,6 +180,7 @@ without invoking a shell.
 
 - `apps/web` — Vue workbench UI
 - `apps/desktop` — thin Electron host
+- `apps/tauri` — optional macOS host and self-contained Node backend trial
 - `packages/craft-hub` — runtime, local API, and CLI
 - `examples/sample-project` — discovery and execution fixture
 - `docs/design` — accepted visual concepts
@@ -196,16 +227,14 @@ Marketplace plugins are declarative packages listed by a Plugin Catalog. Craft H
 
 ## Roadmap
 
-- Next: add real “Use with Agent” adapters and richer streamed run controls.
-- Re-evaluate migrating desktop packaging to Electron Forge after Forge 8 reaches a stable release. Adopt it only if it works with the repository's pnpm supply-chain policy without exotic dependency exceptions and preserves the existing signed/notarized macOS app, architecture-specific DMG and update ZIP names, and packaged startup smoke tests.
-- Later: add VS Code integration and automatic desktop updates.
-- Future: bring the reusable parts of [Stardew](https://github.com/YunYouJun/stardew) into Craft Hub as a Workflow Studio for visually composing project capabilities and local resource-processing workflows.
-  - Extract a data-only workflow definition, validation, and execution model instead of merging the legacy Electron runtime directly.
-  - Run workflows through Craft Hub's existing project trust, execution validation, cancellation, output streaming, and run history.
-  - Adapt useful Stardew nodes such as FFmpeg, Sharp, Playwright, and asset-processing tools into explicitly installed Craft Hub plugins.
-  - Reuse the visual flow editor in the web workbench while keeping local operations behind the shared runtime.
+- Improve the personal overview from real use: useful project pins, editable tool groups, provider work-item previews, and clear unavailable-provider states.
+- Keep shortcuts and project choices in runtime settings. Define portability for tool links separately from machine-local project identifiers before adding home synchronization.
+- Decouple work-item and skill handoff from the internal agent task manager. Prepare reviewable context and support copy/export plus independently validated external launch adapters; current tool cards only open websites.
+- Migrate or retire the agent execution and remote-delivery paths once their callers and persisted-task recovery have a replacement. Generic background-task creation has been removed from the workspace dashboard; existing Codex handoff and historical task access remain during migration.
+- Keep improving structured command review, provider-native business actions, configuration review, and diagnostics when real workflows justify the work.
+- Evaluate the optional desktop shell against the personal overview and required integration workflows; preserve browser and CLI access and user data when changing packaging.
 
-The Workflow Studio is a post-alpha direction, not part of the first public release. The public runtime will remain independent of any editor or agent vendor.
+Workflow Studio, a general agent workspace, and broad editor integrations are deferred without a delivery commitment. New features should identify a recurring workflow that existing tools and a small adapter cannot already serve. The public runtime remains independent of any editor or agent vendor.
 
 ## Contributing and security
 
