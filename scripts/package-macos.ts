@@ -1,3 +1,4 @@
+import type { DesktopCodexMode } from '../apps/desktop/src/build-info.ts'
 import { execFile } from 'node:child_process'
 import { cp, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -11,6 +12,7 @@ import { communityDesktopArtifactName, communityDesktopProtocol, loadDesktopDist
 import { macosApplicationVersion } from '../apps/desktop/src/macos-version.ts'
 import { loadCraftHubPlugins } from '../packages/craft-hub/src/plugins.ts'
 import { packageHostPlugins } from './package-host-plugins.ts'
+import { prepareDesktopArchitecture, prepareDesktopPackage } from './prepare-desktop-package.ts'
 
 const execFileAsync = promisify(execFile)
 const staplerRetryDelayMs = 15_000
@@ -44,6 +46,7 @@ export type MacArchitecture = typeof supportedArchitectures[number]
 export interface MacosPackageOptions {
   architectures?: MacArchitecture[]
   createArtifacts?: boolean
+  codexMode?: DesktopCodexMode
 }
 
 export interface MacosPackageResult {
@@ -284,6 +287,9 @@ async function copyDistributionAsset(
 export async function packageMacos(options: MacosPackageOptions = {}): Promise<MacosPackageResult> {
   if (process.platform !== 'darwin')
     throw new Error('macOS packages must be built on macOS')
+  const codexMode = options.codexMode ?? process.env.CRAFT_HUB_DESKTOP_CODEX_MODE ?? 'external'
+  if (codexMode !== 'bundled' && codexMode !== 'external')
+    throw new Error(`Unsupported desktop Codex mode: ${codexMode}`)
 
   const stagingDirectory = await mkdtemp(join(tmpdir(), 'craft-hub-package-'))
   const desktopDirectory = join(stagingDirectory, 'apps/desktop')
@@ -292,7 +298,7 @@ export async function packageMacos(options: MacosPackageOptions = {}): Promise<M
     await deployDesktop(desktopDirectory)
     await writeFile(
       join(desktopDirectory, 'desktop-build.json'),
-      `${JSON.stringify(createDesktopBuildInfo(process.env.MACOS_SIGNING_ENABLED === 'true'), null, 2)}\n`,
+      `${JSON.stringify(createDesktopBuildInfo(process.env.MACOS_SIGNING_ENABLED === 'true', codexMode), null, 2)}\n`,
     )
     if (configuredDistributionPath) {
       const targetManifestPath = join(desktopDirectory, 'distribution.json')
@@ -311,6 +317,7 @@ export async function packageMacos(options: MacosPackageOptions = {}): Promise<M
       join(stagingDirectory, 'apps/web/dist'),
       { recursive: true },
     )
+    await prepareDesktopPackage(desktopDirectory, codexMode)
 
     const workspacePackage = JSON.parse(
       await readFile(resolve(repositoryRoot, 'package.json'), 'utf8'),
@@ -338,11 +345,16 @@ export async function packageMacos(options: MacosPackageOptions = {}): Promise<M
       ? await resolveSigningIdentity()
       : undefined
     const appPaths = await packager({
+      afterCopy: [async ({ buildPath, platform, arch }) => {
+        if (platform !== 'darwin' || (arch !== 'arm64' && arch !== 'x64'))
+          throw new Error(`Unsupported desktop native target: ${platform}-${arch}`)
+        await prepareDesktopArchitecture(join(buildPath, 'apps/desktop'), arch, codexMode)
+      }],
       appBundleId,
       appCategoryType: 'public.app-category.developer-tools',
       arch: architectures,
       appVersion: macosApplicationVersion(desktopVersion),
-      asar: { unpack: '**/node-pty/**' },
+      asar: { unpack: '**/{node-pty,@openai/codex*}/**' },
       dir: stagingDirectory,
       electronVersion: electronPackage.version,
       icon: macosApplicationIcon,

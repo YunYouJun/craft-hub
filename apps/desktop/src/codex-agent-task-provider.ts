@@ -1,6 +1,7 @@
-import type { ThreadEvent } from '@openai/codex-sdk'
+import type { CodexOptions, ThreadEvent } from '@openai/codex-sdk'
 import type { AgentTaskProvider, AgentTaskProviderInput, AgentTaskProviderResult, WorkbenchCodexSetting } from 'craft-hub'
 import { Codex } from '@openai/codex-sdk'
+import { packagedCodexOptions } from './codex-executable.ts'
 
 function commandOutput(event: ThreadEvent, lengths: Map<string, number>): string {
   if (!('item' in event) || event.item.type !== 'command_execution')
@@ -43,9 +44,11 @@ export class CodexAgentTaskProvider implements AgentTaskProvider {
   readonly id = 'codex'
   readonly supportsResume = true
   private readonly resolveSetting: () => Promise<WorkbenchCodexSetting>
+  private readonly codexOptions: CodexOptions
 
-  constructor(resolveSetting: () => Promise<WorkbenchCodexSetting> = async () => ({})) {
+  constructor(resolveSetting: () => Promise<WorkbenchCodexSetting> = async () => ({}), codexOptions: CodexOptions = {}) {
     this.resolveSetting = resolveSetting
+    this.codexOptions = codexOptions
   }
 
   async run(input: AgentTaskProviderInput): Promise<AgentTaskProviderResult> {
@@ -59,7 +62,7 @@ export class CodexAgentTaskProvider implements AgentTaskProvider {
       ...(setting.model ? { model: setting.model } : {}),
       ...(setting.reasoningEffort ? { modelReasoningEffort: setting.reasoningEffort } : {}),
     }
-    const codex = new Codex()
+    const codex = new Codex(packagedCodexOptions(this.codexOptions))
     const thread = input.resumeThreadId ? codex.resumeThread(input.resumeThreadId, options) : codex.startThread(options)
     const streamed = await thread.runStreamed(input.prompt, { signal: input.signal })
     let finalResponse = ''

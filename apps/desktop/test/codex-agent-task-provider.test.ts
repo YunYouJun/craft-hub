@@ -3,18 +3,24 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { CodexAgentTaskProvider } from '../src/codex-agent-task-provider.ts'
 
 const mocks = vi.hoisted(() => ({
+  createCodex: vi.fn(),
   runStreamed: vi.fn(),
   startThread: vi.fn(),
 }))
 
 vi.mock('@openai/codex-sdk', () => ({
   Codex: class {
+    constructor(options: unknown) {
+      mocks.createCodex(options)
+    }
+
     startThread = mocks.startThread
   },
 }))
 
 describe('codex agent task provider', () => {
   beforeEach(() => {
+    mocks.createCodex.mockReset()
     mocks.runStreamed.mockReset()
     mocks.startThread.mockReset()
   })
@@ -85,5 +91,25 @@ describe('codex agent task provider', () => {
     const options = mocks.startThread.mock.calls[0]?.[0]
     expect(options).not.toHaveProperty('model')
     expect(options).not.toHaveProperty('modelReasoningEffort')
+    expect(mocks.createCodex).toHaveBeenCalledWith({})
+  })
+
+  it('passes an explicit SDK executable through without replacing the caller configuration', async () => {
+    mocks.runStreamed.mockResolvedValue({ events: (async function* () {})() })
+    mocks.startThread.mockReturnValue({ runStreamed: mocks.runStreamed })
+    const options = { codexPathOverride: '/custom/codex', env: { PATH: '/custom/tools' } }
+    await new CodexAgentTaskProvider(undefined, options).run({
+      taskId: 'task-id',
+      prompt: 'Inspect the project',
+      projectIds: ['project-id'],
+      projectPaths: ['/workspace/project'],
+      primaryProjectId: 'project-id',
+      primaryProjectPath: '/workspace/project',
+      primaryWorkingDirectory: '/workspace/project',
+      signal: new AbortController().signal,
+      onThread: async () => {},
+      onOutput: async () => {},
+    })
+    expect(mocks.createCodex).toHaveBeenCalledWith(options)
   })
 })
