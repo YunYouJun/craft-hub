@@ -8,7 +8,7 @@ const content = `${JSON.stringify(workspaceSourceJsonSchema(), null, 2)}\n`
 
 if (process.argv.includes('--check')) {
   const current = await readFile(schemaPath, 'utf8').catch(() => '')
-  if (current !== content)
+  if (current.replaceAll('\r\n', '\n') !== content)
     throw new Error('Workspace source schema is stale. Run pnpm schema:source.')
 }
 else {

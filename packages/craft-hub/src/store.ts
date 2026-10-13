@@ -1,7 +1,7 @@
 import type { AgentTaskRecord, CapabilityReference, LocalSkillActivationSettings, ProjectRecord, RunCleanupOptions, RunCleanupResult, RunRecord } from './types'
-import { randomUUID } from 'node:crypto'
-import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
+import { readdir, readFile, rm, stat } from 'node:fs/promises'
+import { join } from 'node:path'
+import { writeFileAtomic } from './atomic-file'
 
 async function readJson<T>(path: string, fallback: T): Promise<T> {
   try {
@@ -14,28 +14,8 @@ async function readJson<T>(path: string, fallback: T): Promise<T> {
   }
 }
 
-async function writeJsonAtomic(path: string, value: unknown): Promise<void> {
-  await mkdir(dirname(path), { recursive: true })
-  const temporaryPath = `${path}.${randomUUID()}.tmp`
-  await writeFile(temporaryPath, `${JSON.stringify(value, null, 2)}\n`, 'utf8')
-  try {
-    for (let attempt = 0; ; attempt += 1) {
-      try {
-        await rename(temporaryPath, path)
-        return
-      }
-      catch (error) {
-        const code = (error as NodeJS.ErrnoException).code
-        const transientWindowsLock = code === 'EPERM' || code === 'EACCES' || code === 'EBUSY'
-        if (!transientWindowsLock || attempt >= 5)
-          throw error
-        await new Promise(resolve => setTimeout(resolve, 10 * 2 ** attempt))
-      }
-    }
-  }
-  finally {
-    await rm(temporaryPath, { force: true })
-  }
+function writeJsonAtomic(path: string, value: unknown): Promise<void> {
+  return writeFileAtomic(path, `${JSON.stringify(value, null, 2)}\n`)
 }
 
 /** Minimal persistence seam so JSON can later be replaced by SQLite. */

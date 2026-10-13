@@ -7,6 +7,7 @@ import { dirname, isAbsolute, join, relative, sep } from 'node:path'
 import { watch } from 'chokidar'
 import { applyEdits, modify, parse as parseJsonc, printParseErrorCode } from 'jsonc-parser'
 import { parse as parseYaml } from 'yaml'
+import { writeFileAtomic } from './atomic-file'
 
 export const userConfigCatalogFileName = 'config.jsonc'
 export const ownerScopesFileName = 'owner-scopes.jsonc'
@@ -150,7 +151,7 @@ export class UserConfigService {
       ? `${JSON.stringify(document, null, 2)}\n`
       : updateJsoncObject(content, document, ['$schema', ...keys])
     const validated = validate(parseJsoncDocument(next, relativePath))
-    await writeAtomic(path, next)
+    await writeFileAtomic(path, next)
     await this.persistLastGood(relativePath, next)
     this.cache.set(relativePath, { content: next, value: validated })
     this.diagnosticMap.delete(relativePath)
@@ -310,7 +311,7 @@ export class UserConfigService {
   }
 
   private async persistLastGood(relativePath: string, content: string): Promise<void> {
-    await writeAtomic(this.lastGoodPath(relativePath), content)
+    await writeFileAtomic(this.lastGoodPath(relativePath), content)
   }
 
   private async readLastGood(relativePath: string): Promise<string | undefined> {
@@ -364,11 +365,4 @@ async function fileExists(path: string): Promise<boolean> {
       return false
     throw error
   }
-}
-
-async function writeAtomic(path: string, content: string): Promise<void> {
-  await mkdir(dirname(path), { recursive: true })
-  const temporary = `${path}.${randomUUID()}.tmp`
-  await writeFile(temporary, content, 'utf8')
-  await rename(temporary, path)
 }
