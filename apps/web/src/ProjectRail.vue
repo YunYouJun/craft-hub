@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import type { ProjectAccentColor, ProjectRecord, WorkspaceRecord } from 'craft-hub'
+import type { ProjectAccentColor, ProjectRecord, WorkbenchSidebarSetting, WorkspaceRecord } from 'craft-hub'
+import type { ActivityNavigationItem } from './sidebar-navigation'
 import { useMediaQuery } from '@vueuse/core'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import AccountMenu from './AccountMenu.vue'
+import ActivityNavigation from './ActivityNavigation.vue'
 import AppearanceDialog from './AppearanceDialog.vue'
 import CompactEditableField from './CompactEditableField.vue'
 import { Button as UiButton } from './components/ui/button'
@@ -14,6 +16,7 @@ import Icon from './NavigationIcon.vue'
 import { useI18n } from './i18n'
 import ProjectIcon from './ProjectIcon.vue'
 import { projectAccentStyle } from './project-visuals'
+import { pluginSidebarId, resolveSidebarEntries } from './sidebar-navigation'
 import { useWorkbenchStore } from './store'
 import VisualIcon from './VisualIcon.vue'
 import { classifyWorkbenchSection } from './workbench-navigation'
@@ -125,6 +128,75 @@ const activePluginWorkbench = computed(() => props.activeView === 'plugin-workbe
 const activeSection = computed(() => activePluginWorkbench.value
   ? undefined
   : classifyWorkbenchSection(props.activeView, store.integrationViews.find(view => view.integrationId === props.activeIntegrationId && view.id === props.activeIntegrationViewId)))
+
+const sidebarItems = computed<ActivityNavigationItem[]>(() => [
+  { id: 'builtin:home', title: locale.value === 'zh-CN' ? '首页' : 'Home', builtinIcon: 'home', testId: 'open-overview', className: 'overview-button', active: activeSection.value === 'home' },
+  { id: 'builtin:projects', title: locale.value === 'zh-CN' ? '项目' : 'Projects', builtinIcon: 'folder', testId: 'open-workbench', className: 'projects-button', active: activeSection.value === 'projects' },
+  { id: 'builtin:tools', title: locale.value === 'zh-CN' ? '工具' : 'Tools', builtinIcon: 'package', testId: 'open-tools', className: 'tools-button', active: activeSection.value === 'tools' },
+  { id: 'builtin:environment', title: locale.value === 'zh-CN' ? '开发环境' : 'Development environment', shortTitle: locale.value === 'zh-CN' ? '开发环境' : 'Environment', builtinIcon: 'terminal', testId: 'open-environment', className: 'environment-button', active: activeSection.value === 'environment' },
+  { id: 'builtin:workbenches', title: locale.value === 'zh-CN' ? '工作台' : 'Workbenches', builtinIcon: 'hub', testId: 'open-workbenches', className: 'workbenches-button', active: activeSection.value === 'workbenches' },
+  ...store.pluginWorkbenches.map(workbench => ({ id: pluginSidebarId(workbench.pluginId, workbench.id), title: workbench.title, icon: workbench.icon, testId: `open-plugin-workbench-${workbench.pluginId}-${workbench.id}`, className: 'plugin-workbench-button', active: activePluginWorkbench.value === workbench })),
+  { id: 'builtin:marketplace', title: locale.value === 'zh-CN' ? '插件管理' : 'Plugins', builtinIcon: 'plugins', testId: 'open-marketplace', className: 'marketplace-button', active: props.activeView === 'marketplace' },
+  { id: 'builtin:diagnostics', title: diagnosticCount.value ? `${t('diagnostics')} (${diagnosticCount.value})` : t('diagnostics'), shortTitle: t('diagnostics'), builtinIcon: diagnosticCount.value ? 'error' : 'check', testId: 'open-diagnostics', className: 'diagnostics-button', active: props.activeView === 'diagnostics', attention: diagnosticCount.value > 0, badge: diagnosticCount.value },
+  { id: 'builtin:settings', title: t('settings'), builtinIcon: 'settings', testId: 'open-settings', className: 'settings-button' },
+])
+const sidebarDraft = ref<WorkbenchSidebarSetting>()
+const sidebarSaving = ref(false)
+const sidebarError = ref('')
+const sidebarSetting = computed<WorkbenchSidebarSetting>(() => ({ entries: resolveSidebarEntries(sidebarItems.value, sidebarDraft.value ?? store.settings?.settings['workbench.sidebar'] ?? { entries: [] }) }))
+
+function activateSidebarItem(id: string): void {
+  switch (id) {
+    case 'builtin:home':
+      emit('openOverview')
+      break
+    case 'builtin:projects':
+      emit('openWorkbench')
+      break
+    case 'builtin:tools':
+      emit('openTools')
+      break
+    case 'builtin:environment':
+      emit('openEnvironment')
+      break
+    case 'builtin:workbenches':
+      emit('openWorkbenches')
+      break
+    case 'builtin:marketplace':
+      emit('openMarketplace')
+      break
+    case 'builtin:diagnostics':
+      emit('openDiagnostics')
+      break
+    case 'builtin:settings':
+      emit('openSettings')
+      break
+    default: {
+      const workbench = store.pluginWorkbenches.find(item => pluginSidebarId(item.pluginId, item.id) === id)
+      if (workbench)
+        emit('openPluginWorkbench', workbench.pluginId, workbench.id)
+    }
+  }
+}
+
+async function saveSidebarSetting(setting: WorkbenchSidebarSetting): Promise<void> {
+  if (sidebarSaving.value)
+    return
+  sidebarDraft.value = setting
+  sidebarSaving.value = true
+  sidebarError.value = ''
+  try {
+    await store.updateSidebarSetting(setting)
+  }
+  catch (caught) {
+    const message = caught instanceof Error ? caught.message : String(caught)
+    sidebarError.value = locale.value === 'zh-CN' ? `侧栏布局保存失败：${message}` : `Unable to save sidebar layout: ${message}`
+  }
+  finally {
+    sidebarDraft.value = undefined
+    sidebarSaving.value = false
+  }
+}
 
 async function switchOwnerScope(value: unknown): Promise<void> {
   if (typeof value !== 'string')
@@ -829,127 +901,17 @@ function openWorkspace(workspaceId: string): void {
 
 <template>
   <aside class="project-rail" :class="{ 'activity-collapsed': collapsed }">
-    <nav id="workbench-primary-navigation" class="activity-rail" :aria-label="locale === 'zh-CN' ? '主导航' : 'Main navigation'">
-      <button
-        type="button"
-        class="activity-button overview-button"
-        :class="{ active: activeSection === 'home' }"
-        :aria-current="activeSection === 'home' ? 'page' : undefined"
-        data-testid="open-overview"
-        :aria-label="locale === 'zh-CN' ? '首页' : 'Home'"
-        :title="locale === 'zh-CN' ? '首页' : 'Home'"
-        @click="emit('openOverview')"
-      >
-        <Icon name="home" />
-        <span class="activity-label" aria-hidden="true">{{ locale === 'zh-CN' ? '首页' : 'Home' }}</span>
-      </button>
-      <button
-        type="button"
-        class="activity-button projects-button"
-        :class="{ active: activeSection === 'projects' }"
-        :aria-current="activeSection === 'projects' ? 'page' : undefined"
-        data-testid="open-workbench"
-        :aria-label="locale === 'zh-CN' ? '项目' : 'Projects'"
-        :title="locale === 'zh-CN' ? '项目' : 'Projects'"
-        @click="emit('openWorkbench')"
-      >
-        <Icon name="folder" />
-        <span class="activity-label" aria-hidden="true">{{ locale === 'zh-CN' ? '项目' : 'Projects' }}</span>
-      </button>
-      <button
-        type="button"
-        class="activity-button tools-button"
-        :class="{ active: activeSection === 'tools' }"
-        :aria-current="activeSection === 'tools' ? 'page' : undefined"
-        data-testid="open-tools"
-        :aria-label="locale === 'zh-CN' ? '工具' : 'Tools'"
-        :title="locale === 'zh-CN' ? '工具' : 'Tools'"
-        @click="emit('openTools')"
-      >
-        <Icon name="package" />
-        <span class="activity-label" aria-hidden="true">{{ locale === 'zh-CN' ? '工具' : 'Tools' }}</span>
-      </button>
-      <button
-        type="button"
-        class="activity-button environment-button"
-        :class="{ active: activeSection === 'environment' }"
-        :aria-current="activeSection === 'environment' ? 'page' : undefined"
-        data-testid="open-environment"
-        :aria-label="locale === 'zh-CN' ? '开发环境' : 'Development environment'"
-        :title="locale === 'zh-CN' ? '开发环境' : 'Development environment'"
-        @click="emit('openEnvironment')"
-      >
-        <Icon name="terminal" />
-        <span class="activity-label" aria-hidden="true">{{ locale === 'zh-CN' ? '开发环境' : 'Environment' }}</span>
-      </button>
-      <button
-        type="button"
-        class="activity-button workbenches-button"
-        :class="{ active: activeSection === 'workbenches' }"
-        :aria-current="activeSection === 'workbenches' ? 'page' : undefined"
-        data-testid="open-workbenches"
-        :aria-label="locale === 'zh-CN' ? '工作台' : 'Workbenches'"
-        :title="locale === 'zh-CN' ? '工作台' : 'Workbenches'"
-        @click="emit('openWorkbenches')"
-      >
-        <Icon name="hub" />
-        <span class="activity-label" aria-hidden="true">{{ locale === 'zh-CN' ? '工作台' : 'Workbenches' }}</span>
-      </button>
-      <button
-        v-for="workbench in store.pluginWorkbenches"
-        :key="`${workbench.pluginId}:${workbench.id}`"
-        type="button"
-        class="activity-button plugin-workbench-button"
-        :class="{ active: activePluginWorkbench === workbench }"
-        :aria-current="activePluginWorkbench === workbench ? 'page' : undefined"
-        :data-testid="`open-plugin-workbench-${workbench.pluginId}-${workbench.id}`"
-        :aria-label="workbench.title"
-        :title="workbench.title"
-        @click="emit('openPluginWorkbench', workbench.pluginId, workbench.id)"
-      >
-        <VisualIcon :icon="workbench.icon" fallback="briefcase" />
-        <span class="activity-label" aria-hidden="true">{{ workbench.title }}</span>
-      </button>
-      <button
-        type="button"
-        class="activity-button marketplace-button"
-        :class="{ active: activeView === 'marketplace' }"
-        :aria-current="activeView === 'marketplace' ? 'page' : undefined"
-        data-testid="open-marketplace"
-        :aria-label="locale === 'zh-CN' ? '插件管理' : 'Plugins'"
-        :title="locale === 'zh-CN' ? '插件管理' : 'Plugins'"
-        @click="emit('openMarketplace')"
-      >
-        <Icon name="plugins" />
-        <span class="activity-label" aria-hidden="true">{{ locale === 'zh-CN' ? '插件管理' : 'Plugins' }}</span>
-      </button>
-      <button
-        type="button"
-        class="activity-button diagnostics-button"
-        :class="{ active: activeView === 'diagnostics', attention: diagnosticCount > 0 }"
-        :aria-current="activeView === 'diagnostics' ? 'page' : undefined"
-        data-testid="open-diagnostics"
-        :aria-label="diagnosticCount ? `${t('diagnostics')} (${diagnosticCount})` : t('diagnostics')"
-        :title="t('diagnostics')"
-        @click="emit('openDiagnostics')"
-      >
-        <Icon :name="diagnosticCount ? 'error' : 'check'" />
-        <span class="activity-label" aria-hidden="true">{{ t('diagnostics') }}</span>
-        <small v-if="diagnosticCount" class="activity-badge" aria-hidden="true">{{ diagnosticCount > 99 ? '99+' : diagnosticCount }}</small>
-      </button>
+    <ActivityNavigation
+      :items="sidebarItems"
+      :setting="sidebarSetting"
+      :collapsed="collapsed"
+      :saving="sidebarSaving"
+      :error="sidebarError"
+      @activate="activateSidebarItem"
+      @update="saveSidebarSetting"
+    >
       <AccountMenu v-if="compactViewport" class="activity-account" />
-      <button
-        type="button"
-        class="activity-button settings-button"
-        data-testid="open-settings"
-        :aria-label="t('settings')"
-        :title="t('settings')"
-        @click="emit('openSettings')"
-      >
-        <Icon name="settings" />
-        <span class="activity-label" aria-hidden="true">{{ t('settings') }}</span>
-      </button>
-    </nav>
+    </ActivityNavigation>
     <div class="rail-content" :class="{ 'search-active': normalizedSearch }" :inert="activeView !== 'workbench'" :aria-hidden="activeView !== 'workbench'">
       <div class="rail-controls">
         <header class="project-section-heading"><Icon name="folder" /><strong>{{ locale === 'zh-CN' ? '项目' : 'Projects' }}</strong></header>
@@ -1499,23 +1461,7 @@ function openWorkspace(workspaceId: string): void {
 </template>
 
 <style scoped>
-.activity-rail { align-items: stretch; gap: 2px; padding: 10px 8px 8px; }
-.activity-rail .activity-button { display: flex; align-items: center; gap: 9px; width: 100%; height: 32px; min-width: 0; padding: 0 10px; border-radius: 6px; text-align: start; }
-.activity-rail .activity-button > .app-icon, .activity-rail .activity-button > .visual-icon { width: 18px; height: 18px; flex: none; }
-.activity-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; line-height: 1.3; }
-.activity-rail .activity-badge { position: static; flex: none; height: 18px; min-width: 18px; border: 0; border-radius: 9px; padding: 0 4px; font-size: 10px; }
-.activity-collapsed .activity-rail { padding-inline: 7px; }
-.activity-collapsed .activity-button { width: 36px; height: 34px; justify-content: center; padding: 0; }
-.activity-collapsed .activity-label { display: none; }
-.activity-collapsed .activity-badge { position: absolute; top: -2px; right: -2px; height: 16px; min-width: 16px; border: 1px solid var(--activity-rail); font-size: 9px; }
-
 @media (max-width: 760px) {
   .project-rail { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
-  .activity-rail, .activity-collapsed .activity-rail { flex-direction: row; justify-content: flex-start; gap: 4px; padding: 4px 8px; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--border); }
-  .activity-rail .activity-button, .activity-collapsed .activity-button { flex-direction: column; justify-content: center; gap: 4px; width: auto; min-width: 64px; height: 54px; padding: 5px 8px; }
-  .activity-rail .activity-label, .activity-collapsed .activity-label { display: block; flex: none; font-size: 11px; }
-  .activity-rail .activity-button:not(.activity-account)::after { content: none; }
-  .activity-rail .activity-badge, .activity-collapsed .activity-badge { position: absolute; top: 1px; right: 3px; height: 16px; min-width: 16px; border: 1px solid var(--activity-rail); font-size: 9px; }
-  .activity-rail > .marketplace-button { margin-top: 0; }
 }
 </style>

@@ -130,7 +130,7 @@ onMounted(() => void loadPanels())
   <WorkbenchPageShell class="plugin-workbench" :breadcrumbs="breadcrumbs">
     <template v-if="workbench" #sidebar>
       <header class="plugin-workbench-sidebar-header">
-        <VisualIcon :icon="workbench.icon" fallback="plugins" monochrome />
+        <VisualIcon :icon="workbench.icon" fallback="plugins" />
         <strong :title="workbench.description">{{ workbench.title }}</strong>
         <UiButton size="icon" :title="t('managePluginWorkbench')" :aria-label="t('managePluginWorkbench')" @click="emit('managePlugins')"><Icon name="settings" /></UiButton>
       </header>
@@ -151,7 +151,7 @@ onMounted(() => void loadPanels())
           :class="{ active: activeMember?.key === member.key, unavailable: !member.available }"
           @click="selectedKey = member.key"
         >
-          <VisualIcon :icon="member.icon" :fallback="member.reference.type === 'integration' ? 'list' : 'web'" monochrome />
+          <VisualIcon :icon="member.icon" :fallback="member.reference.type === 'integration' ? 'list' : 'web'" />
           <span class="ui-navigation-label">{{ member.title }}</span>
           <Icon v-if="!member.available && !(member.reference.type === 'navigation' && panelsLoading)" name="error" />
         </NavigationItem>

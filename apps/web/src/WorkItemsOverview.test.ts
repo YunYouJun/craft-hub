@@ -60,6 +60,7 @@ describe('shared work items overview', () => {
     store.integrationsLoadState = 'ready'
     store.projects = [{ id: 'project-1', name: 'Untrusted project', path: '/repos/project', trust: 'untrusted', addedAt: '2026-10-12T00:00:00Z' }]
     store.selectedProjectId = 'project-1'
+    vi.spyOn(api, 'workAssistantStatus').mockResolvedValue({ available: false })
     vi.spyOn(api, 'invokeIntegrationAction').mockResolvedValue({ items: [] })
     vi.spyOn(api, 'trust').mockRejectedValue(new Error('Unexpected trust operation'))
     vi.spyOn(api, 'run').mockRejectedValue(new Error('Unexpected command execution'))

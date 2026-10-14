@@ -51,6 +51,7 @@ interface Window {
     openWorkbenchTool?: (toolId: string) => Promise<import('craft-hub').WorkbenchToolOpenResult>
     openSettingsFile?: () => Promise<void>
     setTheme?: (theme: 'system' | 'light' | 'dark') => Promise<void>
+    setLocale?: (locale: 'en' | 'zh-CN') => Promise<void>
     updateStatus?: () => Promise<DesktopUpdateStatus | undefined>
     setAutomaticUpdates?: (enabled: boolean) => Promise<DesktopUpdateStatus>
     checkForUpdates?: () => Promise<DesktopUpdateStatus>

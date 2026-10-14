@@ -16,6 +16,7 @@ defineExpose({
       <WorkbenchViewHeader :title="title" :description="description" :icon="icon">
         <template v-if="$slots.actions" #actions><slot name="actions" /></template>
       </WorkbenchViewHeader>
+      <div v-if="$slots.navigation" class="workbench-frame-navigation"><slot name="navigation" /></div>
     </div>
     <div class="workbench-frame-layout">
       <aside v-if="$slots.sidebar" class="workbench-frame-sidebar"><slot name="sidebar" /></aside>

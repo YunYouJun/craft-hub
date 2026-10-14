@@ -109,6 +109,7 @@ describe('detail panel desktop actions', () => {
         'workbench.home': { tools: [] },
         'workbench.locale': 'en',
         'workbench.repositoriesRoot': '',
+        'workbench.sidebar': { entries: [] },
         'workbench.shortcuts': { 'workbench.showCommandPalette': 'Mod+K' },
         'workbench.theme': 'system',
       },

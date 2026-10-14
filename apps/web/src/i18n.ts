@@ -2021,6 +2021,7 @@ const useI18nStore = defineStore('i18n', () => {
   function setLocale(value: Locale): void {
     locale.value = value
     document.documentElement.lang = value
+    void window.craftHubDesktop?.setLocale?.(value).catch(() => {})
   }
 
   function t(key: MessageKey, params: Record<string, string> = {}): string {

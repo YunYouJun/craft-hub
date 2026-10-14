@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { celebration } from './celebration'
-import { Icon } from './icons'
+import { Button as UiButton } from './components/ui/button'
+import { SettingsRow, SettingsSection } from './components/ui/settings'
 import { useI18n } from './i18n'
 
 const props = defineProps<{ context: 'help' | 'settings' }>()
@@ -8,25 +9,17 @@ const { t } = useI18n()
 </script>
 
 <template>
-  <section class="settings-section celebration-settings" :data-testid="`celebration-${props.context}`">
-    <div class="celebration-settings-row">
-      <span class="celebration-settings-icon" aria-hidden="true"><Icon name="skill" /></span>
-      <span class="celebration-settings-copy">
-        <h3>{{ t('celebration') }}</h3>
-        <p>{{ t(props.context === 'help' ? 'celebrationHelpDescription' : 'celebrationSettingsDescription') }}</p>
-      </span>
-      <button
-        type="button"
-        class="settings-save-button celebration-test-button"
-        :data-testid="`test-celebration-${props.context}`"
-        @click="celebration.fire()"
-      >
-        {{ t('testCelebration') }}
-      </button>
-    </div>
-    <div v-if="props.context === 'help'" class="celebration-prompt">
-      <strong>{{ t('celebrationPromptLabel') }}</strong>
-      <code>{{ t('celebrationExamplePrompt') }}</code>
-    </div>
-  </section>
+  <SettingsSection class="celebration-settings" :title="t('celebration')" :data-testid="`celebration-${props.context}`">
+    <SettingsRow :label="t('celebration')" :description="t(props.context === 'help' ? 'celebrationHelpDescription' : 'celebrationSettingsDescription')">
+      <template #control>
+        <UiButton size="compact" :data-testid="`test-celebration-${props.context}`" @click="celebration.fire()">{{ t('testCelebration') }}</UiButton>
+      </template>
+    </SettingsRow>
+    <template v-if="props.context === 'help'" #footer>
+      <div class="celebration-prompt">
+        <strong>{{ t('celebrationPromptLabel') }}</strong>
+        <code>{{ t('celebrationExamplePrompt') }}</code>
+      </div>
+    </template>
+  </SettingsSection>
 </template>

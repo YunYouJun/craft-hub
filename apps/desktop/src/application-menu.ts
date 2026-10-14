@@ -2,6 +2,17 @@ import type { Input, MenuItemConstructorOptions } from 'electron'
 
 export const desktopSettingsAccelerator = 'CommandOrControl+,'
 
+export type DesktopMenuLocale = 'en' | 'zh-CN'
+
+/** Validate the renderer's locale before applying it to native menus. */
+export function isDesktopMenuLocale(value: unknown): value is DesktopMenuLocale {
+  return value === 'en' || value === 'zh-CN'
+}
+
+function menuLabel(locale: DesktopMenuLocale, en: string, zh: string): string {
+  return locale === 'zh-CN' ? zh : en
+}
+
 type WorkbenchMenuInput = Pick<Input, 'type' | 'key' | 'shift' | 'control' | 'alt' | 'meta'>
 
 export type DesktopMenuAction
@@ -20,39 +31,127 @@ export type DesktopMenuAction
     | 'palette-commands'
 
 /** Create navigation commands without importing or launching the Electron runtime. */
-export function createWorkbenchViewMenu(onAction: (action: DesktopMenuAction) => void, platform: string): MenuItemConstructorOptions {
+export function createWorkbenchViewMenu(onAction: (action: DesktopMenuAction) => void, platform: string, locale: DesktopMenuLocale = 'en'): MenuItemConstructorOptions {
+  const label = (en: string, zh: string): string => menuLabel(locale, en, zh)
   const command = (label: string, action: DesktopMenuAction, accelerator?: string): MenuItemConstructorOptions => ({
     label,
     ...(accelerator ? { accelerator } : {}),
     click: () => onAction(action),
   })
   return {
-    label: 'View',
+    label: label('View', '视图'),
     submenu: [
-      command('Back', 'back', 'CommandOrControl+['),
-      command('Forward', 'forward', 'CommandOrControl+]'),
+      command(label('Back', '后退'), 'back', 'CommandOrControl+['),
+      command(label('Forward', '前进'), 'forward', 'CommandOrControl+]'),
       { type: 'separator' },
-      command('Home', 'home', 'CommandOrControl+1'),
-      command('Projects', 'workbench', 'CommandOrControl+2'),
-      command('Tools', 'tools', 'CommandOrControl+3'),
-      command('Development Environment', 'environment', 'CommandOrControl+4'),
-      command('Workbenches', 'workbenches', 'CommandOrControl+5'),
-      command('Marketplace', 'marketplace'),
+      command(label('Home', '首页'), 'home', 'CommandOrControl+1'),
+      command(label('Projects', '项目'), 'workbench', 'CommandOrControl+2'),
+      command(label('Tools', '工具'), 'tools', 'CommandOrControl+3'),
+      command(label('Development Environment', '开发环境'), 'environment', 'CommandOrControl+4'),
+      command(label('Workbenches', '工作台'), 'workbenches', 'CommandOrControl+5'),
+      command(label('Marketplace', '插件市场'), 'marketplace'),
       { type: 'separator' },
-      command('Toggle Sidebar', 'toggle-sidebar', platform === 'darwin' ? 'Command+Control+S' : 'Control+Alt+S'),
-      command('Refresh Workbench', 'refresh', 'CommandOrControl+Shift+R'),
+      command(label('Toggle Sidebar', '显示或隐藏侧栏'), 'toggle-sidebar', platform === 'darwin' ? 'Command+Control+S' : 'Control+Alt+S'),
+      command(label('Refresh Workbench', '刷新工作台'), 'refresh', 'CommandOrControl+Shift+R'),
       { type: 'separator' },
-      command('Find Anything…', 'palette-all'),
-      command('Find Project…', 'palette-projects', 'CommandOrControl+P'),
-      command('Find Command…', 'palette-commands', 'CommandOrControl+Shift+P'),
+      command(label('Find Anything…', '查找…'), 'palette-all'),
+      command(label('Find Project…', '查找项目…'), 'palette-projects', 'CommandOrControl+P'),
+      command(label('Find Command…', '查找命令…'), 'palette-commands', 'CommandOrControl+Shift+P'),
       { type: 'separator' },
-      { role: 'resetZoom' },
-      { role: 'zoomIn' },
-      { role: 'zoomOut' },
+      { role: 'resetZoom', label: label('Actual Size', '实际大小') },
+      { role: 'zoomIn', label: label('Zoom In', '放大') },
+      { role: 'zoomOut', label: label('Zoom Out', '缩小') },
       { type: 'separator' },
-      { role: 'togglefullscreen' },
+      { role: 'togglefullscreen', label: label('Toggle Full Screen', '切换全屏') },
     ],
   }
+}
+
+interface ApplicationMenuOptions {
+  applicationName: string
+  locale: DesktopMenuLocale
+  platform: string
+  onAction: (action: DesktopMenuAction) => void
+  onAbout: () => void
+  onCheckForUpdates?: () => void
+  onSettings: () => void
+  onHelp: () => void
+  onReplayOnboarding: () => void
+}
+
+/** Build localized native menus while retaining Electron roles and accelerators. */
+export function createApplicationMenu(options: ApplicationMenuOptions): MenuItemConstructorOptions[] {
+  const { applicationName, locale, platform } = options
+  const label = (en: string, zh: string): string => menuLabel(locale, en, zh)
+  return [
+    {
+      label: applicationName,
+      submenu: [
+        { label: label(`About ${applicationName}`, `关于 ${applicationName}`), click: options.onAbout },
+        ...(options.onCheckForUpdates ? [{ label: label('Check for Updates…', '检查更新…'), click: options.onCheckForUpdates }] : []),
+        { type: 'separator' },
+        { label: label('Settings…', '设置…'), accelerator: desktopSettingsAccelerator, click: options.onSettings },
+        { type: 'separator' },
+        { role: 'services', label: label('Services', '服务') },
+        { type: 'separator' },
+        { role: 'hide', label: label(`Hide ${applicationName}`, `隐藏 ${applicationName}`) },
+        { role: 'hideOthers', label: label('Hide Others', '隐藏其他') },
+        { role: 'unhide', label: label('Show All', '显示全部') },
+        { type: 'separator' },
+        { role: 'quit', label: label(`Quit ${applicationName}`, `退出 ${applicationName}`) },
+      ],
+    },
+    {
+      role: 'fileMenu',
+      label: label('File', '文件'),
+      submenu: [{ role: 'close', label: label('Close Window', '关闭窗口') }],
+    },
+    {
+      role: 'editMenu',
+      label: label('Edit', '编辑'),
+      submenu: [
+        { role: 'undo', label: label('Undo', '撤销') },
+        { role: 'redo', label: label('Redo', '重做') },
+        { type: 'separator' },
+        { role: 'cut', label: label('Cut', '剪切') },
+        { role: 'copy', label: label('Copy', '复制') },
+        { role: 'paste', label: label('Paste', '粘贴') },
+        { role: 'pasteAndMatchStyle', label: label('Paste and Match Style', '粘贴并匹配样式') },
+        { role: 'delete', label: label('Delete', '删除') },
+        { role: 'selectAll', label: label('Select All', '全选') },
+        { type: 'separator' },
+        {
+          label: label('Speech', '语音'),
+          submenu: [
+            { role: 'startSpeaking', label: label('Start Speaking', '开始朗读') },
+            { role: 'stopSpeaking', label: label('Stop Speaking', '停止朗读') },
+          ],
+        },
+      ],
+    },
+    createWorkbenchViewMenu(options.onAction, platform, locale),
+    {
+      role: 'windowMenu',
+      label: label('Window', '窗口'),
+      submenu: [
+        { role: 'minimize', label: label('Minimize', '最小化') },
+        { role: 'zoom', label: label('Zoom', '缩放') },
+        { type: 'separator' },
+        { role: 'front', label: label('Bring All to Front', '前置全部窗口') },
+        { type: 'separator' },
+        { role: 'window', label: label('Window', '窗口') },
+      ],
+    },
+    {
+      role: 'help',
+      label: label('Help', '帮助'),
+      submenu: [
+        { label: label(`${applicationName} Help`, `${applicationName} 帮助`), click: options.onHelp },
+        { type: 'separator' },
+        { label: label('Replay Getting Started', '重新查看入门引导'), click: options.onReplayOnboarding },
+      ],
+    },
+  ]
 }
 
 /** Keep displayed workbench accelerators in the renderer's configurable shortcut order. */

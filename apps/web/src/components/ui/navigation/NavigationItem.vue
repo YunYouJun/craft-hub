@@ -108,6 +108,8 @@ export default defineComponent({
   min-height: var(--navigation-segmented-item-height);
   flex: 0 0 auto;
   padding: 0 var(--navigation-segmented-item-padding-inline);
+  /* Keep text metrics stable as the selected segment changes. */
+  font-weight: var(--workbench-sidebar-active-weight);
 }
 
 .ui-navigation-item[data-variant='sidebar'] {
@@ -126,7 +128,6 @@ export default defineComponent({
 .ui-navigation-item[data-variant='segmented']:is([data-state='active'], [aria-selected='true'], [aria-current='page'], .active) {
   background: var(--surface);
   color: var(--text);
-  font-weight: var(--workbench-sidebar-active-weight);
   box-shadow: 0 1px 2px var(--shadow);
 }
 
@@ -163,6 +164,20 @@ export default defineComponent({
 .ui-navigation-item [data-slot='navigation-icon'] > * {
   width: 100%;
   height: 100%;
+}
+
+.ui-navigation-item[data-variant='sidebar'] .visual-icon img {
+  filter: grayscale(1);
+  opacity: .65;
+}
+
+.ui-navigation-item[data-variant='sidebar']:is(:hover, :focus-visible) .visual-icon img {
+  opacity: 1;
+}
+
+.ui-navigation-item[data-variant='sidebar']:is([data-state='active'], [aria-selected='true'], [aria-current='page'], .active) .visual-icon img {
+  filter: none;
+  opacity: 1;
 }
 
 .ui-navigation-item small {

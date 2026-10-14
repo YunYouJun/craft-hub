@@ -28,6 +28,7 @@ function settings(home = initialHome, revision = 'initial'): SettingsSnapshot {
       'workbench.home': structuredClone(home),
       'workbench.locale': 'en',
       'workbench.repositoriesRoot': '',
+      'workbench.sidebar': { entries: [] },
       'workbench.shortcuts': {},
       'workbench.theme': 'system',
     },

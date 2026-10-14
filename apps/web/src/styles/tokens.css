@@ -93,20 +93,20 @@
   --integration-status-attention: var(--danger);
   /* Page geometry shared by every primary workbench view. */
   --page-content-max-width: 1180px;
-  --page-padding-inline: 24px;
-  --page-padding-block: 24px;
+  --page-padding-inline: 20px;
+  --page-padding-block: 16px;
   --page-content-bottom: 24px;
-  --page-section-gap: 20px;
-  --page-title-size: var(--font-size-heading-lg);
+  --page-section-gap: 16px;
+  --page-title-size: 20px;
   --page-title-weight: 600;
-  --page-title-line-height: 28px;
+  --page-title-line-height: 26px;
   --page-description-size: var(--font-size-body);
   --page-description-line-height: var(--line-height-body);
   --page-heading-gap: 2px;
   --page-header-gap: 10px;
   --page-header-mark-size: 32px;
   --page-header-icon-size: 20px;
-  --page-header-min-height: 44px;
+  --page-header-min-height: 36px;
   --page-toolbar-height: var(--ylf-admin-control);
   --page-section-title-size: var(--font-size-subheading);
   /* Primary sidebar excludes the activity rail. App sizing reads these same tokens. */
@@ -152,6 +152,41 @@
   --navigation-sidebar-item-height: var(--workbench-sidebar-row-height);
   --navigation-sidebar-item-padding-inline: var(--workbench-sidebar-item-padding);
   --settings-sidebar-width: 184px;
+  /* Settings follow shared desktop controls; these sizes are app choices, not HIG requirements. */
+  --settings-window-width: 760px;
+  --settings-window-height: 600px;
+  --settings-window-inset: var(--space-4);
+  --settings-window-radius: var(--dialog-radius);
+  --settings-window-background: var(--workbench-canvas);
+  --settings-window-shadow: 0 16px 48px var(--shadow);
+  --settings-header-padding-block: var(--space-3);
+  --settings-header-padding-inline: var(--space-5);
+  --settings-title-size: var(--dialog-title-size);
+  --settings-title-line-height: var(--line-height-heading-md);
+  --settings-sidebar-background: var(--workbench-sidebar-background);
+  --settings-sidebar-border: var(--workbench-sidebar-border);
+  --settings-content-padding: var(--space-5);
+  --settings-section-gap: var(--space-5);
+  --settings-section-heading-gap: var(--space-2);
+  --settings-section-title-size: var(--navigation-font-size);
+  --settings-section-title-weight: 600;
+  --settings-group-background: var(--surface);
+  --settings-group-border: var(--border);
+  --settings-group-radius: var(--panel-radius);
+  --settings-row-min-height: 48px;
+  --settings-row-padding-block: 10px;
+  --settings-row-padding-inline: var(--space-3);
+  --settings-row-gap: var(--space-3);
+  --settings-row-label-size: var(--navigation-font-size);
+  --settings-row-label-weight: 500;
+  --settings-row-line-height: var(--navigation-line-height);
+  --settings-metadata-size: var(--font-size-caption);
+  --settings-metadata-line-height: var(--line-height-caption);
+  --settings-metadata-gap: var(--space-1);
+  --settings-control-height: var(--control-height-default);
+  --settings-control-min-width: 144px;
+  --settings-status-dot-size: 6px;
+  --settings-output-max-height: 260px;
   --menu-background: var(--surface);
   --menu-border: var(--border-strong);
   --menu-shadow: var(--ylf-shadow-lg);
@@ -217,6 +252,7 @@
 @media (max-width: 760px) {
   :root {
     --dialog-panel-padding: var(--space-4);
+    --settings-content-padding: var(--space-4);
     --page-padding-inline: 12px;
     --page-padding-block: 16px;
     --page-section-gap: 16px;
@@ -233,5 +269,6 @@
     --form-control-padding-inline: 12px;
     --select-option-min-height: 44px;
     --select-option-indicator-inset: 12px;
+    --settings-row-min-height: 56px;
   }
 }

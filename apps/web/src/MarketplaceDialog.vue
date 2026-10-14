@@ -497,12 +497,14 @@ function openIncludedPlugin(parent: ManagedPlugin, packageName: string, range: s
       @navigate="openPluginDetail"
     />
     <WorkbenchViewFrame v-show="!detailOpen" class="marketplace-index" :title="t('pluginMarketplace')" :description="t('pluginMarketplaceDescription')" icon="builtin:plugins">
+      <template #navigation>
         <NavigationList as="nav" class="marketplace-tabs workbench-tabs" role="tablist" aria-orientation="horizontal" :aria-label="t('pluginMarketplace')" @keydown="moveTabSelection">
           <NavigationItem v-bind="tabAttributes('discover')" :class="{ active: activeTab === 'discover' }" @click="activeTab = 'discover'">{{ t('discoverPlugins') }}</NavigationItem>
           <NavigationItem v-bind="tabAttributes('installed')" :class="{ active: activeTab === 'installed' }" @click="activeTab = 'installed'">{{ t('installedPlugins') }} <small>{{ rootInstalled.length }}</small></NavigationItem>
           <NavigationItem v-bind="tabAttributes('sources')" :class="{ active: activeTab === 'sources' }" @click="activeTab = 'sources'">{{ t('marketplaceSources') }}</NavigationItem>
           <NavigationItem v-if="canManageHostExtensions" v-bind="tabAttributes('hosts')" :class="{ active: activeTab === 'hosts' }" @click="activeTab = 'hosts'">{{ t('hostExtensions') }}</NavigationItem>
         </NavigationList>
+      </template>
 
         <section :id="`${tabsId}-panel`" class="marketplace-tab-panel" role="tabpanel" :aria-labelledby="`${tabsId}-${activeTab}`" tabindex="0">
         <p v-if="error" class="marketplace-error" role="alert">{{ error }}</p>

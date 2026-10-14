@@ -1,4 +1,4 @@
-import type { AgentActionId, AgentActionSummary, AgentTaskRecord, Capability, CapabilityDiscoveryDiagnostic, CommandInputValues, CommandInvocation, CommandPackage, HostEnvironment, InstalledPluginWorkbench, IntegrationDiagnostic, LocalEnvironmentSnapshot, OwnerScope, ProjectAccentColor, ProjectCatalogDiagnostic, ProjectChangeEvent, ProjectConfigInitializationResult, ProjectDescriptionApplication, ProjectDescriptionChange, ProjectOverview, ProjectRecord, ProjectRunSummary, ResolvedIntegrationContribution, RunRecord, SettingsSnapshot, TeamDeletionResult, TeamGitSyncStatus, UserConfigStatus, WorkbenchCodexSetting, WorkbenchDiagnosticSnapshot, WorkbenchEditorSetting, WorkbenchLocale, WorkbenchTheme, WorkspaceGroup, WorkspaceManifest, WorkspaceRecord } from 'craft-hub'
+import type { AgentActionId, AgentActionSummary, AgentTaskRecord, Capability, CapabilityDiscoveryDiagnostic, CommandInputValues, CommandInvocation, CommandPackage, HostEnvironment, InstalledPluginWorkbench, IntegrationDiagnostic, LocalEnvironmentSnapshot, OwnerScope, ProjectAccentColor, ProjectCatalogDiagnostic, ProjectChangeEvent, ProjectConfigInitializationResult, ProjectDescriptionApplication, ProjectDescriptionChange, ProjectOverview, ProjectRecord, ProjectRunSummary, ResolvedIntegrationContribution, RunRecord, SettingsSnapshot, TeamDeletionResult, TeamGitSyncStatus, UserConfigStatus, WorkbenchCodexSetting, WorkbenchDiagnosticSnapshot, WorkbenchEditorSetting, WorkbenchLocale, WorkbenchSidebarSetting, WorkbenchTheme, WorkspaceGroup, WorkspaceManifest, WorkspaceRecord } from 'craft-hub'
 import { projectConfigSchemaRevision } from 'craft-hub/project-config-schema-revision'
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
@@ -316,6 +316,19 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     if (!settings.value)
       await loadSettings()
     await applySettings(await api.updateSettings({ 'workbench.shortcuts': shortcuts }, settings.value!.revision))
+  }
+
+  async function updateSidebarSetting(sidebar: WorkbenchSidebarSetting): Promise<void> {
+    if (!settings.value)
+      await loadSettings()
+    try {
+      await applySettings(await api.updateSettings({ 'workbench.sidebar': sidebar.entries.length ? sidebar : null }, settings.value!.revision))
+    }
+    catch (error) {
+      if (error instanceof ApiRequestError && error.status === 409)
+        await loadSettings()
+      throw error
+    }
   }
 
   async function updateRepositoriesRoot(path: string): Promise<void> {
@@ -1512,6 +1525,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     updateCodexSetting,
     updateEditorSetting,
     updateShortcuts,
+    updateSidebarSetting,
     updateTheme,
     loadProjects,
     loadOwnerScopes,

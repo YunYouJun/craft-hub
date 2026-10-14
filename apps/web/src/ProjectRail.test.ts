@@ -1,15 +1,35 @@
 // @vitest-environment happy-dom
 /// <reference lib="dom" />
 
+import type { SettingsSnapshot, WorkbenchSidebarSetting } from 'craft-hub'
 import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { config, flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import ActivityNavigation from './ActivityNavigation.vue'
 import { Select } from './components/ui/select'
 import { useI18n } from './i18n'
 import ProjectRail from './ProjectRail.vue'
 import { useWorkbenchStore } from './store'
+
+function sidebarSnapshot(sidebar: WorkbenchSidebarSetting): SettingsSnapshot {
+  return {
+    explicitKeys: ['workbench.sidebar'],
+    path: '/settings.json',
+    revision: 'sidebar',
+    settings: {
+      'workbench.codex': {},
+      'workbench.editor': { default: 'vscode' },
+      'workbench.home': { tools: [] },
+      'workbench.locale': 'en',
+      'workbench.repositoriesRoot': '',
+      'workbench.shortcuts': {},
+      'workbench.sidebar': sidebar,
+      'workbench.theme': 'system',
+    },
+  }
+}
 
 vi.mock('./AccountMenu.vue', () => ({ default: { template: '<button class="activity-button activity-account" aria-label="Open account details" />' } }))
 vi.mock('vue-router', () => ({ useRouter: () => ({ push: vi.fn() }) }))
@@ -46,7 +66,7 @@ describe('project rail', () => {
     const button = wrapper.get('[data-testid="open-tools"]')
     expect(button.attributes('aria-current')).toBe('page')
     expect(button.attributes('aria-label')).toBe('Tools')
-    const identifiers = wrapper.findAll('.activity-button').map(item => item.attributes('data-testid')).filter(Boolean)
+    const identifiers = wrapper.findAll('.activity-button:not(.sidebar-more)').map(item => item.attributes('data-testid')).filter(Boolean)
     expect(identifiers.slice(0, 5)).toEqual(['open-overview', 'open-workbench', 'open-tools', 'open-environment', 'open-workbenches'])
     expect(identifiers.slice(5)).toEqual(['open-marketplace', 'open-diagnostics', 'open-settings'])
     expect(wrapper.find('[data-testid="open-navigation"]').exists()).toBe(false)
@@ -59,7 +79,7 @@ describe('project rail', () => {
 
   it('keeps destinations named when switching between the source list and icon rail', async () => {
     const wrapper = mount(ProjectRail, { props: { activeView: 'environment' } })
-    const buttons = wrapper.findAll('.activity-rail > .activity-button')
+    const buttons = wrapper.findAll('.activity-rail .activity-button:not(.sidebar-more)')
     expect(buttons.map(button => button.get('.activity-label').text())).toEqual([
       'Home',
       'Projects',
@@ -84,6 +104,42 @@ describe('project rail', () => {
     expect(wrapper.emitted('openEnvironment')).toEqual([[]])
     await wrapper.setProps({ collapsed: false })
     expect(wrapper.get('.project-rail').classes()).not.toContain('activity-collapsed')
+    wrapper.unmount()
+  })
+
+  it('restores saved icons in separate built-in and plugin groups and opens hidden destinations from More', async () => {
+    const store = useWorkbenchStore()
+    store.pluginWorkbenches = [{ id: 'team', pluginId: 'example', pluginName: 'Example', pluginVersion: '1.0.0', title: 'Team', views: [{ type: 'host', view: 'projects' }] }]
+    store.settings = sidebarSnapshot({ entries: [
+      { kind: 'item', id: 'plugin:example:team', visible: true },
+      { kind: 'separator', id: 'separator:main' },
+      { kind: 'item', id: 'builtin:home', visible: false },
+      { kind: 'item', id: 'builtin:projects', visible: true },
+    ] })
+    const wrapper = mount(ProjectRail)
+    expect(wrapper.findAll('.activity-button')[0]?.attributes('data-testid')).toBe('open-workbench')
+    expect(wrapper.get('.sidebar-plugins-entries .activity-button').attributes('data-testid')).toBe('open-plugin-workbench-example-team')
+    expect(wrapper.find('[data-testid="open-overview"]').exists()).toBe(false)
+    expect(wrapper.findAll('.sidebar-divider')).toHaveLength(1)
+    await wrapper.get('[data-testid="open-plugin-workbench-example-team"]').trigger('click')
+    expect(wrapper.emitted('openPluginWorkbench')).toEqual([['example', 'team']])
+    wrapper.findComponent(ActivityNavigation).vm.$emit('activate', 'builtin:home')
+    expect(wrapper.emitted('openOverview')).toEqual([[]])
+    wrapper.unmount()
+  })
+
+  it('saves sidebar edits and restores the persisted layout with an error when saving fails', async () => {
+    const store = useWorkbenchStore()
+    store.settings = sidebarSnapshot({ entries: [] })
+    const save = vi.spyOn(store, 'updateSidebarSetting').mockRejectedValue(new Error('Settings changed'))
+    const wrapper = mount(ProjectRail)
+    const next: WorkbenchSidebarSetting = { entries: [{ kind: 'item', id: 'builtin:home', visible: false }] }
+    wrapper.findComponent(ActivityNavigation).vm.$emit('update', next)
+    await flushPromises()
+    expect(save).toHaveBeenCalledWith(next)
+    expect(wrapper.find('[data-testid="open-overview"]').exists()).toBe(true)
+    expect(wrapper.findComponent(ActivityNavigation).props('error')).toBe('Unable to save sidebar layout: Settings changed')
+    expect(wrapper.findComponent(ActivityNavigation).props('saving')).toBe(false)
     wrapper.unmount()
   })
 
@@ -377,6 +433,7 @@ describe('project rail', () => {
         'workbench.locale': 'en',
         'workbench.repositoriesRoot': '/repos',
         'workbench.shortcuts': { 'workbench.showCommandPalette': 'Mod+K' },
+        'workbench.sidebar': { entries: [] },
         'workbench.theme': 'system',
       },
     }

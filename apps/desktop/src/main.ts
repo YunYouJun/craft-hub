@@ -1,6 +1,6 @@
 import type { CraftHubServer, ProjectReference } from 'craft-hub'
-import type { BrowserWindow as BrowserWindowType, MenuItemConstructorOptions, OpenDialogOptions } from 'electron'
-import type { DesktopMenuAction } from './application-menu.ts'
+import type { BrowserWindow as BrowserWindowType, OpenDialogOptions } from 'electron'
+import type { DesktopMenuAction, DesktopMenuLocale } from './application-menu.ts'
 import type { DesktopUpdateStatus } from './updater.ts'
 import type { WorkspaceLaunchTarget } from './workspace-launch-target.ts'
 import { execFile } from 'node:child_process'
@@ -17,7 +17,7 @@ import { PersonalCloudController } from '@craft-hub/personal-cloud'
 import { communityDistribution, CraftHubRuntime, HostExtensionManager, loadCraftHubPlugins, startCraftHubServer } from 'craft-hub'
 import { app, BrowserWindow, clipboard, dialog, globalShortcut, ipcMain, Menu, nativeImage, nativeTheme, safeStorage, shell } from 'electron'
 import { aboutDocument, aboutPanelOptions } from './about.ts'
-import { createWorkbenchMenuShortcutMatcher, createWorkbenchViewMenu, desktopSettingsAccelerator } from './application-menu.ts'
+import { createApplicationMenu, createWorkbenchMenuShortcutMatcher, isDesktopMenuLocale } from './application-menu.ts'
 import { loadDesktopBuildInfo } from './build-info.ts'
 import { CodexActivityMonitor } from './codex-activity.ts'
 import { CodexAgentTaskProvider } from './codex-agent-task-provider.ts'
@@ -59,6 +59,7 @@ const desktopUpdateBaseUrl = desktopBuildInfo.updatesEnabled && configuredDeskto
   : undefined
 
 let mainWindow: BrowserWindowType | undefined
+let desktopMenuLocale: DesktopMenuLocale = 'zh-CN'
 let aboutWindow: BrowserWindowType | undefined
 let craftHubServer: CraftHubServer | undefined
 let readyToQuit = false
@@ -161,43 +162,27 @@ function installApplicationMenu(): void {
   if (process.platform !== 'darwin')
     return
 
-  const template: MenuItemConstructorOptions[] = [
-    {
-      label: app.name,
-      submenu: [
-        { label: `About ${app.name}`, click: () => void showAboutWindow() },
-        { type: 'separator' },
-        { label: 'Settings…', accelerator: desktopSettingsAccelerator, click: () => void openSettings() },
-        { type: 'separator' },
-        { role: 'services' },
-        { type: 'separator' },
-        { role: 'hide' },
-        { role: 'hideOthers' },
-        { role: 'unhide' },
-        { type: 'separator' },
-        { role: 'quit' },
-      ],
+  const template = createApplicationMenu({
+    applicationName: productName,
+    locale: desktopMenuLocale,
+    platform: process.platform,
+    onAction: action => void performMenuAction(action),
+    onAbout: () => void showAboutWindow(),
+    onCheckForUpdates: () => {
+      void openSettings().then(() => desktopUpdater?.checkNow())
     },
-    { role: 'fileMenu' },
-    { role: 'editMenu' },
-    createWorkbenchViewMenu(action => void performMenuAction(action), process.platform),
-    { role: 'windowMenu' },
-    {
-      role: 'help',
-      submenu: [
-        {
-          label: `${productName} Help`,
-          click: () => void openHelp(),
-        },
-        { type: 'separator' },
-        {
-          label: 'Replay Getting Started',
-          click: () => void replayOnboarding(),
-        },
-      ],
-    },
-  ]
+    onSettings: () => void openSettings(),
+    onHelp: () => void openHelp(),
+    onReplayOnboarding: () => void replayOnboarding(),
+  })
   Menu.setApplicationMenu(Menu.buildFromTemplate(template))
+}
+
+function applyDesktopMenuLocale(locale: DesktopMenuLocale): void {
+  if (desktopMenuLocale === locale)
+    return
+  desktopMenuLocale = locale
+  installApplicationMenu()
 }
 
 app.setName(productName)
@@ -514,6 +499,12 @@ ipcMain.handle('craft-hub:set-theme', (_event, theme: unknown) => {
   applyDesktopTheme(theme)
 })
 
+ipcMain.handle('craft-hub:set-locale', (_event, locale: unknown) => {
+  if (!isDesktopMenuLocale(locale))
+    throw new TypeError('Locale must be en or zh-CN')
+  applyDesktopMenuLocale(locale)
+})
+
 ipcMain.handle('craft-hub:update-status', () => desktopUpdater?.status())
 ipcMain.handle('craft-hub:set-automatic-updates', (_event, enabled: unknown) => {
   if (typeof enabled !== 'boolean')
@@ -527,7 +518,6 @@ ipcMain.handle('craft-hub:check-for-updates', () => {
     throw new Error('Updater is still starting')
   return desktopUpdater.checkNow()
 })
-
 ipcMain.handle('craft-hub:cloud-status', () => personalCloud?.status() ?? { state: 'disabled' })
 ipcMain.handle('craft-hub:cloud-connect', () => personalCloud?.connect())
 ipcMain.handle('craft-hub:cloud-disconnect', () => personalCloud?.disconnect())
@@ -682,10 +672,13 @@ async function createWindow(): Promise<void> {
       plugins: hostPlugins.plugins,
     })
     craftHubServer = await startCraftHubServer({ port: developmentUrl ? 4318 : 0, runtime, staticDir })
+    runtime.settings.onChanged(snapshot => applyDesktopMenuLocale(snapshot.settings['workbench.locale']))
     writeApplicationLog('info', `Local server started at ${craftHubServer.url}`)
     await initializePersonalCloud()
   }
-  applyDesktopTheme((await craftHubServer.runtime.settings.get()).settings['workbench.theme'])
+  const { settings } = await craftHubServer.runtime.settings.get()
+  applyDesktopTheme(settings['workbench.theme'])
+  applyDesktopMenuLocale(settings['workbench.locale'])
 
   mainWindow = new BrowserWindow({
     width: 1440,
@@ -694,8 +687,9 @@ async function createWindow(): Promise<void> {
     minHeight: 620,
     title: windowTitle,
     icon: applicationIcon,
-    titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
-    ...(process.platform === 'darwin' ? { titleBarOverlay: true } : {}),
+    titleBarStyle: process.platform === 'darwin' ? 'hidden' : 'default',
+    // Center the 14px native controls in the renderer's 52px macOS toolbar.
+    ...(process.platform === 'darwin' ? { trafficLightPosition: { x: 16, y: 19 }, titleBarOverlay: true } : {}),
     backgroundColor: nativeTheme.shouldUseDarkColors ? '#1f232b' : '#ffffff',
     webPreferences: {
       contextIsolation: true,

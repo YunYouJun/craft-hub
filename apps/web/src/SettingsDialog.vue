@@ -8,7 +8,11 @@ import AgentConnectionSettings from './AgentConnectionSettings.vue'
 import CelebrationSettings from './CelebrationSettings.vue'
 import { Button as UiButton } from './components/ui/button'
 import { DialogShell } from './components/ui/dialog'
+import { Input } from './components/ui/input'
+import { SettingsRow, SettingsSection, SettingsStatus } from './components/ui/settings'
+import { Switch } from './components/ui/switch'
 import { TabsContent, TabsList, TabsRoot, TabsTrigger } from './components/ui/tabs'
+import { Textarea } from './components/ui/textarea'
 import { Icon } from './icons'
 import { useI18n } from './i18n'
 import NavigationIcon from './NavigationIcon.vue'
@@ -29,6 +33,7 @@ const canOpenDotfilesInTerminal = Boolean(window.craftHubDesktop?.openDotfilesIn
 const canManageUpdates = Boolean(window.craftHubDesktop?.updateStatus)
 const canManageCodexActivity = Boolean(window.craftHubDesktop?.codexActivityStatus)
 const replaceOnImport = ref(false)
+const settingsImportInput = ref<HTMLInputElement>()
 const transferError = ref('')
 const transferring = ref(false)
 const cleanupMessage = ref('')
@@ -78,6 +83,7 @@ const settingsTabs = computed(() => [
   { value: 'transfer', icon: 'transfer', label: t('settingsTransfer') },
   { value: 'help', icon: 'help', label: t('help') },
 ] satisfies { value: SettingsTab, icon: IconName, label: string }[])
+const activeTabTitle = computed(() => settingsTabs.value.find(tab => tab.value === activeTab.value)?.label ?? t('settings'))
 let removeUpdateListener: (() => void) | undefined
 let removeCodexActivityListener: (() => void) | undefined
 
@@ -182,9 +188,10 @@ function onShortcutKeydown(event: KeyboardEvent, id: string): void {
     void saveShortcut(id, shortcut)
 }
 
-watch([() => props.open, () => props.initialTab], ([open]) => {
+watch([() => props.open, () => props.initialTab], ([open, initialTab], previous) => {
+  if (!previous || initialTab !== previous[1])
+    activeTab.value = initialTab
   if (open) {
-    activeTab.value = props.initialTab
     shortcutQuery.value = ''
     recordingShortcutId.value = ''
     shortcutError.value = ''
@@ -586,372 +593,291 @@ async function cleanupRuns(includeAllUnpinned: boolean): Promise<void> {
 </script>
 
 <template>
-  <DialogShell :open="open" content-class="settings-dialog" header-class="settings-header" @update:open="emit('update:open', $event)">
-    <template #title>{{ t('settings') }}</template>
+  <DialogShell :open="open" :aria-label="t('settings')" content-class="settings-dialog" header-class="settings-header" description-class="settings-description-sr-only" @update:open="emit('update:open', $event)">
+    <template #title><span class="settings-description-sr-only">{{ t('settings') }} · </span>{{ activeTabTitle }}</template>
     <template #description>{{ t('settingsDescription') }}</template>
     <template #header-actions>
-          <button type="button" class="dialog-close" :aria-label="t('close')" @click="emit('update:open', false)">
-            <Icon name="close" />
-          </button>
+      <UiButton variant="ghost" size="icon" :aria-label="t('close')" @click="emit('update:open', false)">
+        <Icon name="close" />
+      </UiButton>
     </template>
 
-        <div class="settings-body">
-          <div v-if="store.settings?.diagnostic || transferError" class="settings-alerts">
-            <p v-if="store.settings?.diagnostic" role="alert">
-              {{ t('settingsFileInvalid', { path: store.settings.path, message: store.settings.diagnostic }) }}
-            </p>
-            <p v-if="transferError" role="alert">{{ transferError }}</p>
-          </div>
+    <div class="settings-body">
+      <div v-if="store.settings?.diagnostic || transferError" class="settings-alerts">
+        <p v-if="store.settings?.diagnostic" role="alert">
+          {{ t('settingsFileInvalid', { path: store.settings.path, message: store.settings.diagnostic }) }}
+        </p>
+        <p v-if="transferError" role="alert">{{ transferError }}</p>
+      </div>
 
-          <TabsRoot v-model="activeTab" class="settings-tabs" :orientation="horizontalNavigation ? 'horizontal' : 'vertical'">
-            <div ref="settingsNavigation" class="settings-navigation">
-              <TabsList variant="sidebar" class="settings-tab-list" :aria-label="t('settings')">
-                <TabsTrigger v-for="tab in settingsTabs" :key="tab.value" :value="tab.value" :title="tab.label" :aria-label="tab.label">
-                  <template #icon><NavigationIcon :name="tab.icon" /></template>
-                  <template #default><span class="ui-navigation-label">{{ tab.label }}</span></template>
-                </TabsTrigger>
-              </TabsList>
-            </div>
+      <TabsRoot v-model="activeTab" class="settings-tabs" :orientation="horizontalNavigation ? 'horizontal' : 'vertical'">
+        <div ref="settingsNavigation" class="settings-navigation">
+          <TabsList variant="sidebar" class="settings-tab-list" :aria-label="t('settings')">
+            <TabsTrigger v-for="tab in settingsTabs" :key="tab.value" :value="tab.value" :title="tab.label" :aria-label="tab.label">
+              <template #icon><NavigationIcon :name="tab.icon" /></template>
+              <template #default><span class="ui-navigation-label">{{ tab.label }}</span></template>
+            </TabsTrigger>
+          </TabsList>
+        </div>
 
-            <div class="settings-tab-panels">
-            <TabsContent value="agents" class="settings-tab-content"><AgentConnectionSettings /></TabsContent>
-            <TabsContent value="general" class="settings-tab-content">
-              <section class="settings-section">
-                <h3>{{ t('displayLanguage') }}</h3>
-                <p>{{ t('displayLanguageDescription') }}</p>
-                <div class="language-options">
-                  <button
-                    type="button"
-                    data-testid="locale-zh-CN"
-                    :class="{ active: locale === 'zh-CN' }"
-                    :aria-pressed="locale === 'zh-CN'"
-                    @click="selectLocale('zh-CN')"
-                  >
-                    <strong>中文</strong><span>简体中文</span>
-                  </button>
-                  <button
-                    type="button"
-                    data-testid="locale-en"
-                    :class="{ active: locale === 'en' }"
-                    :aria-pressed="locale === 'en'"
-                    @click="selectLocale('en')"
-                  >
-                    <strong>English</strong><span>English</span>
-                  </button>
-                </div>
-              </section>
-              <section class="settings-section">
-                <h3>{{ t('colorTheme') }}</h3>
-                <p>{{ t('colorThemeDescription') }}</p>
-                <div class="theme-options">
-                  <button
-                    v-for="option in (['system', 'light', 'dark'] as const)"
-                    :key="option"
-                    type="button"
-                    :data-testid="`theme-${option}`"
-                    :class="{ active: store.settings?.settings['workbench.theme'] === option }"
-                    :aria-pressed="store.settings?.settings['workbench.theme'] === option"
-                    @click="selectTheme(option)"
-                  >
-                    <span class="theme-preview" :class="option" aria-hidden="true"><i /><i /></span>
-                    <strong>{{ t(option === 'system' ? 'themeSystem' : option === 'light' ? 'themeLight' : 'themeDark') }}</strong>
-                  </button>
-                </div>
-              </section>
-              <CelebrationSettings context="settings" />
-              <section class="settings-section editor-settings repository-root-settings">
-                <h3>{{ t('localRepositoriesRoot') }}</h3>
-                <p>{{ t('localRepositoriesRootDescription') }}</p>
-                <label>
-                  <span>{{ t('repositoriesRoot') }}</span>
-                  <span class="settings-path-entry">
-                    <input v-model="repositoriesRoot" data-testid="repositories-root" :placeholder="t('repositoriesRootPlaceholder')">
-                    <button v-if="canChooseGitRepository" type="button" data-testid="choose-repositories-root" @click="chooseRepositoriesRoot">{{ t('chooseGitRepository') }}</button>
-                  </span>
-                </label>
-                <button type="button" class="settings-save-button" data-testid="save-repositories-root" :disabled="repositoriesRootSaving" @click="saveRepositoriesRoot">
-                  {{ repositoriesRootSaving ? t('saving') : t('save') }}
-                </button>
-              </section>
-              <section class="settings-section editor-settings">
-                <h3>{{ t('defaultEditor') }}</h3>
-                <p>{{ t('defaultEditorDescription') }}</p>
-                <label>
-                  <span>{{ t('editor') }}</span>
-                  <select v-model="editorId" data-testid="default-editor">
+        <div class="settings-tab-panels">
+          <TabsContent value="agents" class="settings-tab-content"><AgentConnectionSettings /></TabsContent>
+          <TabsContent value="general" class="settings-tab-content">
+            <SettingsSection :title="t('displayLanguage')" :description="t('displayLanguageDescription')">
+              <SettingsRow :label="t('displayLanguage')">
+                <template #control>
+                  <div class="settings-choice-options language-options" :aria-label="t('displayLanguage')" role="group">
+                    <UiButton size="compact" data-testid="locale-zh-CN" :class="{ active: locale === 'zh-CN' }" :aria-pressed="locale === 'zh-CN'" @click="selectLocale('zh-CN')">中文</UiButton>
+                    <UiButton size="compact" data-testid="locale-en" :class="{ active: locale === 'en' }" :aria-pressed="locale === 'en'" @click="selectLocale('en')">English</UiButton>
+                  </div>
+                </template>
+              </SettingsRow>
+            </SettingsSection>
+            <SettingsSection :title="t('colorTheme')" :description="t('colorThemeDescription')">
+              <SettingsRow :label="t('colorTheme')">
+                <template #control>
+                  <div class="settings-choice-options theme-options" :aria-label="t('colorTheme')" role="group">
+                    <UiButton
+                      v-for="option in (['system', 'light', 'dark'] as const)"
+                      :key="option"
+                      size="compact"
+                      :data-testid="`theme-${option}`"
+                      :class="{ active: store.settings?.settings['workbench.theme'] === option }"
+                      :aria-pressed="store.settings?.settings['workbench.theme'] === option"
+                      @click="selectTheme(option)"
+                    >
+                      {{ t(option === 'system' ? 'themeSystem' : option === 'light' ? 'themeLight' : 'themeDark') }}
+                    </UiButton>
+                  </div>
+                </template>
+              </SettingsRow>
+            </SettingsSection>
+            <CelebrationSettings context="settings" />
+            <SettingsSection class="repository-root-settings" :title="t('localRepositoriesRoot')" :description="t('localRepositoriesRootDescription')">
+              <template #controls>
+                <UiButton size="compact" data-testid="save-repositories-root" :disabled="repositoriesRootSaving" @click="saveRepositoriesRoot">{{ repositoriesRootSaving ? t('saving') : t('save') }}</UiButton>
+              </template>
+              <SettingsRow :label="t('repositoriesRoot')" control-id="settings-repositories-root" orientation="vertical">
+                <template #control>
+                  <div class="settings-path-entry">
+                    <Input id="settings-repositories-root" v-model="repositoriesRoot" data-testid="repositories-root" :placeholder="t('repositoriesRootPlaceholder')" />
+                    <UiButton v-if="canChooseGitRepository" size="compact" data-testid="choose-repositories-root" @click="chooseRepositoriesRoot">{{ t('chooseGitRepository') }}</UiButton>
+                  </div>
+                </template>
+              </SettingsRow>
+            </SettingsSection>
+            <SettingsSection :title="t('defaultEditor')" :description="t('defaultEditorDescription')">
+              <template #controls>
+                <UiButton size="compact" data-testid="save-editor-setting" :disabled="editorSaving" @click="saveEditorSetting">{{ editorSaving ? t('saving') : t('saveEditorSetting') }}</UiButton>
+              </template>
+              <SettingsRow :label="t('editor')" control-id="settings-default-editor">
+                <template #control>
+                  <select class="ui-form-control" id="settings-default-editor" v-model="editorId" data-testid="default-editor">
                     <option value="vscode">VS Code</option>
                     <option value="cursor">Cursor</option>
                     <option value="custom">{{ t('customEditor') }}</option>
                   </select>
-                </label>
-                <div class="custom-editor-fields">
-                  <label>
-                    <span>{{ t('editorName') }}</span>
-                    <input v-model="customEditorName" data-testid="custom-editor-name" :placeholder="t('editorNamePlaceholder')">
-                  </label>
-                  <label>
-                    <span>{{ t('editorCommand') }}</span>
-                    <input v-model="customEditorCommand" data-testid="custom-editor-command" :placeholder="t('editorCommandPlaceholder')">
-                  </label>
-                  <label class="editor-args-field">
-                    <span>{{ t('editorArguments') }}</span>
-                    <textarea v-model="customEditorArgs" data-testid="custom-editor-args" rows="3" :placeholder="t('editorArgumentsPlaceholder')" />
-                  </label>
-                </div>
-                <p class="editor-settings-hint">{{ t('editorArgumentsHint') }}</p>
-                <button type="button" class="settings-save-button" data-testid="save-editor-setting" :disabled="editorSaving" @click="saveEditorSetting">
-                  {{ editorSaving ? t('saving') : t('saveEditorSetting') }}
-                </button>
-              </section>
-              <section class="settings-section editor-settings">
-                <h3>{{ t('codexTaskDefaults') }}</h3>
-                <p>{{ t('codexTaskDefaultsDescription') }}</p>
-                <div class="custom-editor-fields">
-                  <label>
-                    <span>{{ t('codexModel') }}</span>
-                    <input v-model="codexModel" data-testid="codex-model" :placeholder="t('codexModelPlaceholder')">
-                  </label>
-                  <label>
-                    <span>{{ t('codexReasoningEffort') }}</span>
-                    <select v-model="codexReasoningEffort" data-testid="codex-reasoning-effort">
-                      <option value="">{{ t('inheritCodexDefault') }}</option>
-                      <option v-for="effort in (['minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'] as const)" :key="effort" :value="effort">
-                        {{ effort }}
-                      </option>
-                    </select>
-                  </label>
-                </div>
-                <p class="editor-settings-hint">{{ t('codexTaskDefaultsHint') }}</p>
-                <button type="button" class="settings-save-button" data-testid="save-codex-setting" :disabled="codexSaving" @click="saveCodexSetting">
-                  {{ codexSaving ? t('saving') : t('saveCodexDefaults') }}
-                </button>
-              </section>
-              <section v-if="canManageCodexActivity" class="settings-section codex-activity-settings">
-                <h3>{{ t('codexActivity') }}</h3>
-                <p>{{ t('codexActivityDescription') }}</p>
-                <div class="desktop-update-status">
-                  <span>
-                    <strong>{{ t(codexActivityStatus?.installed ? 'codexActivityEnabled' : 'codexActivityDisabled') }}</strong>
-                    <small>{{ t('codexActivityRunning', { count: String(codexActivityStatus?.runningSessionIds.length ?? 0) }) }}</small>
-                  </span>
-                  <UiButton
-                    :disabled="codexActivityBusy || !codexActivityStatus?.supported"
-                    data-testid="toggle-codex-activity"
-                    @click="setCodexActivityHooks(!codexActivityStatus?.installed)"
-                  >
-                    {{ t(codexActivityStatus?.installed ? 'disable' : 'enable') }}
-                  </UiButton>
-                </div>
-                <p v-if="codexActivityStatus?.requiresTrustReview" class="settings-note">{{ t('codexActivityTrustReview') }}</p>
+                </template>
+              </SettingsRow>
+              <SettingsRow :label="t('editorName')" control-id="settings-custom-editor-name">
+                <template #control><Input id="settings-custom-editor-name" v-model="customEditorName" data-testid="custom-editor-name" :placeholder="t('editorNamePlaceholder')" /></template>
+              </SettingsRow>
+              <SettingsRow :label="t('editorCommand')" control-id="settings-custom-editor-command">
+                <template #control><Input id="settings-custom-editor-command" v-model="customEditorCommand" data-testid="custom-editor-command" :placeholder="t('editorCommandPlaceholder')" /></template>
+              </SettingsRow>
+              <SettingsRow :label="t('editorArguments')" control-id="settings-custom-editor-args" orientation="vertical">
+                <template #control><Textarea id="settings-custom-editor-args" v-model="customEditorArgs" data-testid="custom-editor-args" rows="3" :placeholder="t('editorArgumentsPlaceholder')" /></template>
+              </SettingsRow>
+              <template #footer>{{ t('editorArgumentsHint') }}</template>
+            </SettingsSection>
+            <SettingsSection :title="t('codexTaskDefaults')" :description="t('codexTaskDefaultsDescription')">
+              <template #controls>
+                <UiButton size="compact" data-testid="save-codex-setting" :disabled="codexSaving" @click="saveCodexSetting">{{ codexSaving ? t('saving') : t('saveCodexDefaults') }}</UiButton>
+              </template>
+              <SettingsRow :label="t('codexModel')" control-id="settings-codex-model">
+                <template #control><Input id="settings-codex-model" v-model="codexModel" data-testid="codex-model" :placeholder="t('codexModelPlaceholder')" /></template>
+              </SettingsRow>
+              <SettingsRow :label="t('codexReasoningEffort')" control-id="settings-codex-reasoning-effort">
+                <template #control>
+                  <select class="ui-form-control" id="settings-codex-reasoning-effort" v-model="codexReasoningEffort" data-testid="codex-reasoning-effort">
+                    <option value="">{{ t('inheritCodexDefault') }}</option>
+                    <option v-for="effort in (['minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'] as const)" :key="effort" :value="effort">{{ effort }}</option>
+                  </select>
+                </template>
+              </SettingsRow>
+              <template #footer>{{ t('codexTaskDefaultsHint') }}</template>
+            </SettingsSection>
+            <SettingsSection v-if="canManageCodexActivity" class="codex-activity-settings" :title="t('codexActivity')" :description="t('codexActivityDescription')">
+              <SettingsStatus :title="t(codexActivityStatus?.installed ? 'codexActivityEnabled' : 'codexActivityDisabled')" :description="t('codexActivityRunning', { count: String(codexActivityStatus?.runningSessionIds.length ?? 0) })" :tone="codexActivityStatus?.installed ? 'success' : 'neutral'">
+                <template #actions>
+                  <UiButton size="compact" :disabled="codexActivityBusy || !codexActivityStatus?.supported" data-testid="toggle-codex-activity" @click="setCodexActivityHooks(!codexActivityStatus?.installed)">{{ t(codexActivityStatus?.installed ? 'disable' : 'enable') }}</UiButton>
+                </template>
+              </SettingsStatus>
+              <template v-if="codexActivityStatus?.requiresTrustReview || codexActivityStatus?.diagnostic" #footer>
+                <p v-if="codexActivityStatus?.requiresTrustReview">{{ t('codexActivityTrustReview') }}</p>
                 <p v-if="codexActivityStatus?.diagnostic" class="error-message" role="alert">{{ codexActivityStatus.diagnostic }}</p>
-              </section>
-              <section v-if="canManageUpdates" class="settings-section desktop-update-settings">
-                <h3>{{ t('softwareUpdates') }}</h3>
-                <p>{{ t('softwareUpdatesDescription') }}</p>
-                <label class="settings-replace-option">
-                  <input
-                    type="checkbox"
-                    :checked="updateStatus?.automaticCheck"
-                    :disabled="updateBusy"
-                    data-testid="automatic-updates"
-                    @change="setAutomaticUpdates(($event.target as HTMLInputElement).checked)"
-                  >
-                  {{ t('checkUpdatesAutomatically') }}
-                </label>
-                <div class="desktop-update-status">
-                  <span><strong>{{ updateStatusLabel() }}</strong><small>{{ t('currentVersion', { version: updateStatus?.currentVersion ?? '—' }) }}</small></span>
-                  <UiButton :disabled="updateBusy || updateStatus?.phase === 'checking' || updateStatus?.phase === 'downloaded'" data-testid="check-for-updates" @click="checkForUpdates">
-                    {{ t('checkNow') }}
-                  </UiButton>
-                </div>
-                <p v-if="updateStatus?.message" class="error-message" role="alert">{{ updateStatus.message }}</p>
-              </section>
-            </TabsContent>
+              </template>
+            </SettingsSection>
+            <SettingsSection v-if="canManageUpdates" class="desktop-update-settings" :title="t('softwareUpdates')" :description="t('softwareUpdatesDescription')">
+              <SettingsRow :label="t('checkUpdatesAutomatically')" control-id="settings-automatic-updates">
+                <template #control="{ labelId }">
+                  <Switch id="settings-automatic-updates" :aria-labelledby="labelId" :model-value="Boolean(updateStatus?.automaticCheck)" :disabled="updateBusy" data-testid="automatic-updates" @update:model-value="setAutomaticUpdates(Boolean($event))" />
+                </template>
+              </SettingsRow>
+              <SettingsStatus class="desktop-update-status" :title="updateStatusLabel()" :description="t('currentVersion', { version: updateStatus?.currentVersion ?? '—' })" :tone="updateStatus?.phase === 'error' ? 'danger' : updateStatus?.phase === 'downloaded' || updateStatus?.phase === 'up-to-date' ? 'success' : 'neutral'" role="status" aria-live="polite">
+                <template #actions>
+                  <UiButton size="compact" :disabled="updateBusy || updateStatus?.phase === 'checking' || updateStatus?.phase === 'downloaded'" data-testid="check-for-updates" @click="checkForUpdates">{{ t('checkNow') }}</UiButton>
+                </template>
+              </SettingsStatus>
+              <template v-if="updateStatus?.message" #footer>
+                <p class="error-message" role="alert">{{ updateStatus.message }}</p>
+              </template>
+            </SettingsSection>
+          </TabsContent>
 
-            <TabsContent value="shortcuts" class="settings-tab-content">
-              <section class="settings-section shortcut-settings">
-                <h3>{{ t('keyboardShortcuts') }}</h3>
-                <p>{{ t('keyboardShortcutsDescription') }}</p>
-                <label class="shortcut-search">
-                  <Icon name="search" />
-                  <input v-model="shortcutQuery" :placeholder="t('searchShortcutCommands')">
-                </label>
-                <p v-if="shortcutError" class="error-message" role="alert">{{ shortcutError }}</p>
-                <div class="shortcut-list">
-                  <div v-for="row in shortcutRows" :key="row.id" class="shortcut-row">
-                    <span><strong>{{ row.label }}</strong><small>{{ row.description }}</small></span>
-                    <button
-                      type="button"
-                      class="shortcut-recorder"
-                      :class="{ recording: recordingShortcutId === row.id }"
-                      :data-testid="`shortcut-${row.id}`"
-                      @click="recordingShortcutId = row.id; shortcutError = ''"
-                      @keydown.stop.prevent="onShortcutKeydown($event, row.id)"
-                    >
+          <TabsContent value="shortcuts" class="settings-tab-content">
+            <SettingsSection class="shortcut-settings" :title="t('keyboardShortcuts')" :description="t('keyboardShortcutsDescription')">
+              <label class="shortcut-search">
+                <Icon name="search" />
+                <input v-model="shortcutQuery" :aria-label="t('searchShortcutCommands')" :placeholder="t('searchShortcutCommands')">
+              </label>
+              <p v-if="shortcutError" class="error-message" role="alert">{{ shortcutError }}</p>
+              <SettingsRow v-for="row in shortcutRows" :key="row.id" :label="row.label" :description="row.description">
+                <template #control>
+                  <div class="settings-row-actions">
+                    <UiButton size="compact" class="shortcut-recorder" :class="{ recording: recordingShortcutId === row.id }" :data-testid="`shortcut-${row.id}`" :aria-label="`${row.label}: ${recordingShortcutId === row.id ? t('pressShortcut') : shortcutFor(row.id) ? formatShortcut(shortcutFor(row.id)) : t('addShortcut')}`" @click="recordingShortcutId = row.id; shortcutError = ''" @keydown.stop.prevent="onShortcutKeydown($event, row.id)">
                       {{ recordingShortcutId === row.id ? t('pressShortcut') : shortcutFor(row.id) ? formatShortcut(shortcutFor(row.id)) : t('addShortcut') }}
-                    </button>
-                    <button v-if="shortcutFor(row.id)" type="button" class="shortcut-clear" :aria-label="t('clearShortcut', { command: row.label })" :title="t('clearShortcut', { command: row.label })" @click="clearShortcut(row.id)">
-                      <Icon name="close" />
-                    </button>
+                    </UiButton>
+                    <UiButton v-if="shortcutFor(row.id)" variant="ghost" size="icon" class="shortcut-clear" :aria-label="t('clearShortcut', { command: row.label })" :title="t('clearShortcut', { command: row.label })" @click="clearShortcut(row.id)"><Icon name="close" /></UiButton>
                   </div>
-                </div>
-              </section>
-              <section class="settings-section shortcut-reference-section">
-                <h3>{{ t('applicationShortcutReference') }}</h3>
-                <p>{{ t('applicationShortcutReferenceDescription') }}</p>
-                <div class="shortcut-reference-list" :aria-label="t('applicationShortcutReference')">
-                  <div v-for="row in shortcutReferenceRows" :key="row.id" class="shortcut-reference-row">
-                    <span><strong>{{ row.label }}</strong><small>{{ row.description }}</small></span>
-                    <span class="shortcut-reference-keys">
-                      <kbd v-for="shortcut in row.shortcuts" :key="shortcut">{{ shortcut }}</kbd>
-                    </span>
-                  </div>
-                </div>
-              </section>
-            </TabsContent>
+                </template>
+              </SettingsRow>
+            </SettingsSection>
+            <SettingsSection class="shortcut-reference-section" :title="t('applicationShortcutReference')" :description="t('applicationShortcutReferenceDescription')">
+              <SettingsRow v-for="row in shortcutReferenceRows" :key="row.id" class="shortcut-reference-row" :label="row.label" :description="row.description">
+                <template #control>
+                  <span class="shortcut-reference-keys"><kbd v-for="shortcut in row.shortcuts" :key="shortcut">{{ shortcut }}</kbd></span>
+                </template>
+              </SettingsRow>
+            </SettingsSection>
+          </TabsContent>
 
-            <TabsContent value="cloud" class="settings-tab-content">
-              <section class="settings-section">
-                <h3>{{ t('personalCloud') }}</h3>
-                <p>{{ t('personalCloudDescription') }}</p>
-                <div class="cloud-connection-track" :data-state="cloudStatus.state">
-                  <span class="cloud-status-dot" aria-hidden="true" />
-                  <div>
-                    <strong>{{ cloudStateLabel() }}</strong>
-                    <small v-if="cloudStatus.deviceId">{{ t('personalCloudDevice', { id: cloudStatus.deviceId }) }}</small>
-                    <small v-if="cloudStatus.lastSyncAt">{{ t('personalCloudLastSync', { time: cloudStatus.lastSyncAt }) }}</small>
-                    <small v-if="cloudStatus.diagnostic" role="alert">{{ cloudStatus.diagnostic }}</small>
-                  </div>
-                  <div class="settings-transfer-actions">
-                    <button v-if="cloudStatus.state === 'disconnected' || cloudStatus.state === 'error'" type="button" :disabled="cloudBusy" @click="cloudAction('connect')">{{ t('connectPersonalCloud') }}</button>
-                    <button v-if="cloudStatus.state === 'connected'" type="button" :disabled="cloudBusy" @click="cloudAction('synchronize')">{{ t('syncNow') }}</button>
-                    <button v-if="cloudStatus.state === 'connected' || cloudStatus.state === 'connecting'" type="button" :disabled="cloudBusy" @click="cloudAction('disconnect')">{{ t('disconnectPersonalCloud') }}</button>
-                  </div>
-                </div>
-              </section>
-            </TabsContent>
+          <TabsContent value="cloud" class="settings-tab-content">
+            <SettingsSection :title="t('personalCloud')" :description="t('personalCloudDescription')">
+              <SettingsStatus class="cloud-connection-track" :data-state="cloudStatus.state" :title="cloudStateLabel()" :tone="cloudStatus.state === 'connected' ? 'success' : cloudStatus.state === 'error' ? 'danger' : 'neutral'">
+                <template #metadata>
+                  <small v-if="cloudStatus.deviceId">{{ t('personalCloudDevice', { id: cloudStatus.deviceId }) }}</small>
+                  <small v-if="cloudStatus.lastSyncAt">{{ t('personalCloudLastSync', { time: cloudStatus.lastSyncAt }) }}</small>
+                  <small v-if="cloudStatus.diagnostic" class="error-message" role="alert">{{ cloudStatus.diagnostic }}</small>
+                </template>
+                <template #actions>
+                  <UiButton v-if="cloudStatus.state === 'disconnected' || cloudStatus.state === 'error'" size="compact" :disabled="cloudBusy" @click="cloudAction('connect')">{{ t('connectPersonalCloud') }}</UiButton>
+                  <UiButton v-if="cloudStatus.state === 'connected'" size="compact" :disabled="cloudBusy" @click="cloudAction('synchronize')">{{ t('syncNow') }}</UiButton>
+                  <UiButton v-if="cloudStatus.state === 'connected' || cloudStatus.state === 'connecting'" size="compact" :disabled="cloudBusy" @click="cloudAction('disconnect')">{{ t('disconnectPersonalCloud') }}</UiButton>
+                </template>
+              </SettingsStatus>
+            </SettingsSection>
+          </TabsContent>
 
-            <TabsContent value="configuration" class="settings-tab-content">
-              <section class="settings-section">
-                <h3>{{ t('localConfiguration') }}</h3>
-                <p>{{ t('localConfigurationDescription') }}</p>
-                <div class="git-sync-status" :data-state="userConfigStatus?.diagnostics.length ? 'conflict' : 'clean'">
-                  <div>
-                    <strong>{{ userConfigStatus?.diagnostics.length ? t('localConfigurationInvalid') : t('localConfigurationReady') }}</strong>
-                    <small v-if="userConfigStatus">{{ userConfigStatus.configDir }}</small>
-                    <small v-if="userConfigStatus?.migrationBackupPath">{{ t('localConfigurationMigrated', { path: userConfigStatus.migrationBackupPath }) }}</small>
-                    <small v-for="diagnostic in userConfigStatus?.diagnostics ?? []" :key="diagnostic.path" role="alert">{{ diagnostic.path }}: {{ diagnostic.message }}</small>
-                  </div>
-                </div>
-              </section>
+          <TabsContent value="configuration" class="settings-tab-content">
+            <SettingsSection :title="t('localConfiguration')" :description="t('localConfigurationDescription')">
+              <SettingsStatus class="git-sync-status" :data-state="userConfigStatus?.diagnostics.length ? 'conflict' : 'clean'" :title="userConfigStatus?.diagnostics.length ? t('localConfigurationInvalid') : t('localConfigurationReady')" :description="userConfigStatus?.configDir" :tone="userConfigStatus?.diagnostics.length ? 'danger' : 'success'">
+                <template #metadata>
+                  <small v-if="userConfigStatus?.migrationBackupPath">{{ t('localConfigurationMigrated', { path: userConfigStatus.migrationBackupPath }) }}</small>
+                  <small v-for="diagnostic in userConfigStatus?.diagnostics ?? []" :key="diagnostic.path" class="error-message" role="alert">{{ diagnostic.path }}: {{ diagnostic.message }}</small>
+                </template>
+              </SettingsStatus>
+            </SettingsSection>
+            <SettingsSection v-if="store.hostEnvironment.capabilities.localGitSync" :title="t('personalConfigurationRepository')" :description="t('personalConfigurationRepositoryDescription')">
+              <form data-testid="personal-git-sync-form" @submit.prevent="configureGitSync">
+                <SettingsRow :label="t('gitRepositoryPath')" control-id="settings-git-repository-path" orientation="vertical">
+                  <template #control>
+                    <div class="settings-path-entry">
+                      <Input id="settings-git-repository-path" v-model="gitRepositoryPath" name="git-repository-path" :placeholder="t('gitRepositoryPathPlaceholder')" />
+                      <UiButton v-if="canChooseGitRepository" size="compact" @click="chooseGitRepository">{{ t('chooseGitRepository') }}</UiButton>
+                      <UiButton type="submit" size="compact" :disabled="gitSyncBusy || !gitRepositoryPath.trim()">{{ t('saveGitSyncTarget') }}</UiButton>
+                    </div>
+                  </template>
+                </SettingsRow>
+              </form>
+            </SettingsSection>
+            <SettingsSection v-if="store.hostEnvironment.capabilities.localGitSync" :title="t('personalGitSync')" :description="t('personalGitSyncDescription')">
+              <SettingsStatus class="git-sync-status" :data-state="gitSyncStatus.state" :title="gitSyncStateLabel()" :description="gitSyncStatus.snapshotPath" :tone="gitSyncStatus.state === 'conflict' ? 'danger' : gitSyncStatus.state === 'clean' ? 'success' : 'neutral'">
+                <template #metadata><small v-if="gitSyncStatus.workingTreeChanged">{{ t('gitSyncPendingCommit') }}</small></template>
+                <template v-if="gitSyncStatus.state !== 'unconfigured'" #actions>
+                  <UiButton v-if="gitSyncStatus.state !== 'conflict'" size="compact" :disabled="gitSyncBusy" @click="synchronizeGit()">{{ t('syncNow') }}</UiButton>
+                  <template v-else>
+                    <UiButton size="compact" :disabled="gitSyncBusy" @click="synchronizeGit('use-local')">{{ t('useLocalConfiguration') }}</UiButton>
+                    <UiButton size="compact" :disabled="gitSyncBusy" @click="synchronizeGit('use-repository')">{{ t('useRepositoryConfiguration') }}</UiButton>
+                  </template>
+                </template>
+              </SettingsStatus>
+            </SettingsSection>
+            <SettingsSection v-if="store.hostEnvironment.capabilities.localGitSync" :title="t('dotfilesManager')" :description="t('dotfilesManagerDescription')">
+              <SettingsStatus class="git-sync-status" :data-state="dotfilesStatus.state === 'ready' ? 'clean' : dotfilesStatus.state === 'untrusted' ? 'conflict' : ''" :title="dotfilesStateLabel()" :description="dotfilesStatus.manifestPath" :tone="dotfilesStatus.state === 'ready' ? 'success' : dotfilesStatus.state === 'untrusted' ? 'warning' : 'neutral'">
+                <template #metadata>
+                  <small v-if="dotfilesStatus.manifest?.name">{{ dotfilesStatus.manifest.name }}</small>
+                  <small v-for="(command, operation) in dotfilesStatus.manifest?.operations ?? {}" :key="operation" class="dotfiles-command"><code>{{ operation }}</code><span>· {{ command?.command }} {{ command?.args.join(' ') }}</span></small>
+                </template>
+                <template #actions>
+                  <UiButton v-if="dotfilesStatus.state === 'untrusted'" size="compact" :disabled="dotfilesBusy" data-testid="trust-dotfiles" @click="trustDotfiles">{{ t('trustDotfilesSource') }}</UiButton>
+                  <template v-if="dotfilesStatus.state === 'ready'">
+                    <UiButton v-for="operation in readonlyDotfilesOperations" v-show="dotfilesStatus.manifest?.operations[operation]" :key="operation" size="compact" :disabled="dotfilesBusy" :data-testid="`run-dotfiles-${operation}`" @click="runDotfilesOperation(operation)">{{ dotfilesOperationLabel(operation) }}</UiButton>
+                  </template>
+                  <UiButton v-if="canOpenDotfilesInTerminal && dotfilesStatus.repositoryPath" size="compact" :disabled="dotfilesBusy" @click="openDotfilesInTerminal">{{ t('openInTerminal') }}</UiButton>
+                </template>
+              </SettingsStatus>
+              <template v-if="dotfilesResult" #footer>
+                <pre class="dotfiles-output" :data-succeeded="dotfilesResult.succeeded"><code>{{ dotfilesResult.stdout }}{{ dotfilesResult.stderr }}{{ dotfilesResult.error && !dotfilesResult.stderr ? dotfilesResult.error : '' }}</code></pre>
+              </template>
+            </SettingsSection>
+          </TabsContent>
 
-              <section v-if="store.hostEnvironment.capabilities.localGitSync" class="settings-section">
-                <h3>{{ t('personalConfigurationRepository') }}</h3>
-                <p>{{ t('personalConfigurationRepositoryDescription') }}</p>
-                <form class="git-sync-form personal-repository-form" data-testid="personal-git-sync-form" @submit.prevent="configureGitSync">
-                  <label>
-                    <span>{{ t('gitRepositoryPath') }}</span>
-                    <span class="git-repository-entry">
-                      <input v-model="gitRepositoryPath" name="git-repository-path" :placeholder="t('gitRepositoryPathPlaceholder')">
-                      <button v-if="canChooseGitRepository" type="button" @click="chooseGitRepository">{{ t('chooseGitRepository') }}</button>
-                    </span>
-                  </label>
-                  <button type="submit" :disabled="gitSyncBusy || !gitRepositoryPath.trim()">{{ t('saveGitSyncTarget') }}</button>
-                </form>
-              </section>
+          <TabsContent value="history" class="settings-tab-content">
+            <SettingsSection :title="t('runHistory')" :description="t('runHistoryDescription')">
+              <SettingsRow :label="t('cleanupExpiredLogs')">
+                <template #control><UiButton size="compact" @click="cleanupRuns(false)">{{ t('cleanupExpiredLogs') }}</UiButton></template>
+              </SettingsRow>
+              <SettingsRow :label="t('cleanupAllLogs')">
+                <template #control><UiButton size="compact" @click="cleanupRuns(true)">{{ t('cleanupAllLogs') }}</UiButton></template>
+              </SettingsRow>
+              <template v-if="cleanupMessage" #footer><p role="status">{{ cleanupMessage }}</p></template>
+            </SettingsSection>
+          </TabsContent>
 
-              <section v-if="store.hostEnvironment.capabilities.localGitSync" class="settings-section">
-                <h3>{{ t('personalGitSync') }}</h3>
-                <p>{{ t('personalGitSyncDescription') }}</p>
-                <div class="git-sync-status" :data-state="gitSyncStatus.state">
-                  <div>
-                    <strong>{{ gitSyncStateLabel() }}</strong>
-                    <small v-if="gitSyncStatus.snapshotPath">{{ gitSyncStatus.snapshotPath }}</small>
-                    <small v-if="gitSyncStatus.workingTreeChanged">{{ t('gitSyncPendingCommit') }}</small>
-                  </div>
-                  <div v-if="gitSyncStatus.state !== 'unconfigured'" class="settings-transfer-actions">
-                    <button v-if="gitSyncStatus.state !== 'conflict'" type="button" :disabled="gitSyncBusy" @click="synchronizeGit()">{{ t('syncNow') }}</button>
-                    <template v-else>
-                      <button type="button" :disabled="gitSyncBusy" @click="synchronizeGit('use-local')">{{ t('useLocalConfiguration') }}</button>
-                      <button type="button" :disabled="gitSyncBusy" @click="synchronizeGit('use-repository')">{{ t('useRepositoryConfiguration') }}</button>
-                    </template>
-                  </div>
-                </div>
-              </section>
+          <TabsContent value="transfer" class="settings-tab-content">
+            <SettingsSection :title="t('settingsTransfer')" :description="t('settingsTransferDescription')">
+              <SettingsRow :label="t('exportMinimalSettings')">
+                <template #control><UiButton size="compact" :disabled="transferring" @click="downloadSettings('minimal')">{{ t('exportMinimalSettings') }}</UiButton></template>
+              </SettingsRow>
+              <SettingsRow :label="t('exportFullSettings')">
+                <template #control><UiButton size="compact" :disabled="transferring" @click="downloadSettings('full')">{{ t('exportFullSettings') }}</UiButton></template>
+              </SettingsRow>
+              <SettingsRow :label="t('importSettings')">
+                <template #control>
+                  <UiButton size="compact" :disabled="transferring" @click="settingsImportInput?.click()">{{ t('importSettings') }}</UiButton>
+                  <input ref="settingsImportInput" type="file" class="settings-import-input" accept="application/json,.json" :disabled="transferring" tabindex="-1" aria-hidden="true" @change="importSettings">
+                </template>
+              </SettingsRow>
+              <SettingsRow :label="t('replaceSettingsOnImport')" control-id="settings-replace-import">
+                <template #control="{ labelId }"><Switch id="settings-replace-import" v-model="replaceOnImport" :aria-labelledby="labelId" /></template>
+              </SettingsRow>
+              <SettingsRow v-if="canOpenSettingsFile" :label="t('openSettingsJson')">
+                <template #control><UiButton size="compact" :disabled="transferring" @click="openSettingsFile">{{ t('openSettingsJson') }}</UiButton></template>
+              </SettingsRow>
+            </SettingsSection>
+          </TabsContent>
 
-              <section v-if="store.hostEnvironment.capabilities.localGitSync" class="settings-section">
-                <h3>{{ t('dotfilesManager') }}</h3>
-                <p>{{ t('dotfilesManagerDescription') }}</p>
-                <div class="git-sync-status" :data-state="dotfilesStatus.state === 'ready' ? 'clean' : dotfilesStatus.state === 'untrusted' ? 'conflict' : ''">
-                  <div>
-                    <strong>{{ dotfilesStateLabel() }}</strong>
-                    <small v-if="dotfilesStatus.manifestPath">{{ dotfilesStatus.manifestPath }}</small>
-                    <small v-if="dotfilesStatus.manifest?.name">{{ dotfilesStatus.manifest.name }}</small>
-                    <small v-for="(command, operation) in dotfilesStatus.manifest?.operations ?? {}" :key="operation" class="dotfiles-command">
-                      <code>{{ operation }}</code>
-                      <span>· {{ command?.command }} {{ command?.args.join(' ') }}</span>
-                    </small>
-                  </div>
-                  <div class="settings-transfer-actions">
-                    <button v-if="dotfilesStatus.state === 'untrusted'" type="button" :disabled="dotfilesBusy" data-testid="trust-dotfiles" @click="trustDotfiles">{{ t('trustDotfilesSource') }}</button>
-                    <template v-if="dotfilesStatus.state === 'ready'">
-                      <button v-for="operation in readonlyDotfilesOperations" v-show="dotfilesStatus.manifest?.operations[operation]" :key="operation" type="button" :disabled="dotfilesBusy" :data-testid="`run-dotfiles-${operation}`" @click="runDotfilesOperation(operation)">{{ dotfilesOperationLabel(operation) }}</button>
-                    </template>
-                    <button v-if="canOpenDotfilesInTerminal && dotfilesStatus.repositoryPath" type="button" :disabled="dotfilesBusy" @click="openDotfilesInTerminal">{{ t('openInTerminal') }}</button>
-                  </div>
-                </div>
-                <pre v-if="dotfilesResult" class="dotfiles-output" :data-succeeded="dotfilesResult.succeeded"><code>{{ dotfilesResult.stdout }}{{ dotfilesResult.stderr }}{{ dotfilesResult.error && !dotfilesResult.stderr ? dotfilesResult.error : '' }}</code></pre>
-              </section>
-            </TabsContent>
-
-            <TabsContent value="history" class="settings-tab-content">
-              <section class="settings-section">
-                <h3>{{ t('runHistory') }}</h3>
-                <p>{{ t('runHistoryDescription') }}</p>
-                <div class="settings-transfer-actions">
-                  <button type="button" @click="cleanupRuns(false)">{{ t('cleanupExpiredLogs') }}</button>
-                  <button type="button" @click="cleanupRuns(true)">{{ t('cleanupAllLogs') }}</button>
-                </div>
-                <p v-if="cleanupMessage">{{ cleanupMessage }}</p>
-              </section>
-            </TabsContent>
-
-            <TabsContent value="transfer" class="settings-tab-content">
-              <section class="settings-section">
-                <h3>{{ t('settingsTransfer') }}</h3>
-                <p>{{ t('settingsTransferDescription') }}</p>
-                <div class="settings-transfer-actions">
-                  <button type="button" :disabled="transferring" @click="downloadSettings('minimal')">{{ t('exportMinimalSettings') }}</button>
-                  <button type="button" :disabled="transferring" @click="downloadSettings('full')">{{ t('exportFullSettings') }}</button>
-                  <label class="settings-import-button">
-                    {{ t('importSettings') }}
-                    <input type="file" accept="application/json,.json" :disabled="transferring" @change="importSettings">
-                  </label>
-                  <button v-if="canOpenSettingsFile" type="button" :disabled="transferring" @click="openSettingsFile">{{ t('openSettingsJson') }}</button>
-                </div>
-                <label class="settings-replace-option">
-                  <input v-model="replaceOnImport" type="checkbox">
-                  {{ t('replaceSettingsOnImport') }}
-                </label>
-              </section>
-            </TabsContent>
-
-            <TabsContent value="help" class="settings-tab-content">
-              <a v-if="store.documentationUrl" :href="store.documentationUrl" target="_blank" rel="noopener noreferrer">{{ t('help') }} <Icon name="externalLink" /></a>
-              <CelebrationSettings context="help" />
-            </TabsContent>
-            </div>
-          </TabsRoot>
+          <TabsContent value="help" class="settings-tab-content">
+            <SettingsSection v-if="store.documentationUrl" :title="t('help')">
+              <SettingsRow :label="t('help')">
+                <template #control><a :href="store.documentationUrl" target="_blank" rel="noopener noreferrer">{{ t('help') }} <Icon name="externalLink" /></a></template>
+              </SettingsRow>
+            </SettingsSection>
+            <CelebrationSettings context="help" />
+          </TabsContent>
         </div>
+      </TabsRoot>
+    </div>
   </DialogShell>
 </template>
-
-<style scoped>
-.settings-navigation { min-width: 0; min-height: 0; overflow: auto; border-inline-end: 1px solid var(--workbench-sidebar-border); background: var(--workbench-sidebar-background); scrollbar-width: thin; }
-.settings-tab-list { width: 100%; }
-
-@media (max-width: 620px) {
-  .settings-navigation { overflow-x: auto; overflow-y: hidden; border-inline-end: 0; border-block-end: 1px solid var(--border); }
-  .settings-tab-list { width: max-content; min-width: 100%; }
-}
-</style>

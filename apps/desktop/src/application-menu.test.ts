@@ -1,12 +1,45 @@
 import type { Input, MenuItemConstructorOptions } from 'electron'
 import { describe, expect, it, vi } from 'vitest'
-import { createWorkbenchMenuShortcutMatcher, createWorkbenchViewMenu } from './application-menu.ts'
+import { createApplicationMenu, createWorkbenchMenuShortcutMatcher, createWorkbenchViewMenu, isDesktopMenuLocale } from './application-menu.ts'
 
 function commands(platform: string, onAction = vi.fn()) {
   return createWorkbenchViewMenu(onAction, platform).submenu as MenuItemConstructorOptions[]
 }
 
 describe('desktop navigation menu', () => {
+  it('localizes Chinese navigation without changing actions or accelerators', () => {
+    const onAction = vi.fn()
+    const menu = createWorkbenchViewMenu(onAction, 'darwin', 'zh-CN')
+    const items = menu.submenu as MenuItemConstructorOptions[]
+
+    expect(menu.label).toBe('视图')
+    expect(items.filter(item => /CommandOrControl\+[1-5]$/.test(item.accelerator ?? '')).map(item => item.label)).toEqual([
+      '首页',
+      '项目',
+      '工具',
+      '开发环境',
+      '工作台',
+    ])
+    expect(items.map(item => item.accelerator)).toEqual(commands('darwin').map(item => item.accelerator))
+    for (const item of items)
+      item.click?.({} as never, undefined, {} as never)
+    expect(onAction.mock.calls.map(([action]) => action)).toEqual([
+      'back',
+      'forward',
+      'home',
+      'workbench',
+      'tools',
+      'environment',
+      'workbenches',
+      'marketplace',
+      'toggle-sidebar',
+      'refresh',
+      'palette-all',
+      'palette-projects',
+      'palette-commands',
+    ])
+  })
+
   it('uses the five primary destinations in navigation order', () => {
     expect(commands('darwin').filter(item => /CommandOrControl\+[1-5]$/.test(item.accelerator ?? '')).map(item => ({
       label: item.label,
@@ -64,6 +97,115 @@ describe('desktop navigation menu', () => {
   it('uses a Control and Alt sidebar accelerator on other desktop platforms', () => {
     expect(commands('win32').find(item => item.label === 'Toggle Sidebar')?.accelerator).toBe('Control+Alt+S')
     expect(commands('linux').find(item => item.label === 'Toggle Sidebar')?.accelerator).toBe('Control+Alt+S')
+  })
+})
+
+describe('localized application menu', () => {
+  function flatten(items: MenuItemConstructorOptions[]): MenuItemConstructorOptions[] {
+    return items.flatMap(item => [item, ...(Array.isArray(item.submenu) ? flatten(item.submenu) : [])])
+  }
+
+  function applicationMenu(locale: 'en' | 'zh-CN') {
+    return createApplicationMenu({
+      applicationName: 'Craft Hub',
+      locale,
+      platform: 'darwin',
+      onAction: vi.fn(),
+      onAbout: vi.fn(),
+      onSettings: vi.fn(),
+      onHelp: vi.fn(),
+      onReplayOnboarding: vi.fn(),
+    })
+  }
+
+  it('switches top-level menu names in both languages', () => {
+    expect(applicationMenu('zh-CN').map(item => item.label)).toEqual(['Craft Hub', '文件', '编辑', '视图', '窗口', '帮助'])
+    expect(applicationMenu('en').map(item => item.label)).toEqual(['Craft Hub', 'File', 'Edit', 'View', 'Window', 'Help'])
+  })
+
+  it('translates native role submenus while preserving their native behavior', () => {
+    const chinese = flatten(applicationMenu('zh-CN'))
+    const english = flatten(applicationMenu('en'))
+    expect(chinese.map(item => item.role)).toEqual(english.map(item => item.role))
+    expect(chinese.filter(item => item.role && !item.submenu).map(item => ({ role: item.role, label: item.label }))).toEqual([
+      { role: 'services', label: '服务' },
+      { role: 'hide', label: '隐藏 Craft Hub' },
+      { role: 'hideOthers', label: '隐藏其他' },
+      { role: 'unhide', label: '显示全部' },
+      { role: 'quit', label: '退出 Craft Hub' },
+      { role: 'close', label: '关闭窗口' },
+      { role: 'undo', label: '撤销' },
+      { role: 'redo', label: '重做' },
+      { role: 'cut', label: '剪切' },
+      { role: 'copy', label: '复制' },
+      { role: 'paste', label: '粘贴' },
+      { role: 'pasteAndMatchStyle', label: '粘贴并匹配样式' },
+      { role: 'delete', label: '删除' },
+      { role: 'selectAll', label: '全选' },
+      { role: 'startSpeaking', label: '开始朗读' },
+      { role: 'stopSpeaking', label: '停止朗读' },
+      { role: 'resetZoom', label: '实际大小' },
+      { role: 'zoomIn', label: '放大' },
+      { role: 'zoomOut', label: '缩小' },
+      { role: 'togglefullscreen', label: '切换全屏' },
+      { role: 'minimize', label: '最小化' },
+      { role: 'zoom', label: '缩放' },
+      { role: 'front', label: '前置全部窗口' },
+      { role: 'window', label: '窗口' },
+    ])
+    expect(chinese.every(item => item.type === 'separator' || typeof item.label === 'string')).toBe(true)
+  })
+
+  it.each(['zh-CN', 'en'] as const)('retains application callbacks and the settings shortcut in %s', (locale) => {
+    const onAbout = vi.fn()
+    const onSettings = vi.fn()
+    const onHelp = vi.fn()
+    const onReplayOnboarding = vi.fn()
+    const menu = createApplicationMenu({
+      applicationName: 'Example Workbench',
+      locale,
+      platform: 'darwin',
+      onAction: vi.fn(),
+      onAbout,
+      onSettings,
+      onHelp,
+      onReplayOnboarding,
+    })
+    const appItems = menu[0]!.submenu as MenuItemConstructorOptions[]
+    expect(appItems[0]?.label).toBe(locale === 'zh-CN' ? '关于 Example Workbench' : 'About Example Workbench')
+    expect(appItems[2]?.accelerator).toBe('CommandOrControl+,')
+    for (const item of [menu[0]!, menu.at(-1)!]) {
+      for (const child of item.submenu as MenuItemConstructorOptions[])
+        child.click?.({} as never, undefined, {} as never)
+    }
+    for (const callback of [onAbout, onSettings, onHelp, onReplayOnboarding])
+      expect(callback).toHaveBeenCalledOnce()
+  })
+
+  it('accepts only supported locale values at the IPC boundary', () => {
+    expect(isDesktopMenuLocale('en')).toBe(true)
+    expect(isDesktopMenuLocale('zh-CN')).toBe(true)
+    for (const value of ['zh', 'en-US', '', null, undefined, 1, true, { locale: 'en' }, ['zh-CN']])
+      expect(isDesktopMenuLocale(value)).toBe(false)
+  })
+
+  it.each(['zh-CN', 'en'] as const)('offers a localized manual update check in %s', (locale) => {
+    const onCheckForUpdates = vi.fn()
+    const menu = createApplicationMenu({
+      applicationName: 'Craft Hub',
+      locale,
+      platform: 'darwin',
+      onAction: vi.fn(),
+      onAbout: vi.fn(),
+      onCheckForUpdates,
+      onSettings: vi.fn(),
+      onHelp: vi.fn(),
+      onReplayOnboarding: vi.fn(),
+    })
+    const item = flatten(menu).find(item => item.label === (locale === 'zh-CN' ? '检查更新…' : 'Check for Updates…'))
+    expect(item).toBeDefined()
+    item!.click?.({} as never, undefined, {} as never)
+    expect(onCheckForUpdates).toHaveBeenCalledOnce()
   })
 })
 

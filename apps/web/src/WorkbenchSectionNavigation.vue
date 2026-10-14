@@ -34,7 +34,7 @@ function isActive(entry: WorkbenchNavigationEntry): boolean {
 <template>
   <header class="section-navigation-header">
     <NavigationIcon v-if="headerBuiltinIcon" :name="headerBuiltinIcon" />
-    <VisualIcon v-else :icon="icon" fallback="workspace" monochrome />
+    <VisualIcon v-else :icon="icon" fallback="workspace" />
     <strong>{{ title }}</strong>
   </header>
   <NavigationList as="nav" variant="sidebar" class="section-navigation" :aria-label="title">
@@ -43,7 +43,7 @@ function isActive(entry: WorkbenchNavigationEntry): boolean {
       <RouterLink v-for="entry in group.entries" :key="entry.key" v-slot="{ href, navigate }" :to="entry.to" custom>
         <NavigationItem as="a" :href="href" :title="entry.title" :class="{ active: isActive(entry) }" :aria-current="isActive(entry) ? 'page' : undefined" @click="navigate">
           <NavigationIcon v-if="builtinIcon(entry.icon)" :name="builtinIcon(entry.icon)!" />
-          <VisualIcon v-else :icon="entry.icon" fallback="list" monochrome />
+          <VisualIcon v-else :icon="entry.icon" fallback="list" />
           <span class="ui-navigation-label">{{ entry.title }}</span>
         </NavigationItem>
       </RouterLink>
