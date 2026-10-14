@@ -215,6 +215,25 @@ export async function startCraftHubServer(options: CraftHubServerOptions = {}): 
       if (request.method === 'GET' && url.pathname === '/api/diagnostics')
         return sendJson(response, 200, await runtime.diagnosticSnapshot())
 
+      if (parts[0] === 'api' && parts[1] === 'work-assistant') {
+        if (runtime.hostEnvironment.kind !== 'local')
+          return sendJson(response, 403, { error: 'Work assistance requires a local host' })
+        if (!addressesThisSocket(request.headers.host ?? '', request) || request.headers['sec-fetch-site'] === 'cross-site'
+          || (request.headers.origin && request.headers.origin !== `http://${request.headers.host}`)) {
+          return sendJson(response, 403, { error: 'Work assistance requires a same-origin request' })
+        }
+        if (request.method === 'GET' && parts.length === 2)
+          return sendJson(response, 200, runtime.workAssistant.status())
+        if (request.method !== 'POST' || request.headers['content-type']?.split(';')[0]?.trim() !== 'application/json')
+          return sendJson(response, 405, { error: 'Use a JSON POST request' })
+        const input = await jsonBody(request, 192 * 1024)
+        if (parts.length === 3 && parts[2] === 'capture')
+          return sendJson(response, 200, await runtime.workAssistant.capture(input))
+        if (parts.length === 3 && parts[2] === 'focus')
+          return sendJson(response, 200, await runtime.workAssistant.focus(input))
+        return sendJson(response, 404, { error: 'Unknown work assistance operation' })
+      }
+
       if (url.pathname === '/api/work-item-projects') {
         if (request.method !== 'GET' && runtime.hostEnvironment.kind !== 'local')
           return sendJson(response, 403, { error: 'Project associations require a connected local host', code: 'LOCAL_DIRECTORY_UNAVAILABLE' })

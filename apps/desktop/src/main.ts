@@ -15,13 +15,14 @@ import { createMicrosoftTodoPlugin, createMicrosoftTodoTransport } from '@craft-
 import workstationPlugin from '@craft-hub/craft-hub-plugin-workstation'
 import { PersonalCloudController } from '@craft-hub/personal-cloud'
 import { communityDistribution, CraftHubRuntime, HostExtensionManager, loadCraftHubPlugins, startCraftHubServer } from 'craft-hub'
-import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, nativeTheme, safeStorage, shell } from 'electron'
+import { app, BrowserWindow, clipboard, dialog, globalShortcut, ipcMain, Menu, nativeImage, nativeTheme, safeStorage, shell } from 'electron'
 import { aboutDocument, aboutPanelOptions } from './about.ts'
 import { createWorkbenchMenuShortcutMatcher, createWorkbenchViewMenu, desktopSettingsAccelerator } from './application-menu.ts'
 import { loadDesktopBuildInfo } from './build-info.ts'
 import { CodexActivityMonitor } from './codex-activity.ts'
 import { CodexAgentTaskProvider } from './codex-agent-task-provider.ts'
 import { openCodexThreadAfterTaskRelease, waitForAgentTaskThread } from './codex-agent-task-thread.ts'
+import { CodexWorkAssistant } from './codex-work-assistant.ts'
 import { resolveDesktopDataDirectories } from './data-directories.ts'
 import { DesktopLinkCoordinator, DesktopLinkError, findDesktopLinkArgument } from './deep-links.ts'
 import { DeviceVault } from './device-vault.ts'
@@ -37,6 +38,8 @@ const execFileAsync = promisify(execFile)
 const microsoftTodoTransport = createMicrosoftTodoTransport({ keepAlive: true })
 const microsoftTodoWriteTransport = createMicrosoftTodoTransport({ keepAlive: true, writable: true })
 const microsoftTodoPlugin = createMicrosoftTodoPlugin({ transport: microsoftTodoTransport, writeTransport: microsoftTodoWriteTransport })
+let quickCaptureRegistered = false
+let pendingQuickCapture = false
 
 const packagedDesktopBuildInfoPath = fileURLToPath(new URL('../desktop-build.json', import.meta.url))
 const desktopBuildInfo = loadDesktopBuildInfo(packagedDesktopBuildInfoPath)
@@ -529,6 +532,12 @@ ipcMain.handle('craft-hub:cloud-status', () => personalCloud?.status() ?? { stat
 ipcMain.handle('craft-hub:cloud-connect', () => personalCloud?.connect())
 ipcMain.handle('craft-hub:cloud-disconnect', () => personalCloud?.disconnect())
 ipcMain.handle('craft-hub:cloud-synchronize', () => personalCloud?.synchronize())
+ipcMain.handle('craft-hub:consume-quick-capture', () => {
+  const pending = pendingQuickCapture
+  pendingQuickCapture = false
+  return pending
+})
+ipcMain.handle('craft-hub:quick-capture-status', () => ({ registered: quickCaptureRegistered, accelerator: 'CommandOrControl+Shift+Space' }))
 ipcMain.handle('craft-hub:consume-celebration', () => desktopLinks.consumeCelebration())
 ipcMain.handle('craft-hub:consume-marketplace-source-import', () => desktopLinks.consumeMarketplaceImport())
 ipcMain.handle('craft-hub:consume-desktop-navigation', async () => {
@@ -666,6 +675,7 @@ async function createWindow(): Promise<void> {
       writeApplicationLog('error', `Host Plugin ${diagnostic.pluginId} failed to load: ${diagnostic.message}`)
     runtime = new CraftHubRuntime({
       agentTaskProvider,
+      workAssistantProvider: new CodexWorkAssistant(async () => (await runtime.settings.get()).settings['workbench.codex']),
       dataDir: desktopDataDirectories.runtimeDataDir,
       distribution: runtimeDistribution,
       pluginDiagnostics: hostPlugins.diagnostics,
@@ -732,7 +742,7 @@ function focusMainWindow(): void {
 }
 
 async function showMainWindow(): Promise<void> {
-  if (BrowserWindow.getAllWindows().length === 0)
+  if (!mainWindow || mainWindow.isDestroyed())
     await createWindow()
   else
     focusMainWindow()
@@ -761,6 +771,10 @@ async function startDesktopApp(): Promise<void> {
     }
   }
   await createWindow()
+  quickCaptureRegistered = globalShortcut.register('CommandOrControl+Shift+Space', () => {
+    pendingQuickCapture = true
+    void showMainWindow().then(() => mainWindow?.webContents.send('craft-hub:quick-capture'))
+  })
   if (process.env.CRAFT_HUB_SMOKE_TEST === 'true') {
     app.quit()
     return
@@ -799,6 +813,7 @@ else {
 const requestShutdown = createDeferredOnceTask(async () => {
   try {
     writeApplicationLog('info', 'Shutdown requested')
+    globalShortcut.unregisterAll()
     for (const window of BrowserWindow.getAllWindows())
       window.destroy()
     personalCloud?.close()

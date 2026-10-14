@@ -44,6 +44,7 @@ import { CraftHubStore } from './store'
 import { TeamGitSyncService } from './team-git-sync'
 import { TeamManager } from './teams'
 import { UserConfigService } from './user-config'
+import { WorkAssistant } from './work-assistant'
 import { WorkItemProjectService } from './work-item-projects'
 import { WorkspaceCatalogService } from './workspace-catalog'
 import { WorkspaceImportService } from './workspace-import'
@@ -56,6 +57,7 @@ export class CraftHubRuntime {
   readonly accountProvider?: AccountProvider
   readonly store: CraftHubStore
   readonly projects: ProjectRegistry
+  readonly workAssistant: WorkAssistant
   readonly workItemProjects: WorkItemProjectService
   readonly settings: CraftHubSettingsService
   readonly userConfig: UserConfigService
@@ -145,6 +147,7 @@ export class CraftHubRuntime {
     this.teams = new TeamManager(this.ownerScopes, this.teamGitSync, this.workspaces)
     this.workspaceImports = new WorkspaceImportService(this.projects, this.workspaces)
     this.personalGitSync = new PersonalGitSyncService(this.store.dataDir, this.settings, this.workspaces, this.personalConfigRepository)
+    this.workAssistant = new WorkAssistant(this.hostEnvironment.kind === 'local' ? normalizedOptions.workAssistantProvider : undefined)
     this.agentTasks = new AgentTaskManager(this.store, this.projects, normalizedOptions.agentTaskProvider)
     this.agentActions = new AgentActionService(this.agentTasks, this.projects, (projectId, locale) => this.capabilityDiscovery(projectId, locale))
   }
