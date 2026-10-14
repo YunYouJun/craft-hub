@@ -364,7 +364,7 @@ export async function packageMacos(options: MacosPackageOptions = {}): Promise<M
       appCategoryType: 'public.app-category.developer-tools',
       arch: architectures,
       appVersion: macosApplicationVersion(desktopVersion),
-      asar: { unpack: '**/{node-pty,@openai/codex*}/**' },
+      asar: { unpack: '**/{node-pty,keytar,@openai/codex*}/**' },
       dir: stagingDirectory,
       electronVersion: electronPackage.version,
       icon: macosApplicationIcon,

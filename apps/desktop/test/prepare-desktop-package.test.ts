@@ -1,3 +1,4 @@
+import { Buffer } from 'node:buffer'
 import { access, cp, mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -10,7 +11,15 @@ afterEach(async () => {
   await Promise.all(directories.splice(0).map(directory => rm(directory, { recursive: true, force: true })))
 })
 
-async function fixture(): Promise<string> {
+function keytarBinary(architecture: 'arm64' | 'x64'): Buffer {
+  const binary = Buffer.alloc(32)
+  binary.writeUInt32LE(0xFEEDFACF, 0)
+  binary.writeUInt32LE(architecture === 'arm64' ? 0x0100000C : 0x01000007, 4)
+  binary.writeUInt32LE(8, 12)
+  return binary
+}
+
+async function fixture(architecture: 'arm64' | 'x64' = 'arm64'): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), 'craft-hub-package-prune-'))
   directories.push(root)
   for (const path of ['src/main.ts', 'test/main.test.ts', 'tsconfig.json', 'tsdown.config.ts', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', 'dist/main.mjs', 'preload.cjs', 'assets/icon.png', 'package.json', 'desktop-build.json', 'distribution.json', 'node_modules/craft-hub/web/index.html', 'node_modules/craft-hub/dist/index.mjs', 'node_modules/node-pty/lib/index.js', 'node_modules/node-pty/prebuilds/darwin-arm64/pty.node', 'node_modules/node-pty/prebuilds/darwin-arm64/spawn-helper', 'node_modules/node-pty/prebuilds/darwin-x64/pty.node', 'node_modules/node-pty/prebuilds/win32-arm64/pty.node', 'node_modules/node-pty/prebuilds/win32-x64/pty.node', 'node_modules/node-pty/LICENSE', 'node_modules/craft-hub/schema/project.schema.json']) {
@@ -19,6 +28,10 @@ async function fixture(): Promise<string> {
   }
   for (const name of ['craft-hub', 'node-pty'])
     await writeFile(join(root, 'node_modules', name, 'package.json'), JSON.stringify({ name }))
+  const keytarDirectory = join(root, 'node_modules/keytar')
+  await mkdir(join(keytarDirectory, 'build/Release'), { recursive: true })
+  await writeFile(join(keytarDirectory, 'package.json'), JSON.stringify({ name: 'keytar', version: '7.9.0' }))
+  await writeFile(join(keytarDirectory, 'build/Release/keytar.node'), keytarBinary(architecture))
   const nativePackages = {
     'darwin-arm64': 'aarch64-apple-darwin',
     'darwin-x64': 'x86_64-apple-darwin',
@@ -66,6 +79,7 @@ it.each(['arm64', 'x64'] as const)('prunes only the %s copied application while 
   const copied = await mkdtemp(join(tmpdir(), 'craft-hub-package-copy-'))
   directories.push(copied)
   await cp(root, copied, { recursive: true })
+  await writeFile(join(copied, 'node_modules/keytar/build/Release/keytar.node'), keytarBinary(architecture))
   await prepareDesktopArchitecture(copied, architecture)
 
   expect(await readdir(join(copied, 'node_modules/@openai'))).toEqual(['codex', `codex-darwin-${architecture}`, 'codex-sdk'])
@@ -74,14 +88,23 @@ it.each(['arm64', 'x64'] as const)('prunes only the %s copied application while 
   expect(await readFile(join(copied, `node_modules/@openai/codex-darwin-${architecture}/vendor/${triple}/bin/codex-code-mode-host`), 'utf8')).toBe(`host-darwin-${architecture}`)
   expect(await readdir(join(root, 'node_modules/node-pty/prebuilds'))).toEqual(['darwin-arm64', 'darwin-x64'])
   expect(await readdir(join(root, 'node_modules/@openai'))).toContain(`codex-darwin-${architecture === 'arm64' ? 'x64' : 'arm64'}`)
+  expect(await readFile(join(root, 'node_modules/keytar/build/Release/keytar.node'))).toEqual(keytarBinary('arm64'))
+  expect(await readFile(join(copied, 'node_modules/keytar/build/Release/keytar.node'))).toEqual(keytarBinary(architecture))
 })
 
 it('rejects a target missing its native Codex package before pruning any other architecture', async () => {
-  const root = await fixture()
+  const root = await fixture('x64')
   await rm(join(root, 'node_modules/@openai/codex-darwin-x64'), { recursive: true })
   await expect(prepareDesktopArchitecture(root, 'x64')).rejects.toThrow()
   await expect(access(join(root, 'node_modules/@openai/codex-darwin-arm64'))).resolves.toBeUndefined()
   await expect(access(join(root, 'node_modules/node-pty/prebuilds/darwin-arm64'))).resolves.toBeUndefined()
+})
+
+it('refuses an application missing its credential addon before pruning its other native dependencies', async () => {
+  const root = await fixture()
+  await rm(join(root, 'node_modules/keytar'), { recursive: true })
+  await expect(prepareDesktopArchitecture(root, 'arm64')).rejects.toThrow()
+  expect(await readdir(join(root, 'node_modules/node-pty/prebuilds'))).toContain('darwin-x64')
 })
 
 it('removes the CLI in explicit lightweight mode while retaining the SDK and native project execution', async () => {
