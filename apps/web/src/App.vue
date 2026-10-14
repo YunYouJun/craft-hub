@@ -23,6 +23,7 @@ import ToolsWorkbench from './ToolsWorkbench.vue'
 import WorkbenchesOverview from './WorkbenchesOverview.vue'
 import WorkbenchSectionNavigation from './WorkbenchSectionNavigation.vue'
 import { classifyWorkbenchSection, isEnvironmentView } from './workbench-navigation'
+import QuickCaptureDialog from './QuickCaptureDialog.vue'
 import PersonalWorkbench from './PersonalWorkbench.vue'
 import PluginWorkbench from './PluginWorkbench.vue'
 import ProjectRail from './ProjectRail.vue'
@@ -43,6 +44,8 @@ import { useWorkbenchStore } from './store'
 
 const MarketplaceDialog = defineAsyncComponent(() => import('./MarketplaceDialog.vue'))
 
+const quickCaptureOpen = ref(false)
+let stopQuickCapture: (() => void) | undefined
 const store = useWorkbenchStore()
 const { t, locale } = useI18n()
 const route = useRoute()
@@ -383,6 +386,11 @@ async function performWorkbenchAction(action: DesktopMenuAction): Promise<void> 
 function onKeydown(event: KeyboardEvent) {
   if (event.defaultPrevented || event.isComposing || event.repeat)
     return
+  if (matchesShortcut(event, 'Mod+Shift+Space', shortcutPlatform)) {
+    event.preventDefault()
+    quickCaptureOpen.value = true
+    return
+  }
   const shortcuts = store.settings?.settings['workbench.shortcuts'] ?? { [commandPaletteShortcutId]: defaultCommandPaletteShortcut }
   const paletteShortcut = shortcuts[commandPaletteShortcutId] ?? defaultCommandPaletteShortcut
   if (matchesShortcut(event, paletteShortcut, shortcutPlatform)) {
@@ -535,6 +543,8 @@ onBeforeMount(async () => {
     if (!hasOpenOverlay() || settingsOpen.value)
       openSettings()
   })
+  stopQuickCapture = window.craftHubDesktop?.onQuickCapture?.(() => { quickCaptureOpen.value = true })
+  if (await window.craftHubDesktop?.consumeQuickCapture?.()) quickCaptureOpen.value = true
   stopMenuActionEvents = window.craftHubDesktop?.onMenuAction?.(action => { void performWorkbenchAction(action) })
   let marketplaceImportHandled = false
   let desktopNavigationHandled = false
@@ -569,6 +579,7 @@ onBeforeUnmount(() => {
   stopOnboardingEvents?.()
   stopHelpEvents?.()
   stopSettingsEvents?.()
+  stopQuickCapture?.()
   stopMenuActionEvents?.()
   stopMarketplaceImportEvents?.()
   stopDesktopNavigationEvents?.()
@@ -578,6 +589,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
+  <QuickCaptureDialog v-model:open="quickCaptureOpen" @saved="refreshCurrentView" />
   <div class="app-shell" :style="{ '--workbench-activity-width': `${activityRailWidth}px` }" :class="{ 'mobile-navigation-open': mobileNavigationOpen, 'has-app-notices': toolbarRefreshError || store.runtimeSchemaMismatch || (store.projectsLoadState === 'error' && store.projects.length) }">
     <WorkbenchToolbar
       :title="toolbarTitle"
@@ -639,6 +651,7 @@ onBeforeUnmount(() => {
       <WorkbenchPageShell v-else :breadcrumbs="pageBreadcrumbs">
         <template v-if="sectionGroups.length" #sidebar><WorkbenchSectionNavigation :title="sectionTitle" :icon="sectionIcon" :groups="sectionGroups" /></template>
         <PersonalWorkbench
+          @capture="quickCaptureOpen = true"
           :refresh-key="navigationRevision"
           v-if="overviewOpen"
           @open-project="openProject"

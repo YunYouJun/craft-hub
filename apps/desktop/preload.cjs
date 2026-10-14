@@ -4,6 +4,16 @@ contextBridge.exposeInMainWorld('craftHubDesktop', {
   // Electron's sandbox exposes process as a safe, limited global.
   // eslint-disable-next-line node/prefer-global/process
   platform: process.platform,
+  consumeQuickCapture: () => ipcRenderer.invoke('craft-hub:consume-quick-capture'),
+  quickCaptureStatus: () => ipcRenderer.invoke('craft-hub:quick-capture-status'),
+  onQuickCapture: (callback) => {
+    const listener = async () => {
+      if (await ipcRenderer.invoke('craft-hub:consume-quick-capture'))
+        callback()
+    }
+    ipcRenderer.on('craft-hub:quick-capture', listener)
+    return () => ipcRenderer.removeListener('craft-hub:quick-capture', listener)
+  },
   hostExtensions: () => ipcRenderer.invoke('craft-hub:host-extensions'),
   installHostExtension: () => ipcRenderer.invoke('craft-hub:install-host-extension'),
   configureLocalPluginHost: packageName => ipcRenderer.invoke('craft-hub:configure-local-plugin-host', packageName),

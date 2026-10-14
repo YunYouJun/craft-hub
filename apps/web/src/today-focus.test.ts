@@ -1,6 +1,6 @@
 import type { FocusEntry } from './today-focus'
 import { expect, it } from 'vitest'
-import { rankTodayFocus } from './today-focus'
+import { focusCandidates, rankTodayFocus } from './today-focus'
 
 function entry(id: string, extra: Partial<FocusEntry['item']> = {}, source = 'tasks'): FocusEntry {
   return { source: { key: source, integrationId: source, actionId: 'list', input: {}, viewId: 'tasks', title: source }, item: { id, title: id, ...extra } }
@@ -11,4 +11,5 @@ it('combines providers, explains priorities and does not mistake matching native
   expect(result.map(row => row.item.id)).toEqual(['due', 'same', 'same', 'waiting', 'low'])
   expect(result[0]!.reasons).toContain('24 小时内到期')
   expect(input[0]!.item).toEqual({ id: 'low', title: 'low' })
+  expect(focusCandidates(result).find(item => item.source === 'projects')).toMatchObject({ source: 'projects', priority: 'P0' })
 })

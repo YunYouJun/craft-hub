@@ -1,4 +1,4 @@
-import type { IntegrationEntity } from 'craft-hub'
+import type { FocusCandidate, IntegrationEntity } from 'craft-hub'
 import type { HomeWorkSource } from './personal-workbench'
 import { workItemIdentityKey } from 'craft-hub/work-items'
 import { isWorkItemOverdue } from './work-item-presentation'
@@ -57,4 +57,26 @@ export function rankTodayFocus(entries: FocusEntry[], now: number, zh: boolean):
       reasons.push(say('尚无截止时间或高优先级信号', 'No deadline or high-priority signal'))
     return [{ source, item, key, score, reasons }]
   }).sort((a, b) => b.score - a.score || a.key.localeCompare(b.key))
+}
+
+/** Send bounded task facts to analysis without local paths or source credentials. */
+export function focusCandidates(entries: RankedFocus[]): FocusCandidate[] {
+  // Reserve room for each integration before filling the remaining slots by score.
+  const groups = new Map<string, RankedFocus[]>()
+  for (const entry of entries) {
+    const group = groups.get(entry.source.integrationId) ?? []
+    group.push(entry)
+    groups.set(entry.source.integrationId, group)
+  }
+  const selected = new Map<string, RankedFocus>()
+  const quota = Math.max(1, Math.floor(40 / Math.max(groups.size, 1)))
+  for (const group of groups.values()) {
+    for (const entry of group.slice(0, quota)) selected.set(entry.key, entry)
+  }
+  for (const entry of entries) {
+    if (selected.size >= 80)
+      break
+    selected.set(entry.key, entry)
+  }
+  return [...selected.values()].slice(0, 80).map(({ key, source, item, reasons }) => ({ key, title: item.title.slice(0, 1000), source: source.title.slice(0, 300), reasons, ...(item.project ? { project: item.project.title.slice(0, 500) } : {}), ...(item.statusLabel ? { status: item.statusLabel.slice(0, 200) } : {}), ...(item.priority ? { priority: item.priority.label.slice(0, 200) } : {}), ...(item.dueDate ? { due: `${item.dueDate.precision === 'date' ? item.dueDate.dateTime.slice(0, 10) : item.dueDate.dateTime} (${item.dueDate.timeZone})` } : {}) }))
 }

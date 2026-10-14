@@ -89,6 +89,7 @@ describe('personal workbench', () => {
     store.integrationsLoadState = 'ready'
     vi.spyOn(api, 'softwareCatalogMetadata').mockResolvedValue({ version: 1, sources: [] })
     vi.spyOn(api, 'navigationPanels').mockResolvedValue([])
+    vi.spyOn(api, 'workAssistantStatus').mockResolvedValue({ available: false })
     vi.spyOn(api, 'invokeIntegrationAction').mockResolvedValue({ items: [] })
   })
 

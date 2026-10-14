@@ -51,16 +51,19 @@ export * from './types'
 export * from './user-config'
 export * from './watcher'
 export * from './web-assets'
+export { WorkAssistant } from './work-assistant'
+export type { CaptureDraft, FocusAnalysis, FocusCandidate, WorkAssistantProvider } from './work-assistant'
 export * from './work-item-projects'
+
 export * from './work-items'
+
 export * from './workbench-contributions'
 
 export * from './workspace-catalog'
 
 export * from './workspace-import'
-
 export * from './workspace-repository'
-
 export * from './workspace-source'
+
 export * from './workspace-subscriptions'
 export * from './workspaces'

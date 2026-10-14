@@ -14,6 +14,7 @@ import WorkItemsOverview from './WorkItemsOverview.vue'
 
 const props = defineProps<{ refreshKey?: number }>()
 const emit = defineEmits<{
+  capture: []
   openProject: [projectId: string]
   openWorkspace: [workspaceId: string]
   openIntegration: [integrationId: string, viewId: string, scope?: 'global']
@@ -93,7 +94,7 @@ function prepareHandoff(projectId = '', work?: { source: HomeWorkSource, item: I
 <template>
   <WorkbenchViewFrame :title="copy('首页', 'Home')" icon="builtin:hub">
     <div class="personal-home" data-testid="personal-workbench">
-      <div class="home-work-column"><WorkItemsOverview compact tabbed :refresh-key="props.refreshKey" @prepare-handoff="work => prepareHandoff('', work)" @open-integration="(id, view, scope) => emit('openIntegration', id, view, scope)" @open-marketplace="emit('openMarketplace')" /></div>
+      <div class="home-work-column"><WorkItemsOverview compact tabbed @capture="emit('capture')" :refresh-key="props.refreshKey" @prepare-handoff="work => prepareHandoff('', work)" @open-integration="(id, view, scope) => emit('openIntegration', id, view, scope)" @open-marketplace="emit('openMarketplace')" /></div>
 
       <aside class="home-support-column" :aria-label="copy('项目与工具', 'Projects and tools')">
         <section class="home-card home-projects">

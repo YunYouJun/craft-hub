@@ -9,6 +9,9 @@ type DesktopNavigation
 
 interface Window {
   craftHubDesktop?: {
+    consumeQuickCapture?: () => Promise<boolean>
+    quickCaptureStatus?: () => Promise<{ registered: boolean, accelerator: string }>
+    onQuickCapture?: (callback: () => void) => () => void
     platform?: string
     hostKind?: string
     copyText?: (text: string) => Promise<void>

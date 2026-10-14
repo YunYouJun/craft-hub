@@ -102,6 +102,9 @@ async function runCommand(projectId: string, capabilityId: string, inputs: Comma
 }
 
 export const api = {
+  workAssistantStatus: () => request<{ available: boolean, provider?: string }>('/api/work-assistant'),
+  parseCapture: (input: { text: string, localNow: string, timeZone: string, lists: Array<{ id: string, title: string }>, locale: 'en' | 'zh-CN' }) => request<import('craft-hub').CaptureDraft>('/api/work-assistant/capture', { method: 'POST', body: JSON.stringify(input) }),
+  analyzeFocus: (input: { candidates: import('craft-hub').FocusCandidate[], localNow: string, locale: 'en' | 'zh-CN', coverage: string }) => request<import('craft-hub').FocusAnalysis>('/api/work-assistant/focus', { method: 'POST', body: JSON.stringify(input) }),
   workItemProjects: () => request<WorkItemProjectSnapshot>('/api/work-item-projects'),
   updateWorkItemProject: (input: WorkItemProjectUpdateRequest) => request<WorkItemProjectSnapshot>('/api/work-item-projects', { method: 'PATCH', body: JSON.stringify(input) }),
   removeWorkItemProject: (input: WorkItemProjectDeleteRequest) => request<WorkItemProjectSnapshot>('/api/work-item-projects', { method: 'DELETE', body: JSON.stringify(input) }),

@@ -20,6 +20,7 @@ const props = withDefaults(defineProps<{ compact?: boolean, tabbed?: boolean, in
 const emit = defineEmits<{
   prepareHandoff: [work: { source: HomeWorkSource, item: IntegrationEntity }]
   openIntegration: [integrationId: string, viewId: string, scope: 'global']
+  capture: []
   openMarketplace: []
 }>()
 const store = useWorkbenchStore()
@@ -193,7 +194,7 @@ onUnmounted(() => { generation++ })
 </script>
 
 <template>
-  <TodayFocus v-if="compact" :wide="tabbed" :entries="focusEntries" :coverage="focusCoverage" :loading="loading || ['idle', 'loading'].includes(store.integrationsLoadState)" @refresh="refresh" @handoff="work => emit('prepareHandoff', work)" />
+  <TodayFocus v-if="compact" :wide="tabbed" :entries="focusEntries" :coverage="focusCoverage" :loading="loading || ['idle', 'loading'].includes(store.integrationsLoadState)" @capture="emit('capture')" @refresh="refresh" @handoff="work => emit('prepareHandoff', work)" />
   <section class="home-work work-items-overview daily-section" :class="{ 'is-tabbed': tabbed }">
     <div v-if="compact && !tabbed" class="home-section-heading daily-section-heading">
       <h2>{{ copy('我的工作', 'My work') }}</h2>

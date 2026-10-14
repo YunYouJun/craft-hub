@@ -5,6 +5,7 @@ import type { MarketplaceTrustPolicy } from './marketplace-trust'
 import type { CraftHubPlugin, PluginDiagnostic } from './plugins'
 import type { WorkbenchLocale } from './settings'
 import type { Capability, CapabilityDiscoveryResult, ProjectRecord } from './types'
+import type { WorkAssistantProvider } from './work-assistant'
 import type { WorkspaceCatalogProvider, WorkspaceMarket } from './workspace-catalog'
 import type { WorkspaceRepositoryProvider } from './workspace-repository'
 import { discoverCapabilitiesWithDiagnostics } from './discovery'
@@ -54,6 +55,8 @@ export interface CraftHubOptions {
   pluginDiagnostics?: PluginDiagnostic[]
   /** External agent adapter supplied by an embedding host. */
   agentTaskProvider?: AgentTaskProvider
+  /** Text-only assistance for user-reviewed work planning. */
+  workAssistantProvider?: WorkAssistantProvider
   /** @deprecated Wrap providers in a Craft Hub plugin instead. */
   capabilityProviders?: CapabilityProvider[]
 }
