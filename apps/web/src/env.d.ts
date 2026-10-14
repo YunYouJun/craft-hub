@@ -55,6 +55,7 @@ interface Window {
     updateStatus?: () => Promise<DesktopUpdateStatus | undefined>
     setAutomaticUpdates?: (enabled: boolean) => Promise<DesktopUpdateStatus>
     checkForUpdates?: () => Promise<DesktopUpdateStatus>
+    installUpdate?: () => Promise<DesktopUpdateStatus>
     onUpdateStatus?: (callback: (status: DesktopUpdateStatus) => void) => () => void
     onReplayOnboarding?: (callback: () => void) => () => void
     onOpenHelp?: (callback: () => void) => () => void

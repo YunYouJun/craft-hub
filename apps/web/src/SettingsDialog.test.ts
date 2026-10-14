@@ -437,6 +437,174 @@ describe('settings dialog', () => {
     expect(checkForUpdates).toHaveBeenCalledOnce()
   })
 
+  it('keeps the downloaded update available after postponing a restart and cleans up status events', async () => {
+    let status: DesktopUpdateStatus = { automaticCheck: true, currentVersion: '0.0.1', phase: 'idle' }
+    let onStatus: ((status: DesktopUpdateStatus) => void) | undefined
+    let finishInstall!: (status: DesktopUpdateStatus) => void
+    const installUpdate = vi.fn(() => new Promise<DesktopUpdateStatus>((resolve) => {
+      finishInstall = resolve
+    }))
+    const removeListener = vi.fn()
+    window.craftHubDesktop = {
+      updateStatus: vi.fn(async () => status),
+      setAutomaticUpdates: vi.fn(async () => status),
+      checkForUpdates: vi.fn(async () => status),
+      installUpdate,
+      onUpdateStatus: vi.fn((callback) => {
+        onStatus = callback
+        return removeListener
+      }),
+    }
+    const wrapper = mount(SettingsDialog, { props: { open: true }, attachTo: document.body })
+    await flushPromises()
+
+    status = { ...status, phase: 'available', releaseName: '0.0.2' }
+    onStatus!(status)
+    await flushPromises()
+    const progress = document.body.querySelector<HTMLProgressElement>('[data-testid="update-download-progress"]')!
+    expect(progress.hasAttribute('value')).toBe(false)
+    expect(progress.getAttribute('aria-label')).toBe('Update found · downloading')
+    expect(document.body.textContent).toContain('Update: 0.0.2')
+
+    status = { ...status, phase: 'downloaded' }
+    onStatus!(status)
+    await flushPromises()
+    expect(document.body.textContent).toContain('Update downloaded · restart when ready')
+    expect(document.body.querySelector('[data-testid="update-download-progress"]')).toBeNull()
+    expect(document.body.querySelector('[data-testid="check-for-updates"]')).toBeNull()
+    expect(installUpdate).not.toHaveBeenCalled()
+
+    await wrapper.setProps({ open: false })
+    await wrapper.setProps({ open: true })
+    await flushPromises()
+    const installButton = document.body.querySelector<HTMLButtonElement>('[data-testid="install-update"]')!
+    expect(installButton.textContent).toBe('Restart and install')
+    expect(installButton.disabled).toBe(false)
+    installButton.click()
+    await flushPromises()
+    expect(installButton.disabled).toBe(true)
+    installButton.click()
+    expect(installUpdate).toHaveBeenCalledOnce()
+    finishInstall(status)
+    await flushPromises()
+
+    wrapper.unmount()
+    expect(removeListener).toHaveBeenCalledOnce()
+  })
+
+  it.each(['unsupported', 'checking', 'available'] as const)('disables unsupported or active update controls when %s', async (phase) => {
+    const status: DesktopUpdateStatus = { automaticCheck: true, currentVersion: '0.0.1', phase }
+    const setAutomaticUpdates = vi.fn(async () => status)
+    const checkForUpdates = vi.fn(async () => status)
+    window.craftHubDesktop = {
+      updateStatus: vi.fn(async () => status),
+      setAutomaticUpdates,
+      checkForUpdates,
+    }
+    const wrapper = mount(SettingsDialog, { props: { open: true }, attachTo: document.body })
+    await flushPromises()
+
+    const toggle = document.body.querySelector<HTMLButtonElement>('[data-testid="automatic-updates"]')!
+    const check = document.body.querySelector<HTMLButtonElement>('[data-testid="check-for-updates"]')!
+    expect(toggle.disabled).toBe(true)
+    expect(check.disabled).toBe(true)
+    toggle.click()
+    check.click()
+    await flushPromises()
+    expect(setAutomaticUpdates).not.toHaveBeenCalled()
+    expect(checkForUpdates).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('blocks repeated checks while the desktop bridge request is pending', async () => {
+    let finishCheck!: (status: DesktopUpdateStatus) => void
+    const checkForUpdates = vi.fn(() => new Promise<DesktopUpdateStatus>((resolve) => {
+      finishCheck = resolve
+    }))
+    window.craftHubDesktop = {
+      updateStatus: vi.fn(async () => ({ automaticCheck: true, currentVersion: '0.0.1', phase: 'idle' as const })),
+      setAutomaticUpdates: vi.fn(),
+      checkForUpdates,
+    }
+    const wrapper = mount(SettingsDialog, { props: { open: true }, attachTo: document.body })
+    await flushPromises()
+
+    const check = document.body.querySelector<HTMLButtonElement>('[data-testid="check-for-updates"]')!
+    check.click()
+    await flushPromises()
+    expect(check.disabled).toBe(true)
+    expect(document.body.querySelector<HTMLButtonElement>('[data-testid="automatic-updates"]')!.disabled).toBe(true)
+    check.click()
+    expect(checkForUpdates).toHaveBeenCalledOnce()
+    finishCheck({ automaticCheck: true, currentVersion: '0.0.1', phase: 'up-to-date' })
+    await flushPromises()
+    expect(check.disabled).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('shows an update-status read error beside the disabled update controls', async () => {
+    window.craftHubDesktop = {
+      updateStatus: vi.fn(async () => { throw new Error('Could not read updater status') }),
+      setAutomaticUpdates: vi.fn(),
+      checkForUpdates: vi.fn(),
+    }
+    const wrapper = mount(SettingsDialog, { props: { open: true }, attachTo: document.body })
+    await flushPromises()
+
+    expect(document.body.querySelector('.desktop-update-settings [role="alert"]')?.textContent).toContain('Could not read updater status')
+    expect(document.body.querySelector<HTMLButtonElement>('[data-testid="check-for-updates"]')!.disabled).toBe(true)
+    wrapper.unmount()
+  })
+
+  it.each(['check', 'preference'] as const)('reports a failed update %s request beside the controls', async (action) => {
+    window.craftHubDesktop = {
+      updateStatus: vi.fn(async () => ({ automaticCheck: true, currentVersion: '0.0.1', phase: 'idle' as const })),
+      setAutomaticUpdates: vi.fn(async () => { throw new Error('Could not save automatic updates') }),
+      checkForUpdates: vi.fn(async () => { throw new Error('Could not check for updates') }),
+    }
+    const wrapper = mount(SettingsDialog, { props: { open: true }, attachTo: document.body })
+    await flushPromises()
+
+    if (action === 'check') {
+      document.body.querySelector<HTMLButtonElement>('[data-testid="check-for-updates"]')!.click()
+    }
+    else {
+      const toggle = document.body.querySelector<HTMLButtonElement>('[data-testid="automatic-updates"]')!
+      toggle.click()
+    }
+    await flushPromises()
+    expect(document.body.querySelector('.desktop-update-settings [role="alert"]')?.textContent)
+      .toContain(action === 'check' ? 'Could not check for updates' : 'Could not save automatic updates')
+    expect(document.body.querySelector<HTMLButtonElement>('[data-testid="check-for-updates"]')!.disabled).toBe(false)
+    expect(document.body.querySelector<HTMLButtonElement>('[data-testid="automatic-updates"]')!.disabled).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('reports a failed installation and leaves the downloaded update ready to retry', async () => {
+    window.craftHubDesktop = {
+      updateStatus: vi.fn(async () => ({ automaticCheck: true, currentVersion: '0.0.1', phase: 'downloaded' as const, releaseName: '0.0.2' })),
+      installUpdate: vi.fn(async () => { throw new Error('Could not restart Craft Hub') }),
+    }
+    const wrapper = mount(SettingsDialog, { props: { open: true }, attachTo: document.body })
+    await flushPromises()
+
+    const install = document.body.querySelector<HTMLButtonElement>('[data-testid="install-update"]')!
+    install.click()
+    await flushPromises()
+    expect(document.body.querySelector('.desktop-update-settings [role="alert"]')?.textContent).toContain('Could not restart Craft Hub')
+    expect(install.disabled).toBe(false)
+    expect(document.body.textContent).toContain('Update: 0.0.2')
+    wrapper.unmount()
+  })
+
+  it('keeps browser settings usable without a desktop update bridge', async () => {
+    const wrapper = mount(SettingsDialog, { props: { open: true }, attachTo: document.body })
+    await flushPromises()
+    expect(document.body.querySelector('.desktop-update-settings')).toBeNull()
+    expect(document.body.querySelector('[data-testid="locale-zh-CN"]')).not.toBeNull()
+    wrapper.unmount()
+  })
+
   it('enables official Codex activity hooks through the desktop bridge', async () => {
     const installCodexActivityHooks = vi.fn(async () => ({
       installed: true,
