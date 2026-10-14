@@ -60,4 +60,50 @@ describe('connection setup forms', () => {
     expect(wrapper.text()).not.toContain('Unsafe')
     wrapper.unmount()
   })
+
+  it('shows a device code, opens its URL and stops refreshing at expiry', async () => {
+    vi.useFakeTimers()
+    const openExternalUrl = vi.fn().mockResolvedValue(undefined)
+    window.craftHubDesktop = { openExternalUrl }
+    const deviceAuthorization = { verificationUrl: 'https://example.com/device', userCode: 'ABCD1234', expiresAt: new Date(Date.now() + 6000).toISOString() }
+    vi.spyOn(api, 'invokeIntegrationAction').mockResolvedValue({ connected: false, deviceAuthorization })
+    const wrapper = mount(IntegrationConnectionSetup, { props: { ...props, status: { connected: false, forms: [{ id: 'device-code', title: 'Connect', submitLabel: 'Connect', fields: [] }] } } })
+    try {
+      await wrapper.get('form').trigger('submit')
+      await flushPromises()
+      expect(openExternalUrl).toHaveBeenCalledExactlyOnceWith(deviceAuthorization.verificationUrl)
+      expect(wrapper.get('code').text()).toBe('ABCD1234')
+      expect(wrapper.emitted('updated')).toHaveLength(1)
+      await vi.advanceTimersByTimeAsync(2000)
+      expect(wrapper.emitted('updated')).toHaveLength(2)
+      await vi.advanceTimersByTimeAsync(4000)
+      expect(wrapper.find('code').exists()).toBe(false)
+      const updates = wrapper.emitted('updated')!.length
+      await vi.advanceTimersByTimeAsync(4000)
+      expect(wrapper.emitted('updated')).toHaveLength(updates)
+    }
+    finally {
+      wrapper.unmount()
+      delete window.craftHubDesktop
+      vi.useRealTimers()
+    }
+  })
+
+  it('restores a pending device flow and removes its code after connection', async () => {
+    vi.useFakeTimers()
+    const wrapper = mount(IntegrationConnectionSetup, { props: { ...props, status: { ...status, deviceAuthorization: { verificationUrl: 'https://example.com/device', userCode: 'ABCD1234', expiresAt: new Date(Date.now() + 60000).toISOString() } } } })
+    try {
+      expect(wrapper.get('code').text()).toBe('ABCD1234')
+      await vi.advanceTimersByTimeAsync(2000)
+      expect(wrapper.emitted('updated')).toHaveLength(1)
+      await wrapper.setProps({ status: { connected: true } })
+      expect(wrapper.find('code').exists()).toBe(false)
+      await vi.advanceTimersByTimeAsync(4000)
+      expect(wrapper.emitted('updated')).toHaveLength(1)
+    }
+    finally {
+      wrapper.unmount()
+      vi.useRealTimers()
+    }
+  })
 })

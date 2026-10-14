@@ -38,6 +38,7 @@ export const workItemFieldsSchema = z.object({
   sourceRef: workItemSourceRefSchema.optional(),
   personalMembership: workItemPersonalMembershipSchema.optional(),
   dueDate: workItemDueDateSchema.optional(),
+  reminderDate: workItemDueDateSchema.optional(),
   updatedAt: instantSchema.optional(),
   important: z.boolean().optional(),
   project: classificationSchema.optional(),

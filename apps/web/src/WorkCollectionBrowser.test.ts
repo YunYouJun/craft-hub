@@ -23,6 +23,7 @@ function snapshot(workItems?: PersonalWorkbenchHome['workItems']): SettingsSnaps
     'workbench.locale': 'en',
     'workbench.theme': 'system',
     'workbench.repositoriesRoot': '',
+    'workbench.sidebar': { entries: [] },
     'workbench.shortcuts': {},
   } }
 }
@@ -47,6 +48,7 @@ afterEach(() => {
   wrapper = undefined
   expect(api.invokeIntegrationAction).not.toHaveBeenCalled()
   vi.restoreAllMocks()
+  vi.useRealTimers()
 })
 function open(page = fixture()): VueWrapper {
   wrapper = mount(WorkCollectionBrowser, { props: { page, compact: true }, slots: { item: '<div class="task">{{ params.item.title }}</div>' } })
@@ -80,6 +82,123 @@ it('combines native lists, smart categories and search while excluding completed
   await wrapper!.get('input').setValue('')
   await wrapper!.get('.smart-filter.overdue').trigger('click')
   expect(wrapper!.findAll('.task').map(row => row.text())).toEqual(['Task 2'])
+})
+
+function scheduledFixture(): IntegrationEntityPage {
+  const due = (day: string) => ({ dateTime: `${day}T00:00:00`, timeZone: 'UTC', precision: 'date' as const })
+  return {
+    currentUser: { id: 'me' },
+    coverage: 'complete',
+    collections: [{ id: 'work', title: 'Work' }, { id: 'personal', title: 'Personal' }],
+    items: [
+      task('past', 'work', { dueDate: due('2026-10-12') }),
+      task('due-today-work', 'work', { dueDate: due('2026-10-13'), important: true }),
+      task('reminder-only', 'work', { reminderDate: due('2026-10-13') }),
+      task('future', 'personal', { dueDate: due('2026-10-14') }),
+      task('due-today-personal', 'personal', { dueDate: due('2026-10-13'), reminderDate: due('2026-10-13') }),
+      task('undated', 'personal'),
+      task('done', 'work', { dueDate: due('2026-10-13'), reminderDate: due('2026-10-13'), statusCategory: 'done' }),
+      task('foreign', 'work', { dueDate: due('2026-10-13'), reminderDate: due('2026-10-13'), personalMembership: { accountId: 'other', relation: 'owned' } }),
+      task('archived', 'work', { dueDate: due('2026-10-13'), archived: true }),
+    ],
+  }
+}
+
+function freezeTime(instant = '2026-10-13T09:00:00Z'): void {
+  vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] })
+  vi.setSystemTime(new Date(instant))
+}
+
+it('counts planned due dates and reminders once and restricts today to personal unfinished due tasks', async () => {
+  freezeTime()
+  open(scheduledFixture())
+  await wrapper!.setProps({ compact: false })
+  expect(wrapper!.findAll('.category-filters .smart-filter').map(option => option.text())).toEqual(['All6', 'Important1', 'Overdue1', 'Planned5', 'Due today2'])
+  await wrapper!.get('.smart-filter.planned').trigger('click')
+  expect(wrapper!.findAll('.task').map(row => row.text())).toEqual(['Task past', 'Task due-today-work', 'Task reminder-only', 'Task future', 'Task due-today-personal'])
+  await wrapper!.get('.smart-filter.today').trigger('click')
+  expect(wrapper!.findAll('.task').map(row => row.text())).toEqual(['Task due-today-work', 'Task due-today-personal'])
+})
+
+it('composes planned and today with native lists and search while retaining account-wide category counts', async () => {
+  freezeTime()
+  open(scheduledFixture())
+  await wrapper!.setProps({ compact: false })
+  await wrapper!.get('.smart-filter.planned').trigger('click')
+  await choice('Personal').trigger('click')
+  expect(wrapper!.findAll('.task').map(row => row.text())).toEqual(['Task future', 'Task due-today-personal'])
+  await wrapper!.get('input').setValue('due-today')
+  await wrapper!.get('.smart-filter.today').trigger('click')
+  expect(wrapper!.findAll('.task').map(row => row.text())).toEqual(['Task due-today-personal'])
+  await choice('Work').trigger('click')
+  expect(wrapper!.findAll('.task').map(row => row.text())).toEqual(['Task due-today-work'])
+  await wrapper!.get('input').setValue('reminder-only')
+  expect(wrapper!.findAll('.task')).toHaveLength(0)
+  expect(wrapper!.get('.smart-filter.planned').text()).toBe('Planned5')
+  expect(wrapper!.get('.smart-filter.today').text()).toBe('Due today2')
+  await button('Clear filters').trigger('click')
+  expect(choice('Work').attributes('aria-pressed')).toBe('true')
+  await wrapper!.get('.smart-filter.planned').trigger('click')
+  await wrapper!.get('input').setValue('reminder-only')
+  expect(wrapper!.findAll('.task').map(row => row.text())).toEqual(['Task reminder-only'])
+})
+
+it.each(['planned', 'today'])('resets the %s category, list and search when the source account changes', async (category) => {
+  freezeTime()
+  open(scheduledFixture())
+  await wrapper!.get(`.smart-filter.${category}`).trigger('click')
+  await choice('Personal').trigger('click')
+  await wrapper!.get('input').setValue('due-today')
+  await wrapper!.setProps({ page: { currentUser: { id: 'new-account' }, collections: [], items: [] } })
+  expect(wrapper!.get('input').element.value).toBe('')
+  expect(wrapper!.get('.smart-filter.all').attributes('aria-pressed')).toBe('true')
+  expect(wrapper!.get('.collection-choice').attributes('aria-pressed')).toBe('true')
+  expect(wrapper!.get('.smart-filter.planned').text()).toBe('Planned0')
+  expect(wrapper!.get('.smart-filter.today').text()).toBe('Due today0')
+})
+
+it('uses each deadline source timezone when selecting tasks due today', async () => {
+  freezeTime('2026-10-13T01:00:00Z')
+  open({ currentUser: { id: 'me' }, coverage: 'complete', collections: [{ id: 'work', title: 'Work' }], items: [
+    task('honolulu-today', 'work', { dueDate: { dateTime: '2026-10-12T00:00:00', timeZone: 'Pacific/Honolulu', precision: 'date' } }),
+    task('shanghai-today', 'work', { dueDate: { dateTime: '2026-10-13T00:00:00', timeZone: 'Asia/Shanghai', precision: 'date' } }),
+    task('honolulu-tomorrow', 'work', { dueDate: { dateTime: '2026-10-13T00:00:00', timeZone: 'Pacific/Honolulu', precision: 'date' } }),
+  ] })
+  await wrapper!.get('.smart-filter.today').trigger('click')
+  expect(wrapper!.get('.smart-filter.today').text()).toBe('Due today2')
+  expect(wrapper!.findAll('.task').map(row => row.text())).toEqual(['Task honolulu-today', 'Task shanghai-today'])
+})
+
+it('refreshes today and overdue categories on the minute clock across source-zone midnight', async () => {
+  freezeTime('2026-10-13T15:59:30Z')
+  open({ currentUser: { id: 'me' }, coverage: 'complete', collections: [{ id: 'work', title: 'Work' }], items: [
+    task('today', 'work', { dueDate: { dateTime: '2026-10-13T00:00:00', timeZone: 'Asia/Shanghai', precision: 'date' } }),
+    task('tomorrow', 'work', { dueDate: { dateTime: '2026-10-14T00:00:00', timeZone: 'Asia/Shanghai', precision: 'date' } }),
+  ] })
+  await wrapper!.get('.smart-filter.today').trigger('click')
+  expect(wrapper!.findAll('.task').map(row => row.text())).toEqual(['Task today'])
+  expect(wrapper!.get('.smart-filter.overdue').text()).toBe('Overdue0')
+  await vi.advanceTimersByTimeAsync(59_999)
+  expect(wrapper!.findAll('.task').map(row => row.text())).toEqual(['Task today'])
+  await vi.advanceTimersByTimeAsync(1)
+  expect(wrapper!.findAll('.task').map(row => row.text())).toEqual(['Task tomorrow'])
+  expect(wrapper!.get('.smart-filter.overdue').text()).toBe('Overdue1')
+  await wrapper!.get('.smart-filter.overdue').trigger('click')
+  expect(wrapper!.findAll('.task').map(row => row.text())).toEqual(['Task today'])
+})
+
+it('switches all smart categories between English and Chinese without changing the selected category', async () => {
+  freezeTime()
+  open(scheduledFixture())
+  await wrapper!.get('.smart-filter.planned').trigger('click')
+  useI18n().setLocale('zh-CN')
+  await wrapper!.vm.$nextTick()
+  expect(wrapper!.findAll('.category-filters .smart-filter').map(option => option.text())).toEqual(['全部6', '重要1', '已逾期1', '已计划5', '今日到期2'])
+  expect(wrapper!.get('.smart-filter.planned').attributes('aria-pressed')).toBe('true')
+  useI18n().setLocale('en')
+  await wrapper!.vm.$nextTick()
+  expect(wrapper!.get('.smart-filter.planned').text()).toBe('Planned5')
+  expect(wrapper!.get('.smart-filter.today').text()).toBe('Due today2')
 })
 
 it('shows additional loaded tasks, collapses groups and retains empty native lists', async () => {

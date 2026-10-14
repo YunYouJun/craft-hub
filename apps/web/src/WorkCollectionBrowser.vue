@@ -11,7 +11,7 @@ import { Switch } from './components/ui/switch'
 import { Icon } from './icons'
 import { useI18n } from './i18n'
 import { useWorkbenchStore } from './store'
-import { isWorkItemOverdue, workItemTypeIcon } from './work-item-presentation'
+import { isWorkItemDueToday, isWorkItemOverdue, workItemTypeIcon } from './work-item-presentation'
 
 const props = defineProps<{ page: IntegrationEntityPage, compact?: boolean, wide?: boolean }>()
 const { locale } = useI18n()
@@ -19,7 +19,7 @@ const store = useWorkbenchStore()
 const copy = (zh: string, en: string) => locale.value === 'zh-CN' ? zh : en
 const id = useId()
 type Preferences = NonNullable<PersonalWorkbenchHome['workItems']>
-type SmartFilter = 'all' | 'important' | 'overdue'
+type SmartFilter = 'all' | 'important' | 'overdue' | 'planned' | 'today'
 const defaults: Preferences = { groupByList: true, density: 'comfortable', showEmptyLists: true }
 const preferences = computed(() => store.settings?.settings['workbench.home'].workItems ?? defaults)
 const saving = ref(false)
@@ -53,17 +53,32 @@ const typeFilters = computed(() => {
   }
   return [{ value: 'all', icon: 'collection' as IconName, title: copy('全部', 'All'), count: items.value.length }, ...types.values()]
 })
-const counts = computed(() => ({ all: items.value.length, important: items.value.filter(item => item.important).length, overdue: items.value.filter(item => isWorkItemOverdue(item.dueDate, now.value)).length }))
-const smartFilters = computed<Array<{ value: SmartFilter, title: string, icon: IconName }>>(() => [
-  { value: 'all', title: copy('全部', 'All'), icon: 'list' },
-  { value: 'important', title: copy('重要', 'Important'), icon: 'starFilled' },
-  { value: 'overdue', title: copy('已逾期', 'Overdue'), icon: 'calendar' },
+const smartCategoryItems = computed(() => ({
+  all: items.value,
+  important: items.value.filter(item => item.important),
+  overdue: items.value.filter(item => isWorkItemOverdue(item.dueDate, now.value)),
+  planned: items.value.filter(item => item.dueDate || item.reminderDate),
+  today: items.value.filter(item => isWorkItemDueToday(item.dueDate, now.value)),
+}))
+const counts = computed(() => ({
+  all: smartCategoryItems.value.all.length,
+  important: smartCategoryItems.value.important.length,
+  overdue: smartCategoryItems.value.overdue.length,
+  planned: smartCategoryItems.value.planned.length,
+  today: smartCategoryItems.value.today.length,
+}))
+const smartFilters = computed<Array<{ value: SmartFilter, title: string, description: string, icon: IconName }>>(() => [
+  { value: 'all', title: copy('全部', 'All'), description: copy('所有未完成待办', 'All unfinished tasks'), icon: 'list' },
+  { value: 'important', title: copy('重要', 'Important'), description: copy('已标记重要的未完成待办', 'Unfinished tasks marked important'), icon: 'starFilled' },
+  { value: 'overdue', title: copy('已逾期', 'Overdue'), description: copy('已经超过截止日期的未完成待办', 'Unfinished tasks past their deadline'), icon: 'calendar' },
+  { value: 'planned', title: copy('已计划', 'Planned'), description: copy('有截止日期或已启用提醒的未完成待办', 'Unfinished tasks with a due date or an enabled reminder'), icon: 'calendar' },
+  { value: 'today', title: copy('今日到期', 'Due today'), description: copy('按来源时区在今天到期的未完成待办', 'Unfinished tasks due today in their source timezone'), icon: 'sun' },
 ])
 const search = computed(() => query.value.trim().toLocaleLowerCase(locale.value))
 const matches = (value: string) => value.toLocaleLowerCase(locale.value).includes(search.value)
-const categoryItems = computed(() => items.value.filter(item =>
-  (projectMode.value ? typeId.value === 'all' || typeId.value === (item.type ? JSON.stringify([item.type.id]) : 'unknown') : filter.value === 'all' || (filter.value === 'important' ? item.important : isWorkItemOverdue(item.dueDate, now.value)))
-))
+const categoryItems = computed(() => projectMode.value
+  ? items.value.filter(item => typeId.value === 'all' || typeId.value === (item.type ? JSON.stringify([item.type.id]) : 'unknown'))
+  : smartCategoryItems.value[filter.value])
 const matchingItems = computed(() => categoryItems.value.filter(item =>
   !search.value || matches(item.title) || matches(titles.value.get(containerId(item) ?? '') ?? '') || (projectMode.value && (matches(item.type?.title ?? '') || matches(item.statusLabel ?? item.status ?? ''))),
 ))
@@ -175,10 +190,10 @@ async function save(patch: Partial<Preferences>): Promise<void> {
   <div class="work-collections" :class="{ 'is-compact': preferences.density === 'compact', 'is-projects': projectMode, 'is-wide': wide }">
     <div class="collection-controls">
       <div v-if="projectMode" class="smart-filters type-filters" role="group" :aria-label="copy('类型', 'Type')">
-        <button v-for="option in typeFilters" :key="option.value" type="button" class="smart-filter" :aria-pressed="typeId === option.value" @click="typeId = option.value"><Icon :name="option.icon" /><span>{{ option.title }}</span><strong>{{ option.count }}</strong></button>
+        <button v-for="option in typeFilters" :key="option.value" type="button" class="smart-filter" :title="`${option.title} (${option.count})`" :aria-pressed="typeId === option.value" @click="typeId = option.value"><Icon :name="option.icon" /><span>{{ option.title }}</span><strong>{{ option.count }}</strong></button>
       </div>
-      <div v-else class="smart-filters" role="group" :aria-label="copy('智能分类', 'Smart categories')">
-        <button v-for="option in smartFilters" :key="option.value" type="button" class="smart-filter" :class="option.value" :aria-pressed="filter === option.value" @click="filter = option.value">
+      <div v-else class="smart-filters category-filters" role="group" :aria-label="copy('智能分类', 'Smart categories')">
+        <button v-for="option in smartFilters" :key="option.value" type="button" class="smart-filter" :class="option.value" :title="`${option.title} (${counts[option.value]}) · ${option.description}`" :aria-pressed="filter === option.value" @click="filter = option.value">
           <Icon :name="option.icon" /><span>{{ option.title }}</span><strong>{{ counts[option.value] }}</strong>
         </button>
       </div>
@@ -223,7 +238,8 @@ async function save(patch: Partial<Preferences>): Promise<void> {
 .collection-status-filter { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: var(--space-3); font-size: var(--font-size-control); }
 .collection-filter-summary { display: flex; justify-content: space-between; align-items: center; min-height: 24px; }
 .smart-filter, .collection-choice { display: flex; align-items: center; gap: 6px; min-width: 0; min-height: 32px; padding: 4px 8px; border: 1px solid transparent; border-radius: var(--control-radius); background: transparent; color: var(--text); cursor: pointer; font-size: 13px; }
-.smart-filter { flex: 1; min-height: 30px; white-space: nowrap; }
+.smart-filter { flex: 1 1 auto; max-width: 100%; min-height: 30px; white-space: nowrap; }
+.smart-filter > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .smart-filter > .app-icon, .collection-choice > .app-icon { flex: none; width: 15px; height: 15px; color: var(--accent); }
 .smart-filter.important > .app-icon { color: var(--warning); }
 .smart-filter.overdue > .app-icon { color: var(--danger); }
@@ -231,6 +247,9 @@ async function save(patch: Partial<Preferences>): Promise<void> {
 .collection-choice[aria-pressed='true'] { background: var(--accent-soft); color: var(--accent); }
 .smart-filter[aria-pressed='true'] { background: var(--surface); color: var(--accent); box-shadow: 0 1px 3px var(--shadow); border-color: var(--border); }
 .smart-filter[aria-pressed='true'] strong, .collection-choice[aria-pressed='true'] .collection-count { color: var(--accent); }
+.category-filters { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.category-filters > .all { grid-column: 1 / -1; }
+.category-filters > .smart-filter > strong { font-size: 11px; }
 .smart-filter:hover, .collection-choice:hover { background: var(--surface-hover); }
 .smart-filter:focus-visible, .collection-choice:focus-visible, .collection-group-heading:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 .collections-heading { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }

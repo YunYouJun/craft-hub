@@ -16,6 +16,7 @@ Use Orca or your preferred coding workbench for daily coding, agent sessions, wo
 - Browse the [bundled software catalog](docs/guide/software-catalog.md) in **Software center** (`/software`) even without Workstation installed; connect the local plugin to review missing-app installations, follow progress, retry unfinished items and open detected macOS apps
 - Inspect Git, Node.js, pnpm, fnm, Homebrew and Workstation in **Local environment** (`/environment`), with version, path, probe status and search locations; the backend's bundled Node is reported separately
 - Preview real provider work items through configured, read-only `work-items.list` actions
+- Connect Microsoft To Do in the desktop app to preview personal lists and unfinished tasks, filter by list, inspect authorization status and refresh from the overview
 - Register and switch between local projects
 - Register projects and organize portable workspaces from the Craft Hub MCP adapter
 - Discover root and pnpm workspace `package.json` scripts, Makefile targets, and Taskfile tasks
@@ -41,6 +42,8 @@ Tool destinations keep a required HTTPS website fallback. In the macOS desktop, 
 Prepare a handoff from a provider item or a local project. Choose the project, add an objective, review and copy the context, then paste it in the external workbench. Craft Hub does not infer local project bindings from provider metadata, automatically inject prompts, or maintain a second work-item database. Home preferences stay in the operating-system settings directory under `workbench.home`; project pins are machine-local, and portable export currently excludes this setting.
 
 Work-item previews use installed providers and their declared read actions. They are views of the connected source, not a separate task database. Provider-defined writes and status transitions remain in the existing integration views with their validation and confirmation.
+
+The desktop bundles a separate [Microsoft To Do host plugin](packages/craft-hub-plugin-microsoft-todo/README.md). From **Overview → Microsoft To Do → Connect account**, open the Microsoft authorization page and enter the displayed device code. Connection status updates automatically. Return to the overview to see your personal lists and unfinished tasks; use the list selector or the source's refresh button. First use may require approving a macOS Keychain prompt. Authorization stays on the local host, and the connector requests only `Tasks.Read`.
 
 General agent orchestration, session management, worktree lifecycle, interactive terminal hosting, and repository merge/review interfaces are outside the new product scope. The command runner still needs output, cancellation, and any supported command input. Workspace and configuration Git persistence remains part of Craft Hub's own data management.
 

@@ -17,6 +17,7 @@ const values = reactive<Record<string, Record<string, string>>>({})
 const saving = ref(false)
 const error = ref('')
 const authorizationUrl = ref('')
+const deviceAuthorization = ref<IntegrationConnectionStatus['deviceAuthorization']>()
 let active = true
 let authorizationRefresh: ReturnType<typeof setInterval> | undefined
 let authorizationDeadline: ReturnType<typeof setTimeout> | undefined
@@ -29,15 +30,31 @@ function stopWaiting(): void {
 watch(() => props.status.connected, (connected) => {
   if (connected) {
     authorizationUrl.value = ''
+    deviceAuthorization.value = undefined
     stopWaiting()
   }
 })
+watch(() => props.status.deviceAuthorization, (value) => {
+  if (value)
+    waitForDeviceAuthorization(value)
+}, { immediate: true })
 onBeforeUnmount(() => { active = false; stopWaiting() })
+
+function waitForDeviceAuthorization(value: NonNullable<IntegrationConnectionStatus['deviceAuthorization']>): void {
+  const url = safeUrl(value.verificationUrl)
+  const remaining = Date.parse(value.expiresAt) - Date.now()
+  if (!url?.startsWith('https:') || remaining <= 0 || !Number.isFinite(remaining))
+    return
+  stopWaiting()
+  deviceAuthorization.value = { ...value, verificationUrl: url }
+  authorizationRefresh = setInterval(() => emit('updated'), 2000)
+  authorizationDeadline = setTimeout(() => { stopWaiting(); deviceAuthorization.value = undefined; emit('updated') }, Math.min(remaining, 15 * 60 * 1000))
+}
 
 function safeUrl(value: string): string | undefined {
   try {
     const url = new URL(value)
-    return url.protocol === 'https:' || url.protocol === 'http:' ? url.href : undefined
+    return ['https:', 'http:'].includes(url.protocol) && !url.username && !url.password ? url.href : undefined
   }
   catch { return undefined }
 }
@@ -48,7 +65,7 @@ async function submit(form: NonNullable<IntegrationConnectionStatus['forms']>[nu
   saving.value = true
   error.value = ''
   const openExternal = window.craftHubDesktop?.openExternalUrl
-  const popup = form.id === 'oauth' && !openExternal ? window.open('about:blank', '_blank') : null
+  const popup = ['oauth', 'device-code'].includes(form.id) && !openExternal ? window.open('about:blank', '_blank') : null
   if (popup)
     popup.opener = null
   try {
@@ -58,7 +75,18 @@ async function submit(form: NonNullable<IntegrationConnectionStatus['forms']>[nu
       popup?.close()
       return
     }
-    if ('connected' in result && result.authorizationUrl) {
+    if ('connected' in result && result.deviceAuthorization) {
+      waitForDeviceAuthorization(result.deviceAuthorization)
+      if (deviceAuthorization.value) {
+        if (popup)
+          popup.location.href = deviceAuthorization.value.verificationUrl
+        else if (openExternal)
+          await openExternal(deviceAuthorization.value.verificationUrl)
+      }
+      else { popup?.close() }
+      emit('updated')
+    }
+    else if ('connected' in result && result.authorizationUrl) {
       authorizationUrl.value = safeUrl(result.authorizationUrl) ?? ''
       if (authorizationUrl.value) {
         if (popup)
@@ -103,7 +131,7 @@ async function submit(form: NonNullable<IntegrationConnectionStatus['forms']>[nu
       </a>
     </p>
     <template v-if="actionId">
-      <details v-for="form in status.forms" :key="form.id" class="connection-disclosure" :open="!status.connected && form.id === 'oauth'">
+      <details v-for="form in status.forms" :key="form.id" class="connection-disclosure" :open="!status.connected && ['oauth', 'device-code'].includes(form.id)">
         <summary class="connection-disclosure-summary">
           <span class="connection-disclosure-chevron"><Icon name="arrowRight" /></span>
           <span>{{ translate(form.title) }}</span>
@@ -128,6 +156,12 @@ async function submit(form: NonNullable<IntegrationConnectionStatus['forms']>[nu
       <Icon name="link" />
       <span><a :href="authorizationUrl" target="_blank" rel="noopener noreferrer">{{ t('integrationContinueAuthorization') }}</a> · {{ t('integrationReturnRefresh') }}</span>
     </p>
+    <div v-if="deviceAuthorization" class="connection-authorization connection-device-code" role="status">
+      <strong>{{ locale === 'zh-CN' ? '在授权页面输入登录码' : 'Enter this code on the authorization page' }}</strong>
+      <code>{{ deviceAuthorization.userCode }}</code>
+      <a :href="deviceAuthorization.verificationUrl" target="_blank" rel="noopener noreferrer">{{ t('integrationContinueAuthorization') }}</a>
+      <span>{{ t('integrationReturnRefresh') }}</span>
+    </div>
     <Alert v-if="error" variant="danger">{{ error }}</Alert>
   </div>
 </template>
@@ -135,6 +169,8 @@ async function submit(form: NonNullable<IntegrationConnectionStatus['forms']>[nu
 <style scoped>
 .connection-setup { display: grid; gap: var(--integration-row-gap); padding: 0 var(--integration-row-padding-inline) var(--space-4); font-size: var(--font-size-body); }
 .connection-setup p { margin: 0; }
+.connection-device-code { flex-direction: column; }
+.connection-device-code code { color: var(--text); font-size: var(--font-size-heading-md); letter-spacing: .15em; user-select: all; }
 .connection-link-row { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 .connection-link { display: inline-flex; align-items: center; gap: var(--space-1); color: var(--accent); font-weight: 500; text-decoration: none; }
 .connection-link:hover { text-decoration: underline; text-underline-offset: 3px; }

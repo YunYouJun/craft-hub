@@ -42,6 +42,30 @@ describe('integration workbench', () => {
     return { id: '1', title, sourceRef: { providerId: 'tasks', instanceId: 'tasks', accountId, containerId, kind: 'task', itemId: '1' }, personalMembership: { accountId, relation: 'owned' } }
   }
 
+  it('waits for account connection before loading work, then clears work on disconnect', async () => {
+    const store = workSource()
+    const source = store.integrationContributions[0]!
+    source.actions.push({ id: 'status', title: 'Connection', operation: 'connection.status', effect: 'remote-read', confirmation: 'never', effectiveConfirmation: 'never' })
+    source.views[0]!.blocks.unshift({ id: 'connection', type: 'connection-status', actionId: 'status' })
+    let connected = false
+    const invoke = vi.spyOn(api, 'invokeIntegrationAction').mockImplementation(async (_id, action) => action === 'status' ? { connected } : { currentUser: { id: 'me' }, items: [task('one', 'Private task')] })
+    const wrapper = mount(IntegrationWorkbench, { props: { integrationId: 'tasks', viewId: 'work' }, global: { plugins: [pinia] } })
+    await flushPromises()
+    expect(invoke).toHaveBeenCalledOnce()
+    expect(wrapper.text()).toContain('Connect your account first')
+    connected = true
+    await wrapper.get('[data-testid="integration-block-connection"] button').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('Private task')
+    connected = false
+    invoke.mockClear()
+    await wrapper.get('[data-testid="integration-block-connection"] button').trigger('click')
+    await flushPromises()
+    expect(invoke).toHaveBeenCalledOnce()
+    expect(wrapper.text()).not.toContain('Private task')
+    wrapper.unmount()
+  })
+
   it('keeps a standalone title outside the scrollable content and omits it when embedded', async () => {
     const store = useWorkbenchStore()
     store.integrationContributions = [{

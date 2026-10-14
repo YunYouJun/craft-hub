@@ -5,6 +5,7 @@
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "paths": {
+      "@craft-hub/craft-hub-plugin-microsoft-todo": ["./packages/craft-hub-plugin-microsoft-todo/src/index.ts"],
       "@craft-hub/craft-hub-plugin-workstation": ["./packages/craft-hub-plugin-workstation/src/index.ts"],
       "craft-hub": ["./packages/craft-hub/src/index.ts"],
       "craft-hub/personal-workbench": ["./packages/craft-hub/src/personal-workbench.ts"],

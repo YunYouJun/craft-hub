@@ -1,0 +1,16 @@
+{
+  "name": "@craft-hub/craft-hub-plugin-microsoft-todo",
+  "type": "module",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Microsoft To Do lists, tasks and reviewed quick capture for Craft Hub.",
+  "exports": { ".": "./dist/index.mjs" },
+  "types": "./dist/index.d.mts",
+  "scripts": { "build": "tsdown" },
+  "peerDependencies": { "craft-hub": "*" },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "catalog:",
+    "@softeria/ms-365-mcp-server": "catalog:"
+  },
+  "devDependencies": { "craft-hub": "workspace:*", "tsdown": "catalog:" }
+}

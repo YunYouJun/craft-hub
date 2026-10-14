@@ -235,6 +235,21 @@ describe('connection setup', () => {
     expect(new IntegrationRegistry([provider()]).resolve([setup()]).diagnostics[0]?.message).toContain('connection.update')
   })
 
+  it('validates device authorization from both status reads and confirmed connection writes', async () => {
+    const deviceAuthorization = { verificationUrl: 'https://example.com/device', userCode: 'ABCD1234', expiresAt: '2026-10-13T12:00:00Z' }
+    const status = { connected: false, deviceAuthorization }
+    const registry = new IntegrationRegistry([provider({ connectionStatus: async () => status, connection: { update: async () => status } })])
+    const resolved = registry.resolve([contribution({ actions: [...setup().actions, { id: 'status', title: 'Status', operation: 'connection.status', effect: 'remote-read', confirmation: 'never' }], views: [] })]).integrations[0]!
+    for (const actionId of ['status', 'connect']) {
+      deviceAuthorization.verificationUrl = 'https://example.com/device'
+      await expect(registry.invoke({ contribution: resolved, actionId, confirmed: true })).resolves.toEqual(status)
+      for (const invalid of ['javascript:alert(1)', 'http://example.com/device', 'https://secret@example.com/device']) {
+        deviceAuthorization.verificationUrl = invalid
+        await expect(registry.invoke({ contribution: resolved, actionId, confirmed: true })).rejects.toThrow()
+      }
+    }
+  })
+
   it('requires confirmation and binds a one-time callback to the original project', async () => {
     const completed: unknown[] = []
     const registry = new IntegrationRegistry([provider({ connection: {
@@ -264,6 +279,7 @@ describe('work-item result boundary', () => {
     sourceRef: ref,
     personalMembership: { accountId: 'account-1', relation: 'owned' },
     dueDate: { dateTime: '2026-10-15T18:00:00', timeZone: 'UTC' },
+    reminderDate: { dateTime: '2026-10-15T09:00:00.0000000', timeZone: 'Pacific Standard Time', precision: 'datetime' },
     updatedAt: '2026-10-12T05:00:00Z',
   }
   const actions: InstalledIntegrationContribution['actions'] = [
@@ -317,11 +333,13 @@ describe('work-item result boundary', () => {
     }
   })
 
-  it('rejects invalid identities, membership, deadlines and page fields at the trusted adapter boundary', async () => {
+  it('rejects invalid identities, membership, deadlines, reminders and page fields at the trusted adapter boundary', async () => {
     const invalidItems = [
       { ...item, sourceRef: { ...ref, containerId: 'list\nother' } },
       { ...item, personalMembership: { accountId: 'other-account', relation: 'owned' as const } },
       { ...item, dueDate: { dateTime: 'invalid', timeZone: 'UTC' } },
+      { ...item, reminderDate: { dateTime: 'invalid', timeZone: 'UTC' } },
+      { ...item, reminderDate: { dateTime: '2026-10-15T09:00:00', timeZone: '' } },
       { ...item, updatedAt: 'invalid' },
       { ...item, ancestors: [{ id: 'parent', title: 'Parent', sourceRef: { ...ref, instanceId: 'other-tools' } }] },
     ]

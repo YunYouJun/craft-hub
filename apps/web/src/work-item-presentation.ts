@@ -12,6 +12,62 @@ const dateOptions: Intl.DateTimeFormatOptions = {
   minute: '2-digit',
 }
 const offsetPattern = /(?:Z|[+-]\d{2}:\d{2})$/i
+const dateTimePattern = /^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.\d+)?)?(Z|[+-]\d{2}:\d{2})?$/i
+
+function parseDeadline(dateTime: string): { day: string, instant: number, offsetMinutes?: number } | undefined {
+  const match = dateTimePattern.exec(dateTime)
+  if (!match || Number(match[2]) > 23 || Number(match[3]) > 59 || Number(match[4] ?? 0) > 59)
+    return undefined
+  const day = match[1]!
+  const date = new Date(`${day}T00:00:00Z`)
+  if (!Number.isFinite(date.getTime()) || date.toISOString().slice(0, 10) !== day)
+    return undefined
+  const offset = match[5]
+  let offsetMinutes: number | undefined
+  if (offset) {
+    if (offset.toUpperCase() === 'Z') {
+      offsetMinutes = 0
+    }
+    else {
+      const hours = Number(offset.slice(1, 3))
+      const minutes = Number(offset.slice(4, 6))
+      if (hours > 23 || minutes > 59)
+        return undefined
+      offsetMinutes = (hours * 60 + minutes) * (offset.startsWith('-') ? -1 : 1)
+    }
+  }
+  const instant = Date.parse(offset ? dateTime : `${dateTime}Z`)
+  return Number.isFinite(instant) ? { day, instant, offsetMinutes } : undefined
+}
+
+function dayInTimeZone(instant: number, timeZone: string): string | undefined {
+  try {
+    const parts = new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(instant)
+    const part = (name: Intl.DateTimeFormatPartTypes): string => parts.find(part => part.type === name)!.value
+    return `${part('year').padStart(4, '0')}-${part('month')}-${part('day')}`
+  }
+  catch { return undefined }
+}
+
+/** Classify today's deadlines in the source timezone, preserving whole-day dates and explicit offsets. */
+export function isWorkItemDueToday(dueDate: WorkItemDueDate | undefined, now: number): boolean {
+  if (!dueDate || !Number.isFinite(now))
+    return false
+  const deadline = parseDeadline(dueDate.dateTime)
+  if (!deadline)
+    return false
+  const today = dayInTimeZone(now, dueDate.timeZone)
+  if (today) {
+    const dueDay = dueDate.precision === 'date' || deadline.offsetMinutes === undefined
+      ? deadline.day
+      : dayInTimeZone(deadline.instant, dueDate.timeZone)
+    return dueDay === today
+  }
+  if (dueDate.precision === 'date' || deadline.offsetMinutes === undefined)
+    return false
+  const localNow = new Date(now + deadline.offsetMinutes * 60_000)
+  return Number.isFinite(localNow.getTime()) && deadline.day === localNow.toISOString().slice(0, 10)
+}
 
 /** Compare deadlines in their declared timezone; unknown offsetless zones are not guessed. */
 export function isWorkItemOverdue(dueDate: WorkItemDueDate | undefined, now: number): boolean {

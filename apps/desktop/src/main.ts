@@ -11,6 +11,7 @@ import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 import codexConfigurationPlugin from '@craft-hub/craft-hub-plugin-codex'
+import { createMicrosoftTodoPlugin, createMicrosoftTodoTransport } from '@craft-hub/craft-hub-plugin-microsoft-todo'
 import workstationPlugin from '@craft-hub/craft-hub-plugin-workstation'
 import { PersonalCloudController } from '@craft-hub/personal-cloud'
 import { communityDistribution, CraftHubRuntime, HostExtensionManager, loadCraftHubPlugins, startCraftHubServer } from 'craft-hub'
@@ -33,6 +34,9 @@ import { DesktopUpdater } from './updater.ts'
 import { resolveWorkspaceLaunchTarget } from './workspace-launch-target.ts'
 
 const execFileAsync = promisify(execFile)
+const microsoftTodoTransport = createMicrosoftTodoTransport({ keepAlive: true })
+const microsoftTodoWriteTransport = createMicrosoftTodoTransport({ keepAlive: true, writable: true })
+const microsoftTodoPlugin = createMicrosoftTodoPlugin({ transport: microsoftTodoTransport, writeTransport: microsoftTodoWriteTransport })
 
 const packagedDesktopBuildInfoPath = fileURLToPath(new URL('../desktop-build.json', import.meta.url))
 const desktopBuildInfo = loadDesktopBuildInfo(packagedDesktopBuildInfoPath)
@@ -655,7 +659,7 @@ async function createWindow(): Promise<void> {
       : []
     const hostPlugins = await hostExtensionManager.load([
       ...configuredPlugins.plugins,
-      ...[codexConfigurationPlugin, workstationPlugin].filter(builtin => !configuredPlugins.plugins.some(plugin => plugin.id === builtin.id)),
+      ...[codexConfigurationPlugin, microsoftTodoPlugin, workstationPlugin].filter(builtin => !configuredPlugins.plugins.some(plugin => plugin.id === builtin.id)),
     ], preloadedModules)
     hostPlugins.diagnostics.unshift(...configuredPlugins.diagnostics)
     for (const diagnostic of hostPlugins.diagnostics)
@@ -799,7 +803,15 @@ const requestShutdown = createDeferredOnceTask(async () => {
       window.destroy()
     personalCloud?.close()
     desktopUpdater?.dispose()
-    await codexActivityMonitor?.close()
+    const connectionCleanup = await Promise.allSettled([
+      codexActivityMonitor?.close(),
+      microsoftTodoTransport.close(),
+      microsoftTodoWriteTransport.close(),
+    ])
+    for (const result of connectionCleanup) {
+      if (result.status === 'rejected')
+        writeApplicationLog('error', `Desktop connection failed to close: ${result.reason instanceof Error ? result.reason.message : String(result.reason)}`)
+    }
     await craftHubServer?.close({ processExiting: !installUpdateAfterShutdown })
   }
   catch (error) {

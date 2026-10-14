@@ -146,11 +146,24 @@ function readBlock(block: WorkbenchIntegrationView['blocks'][number]): boolean {
   return Boolean(action && ['local-read', 'remote-read'].includes(action.effect) && action.effectiveConfirmation === 'never')
 }
 
+function needsConnection(block: WorkbenchIntegrationView['blocks'][number]): boolean {
+  const action = contribution.value?.actions.find(action => action.id === block.actionId)
+  return Boolean(action?.effect === 'remote-read' && action.operation.startsWith('work-items.') && view.value?.blocks.some(candidate => candidate.type === 'connection-status' && connectionStatus(states[candidate.id]?.result)?.connected === false))
+}
+
 async function invoke(block: WorkbenchIntegrationView['blocks'][number], extraInput?: Record<string, unknown>, append = false): Promise<void> {
   const currentView = view.value
   if (!currentView || !readBlock(block) || blockNeedsProject(block))
     return
   const state = stateFor(block.id)
+  if (needsConnection(block)) {
+    state.requestId++
+    state.result = undefined
+    state.fetchedAt = undefined
+    state.loading = false
+    state.error = ''
+    return
+  }
   const cursor = append ? entityPage(state.result)?.nextCursor : undefined
   if (append && (!cursor || state.loading))
     return
@@ -245,13 +258,23 @@ async function search(block: WorkbenchIntegrationView['blocks'][number]): Promis
   await invoke(block, { keyword: searches.value[block.id]?.trim() ?? '' })
 }
 
-async function refresh(): Promise<void> {
+async function loadBlocks(includeConfiguration = false): Promise<void> {
   const currentView = view.value
   if (!currentView)
     return
+  const generation = contextGeneration
   await Promise.all(currentView.blocks
-    .filter(block => block.type === 'connection-status' || block.type === 'entity-list')
+    .filter(block => block.type === 'connection-status')
     .map(block => invoke(block)))
+  if (generation !== contextGeneration || currentView !== view.value)
+    return
+  await Promise.all(currentView.blocks
+    .filter(block => block.type === 'entity-list' || (includeConfiguration && block.type === 'configuration-manager'))
+    .map(block => invoke(block)))
+}
+
+async function refresh(): Promise<void> {
+  await loadBlocks()
 }
 
 watch(
@@ -260,12 +283,7 @@ watch(
     contextGeneration++
     for (const key of Object.keys(states))
       delete states[key]
-    const currentView = view.value
-    if (!currentView)
-      return
-    await Promise.all(currentView.blocks
-      .filter(block => block.type === 'connection-status' || block.type === 'entity-list' || block.type === 'configuration-manager')
-      .map(block => invoke(block)))
+    await loadBlocks(true)
   },
   { immediate: true },
 )
@@ -309,6 +327,7 @@ defineExpose({ refresh: refresh })
           </component>
 
           <p v-if="blockNeedsProject(block)" class="integration-empty-copy">{{ t('integrationProjectRequired') }}</p>
+          <p v-if="needsConnection(block)" class="integration-empty-copy" role="status">{{ copy('请先连接账号，完成后会自动读取事项。', 'Connect your account first. Items will load when authorization completes.') }}</p>
 
           <IntegrationResourceBrowser
             v-if="block.type === 'resource-browser' && contribution"

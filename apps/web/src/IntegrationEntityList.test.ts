@@ -7,6 +7,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { FormSelect } from './components/ui/select'
 import { useI18n } from './i18n'
 import IntegrationEntityList from './IntegrationEntityList.vue'
+import { useWorkbenchStore } from './store'
+import WorkHandoffDialog from './WorkHandoffDialog.vue'
 
 describe('integration entity list', () => {
   beforeEach(() => {
@@ -242,6 +244,97 @@ describe('integration entity list', () => {
     wrapper.getComponent(FormSelect).vm.$emit('update:modelValue', 'all')
     await wrapper.vm.$nextTick()
     expect(wrapper.findAll('[role="listitem"]')).toHaveLength(1)
+  })
+
+  function handoffSource(): void {
+    useWorkbenchStore().integrationContributions = [{
+      id: 'tasks-personal',
+      pluginId: 'tasks',
+      source: 'host:tasks',
+      provider: { id: 'tasks', requires: '^1.0.0' },
+      providerVersion: '1.0.0',
+      translations: { 'en': { tasksView: 'Personal tasks', tasksList: 'My todo list' }, 'zh-CN': { tasksView: '个人事项', tasksList: '待办列表' } },
+      actions: [{ id: 'list', title: 'List tasks', operation: 'work-items.list', effect: 'remote-read', confirmation: 'never', effectiveConfirmation: 'never' }],
+      views: [{ id: 'overview', title: 'tasksView', icon: 'builtin:list', placement: 'primary-sidebar', scope: 'global-and-project', blocks: [{ id: 'items', title: 'tasksList', type: 'entity-list', actionId: 'list', input: { limit: 20, mode: 'todos' } }] }],
+    }]
+  }
+
+  it('opens the shared handoff dialog for completed source items with their exact identity and translated source', async () => {
+    handoffSource()
+    const sourceRef = { providerId: 'tasks', instanceId: 'tasks-personal', accountId: 'me', containerId: 'list-1', kind: 'task', itemId: 'native-task' }
+    const item = { id: 'display-task', title: 'Completed review', status: 'finished', statusCategory: 'done' as const, sourceRef }
+    const wrapper = mount(IntegrationEntityList, { global: { stubs: { WorkHandoffDialog: true } }, props: {
+      sourceContext: { integrationId: 'tasks-personal', actionId: 'list' },
+      statusFilter: 'active',
+      currentUser: { id: 'me' },
+      items: [item, { id: 'legacy', title: 'Legacy task' }],
+    } })
+    expect(wrapper.find('.integration-handoff-trigger').exists()).toBe(false)
+    wrapper.getComponent(FormSelect).vm.$emit('update:modelValue', 'all')
+    await wrapper.vm.$nextTick()
+    expect(wrapper.findAll('.integration-handoff-trigger')).toHaveLength(1)
+    await wrapper.get('button[aria-label="Prepare handoff Completed review"]').trigger('click')
+    const dialog = wrapper.getComponent(WorkHandoffDialog)
+    expect(dialog.props('open')).toBe(true)
+    expect(dialog.props('initialProjectId')).toBeUndefined()
+    expect(dialog.props('work')).toEqual({
+      item,
+      source: {
+        key: JSON.stringify(['tasks', 'tasks-personal', 'list', [['limit', 20], ['locale', 'en'], ['mode', 'todos']]]),
+        integrationId: 'tasks-personal',
+        viewId: 'overview',
+        title: 'Personal tasks',
+        sectionTitle: 'My todo list',
+        actionId: 'list',
+        input: { limit: 20, mode: 'todos', locale: 'en' },
+      },
+    })
+    expect(dialog.props('work')?.item.sourceRef).toEqual(sourceRef)
+    dialog.vm.$emit('update:open', false)
+    await wrapper.vm.$nextTick()
+    expect(dialog.props('open')).toBe(false)
+    useI18n().setLocale('zh-CN')
+    await wrapper.vm.$nextTick()
+    await wrapper.get('button[aria-label="准备交接 Completed review"]').trigger('click')
+    expect(dialog.props('work')?.source).toMatchObject({ title: '个人事项', sectionTitle: '待办列表', input: { locale: 'zh-CN' } })
+    await wrapper.setProps({ currentUser: { id: 'other' } })
+    expect(wrapper.findComponent(WorkHandoffDialog).exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('uses only the inspected project as a handoff initial selection and closes after a scope change', async () => {
+    handoffSource()
+    useWorkbenchStore().selectedProjectId = 'unrelated-project'
+    const wrapper = mount(IntegrationEntityList, { global: { stubs: { WorkHandoffDialog: true } }, props: {
+      sourceContext: { integrationId: 'tasks-personal', actionId: 'list', projectId: 'inspected-project' },
+      items: [{ id: '1', title: 'Review', sourceRef: { providerId: 'tasks', instanceId: 'tasks-personal', accountId: 'me', containerId: 'list-1', kind: 'task', itemId: '1' } }],
+    } })
+    await wrapper.get('.integration-handoff-trigger').trigger('click')
+    expect(wrapper.getComponent(WorkHandoffDialog).props('initialProjectId')).toBe('inspected-project')
+    await wrapper.setProps({ sourceContext: { integrationId: 'tasks-personal', actionId: 'list' } })
+    expect(wrapper.findComponent(WorkHandoffDialog).exists()).toBe(false)
+    await wrapper.get('.integration-handoff-trigger').trigger('click')
+    expect(wrapper.getComponent(WorkHandoffDialog).props('initialProjectId')).toBeUndefined()
+    wrapper.unmount()
+  })
+
+  it('omits handoff for legacy, mismatched-instance and configuration rows', async () => {
+    handoffSource()
+    const sourceRef = { providerId: 'tasks', instanceId: 'tasks-personal', accountId: 'me', containerId: 'list-1', kind: 'task', itemId: '1' }
+    const wrapper = mount(IntegrationEntityList, { global: { plugins: [getActivePinia()!], stubs: { WorkHandoffDialog: true } }, props: {
+      sourceContext: { integrationId: 'tasks-personal', actionId: 'list' },
+      items: [
+        { id: 'legacy', title: 'Legacy' },
+        { id: 'other', title: 'Other instance', sourceRef: { ...sourceRef, instanceId: 'other-instance' } },
+      ],
+    } })
+    expect(wrapper.find('.integration-handoff-trigger').exists()).toBe(false)
+    await wrapper.setProps({ items: [{ id: '1', title: 'Work item', sourceRef }] })
+    expect(wrapper.find('.integration-handoff-trigger').exists()).toBe(true)
+    await wrapper.setProps({ configurationActionId: 'update' })
+    expect(wrapper.find('.integration-handoff-trigger').exists()).toBe(false)
+    expect(wrapper.findComponent(WorkHandoffDialog).exists()).toBe(false)
+    wrapper.unmount()
   })
 
   it('combines exact multi-assignee matching with status and keyword filters', async () => {
