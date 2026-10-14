@@ -1,6 +1,7 @@
 import type { DesktopCodexMode } from '../apps/desktop/src/build-info.ts'
 import { access, readdir, readFile, realpath, rm } from 'node:fs/promises'
 import { isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { prepareMacosKeytar } from './prepare-macos-keytar.ts'
 
 /** Remove only known build inputs and duplicated resources from a deployed macOS desktop. */
 export async function prepareDesktopPackage(desktopDirectory: string, codexMode: DesktopCodexMode = 'bundled'): Promise<void> {
@@ -35,6 +36,8 @@ export async function prepareDesktopPackage(desktopDirectory: string, codexMode:
 /** Prune a copied application for its own target, leaving the shared staging tree reusable. */
 export async function prepareDesktopArchitecture(desktopDirectory: string, architecture: 'arm64' | 'x64', codexMode: DesktopCodexMode = 'bundled'): Promise<void> {
   const root = await realpath(desktopDirectory)
+  const keytarDirectory = await deployedDependency(root, 'keytar')
+  await prepareMacosKeytar(keytarDirectory, architecture, { stagingDirectory: root })
   const ptyDirectory = await deployedDependency(root, 'node-pty')
   const prebuildDirectory = await stagedDirectory(root, join(ptyDirectory, 'prebuilds'))
   const ptyTarget = join(prebuildDirectory, `darwin-${architecture}`)

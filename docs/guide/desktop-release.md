@@ -45,6 +45,8 @@ If multiple eligible certificates exist, choose one with `MACOS_LOCAL_SIGNING_ID
 
 Ad hoc signatures identify a particular build, so previous keychain approvals can stop matching after an update. The first certificate-signed build may need one new **Always Allow** approval. Subsequent local rebuilds retain the application's designated requirement. Keychain resets, revoked permissions, certificate changes, or switching between local development and distribution channels may still require approval. Local certificate signing does not enable notarization or turn on release updates; release signing remains controlled by `MACOS_SIGNING_ENABLED`.
 
+Each copied macOS target verifies the `keytar@7.9.0` native credential addon against its architecture. When the installed addon belongs to the build machine's other architecture, packaging obtains the matching pinned N-API v3 prebuild through the locked installer. A missing or incompatible prebuild stops packaging. The addon remains unpacked for application signing, and the shared staging tree stays reusable for both targets. This prevents Intel packages built on Apple silicon from silently falling back to a credential-encryption key stored beside the token cache.
+
 ## Release gate
 
 Pushing a matching `v*` tag starts the release workflow. It does not create the GitHub Release until all of these checks succeed:
