@@ -17,6 +17,7 @@ describe('desktop open targets', () => {
   it.each([
     { application: 'raycast', name: 'Raycast' },
     { application: 'orca', name: 'Orca' },
+    { application: 'ghostty', name: 'Ghostty' },
   ])('opens $name through a fixed macOS launcher without project context', async ({ application, name }) => {
     const child = new EventEmitter() as ChildProcess
     const launch = vi.fn(() => child)
@@ -34,6 +35,14 @@ describe('desktop open targets', () => {
     expect(openWebsite).not.toHaveBeenCalled()
   })
 
+  it('keeps an explicit website-only Ghostty favorite in the browser', async () => {
+    const launch = vi.fn()
+    const openWebsite = vi.fn(async () => {})
+    await expect(openPersonalWorkbenchTool({ ...websiteTool, url: 'https://ghostty.org/' }, openWebsite, 'darwin', launch)).resolves.toEqual({ destination: 'website', contextTransferred: false })
+    expect(openWebsite).toHaveBeenCalledWith('https://ghostty.org/')
+    expect(launch).not.toHaveBeenCalled()
+  })
+
   it('passes only a validated Raycast command route to the known application', async () => {
     const child = new EventEmitter() as ChildProcess
     const launch = vi.fn(() => child)
@@ -43,6 +52,47 @@ describe('desktop open targets', () => {
     await opened
 
     expect(launch).toHaveBeenCalledWith('/usr/bin/open', ['-a', 'Raycast', commandUrl], { shell: false, stdio: 'ignore' })
+  })
+
+  it.each(['linux', 'win32'])('opens the official Ghostty homepage fallback on %s', async (platform) => {
+    const launch = vi.fn()
+    const openWebsite = vi.fn(async () => {})
+    await expect(openPersonalWorkbenchTool({ ...websiteTool, url: 'https://ghostty.org/', launch: { application: 'ghostty' } }, openWebsite, platform, launch)).resolves.toEqual({
+      destination: 'website',
+      application: 'ghostty',
+      contextTransferred: false,
+      fallbackReason: 'unsupported-platform',
+    })
+    expect(openWebsite).toHaveBeenCalledWith('https://ghostty.org/')
+    expect(launch).not.toHaveBeenCalled()
+  })
+
+  it.each(['error', 'nonzero', 'signal'])('opens the Ghostty homepage after a local launcher %s', async (failure) => {
+    const child = new EventEmitter() as ChildProcess
+    const launch = vi.fn(() => child)
+    const openWebsite = vi.fn(async () => {})
+    const opened = openPersonalWorkbenchTool({ ...websiteTool, url: 'https://ghostty.org/', launch: { application: 'ghostty' } }, openWebsite, 'darwin', launch)
+    if (failure === 'error')
+      child.emit('error', new Error('Application unavailable'))
+    else
+      child.emit('close', failure === 'nonzero' ? 1 : null, failure === 'signal' ? 'SIGTERM' : null)
+
+    await expect(opened).resolves.toEqual({ destination: 'website', application: 'ghostty', contextTransferred: false, fallbackReason: 'application-unavailable' })
+    expect(openWebsite).toHaveBeenCalledOnce()
+    expect(openWebsite).toHaveBeenCalledWith('https://ghostty.org/')
+  })
+
+  it.each([
+    { command: 'sh' },
+    { args: ['-e', 'echo hello'] },
+    { path: '/project' },
+    { commandUrl: 'ghostty://project/example' },
+  ])('rejects arbitrary Ghostty launch options %j before invoking the operating system', async (options) => {
+    const launch = vi.fn()
+    const openWebsite = vi.fn()
+    await expect(openPersonalWorkbenchTool({ ...websiteTool, launch: { application: 'ghostty', ...options } }, openWebsite, 'darwin', launch)).rejects.toThrow()
+    expect(launch).not.toHaveBeenCalled()
+    expect(openWebsite).not.toHaveBeenCalled()
   })
 
   it.each(['linux', 'win32'])('opens the HTTPS fallback on %s without claiming an application launch', async (platform) => {

@@ -126,6 +126,14 @@ plugin detects it. Plugin observations only overlay matching application URLs
 and package references; cached repository metadata does not authorize execution.
 Installation and configuration management remain plugin operations.
 
+Ghostty is listed under **Terminal and editor**. On macOS, a connected Workstation
+plugin detects `Ghostty.app` and enables **Open** when it is installed. Adding
+Ghostty to favorites also saves its native launch preset, so clicking its card
+opens the application in the desktop workbench. In **Favorite tools → Customize
+tools**, select **Ghostty** for a previously saved website shortcut, or select
+**Website** to keep using its official site. Browser mode and unavailable native
+applications use the HTTPS website fallback.
+
 Parsed metadata and its content revision are saved as private JSON state in the
 host's Craft Hub data directory. This is a cache, not another catalog to maintain
 or publish. Local paths are not exposed by a hosted workbench. Hosted instances

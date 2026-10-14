@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { PersonalWorkbenchTool, SoftwareCatalogItem, SoftwareCatalogSnapshot, SoftwareInstallationPlan, SoftwareInstallationRun } from 'craft-hub'
-import { personalWorkbenchHomeSchema } from 'craft-hub/personal-workbench'
+import { personalWorkbenchHomeSchema, personalWorkbenchToolLaunchForUrl } from 'craft-hub/personal-workbench'
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { api } from './api'
 import { Alert } from './components/ui/alert'
@@ -449,11 +449,13 @@ async function addFavorite(item: SoftwareCatalogItem): Promise<void> {
       saveError.value = copy('常用工具已达到 100 项，请先在个人工作台移除一些工具。', 'Favorites already contain 100 tools. Remove a tool from your personal workbench first.')
       return
     }
+    const launch = personalWorkbenchToolLaunchForUrl(item.url)
     const tool: PersonalWorkbenchTool = {
       id: `software:${crypto.randomUUID()}`,
       title: text(item.title).slice(0, 128),
       group: text(item.group.title).slice(0, 64),
       url: item.url,
+      ...(launch ? { launch } : {}),
       ...(item.downloadUrl ? { downloadUrl: item.downloadUrl } : {}),
       ...(item.repositoryUrl ? { repositoryUrl: item.repositoryUrl } : {}),
       ...(item.iconUrl ? { iconUrl: item.iconUrl } : {}),

@@ -67,6 +67,13 @@ async function submitTools(): Promise<void> {
   await flushPromises()
 }
 
+async function selectToolLaunch(value: string): Promise<void> {
+  const select = document.body.querySelector<HTMLSelectElement>('.home-tool-editor select')!
+  select.value = value
+  select.dispatchEvent(new Event('change', { bubbles: true }))
+  await flushPromises()
+}
+
 describe('personal workbench', () => {
   let wrapper: VueWrapper | undefined
 
@@ -481,6 +488,66 @@ describe('personal workbench', () => {
     await wrapper!.get('.home-tool').trigger('click')
     await flushPromises()
     expect(wrapper!.get('.home-tools [role="status"]').text()).toContain('local application could not be launched')
+  })
+
+  it('uses the Ghostty website in browsers and launches the saved Ghostty shortcut by ID on desktop', async () => {
+    const tool = { id: 'software:ghostty', title: 'Ghostty', group: 'Terminals', url: 'https://ghostty.org/', launch: { application: 'ghostty' as const } }
+    useWorkbenchStore().settings = snapshot({ tools: [tool] })
+    await openHome()
+    expect(wrapper!.get('.home-tool').attributes()).toMatchObject({ href: 'https://ghostty.org/', target: '_blank', rel: 'noopener noreferrer' })
+    expect(wrapper!.get('.home-tool').text()).toContain('Browser mode · Open website')
+    wrapper!.unmount()
+
+    const open = vi.fn().mockResolvedValue({ destination: 'application', application: 'ghostty', contextTransferred: false })
+    window.craftHubDesktop = { openWorkbenchTool: open }
+    await openHome()
+    expect(wrapper!.get('.home-tool').text()).toContain('Open local application')
+    await wrapper!.get('.home-tool').trigger('click', { ctrlKey: true })
+    expect(open).not.toHaveBeenCalled()
+    await wrapper!.get('.home-tool').trigger('click')
+    await flushPromises()
+    expect(open).toHaveBeenCalledWith('software:ghostty')
+    expect(wrapper!.get('.home-tools [role="status"]').text()).toContain('Requested Ghostty')
+
+    open.mockResolvedValue({ destination: 'website', application: 'ghostty', contextTransferred: false })
+    await wrapper!.get('.home-tool').trigger('click')
+    await flushPromises()
+    expect(wrapper!.get('.home-tools [role="status"]').text()).toContain('Opened the Ghostty website')
+  })
+
+  it('adds the Ghostty launch preset to an existing website favorite only when saved', async () => {
+    const tool = { id: 'old-ghostty', title: 'Ghostty', group: 'Terminals', url: 'https://ghostty.org/' }
+    const store = useWorkbenchStore()
+    store.settings = snapshot({ tools: [tool] })
+    const savedHome: PersonalWorkbenchHome = { tools: [{ ...tool, launch: { application: 'ghostty' } }] }
+    const update = vi.spyOn(api, 'updateSettings').mockResolvedValue(snapshot(savedHome, 'ghostty-saved'))
+    await openTools()
+    expect(document.body.querySelector<HTMLSelectElement>('.home-tool-editor select')?.value).toBe('website')
+    expect(document.body.querySelector('option[value="ghostty"]')?.textContent).toBe('Ghostty')
+    await selectToolLaunch('ghostty')
+    expect(store.settings!.settings['workbench.home'].tools[0]!.launch).toBeUndefined()
+    await submitTools()
+    expect(update).toHaveBeenCalledWith({ 'workbench.home': savedHome }, 'initial')
+    expect(store.settings!.revision).toBe('ghostty-saved')
+    expect(wrapper!.get('.home-tool').text()).toContain('Browser mode · Open website')
+  })
+
+  it('preserves an explicit website destination when the Ghostty launch preset is removed', async () => {
+    const tool = { id: 'ghostty', title: 'Ghostty', group: 'Terminals', url: 'https://ghostty.org/' }
+    const store = useWorkbenchStore()
+    store.settings = snapshot({ tools: [{ ...tool, launch: { application: 'ghostty' } }] })
+    const update = vi.spyOn(api, 'updateSettings').mockResolvedValue(snapshot({ tools: [tool] }, 'website-saved'))
+    const open = vi.fn()
+    window.craftHubDesktop = { openWorkbenchTool: open }
+    await openTools()
+    expect(document.body.querySelector<HTMLSelectElement>('.home-tool-editor select')?.value).toBe('ghostty')
+    await selectToolLaunch('website')
+    expect(store.settings!.settings['workbench.home'].tools[0]!.launch).toEqual({ application: 'ghostty' })
+    await submitTools()
+    expect(update).toHaveBeenCalledWith({ 'workbench.home': { tools: [tool] } }, 'initial')
+    expect(wrapper!.get('.home-tool').text()).toContain('ghostty.org')
+    await wrapper!.get('.home-tool').trigger('click')
+    expect(open).not.toHaveBeenCalled()
   })
 
   it('clears a Raycast command without mutating saved configuration before the user saves', async () => {

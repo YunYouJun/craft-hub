@@ -97,6 +97,21 @@ export const softwareGroups: SoftwareGroup[] = [
         iconify: 'i-simple-icons-iterm2',
       },
       {
+        id: 'ghostty',
+        macosIconUrl: 'https://raw.githubusercontent.com/ghostty-org/ghostty/v1.3.1/macos/Assets.xcassets/AppIconImage.imageset/macOS-AppIcon-512px.png',
+        iconUrl: 'https://ghostty.org/_next/static/media/ghostty-logo.6bcc6c33.svg',
+        name: {
+          en: 'Ghostty',
+        },
+        url: 'https://ghostty.org/',
+        downloadUrl: 'https://ghostty.org/download',
+        repositoryUrl: 'https://github.com/ghostty-org/ghostty',
+        cask: 'ghostty',
+        app: 'Ghostty.app',
+        defaultInstall: false,
+        note: 'Fast terminal emulator with native UI and GPU acceleration. Install with Homebrew or the official macOS download.',
+      },
+      {
         id: 'vscode',
         iconUrl: 'https://code.visualstudio.com/assets/apple-touch-icon.png',
         name: {
