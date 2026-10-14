@@ -48,7 +48,7 @@ The [machine workbench decision](docs/adr/0011-focus-on-machine-setup-and-enviro
 
 ## Develop
 
-Requires Node.js 22.18+ and pnpm 11.
+Requires Node.js 22.18+ and pnpm 12. Use the exact pnpm version pinned in `package.json`; CI reads the same `packageManager` field.
 
 ```bash
 pnpm install

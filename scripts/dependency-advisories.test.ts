@@ -4,12 +4,38 @@ import { describe, expect, it, vi } from 'vitest'
 
 const runtimeRequire = createRequire(new URL('../packages/craft-hub/package.json', import.meta.url))
 const webRequire = createRequire(new URL('../apps/web/package.json', import.meta.url))
-const { parse } = runtimeRequire('yaml') as { parse: (source: string) => { packages: Record<string, unknown> } }
+const { parseAllDocuments } = runtimeRequire('yaml') as {
+  parseAllDocuments: (source: string) => Array<{
+    errors: Error[]
+    toJS: () => { packages?: Record<string, unknown>, snapshots?: Record<string, unknown> }
+  }>
+}
 const { satisfies, valid } = runtimeRequire('semver') as {
   satisfies: (version: string, range: string) => boolean
   valid: (version: string) => string | null
 }
-const lockfile = parse(readFileSync(new URL('../pnpm-lock.yaml', import.meta.url), 'utf8'))
+function readLockfileResolutionKeys(source: string): string[] {
+  const documents = parseAllDocuments(source)
+  if (documents.length === 0)
+    throw new Error('The lockfile contains no YAML documents')
+
+  return documents.flatMap((document) => {
+    if (document.errors.length > 0)
+      throw document.errors[0]
+    const lockfile = document.toJS()
+    if (!lockfile || typeof lockfile !== 'object')
+      throw new Error('A lockfile document must contain a mapping')
+    return [...Object.keys(lockfile.packages ?? {}), ...Object.keys(lockfile.snapshots ?? {})]
+  })
+}
+
+function resolvedVersions(keys: string[], name: string): string[] {
+  return keys
+    .filter(key => key.startsWith(`${name}@`))
+    .map(key => key.slice(name.length + 1).split('(')[0]!)
+}
+
+const lockfileResolutionKeys = readLockfileResolutionKeys(readFileSync(new URL('../pnpm-lock.yaml', import.meta.url), 'utf8'))
 
 // Check every lockfile path, including dev and optional dependencies. Live audit
 // remains necessary for new advisories; these ranges prevent known regressions.
@@ -33,10 +59,26 @@ const vulnerableRanges = [
 ]
 
 describe('dependency advisory regressions', () => {
+  it.each([
+    { format: 'single', separator: '' },
+    { format: 'multiple', separator: '---\n' },
+  ])('finds affected toolchain and peer resolutions in $format lockfile documents', ({ separator }) => {
+    const source = separator
+      ? `importers:\n  .:\n    packageManagerDependencies:\n      pnpm: {}\npackages:\n  undici@6.28.0: {}\n${separator}packages:\n  undici@7.29.1: {}\nsnapshots:\n  undici@7.28.0(peer@1.0.0): {}\n`
+      : 'packages:\n  undici@6.28.0: {}\n  undici@7.29.1: {}\nsnapshots:\n  undici@7.28.0(peer@1.0.0): {}\n'
+    const versions = resolvedVersions(readLockfileResolutionKeys(source), 'undici')
+
+    expect(versions.filter(version => satisfies(version, '>=6.7.0 <6.28.1 || >=7.0.0 <7.29.1')))
+      .toEqual(['6.28.0', '7.28.0'])
+    expect(versions).toContain('7.29.1')
+  })
+
+  it('rejects malformed later documents instead of scanning a partial lockfile', () => {
+    expect(() => readLockfileResolutionKeys('packages:\n  undici@7.29.1: {}\n---\npackages: [\n')).toThrow()
+  })
+
   it.each(vulnerableRanges)('keeps every $name resolution outside known affected ranges', ({ name, range }) => {
-    const versions = Object.keys(lockfile.packages)
-      .filter(key => key.startsWith(`${name}@`))
-      .map(key => key.slice(name.length + 1))
+    const versions = resolvedVersions(lockfileResolutionKeys, name)
 
     expect(versions.length).toBeGreaterThan(0)
     for (const version of versions) {
