@@ -151,6 +151,33 @@ describe('marketplace dialog', () => {
     wrapper.unmount()
   })
 
+  it('keeps tab navigation outside the scroll region when switching between different content lengths', async () => {
+    vi.spyOn(api, 'marketplaceCatalog').mockResolvedValue(Array.from({ length: 18 }, (_, index) => ({
+      ...catalogPlugin,
+      package: `@acme/plugin-${index}`,
+    })))
+    vi.spyOn(api, 'installedPlugins').mockResolvedValue([])
+    vi.spyOn(api, 'marketplaceSources').mockResolvedValue([])
+    const wrapper = await mountMarketplace({ open: true }, document.body)
+    await flushPromises()
+    const tablist = wrapper.get('[role="tablist"]')
+    const scrollRegion = wrapper.get('.workbench-frame-scroll')
+
+    expect(wrapper.findAll('.plugin-row')).toHaveLength(18)
+    expect(scrollRegion.element.contains(tablist.element)).toBe(false)
+    expect(scrollRegion.element.contains(wrapper.get('[role="tabpanel"]').element)).toBe(true)
+
+    await tablist.trigger('keydown', { key: 'ArrowRight' })
+    await flushPromises()
+
+    expect(wrapper.find('.plugin-row').exists()).toBe(false)
+    expect(wrapper.find('.local-plugin-form').exists()).toBe(true)
+    expect(wrapper.get('[role="tablist"]').element).toBe(tablist.element)
+    expect(scrollRegion.element.contains(tablist.element)).toBe(false)
+    expect(document.activeElement).toBe(tablist.findAll('[role="tab"]')[1]!.element)
+    wrapper.unmount()
+  })
+
   it('includes the host extensions tab in keyboard navigation only when the host provides it', async () => {
     vi.spyOn(api, 'marketplaceCatalog').mockResolvedValue([])
     vi.spyOn(api, 'installedPlugins').mockResolvedValue([])

@@ -51,6 +51,7 @@ function settings(): SettingsSnapshot {
       'workbench.home': { tools: [{ id: 'launcher', title: 'Launcher', url: 'https://example.com/', group: 'Tools', launch: { application: 'orca' } }] },
       'workbench.locale': 'en',
       'workbench.repositoriesRoot': '',
+      'workbench.sidebar': { entries: [] },
       'workbench.shortcuts': {},
       'workbench.theme': 'system',
     },

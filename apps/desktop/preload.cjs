@@ -61,6 +61,7 @@ contextBridge.exposeInMainWorld('craftHubDesktop', {
   openWorkbenchTool: toolId => ipcRenderer.invoke('craft-hub:open-workbench-tool', toolId),
   openSettingsFile: () => ipcRenderer.invoke('craft-hub:open-settings-file'),
   setTheme: theme => ipcRenderer.invoke('craft-hub:set-theme', theme),
+  setLocale: locale => ipcRenderer.invoke('craft-hub:set-locale', locale),
   updateStatus: () => ipcRenderer.invoke('craft-hub:update-status'),
   setAutomaticUpdates: enabled => ipcRenderer.invoke('craft-hub:set-automatic-updates', enabled),
   checkForUpdates: () => ipcRenderer.invoke('craft-hub:check-for-updates'),

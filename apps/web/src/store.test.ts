@@ -70,6 +70,7 @@ describe('workbench refresh', () => {
         'workbench.locale': 'en',
         'workbench.repositoriesRoot': '',
         'workbench.shortcuts': {},
+        'workbench.sidebar': { entries: [] },
         'workbench.theme': 'system',
       },
     }
@@ -88,6 +89,71 @@ describe('workbench refresh', () => {
     expect(store.settings?.revision).toBe('newer')
     expect(store.settings?.settings['workbench.home']).toEqual(snapshot.settings['workbench.home'])
     expect(store.settingsLoadState).toBe('ready')
+  })
+
+  it('persists sidebar edits with a settings revision and removes the override when resetting', async () => {
+    const store = useWorkbenchStore()
+    const initial: SettingsSnapshot = {
+      explicitKeys: [],
+      path: '/settings.json',
+      revision: 'initial',
+      settings: {
+        'workbench.codex': {},
+        'workbench.editor': { default: 'vscode' },
+        'workbench.home': { tools: [] },
+        'workbench.locale': 'en',
+        'workbench.repositoriesRoot': '',
+        'workbench.shortcuts': {},
+        'workbench.sidebar': { entries: [] },
+        'workbench.theme': 'system',
+      },
+    }
+    await store.applySettings(initial)
+    const sidebar = { entries: [{ kind: 'item' as const, id: 'builtin:home', visible: false }] }
+    const patches: unknown[] = []
+    vi.stubGlobal('fetch', vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const patch = JSON.parse(String(init?.body))
+      patches.push(patch)
+      return Response.json({ ...initial, revision: patches.length === 1 ? 'saved' : 'reset', settings: { ...initial.settings, 'workbench.sidebar': patch.settings['workbench.sidebar'] ?? { entries: [] } } })
+    }))
+    await store.updateSidebarSetting(sidebar)
+    expect(store.settings?.settings['workbench.sidebar']).toEqual(sidebar)
+    await store.updateSidebarSetting({ entries: [] })
+    expect(patches).toEqual([
+      { revision: 'initial', settings: { 'workbench.sidebar': sidebar } },
+      { revision: 'saved', settings: { 'workbench.sidebar': null } },
+    ])
+    expect(store.settings?.settings['workbench.sidebar']).toEqual({ entries: [] })
+    expect(window.localStorage.getItem('workbench.sidebar')).toBeNull()
+  })
+
+  it('refreshes a conflicting sidebar snapshot without overwriting another window’s settings', async () => {
+    const store = useWorkbenchStore()
+    const snapshot: SettingsSnapshot = {
+      explicitKeys: [],
+      path: '/settings.json',
+      revision: 'old',
+      settings: {
+        'workbench.codex': {},
+        'workbench.editor': { default: 'vscode' },
+        'workbench.home': { tools: [] },
+        'workbench.locale': 'en',
+        'workbench.repositoriesRoot': '',
+        'workbench.shortcuts': {},
+        'workbench.sidebar': { entries: [] },
+        'workbench.theme': 'system',
+      },
+    }
+    await store.applySettings(snapshot)
+    const requests = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => init?.method === 'PATCH'
+      ? Response.json({ error: 'Settings changed' }, { status: 409 })
+      : Response.json({ ...snapshot, revision: 'latest', settings: { ...snapshot.settings, 'workbench.theme': 'dark' } }))
+    vi.stubGlobal('fetch', requests)
+    await expect(store.updateSidebarSetting({ entries: [{ kind: 'item', id: 'builtin:home', visible: false }] })).rejects.toThrow('Settings changed')
+    expect(requests).toHaveBeenCalledTimes(2)
+    expect(store.settings?.revision).toBe('latest')
+    expect(store.settings?.settings['workbench.theme']).toBe('dark')
+    expect(store.settings?.settings['workbench.sidebar']).toEqual({ entries: [] })
   })
 
   it('retains completion streamed before the task creation response', async () => {

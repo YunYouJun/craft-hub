@@ -43,12 +43,32 @@ const editorSettingSchema = z.object({
   message: 'Custom editor configuration is required when it is the default',
   path: ['custom'],
 })
+const sidebarEntryIdSchema = z.string().trim().min(1).refine(value => !value.includes('\0'), 'Sidebar entry identifier cannot contain NUL')
+const sidebarEntrySchema = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('item'),
+    id: sidebarEntryIdSchema.refine(value => !value.startsWith('separator:'), 'Sidebar item identifiers cannot use the separator: namespace'),
+    visible: z.boolean(),
+  }).strict(),
+  z.object({
+    kind: z.literal('separator'),
+    id: sidebarEntryIdSchema.refine(value => value.startsWith('separator:'), 'Sidebar separator identifiers must use the separator: namespace'),
+    group: z.enum(['builtins', 'plugins', 'utilities']).optional(),
+  }).strict(),
+])
+/** Ordered sidebar items, visibility preferences, and user-defined group separators. */
+export const sidebarSettingSchema = z.object({
+  entries: z.array(sidebarEntrySchema)
+    .refine(entries => new Set(entries.map(entry => entry.id)).size === entries.length, 'Sidebar entry identifiers must be unique')
+    .refine(entries => entries.filter(entry => entry.kind === 'separator').length <= 256, 'Sidebar cannot contain more than 256 separators'),
+}).strict()
 const coreSettingsSchema = z.object({
   'workbench.codex': codexSettingSchema.optional(),
   'workbench.editor': editorSettingSchema.optional(),
   'workbench.home': personalWorkbenchHomeSchema.optional(),
   'workbench.locale': localeSchema.optional(),
   'workbench.repositoriesRoot': localPathSchema.optional(),
+  'workbench.sidebar': sidebarSettingSchema.optional(),
   'workbench.theme': themeSchema.optional(),
   'workbench.shortcuts': shortcutsSchema.optional(),
 }).strict()
@@ -76,6 +96,10 @@ export type WorkbenchEditorId = z.infer<typeof editorIdSchema>
 export type WorkbenchCustomEditor = z.infer<typeof customEditorSchema>
 /** Editor launcher preference shared by projects and workspaces. */
 export type WorkbenchEditorSetting = z.infer<typeof editorSettingSchema>
+/** A built-in or plugin sidebar item, or a user-defined separator. */
+export type WorkbenchSidebarEntry = z.infer<typeof sidebarEntrySchema>
+/** Sidebar composition preference; empty entries use the default composition. */
+export type WorkbenchSidebarSetting = z.infer<typeof sidebarSettingSchema>
 /** Breadth of settings included in a portable export. */
 export type SettingsExportMode = 'minimal' | 'full'
 /** Strategy used when importing settings. */
@@ -91,6 +115,8 @@ export interface CraftHubSettings {
   'workbench.locale': WorkbenchLocale
   /** Optional local starting directory for repository and project folder pickers. */
   'workbench.repositoriesRoot': string
+  /** Ordered built-in and plugin navigation items; empty entries use the default composition. */
+  'workbench.sidebar': WorkbenchSidebarSetting
   /** Keyboard shortcuts keyed by stable workbench action identifier. */
   'workbench.shortcuts': Record<string, string>
   'workbench.theme': WorkbenchTheme
@@ -158,6 +184,7 @@ const defaultSettings: CraftHubSettings = {
   'workbench.home': createDefaultPersonalWorkbenchHome(),
   'workbench.locale': 'zh-CN',
   'workbench.repositoriesRoot': '',
+  'workbench.sidebar': { entries: [] },
   'workbench.shortcuts': { 'workbench.showCommandPalette': 'Mod+K' },
   'workbench.theme': 'system',
 }
@@ -174,6 +201,7 @@ const portableCoreSettingKeys = [
   'workbench.codex',
   'workbench.editor',
   'workbench.locale',
+  'workbench.sidebar',
   'workbench.shortcuts',
   'workbench.theme',
 ] as const satisfies Array<keyof CraftHubSettings>
@@ -203,7 +231,7 @@ function validateSettingsFile(input: unknown): ValidatedSettingsFile {
   if (!input || typeof input !== 'object' || Array.isArray(input))
     throw new SettingsValidationError('Settings must be a JSON object')
   const record = input as Record<string, unknown>
-  const knownKeys = new Set(['workbench.codex', 'workbench.editor', 'workbench.home', 'workbench.locale', 'workbench.repositoriesRoot', 'workbench.theme', 'workbench.shortcuts'])
+  const knownKeys = new Set(['workbench.codex', 'workbench.editor', 'workbench.home', 'workbench.locale', 'workbench.repositoriesRoot', 'workbench.sidebar', 'workbench.theme', 'workbench.shortcuts'])
   const known = Object.fromEntries(Object.entries(record).filter(([key]) => knownKeys.has(key)))
   const parsed = coreSettingsSchema.parse(known)
   const extensions: Record<string, unknown> = {}

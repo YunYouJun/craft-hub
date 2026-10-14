@@ -21,6 +21,7 @@ src/
 - `button`: owns variants, sizes, focus, disabled state, icon sizing, and foreground/background pairing.
 - `select`: owns the styled Reka Select composition already used by command inputs.
 - `dialog`: owns portal, overlay, accessible title and description, optional structured headers, and content attribute forwarding.
+- `settings`: owns grouped sections, aligned setting rows, metadata, and status/action layout. SettingsDialog, AgentConnectionSettings, and CelebrationSettings compose the same interface.
 - Badge, field, and tooltip modules should be added when a second real caller demonstrates a reusable contract.
 
 ## Button contract
@@ -40,3 +41,13 @@ Callers must not override button colors or reconstruct a variant with local clas
 The initial migration covers every generic primary, secondary, warning, and destructive action plus every Reka dialog scaffold. Specialized controls—toolbar buttons, palette results, theme choices, and icon swatches—keep purpose-specific markup rather than pretending to be generic buttons.
 
 Keyboard focus uses `:focus-visible` with a one-pixel surface isolation layer and a two-pixel `--focus-ring`. This keeps the ring legible against both solid actions and surrounding surfaces without showing it for pointer interaction.
+
+## Settings contract
+
+`SettingsSection` groups related preferences with an accessible title and optional description, controls, and footer. `SettingsRow` aligns a label and optional description with a control slot; pass `controlId` for native label activation, and forward the slot's `descriptionId` to the control. `SettingsStatus` presents a status title, metadata, and actions without introducing another provider-specific card design. Use its live-region attributes only when a status needs an announcement.
+
+These components use `styles/settings.css` and the `--settings-*` tokens in `styles/tokens.css`. Font, focus, button, switch, and form dimensions reuse the global semantic tokens. The setting window, grouped rows, divider, metadata, and responsive spacing have their own semantic aliases; callers should supply content and placement, not duplicate typography, borders, colors, or control geometry.
+
+Settings use the existing sidebar/tab navigation, Input, Textarea, Switch, and Button modules. Keep selection scope checkboxes for multi-selection. The active pane appears in the title, the last pane is restored when reopening, and a changed explicit entry pane still takes precedence. Narrow windows use the existing horizontal tab presentation.
+
+This is an Electron web settings interface adapted to macOS conventions. The grouping, alignment, and navigation follow the [Apple Settings](https://developer.apple.com/design/human-interface-guidelines/settings), [Boxes](https://developer.apple.com/design/human-interface-guidelines/boxes), and [Sidebars](https://developer.apple.com/design/human-interface-guidelines/sidebars) guidance. Pixel dimensions are Craft Hub design choices; the components do not claim to be AppKit controls.

@@ -32,7 +32,7 @@ describe('settings dialog', () => {
       explicitKeys: [],
       path: '/settings.json',
       revision: 'initial',
-      settings: { 'workbench.codex': {}, 'workbench.editor': { default: 'vscode' }, 'workbench.home': { tools: [] }, 'workbench.locale': 'en', 'workbench.repositoriesRoot': '', 'workbench.shortcuts': { 'workbench.showCommandPalette': 'Mod+K' }, 'workbench.theme': 'system' },
+      settings: { 'workbench.codex': {}, 'workbench.editor': { default: 'vscode' }, 'workbench.home': { tools: [] }, 'workbench.locale': 'en', 'workbench.repositoriesRoot': '', 'workbench.sidebar': { entries: [] }, 'workbench.shortcuts': { 'workbench.showCommandPalette': 'Mod+K' }, 'workbench.theme': 'system' },
     }
     vi.stubGlobal('fetch', vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
       const path = String(_input)
@@ -77,6 +77,7 @@ describe('settings dialog', () => {
           'workbench.home': patch['workbench.home'] ?? { tools: [] },
           'workbench.locale': patch['workbench.locale'] ?? 'en',
           'workbench.repositoriesRoot': patch['workbench.repositoriesRoot'] ?? '',
+          'workbench.sidebar': patch['workbench.sidebar'] ?? { entries: [] },
           'workbench.shortcuts': patch['workbench.shortcuts'] ?? { 'workbench.showCommandPalette': 'Mod+K' },
           'workbench.theme': patch['workbench.theme'] ?? 'system',
         },
@@ -96,6 +97,23 @@ describe('settings dialog', () => {
     expect(document.body.textContent).toContain('显示语言')
     expect(useWorkbenchStore().settings?.settings['workbench.locale']).toBe('zh-CN')
     expect(window.localStorage.getItem('craft-hub-locale')).toBeNull()
+  })
+
+  it('associates grouped setting fields with visible labels', async () => {
+    const wrapper = mount(SettingsDialog, { props: { open: true }, attachTo: document.body })
+    await flushPromises()
+
+    for (const testId of ['repositories-root', 'default-editor', 'custom-editor-name', 'custom-editor-command', 'custom-editor-args', 'codex-model', 'codex-reasoning-effort']) {
+      const control = document.body.querySelector<HTMLInputElement>(`[data-testid="${testId}"]`)!
+      const label = document.body.querySelector<HTMLLabelElement>(`label[for="${control.id}"]`)!
+      expect(label.textContent?.trim()).not.toBe('')
+      expect(control.labels).toContain(label)
+    }
+    for (const section of document.body.querySelectorAll('[data-slot="settings-section"]')) {
+      expect(document.getElementById(section.getAttribute('aria-labelledby')!)?.tagName).toBe('H3')
+    }
+    expect(document.body.querySelector('[data-testid="locale-en"]')?.getAttribute('aria-pressed')).toBe('true')
+    wrapper.unmount()
   })
 
   it('saves a shell-free custom editor configuration', async () => {
@@ -198,6 +216,28 @@ describe('settings dialog', () => {
     expect(importTab.getAttribute('data-state')).toBe('active')
     expect(document.body.textContent).toContain('Export changed settings')
     expect(document.body.textContent).not.toContain('Choose the language used throughout Craft Hub.')
+  })
+
+  it('restores the selected pane when reopening and honors an explicit new pane', async () => {
+    const wrapper = mount(SettingsDialog, { props: { open: true }, attachTo: document.body })
+    await flushPromises()
+    const shortcuts = document.body.querySelector<HTMLButtonElement>('[role="tab"][aria-label="Keyboard shortcuts"]')!
+    shortcuts.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0 }))
+    await flushPromises()
+    expect(document.body.querySelector('.settings-header h2')?.textContent).toContain('Keyboard shortcuts')
+    expect(document.body.querySelector('[role="dialog"]')?.getAttribute('aria-label')).toBe('Settings')
+
+    await wrapper.setProps({ open: false })
+    await wrapper.setProps({ open: true })
+    await flushPromises()
+    expect(document.body.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe('Keyboard shortcuts')
+
+    await wrapper.setProps({ open: false, initialTab: 'help' })
+    await wrapper.setProps({ open: true })
+    await flushPromises()
+    expect(document.body.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe('Help')
+    expect(document.body.querySelector('.settings-header h2')?.textContent).toContain('Help')
+    wrapper.unmount()
   })
 
   it('labels source-list entries while keeping their icons decorative', async () => {
@@ -383,10 +423,10 @@ describe('settings dialog', () => {
 
     mount(SettingsDialog, { props: { open: true }, attachTo: document.body })
     await flushPromises()
-    const toggle = document.body.querySelector<HTMLInputElement>('[data-testid="automatic-updates"]')!
-    expect(toggle.checked).toBe(true)
-    toggle.checked = false
-    toggle.dispatchEvent(new Event('change', { bubbles: true }))
+    const toggle = document.body.querySelector<HTMLButtonElement>('[data-testid="automatic-updates"]')!
+    expect(toggle.getAttribute('role')).toBe('switch')
+    expect(toggle.getAttribute('aria-checked')).toBe('true')
+    toggle.click()
     await flushPromises()
 
     expect(setAutomaticUpdates).toHaveBeenCalledWith(false)

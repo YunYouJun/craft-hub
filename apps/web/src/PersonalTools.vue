@@ -244,6 +244,21 @@ async function reloadDraft(): Promise<void> {
 .home-url-field { grid-column: 1 / -1; }
 .home-remove-tool { justify-self: start; border: 0; padding: 4px 0; background: none; color: var(--danger); font: inherit; font-size: var(--font-size-control); cursor: pointer; }
 .home-tools { min-width: 0; border: 1px solid var(--border); border-radius: var(--panel-radius); padding: 20px; background: var(--surface); }
+.home-tools.compact { padding: 12px 16px; }
+.compact .home-section-heading { gap: 8px; margin-bottom: 8px; }
+.compact .home-section-heading h2 { font-size: var(--font-size-body); }
+.compact .home-tool-groups { grid-template-columns: 1fr; gap: 12px; }
+.compact .home-tool-group h3 { margin-bottom: 4px; color: var(--text-secondary); font-size: var(--font-size-caption); font-weight: 500; }
+.compact .home-tool-grid { grid-template-columns: 1fr; gap: 0; }
+.compact .home-tool-card { display: flex; align-items: center; padding: 0; background: transparent; border-radius: 0; }
+.compact .home-tool-card + .home-tool-card { border-top: 1px solid var(--border); }
+.compact .home-tool-card:hover, .compact .home-tool-card:focus-within { background: var(--surface-hover); }
+.compact .home-tool { flex: 1; min-height: 50px; padding: 6px 0; gap: 8px; }
+.compact .home-tool-mark { --software-icon-size: 32px; }
+.compact .home-tool strong { font-size: 13px; }
+.compact .home-tool-links { flex: none; padding: 0 0 0 4px; }
+.compact .home-tool-links :deep(a) { width: 26px; height: 30px; }
+.compact .home-tool > .app-icon { display: none; }
 .home-icon-button { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border: 0; border-radius: var(--control-radius); color: var(--muted); background: transparent; cursor: pointer; }
 .home-icon-button > .app-icon { width: 15px; height: 15px; }
 .home-icon-button:hover { background: var(--surface-hover); color: var(--text); }

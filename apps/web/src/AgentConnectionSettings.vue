@@ -4,6 +4,7 @@ import type { AgentConnectionStatus } from 'craft-hub'
 import { computed, onMounted, ref } from 'vue'
 import { api } from './api'
 import { FormSelect } from './components/ui/select'
+import { SettingsRow, SettingsSection, SettingsStatus } from './components/ui/settings'
 import { Button as UiButton } from './components/ui/button'
 import { useI18n } from './i18n'
 import { useWorkbenchStore } from './store'
@@ -63,50 +64,57 @@ onMounted(refresh)
 </script>
 
 <template>
-  <section class="agent-connection" :aria-busy="busy">
-    <h3>{{ t('agentConnection') }}</h3>
-    <p>{{ t('agentConnectionDescription') }}</p>
-    <p v-if="error" role="alert">{{ error }}</p>
-    <p v-if="status && !status.available">{{ t('agentConnectionLocalOnly') }}</p>
-    <template v-else-if="status">
-      <p class="connection-state" role="status">{{ status.enabled ? t('agentConnectionEnabled') : t('agentConnectionDisabled') }}</p>
-      <fieldset :disabled="busy">
-        <legend>{{ t('agentConnectionProjects') }}</legend>
-        <p v-if="!store.projects.length">{{ t('agentConnectionNoProjects') }}</p>
-        <label v-for="project in store.projects" :key="project.id" class="connection-option">
-          <input v-model="selected" type="checkbox" :value="project.id">
-          <span>{{ project.name }}<small>{{ project.path }}</small></span>
-        </label>
-      </fieldset>
-      <label class="connection-option"><input v-model="integrations" type="checkbox" :disabled="busy"><span>{{ t('agentConnectionPlugins') }}</span></label>
-      <p>{{ t('agentConnectionReadOnly') }}</p>
-      <nav>
-        <UiButton variant="primary" :disabled="busy || (!selected.length && !integrations)" @click="update(true)">{{ status.enabled ? t('agentConnectionReplace') : t('agentConnectionEnable') }}</UiButton>
-        <UiButton v-if="status.enabled" :disabled="busy" @click="update(false)">{{ t('agentConnectionRevoke') }}</UiButton>
-        <UiButton variant="ghost" :disabled="busy" @click="refresh">{{ t('refresh') }}</UiButton>
-      </nav>
-      <template v-if="status.mcpConfig">
-        <p>{{ t('agentConnectionSetup') }}</p>
-        <FormSelect v-model="format" :options="[{ value: 'json', label: 'MCP · JSON' }, { value: 'codex', label: 'Codex · TOML' }]" aria-label="MCP configuration format" @update:model-value="copied = false" />
-        <pre>{{ configuration }}</pre>
-        <UiButton size="compact" @click="copyConfig">{{ copied ? t('agentConnectionCopied') : t('agentConnectionCopy') }}</UiButton>
-        <p>{{ t('agentConnectionLastUsed') }} {{ status.lastConnectedAt ? new Date(status.lastConnectedAt).toLocaleString() : t('agentConnectionNotUsed') }}</p>
-        <details><summary>{{ t('agentConnectionCheck') }}</summary><pre>{{ status.checkCommand?.map(part => `'${part.replaceAll("'", "'\\''")}'`).join(' ') }}</pre></details>
-      </template>
+  <div class="agent-connection" :aria-busy="busy">
+    <SettingsSection :title="t('agentConnection')" :description="t('agentConnectionDescription')">
+      <SettingsStatus v-if="status && !status.available" :title="t('agentConnectionLocalOnly')" />
+      <SettingsStatus v-else-if="status" :title="status.enabled ? t('agentConnectionEnabled') : t('agentConnectionDisabled')" :tone="status.enabled ? 'success' : 'neutral'" role="status">
+        <template #actions>
+          <UiButton size="compact" variant="primary" :disabled="busy || (!selected.length && !integrations)" @click="update(true)">{{ status.enabled ? t('agentConnectionReplace') : t('agentConnectionEnable') }}</UiButton>
+          <UiButton v-if="status.enabled" size="compact" :disabled="busy" @click="update(false)">{{ t('agentConnectionRevoke') }}</UiButton>
+          <UiButton size="compact" variant="ghost" :disabled="busy" @click="refresh">{{ t('refresh') }}</UiButton>
+        </template>
+      </SettingsStatus>
+      <template v-if="error" #footer><p class="error-message" role="alert">{{ error }}</p></template>
+    </SettingsSection>
+    <template v-if="status?.available">
+      <SettingsSection :title="t('agentConnectionProjects')">
+        <fieldset class="connection-projects" :disabled="busy">
+          <legend class="settings-description-sr-only">{{ t('agentConnectionProjects') }}</legend>
+          <p v-if="!store.projects.length" class="connection-empty">{{ t('agentConnectionNoProjects') }}</p>
+          <SettingsRow v-for="project in store.projects" :key="project.id" :label="project.name" :description="project.path" :control-id="`connection-project-${project.id}`">
+            <template #control="{ descriptionId }">
+              <input :id="`connection-project-${project.id}`" v-model="selected" type="checkbox" :value="project.id" :aria-describedby="descriptionId">
+            </template>
+          </SettingsRow>
+          <SettingsRow :label="t('agentConnectionPlugins')" control-id="connection-integrations">
+            <template #control><input id="connection-integrations" v-model="integrations" type="checkbox"></template>
+          </SettingsRow>
+        </fieldset>
+        <template #footer>{{ t('agentConnectionReadOnly') }}</template>
+      </SettingsSection>
+      <SettingsSection v-if="status.mcpConfig" title="MCP" :description="t('agentConnectionSetup')">
+        <template #controls><UiButton size="compact" @click="copyConfig">{{ copied ? t('agentConnectionCopied') : t('agentConnectionCopy') }}</UiButton></template>
+        <SettingsRow :label="format === 'json' ? 'MCP · JSON' : 'Codex · TOML'">
+          <template #control><FormSelect v-model="format" :options="[{ value: 'json', label: 'MCP · JSON' }, { value: 'codex', label: 'Codex · TOML' }]" aria-label="MCP configuration format" @update:model-value="copied = false" /></template>
+          <pre>{{ configuration }}</pre>
+        </SettingsRow>
+        <SettingsRow :label="t('agentConnectionLastUsed')" :description="status.lastConnectedAt ? new Date(status.lastConnectedAt).toLocaleString() : t('agentConnectionNotUsed')" />
+        <template #footer>
+          <details><summary>{{ t('agentConnectionCheck') }}</summary><pre>{{ status.checkCommand?.map(part => `'${part.replaceAll("'", "'\\''")}'`).join(' ') }}</pre></details>
+        </template>
+      </SettingsSection>
     </template>
-  </section>
+  </div>
 </template>
 
 <style scoped>
-.agent-connection { display: grid; gap: 12px; min-width: 0; }
-h3, p { margin: 0; }
-p, small { color: var(--muted); line-height: 1.6; }
-.connection-state { color: var(--foreground); font-weight: 600; }
-fieldset { display: grid; gap: 8px; border: 1px solid var(--border); border-radius: var(--control-radius); padding: 12px; min-width: 0; }
-.connection-option { display: flex; align-items: start; gap: 8px; }
-.connection-option span { min-width: 0; overflow-wrap: anywhere; }
-small { display: block; }
-nav { display: flex; flex-wrap: wrap; gap: 8px; }
-pre { background: var(--surface-muted); border: 1px solid var(--border); border-radius: var(--control-radius); padding: 12px; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; max-height: 260px; overflow: auto; }
-[role='alert'] { color: var(--danger); }
+.agent-connection { min-width: 0; }
+.connection-projects { min-width: 0; margin: 0; border: 0; padding: 0; }
+.connection-projects :deep(.ui-settings-row + .ui-settings-row) { border-top: 1px solid var(--settings-group-border); }
+.connection-empty { margin: 0; padding: var(--settings-row-padding-block) var(--settings-row-padding-inline); color: var(--muted); font-size: var(--settings-metadata-size); }
+.connection-projects input[type='checkbox'] { width: auto; accent-color: var(--accent); }
+pre { max-height: var(--settings-output-max-height); overflow: auto; margin: 0; border: 1px solid var(--settings-group-border); border-radius: var(--control-radius); background: var(--surface-subtle); padding: var(--space-3); color: var(--text-secondary); font: var(--settings-metadata-size)/var(--settings-metadata-line-height) var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+details { min-width: 0; width: 100%; }
+details pre { margin-top: var(--space-2); }
+summary { color: var(--text-secondary); cursor: pointer; }
 </style>

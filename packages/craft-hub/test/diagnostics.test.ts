@@ -62,6 +62,7 @@ describe('workbench diagnostics', () => {
           'workbench.editor': { default: 'vscode' },
           'workbench.locale': 'en',
           'workbench.repositoriesRoot': '',
+          'workbench.sidebar': { entries: [] },
           'workbench.shortcuts': {},
           'workbench.theme': 'system',
         },
