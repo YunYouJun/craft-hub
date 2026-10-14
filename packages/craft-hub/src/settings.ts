@@ -1,6 +1,7 @@
 import type { FSWatcher } from 'chokidar'
 import type { PersonalWorkbenchHome } from './personal-workbench'
 import { createHash, randomUUID } from 'node:crypto'
+import { once } from 'node:events'
 import { copyFile, mkdir, readdir, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
 import { watch } from 'chokidar'
@@ -292,6 +293,7 @@ export class CraftHubSettingsService {
   private initialized = false
   private initialization: Promise<void> | undefined
   private watcher: FSWatcher | undefined
+  private watcherInitialization: Promise<void> | undefined
   private readonly listeners = new Set<(snapshot: SettingsSnapshot) => void>()
   private writeTail: Promise<void> = Promise.resolve()
 
@@ -419,22 +421,33 @@ export class CraftHubSettingsService {
     return () => this.listeners.delete(listener)
   }
 
-  /** Watch the public settings file for external edits. */
+  /** Watch the public settings file, returning once external edits can be observed. */
   async startWatching(): Promise<void> {
+    this.watcherInitialization ??= this.initializeWatcher().catch(async (error) => {
+      await this.watcher?.close()
+      this.watcher = undefined
+      this.watcherInitialization = undefined
+      throw error
+    })
+    await this.watcherInitialization
+  }
+
+  /** Stop watching the settings file. */
+  async close(): Promise<void> {
+    await this.watcherInitialization?.catch(() => {})
+    await this.watcher?.close()
+    this.watcher = undefined
+    this.watcherInitialization = undefined
+  }
+
+  private async initializeWatcher(): Promise<void> {
     await this.initialize()
-    if (this.watcher)
-      return
     const watchPath = join(await realpath(this.dataDir), settingsFileName)
     this.watcher = watch(watchPath, { ignoreInitial: true, awaitWriteFinish: { stabilityThreshold: 100, pollInterval: 20 } })
     this.watcher.on('add', () => void this.reloadFromDisk())
     this.watcher.on('change', () => void this.reloadFromDisk())
     this.watcher.on('unlink', () => void this.reloadFromDisk())
-  }
-
-  /** Stop watching the settings file. */
-  async close(): Promise<void> {
-    await this.watcher?.close()
-    this.watcher = undefined
+    await once(this.watcher, 'ready')
   }
 
   private async initialize(): Promise<void> {
