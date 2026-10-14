@@ -1,7 +1,7 @@
 import type { DesktopCodexMode } from '../apps/desktop/src/build-info.ts'
 import { execFile } from 'node:child_process'
 import { cp, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
@@ -11,6 +11,7 @@ import { createDesktopBuildInfo } from '../apps/desktop/src/build-info.ts'
 import { communityDesktopArtifactName, communityDesktopProtocol, loadDesktopDistributionManifest, resolveDesktopDistributionAsset } from '../apps/desktop/src/distribution.ts'
 import { macosApplicationVersion } from '../apps/desktop/src/macos-version.ts'
 import { loadCraftHubPlugins } from '../packages/craft-hub/src/plugins.ts'
+import { parseLocalSigningIdentities, resolveLocalSigningIdentity } from './macos-local-signing.ts'
 import { packageHostPlugins } from './package-host-plugins.ts'
 import { prepareDesktopArchitecture, prepareDesktopPackage } from './prepare-desktop-package.ts'
 
@@ -79,7 +80,7 @@ function getSigningOptions(signingIdentity?: string) {
     return {
       osxSign: {
         continueOnError: false,
-        identity: '-',
+        identity: signingIdentity ?? '-',
         identityValidation: false,
         optionsForFile: () => ({
           hardenedRuntime: false,
@@ -343,7 +344,16 @@ export async function packageMacos(options: MacosPackageOptions = {}): Promise<M
     const architectures = options.architectures ?? getArchitectures()
     const signingIdentity = process.env.MACOS_SIGNING_ENABLED === 'true'
       ? await resolveSigningIdentity()
-      : undefined
+      : (await resolveLocalSigningIdentity({
+          identities: parseLocalSigningIdentities((await execFileAsync('security', ['find-identity', '-p', 'codesigning', '-v'])).stdout),
+          statePath: join(homedir(), 'Library', 'Application Support', productName, 'build', `${appBundleId}-signing.json`),
+          requestedIdentity: process.env.MACOS_LOCAL_SIGNING_IDENTITY,
+        }))?.hash
+    if (process.env.MACOS_SIGNING_ENABLED !== 'true') {
+      console.log(signingIdentity
+        ? `Using pinned local code signing identity ${signingIdentity}`
+        : 'No local application signing certificate found; using ad hoc signing. Keychain approvals may recur after rebuilding.')
+    }
     const appPaths = await packager({
       afterCopy: [async ({ buildPath, platform, arch }) => {
         if (platform !== 'darwin' || (arch !== 'arm64' && arch !== 'x64'))

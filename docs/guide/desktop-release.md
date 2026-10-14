@@ -37,6 +37,14 @@ Downstream distributions provide an HTTPS `desktop.updateBaseUrl` in their distr
 
 `scripts/generate-macos-update-feed.ts` validates the architecture, `v` release tag, GitHub `owner/repository`, and a valid UTC publication timestamp before writing a manifest. Its `currentRelease`, release lookup version, and download version must all use the numeric packaged macOS version. The release name retains the original SemVer for display.
 
+## Local builds and keychain approval
+
+`package:mac` and `reinstall:mac` select a valid Developer ID Application certificate, or an Apple Development / Mac Developer certificate for local development. The chosen certificate fingerprint is saved under `~/Library/Application Support/<product>/build/<bundle-id>-signing.json`. Rebuilds reuse this identity even if another certificate is later installed. Only the certificate fingerprint and display name are stored; private keys stay in the system keychain.
+
+If multiple eligible certificates exist, choose one with `MACOS_LOCAL_SIGNING_IDENTITY=<certificate-fingerprint>`. This explicit setting also permits certificate rotation. If the saved certificate is unavailable, packaging stops instead of silently changing to another identity. Without an eligible certificate and without a saved selection, packaging retains ad hoc signing and prints a warning that keychain prompts can recur after rebuilding.
+
+Ad hoc signatures identify a particular build, so previous keychain approvals can stop matching after an update. The first certificate-signed build may need one new **Always Allow** approval. Subsequent local rebuilds retain the application's designated requirement. Keychain resets, revoked permissions, certificate changes, or switching between local development and distribution channels may still require approval. Local certificate signing does not enable notarization or turn on release updates; release signing remains controlled by `MACOS_SIGNING_ENABLED`.
+
 ## Release gate
 
 Pushing a matching `v*` tag starts the release workflow. It does not create the GitHub Release until all of these checks succeed:
