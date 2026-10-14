@@ -10,6 +10,7 @@ import { api } from './api'
 import { Button as UiButton } from './components/ui/button'
 import { useI18n } from './i18n'
 import SoftwareCenter from './SoftwareCenter.vue'
+import SoftwareSources from './SoftwareSources.vue'
 import { useWorkbenchStore } from './store'
 
 const initialHome: PersonalWorkbenchHome = {
@@ -239,6 +240,84 @@ describe('software center', () => {
     expect(wrapper!.find('a a').exists()).toBe(false)
     expect(wrapper!.get('[aria-label="Download Assistant"]').attributes()).toMatchObject({ href: 'https://downloads.example.com/special-build', target: '_blank', rel: 'noopener noreferrer' })
     expect(wrapper!.get('[aria-label="GitHub / source Assistant"]').attributes('href')).toBe('https://github.com/example/special-source')
+  })
+
+  it.each(['catalog', 'history'])('loads a newly saved Workstation catalog after the initial %s read finishes', async (stage) => {
+    const initial = stage === 'history' ? managedCatalog() : structuredClone(catalog)
+    let finishRead!: () => void
+    if (stage === 'catalog') {
+      vi.mocked(api.softwareCatalog).mockReturnValueOnce(new Promise((resolve) => {
+        finishRead = () => resolve(initial)
+      }))
+    }
+    else {
+      vi.mocked(api.softwareCatalog).mockResolvedValueOnce(initial)
+      vi.mocked(api.softwareInstallationRuns).mockReturnValueOnce(new Promise((resolve) => {
+        finishRead = () => resolve({ version: 1, runs: [] })
+      }))
+    }
+    const source = {
+      id: 'a'.repeat(24),
+      repository: 'https://github.com/yunyoujun/workstation',
+      mode: 'remote' as const,
+      title: 'Workstation',
+      branch: 'HEAD',
+      catalogPath: 'software.config.ts',
+      checkedAt: '2026-10-14T00:00:00.000Z',
+      cache: { readFrom: 'remote' as const, revision: 'b'.repeat(64), itemCount: 1, savedAt: '2026-10-14T00:00:00.000Z' },
+    }
+    const item = {
+      id: 'godot',
+      title: { en: 'Godot Engine' },
+      group: { id: 'games', title: { en: 'Game development' } },
+      url: 'https://godotengine.org/',
+      installation: { kind: 'brew-cask' as const, packageId: 'godot' },
+      status: 'unknown' as const,
+    }
+    const updated = structuredClone(initial)
+    updated.sources.push({ id: 'workstation', title: 'Workstation', repositorySourceId: source.id, repositoryReadFrom: 'remote', items: [item] })
+    vi.mocked(api.softwareCatalog).mockResolvedValue(updated)
+    vi.spyOn(api, 'previewSoftwareSource').mockResolvedValue({
+      previewId: 'workstation-preview',
+      source,
+      catalog: { version: 1, revision: source.cache.revision, source: { id: 'workstation', title: 'Workstation', url: source.repository }, items: [item] },
+    })
+    vi.spyOn(api, 'applySoftwareSource').mockResolvedValue({ version: 1, revision: 'saved', sources: [source], localAvailable: true })
+    vi.spyOn(api, 'refreshSoftwareSource').mockResolvedValue({ version: 1, revision: 'refreshed', sources: [source], localAvailable: true })
+    await open()
+    await wrapper!.get('[data-testid="load-workstation-source"]').trigger('click')
+    await flushPromises()
+    expect(api.applySoftwareSource).toHaveBeenCalledExactlyOnceWith('workstation-preview')
+    expect(wrapper!.get('[data-repository-source]').text()).toContain('Workstation')
+    expect(api.softwareCatalog).toHaveBeenCalledOnce()
+    expect(wrapper!.find('[data-software-id="godot"]').exists()).toBe(false)
+    await wrapper!.get('[data-testid="load-workstation-source"]').trigger('click')
+    await flushPromises()
+    expect(api.refreshSoftwareSource).toHaveBeenCalledExactlyOnceWith(source.id)
+    expect(api.softwareCatalog).toHaveBeenCalledOnce()
+
+    finishRead()
+    await flushPromises()
+    expect(api.softwareCatalog).toHaveBeenCalledTimes(2)
+    expect(wrapper!.get('[data-software-id="godot"] h2').text()).toBe('Godot Engine')
+    expect(api.softwareInstallationRuns).toHaveBeenCalledTimes(stage === 'history' ? 2 : 0)
+  })
+
+  it('does not reload a queued source change after leaving the software center', async () => {
+    let finishRead!: (value: SoftwareCatalogSnapshot) => void
+    vi.mocked(api.softwareCatalog).mockReturnValueOnce(new Promise((resolve) => {
+      finishRead = resolve
+    }))
+    await open()
+    wrapper!.getComponent(SoftwareSources).vm.$emit('changed')
+    await flushPromises()
+    expect(api.softwareCatalog).toHaveBeenCalledOnce()
+    wrapper!.unmount()
+    wrapper = undefined
+    finishRead(catalog)
+    await flushPromises()
+    expect(api.softwareCatalog).toHaveBeenCalledOnce()
+    expect(api.softwareInstallationRuns).not.toHaveBeenCalled()
   })
 
   it('searches destination links and combines search with category filtering', async () => {
