@@ -31,7 +31,7 @@ const saveError = ref('')
 const saveNotice = ref('')
 let generation = 0
 let mounted = true
-let detectionNeedsRefresh = false
+let catalogNeedsRefresh = false
 let runMutationGeneration = 0
 let uncertainGeneration = 0
 const runMutations = new Map<string, number>()
@@ -146,12 +146,20 @@ async function loadCatalog(): Promise<void> {
   finally {
     if (current === generation) {
       loading.value = false
-      if (detectionNeedsRefresh) {
-        detectionNeedsRefresh = false
+      if (catalogNeedsRefresh) {
+        catalogNeedsRefresh = false
         void loadCatalog()
       }
     }
   }
+}
+function refreshAfterSourceChange(): void {
+  if (!mounted)
+    return
+  if (loading.value)
+    catalogNeedsRefresh = true
+  else
+    void loadCatalog()
 }
 onMounted(() => { void loadCatalog() })
 onUnmounted(() => {
@@ -218,9 +226,9 @@ async function loadRuns(sourceIds?: string[]): Promise<void> {
     if (mounted) {
       runsLoading.value = false
       schedulePolling()
-      detectionNeedsRefresh ||= detectionChanged
-      if (detectionNeedsRefresh && !loading.value) {
-        detectionNeedsRefresh = false
+      catalogNeedsRefresh ||= detectionChanged
+      if (catalogNeedsRefresh && !loading.value) {
+        catalogNeedsRefresh = false
         void loadCatalog()
       }
     }
@@ -493,7 +501,7 @@ defineExpose({ refresh: loadCatalog })
       <UiButton size="compact" :disabled="loading" @click="loadCatalog">{{ copy('重试', 'Retry') }}</UiButton>
     </Alert>
     <p v-if="loading" class="software-note" role="status">{{ snapshot ? copy('正在刷新目录…', 'Refreshing catalog…') : copy('正在读取软件目录…', 'Loading software catalog…') }}</p>
-    <SoftwareSources @changed="loadCatalog" />
+    <SoftwareSources @changed="refreshAfterSourceChange" />
     <details v-if="snapshot?.sources.length" class="software-sources" :open="snapshot.sources.some(source => source.error)">
       <summary>{{ copy('软件来源', 'Catalog sources') }}<span>{{ snapshot.sources.length }}</span></summary>
       <div class="software-source-list">
