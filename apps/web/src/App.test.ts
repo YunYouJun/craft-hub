@@ -65,13 +65,15 @@ function stubStartupData(): void {
       ? { explicitKeys: [], path: '/settings.json', revision: 'initial', settings: { 'workbench.locale': 'en', 'workbench.shortcuts': {}, 'workbench.theme': 'system' } }
       : path === '/api/projects'
         ? projects
-        : path === '/api/workspaces'
-          ? [workspace]
-          : path === '/api/workspaces/state'
-            ? { expandedWorkspaceIds: [] }
-            : path.endsWith('/pins')
-              ? { projectId: path.split('/')[3], capabilityIds: [] }
-              : []
+        : path === '/api/software-sources'
+          ? { version: 1, revision: 'initial', sources: [], localAvailable: true }
+          : path === '/api/workspaces'
+            ? [workspace]
+            : path === '/api/workspaces/state'
+              ? { expandedWorkspaceIds: [] }
+              : path.endsWith('/pins')
+                ? { projectId: path.split('/')[3], capabilityIds: [] }
+                : []
     return new Response(JSON.stringify(body), { status: 200 })
   }))
   vi.stubGlobal('EventSource', FakeEventSource)
@@ -96,6 +98,7 @@ describe('app startup', () => {
     expect(wrapper.get('[data-testid="open-tools"]').classes()).toContain('active')
     expect(wrapper.get('.section-navigation a[href="/software"]').attributes('aria-current')).toBe('page')
     expect(catalog).toHaveBeenCalledOnce()
+    expect(wrapper.get<HTMLButtonElement>('[data-testid="load-workstation-source"]').element.disabled).toBe(false)
     await wrapper.get('[data-testid="open-workbench"]').trigger('click')
     await flushPromises()
     expect(router.currentRoute.value.path).toBe('/')
