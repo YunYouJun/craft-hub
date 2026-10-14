@@ -106,4 +106,34 @@ describe('connection setup forms', () => {
       vi.useRealTimers()
     }
   })
+
+  it.each([true, false])('stops a write-permission device flow after authorization (pending status observed: %s)', async (pendingStatusObserved) => {
+    vi.useFakeTimers()
+    window.craftHubDesktop = { openExternalUrl: vi.fn().mockResolvedValue(undefined) }
+    const deviceAuthorization = { verificationUrl: 'https://example.com/device', userCode: 'WRITE1234', expiresAt: new Date(Date.now() + 60000).toISOString() }
+    const readOnly = { connected: true, capabilities: { create: false }, forms: [{ id: 'enable-write', title: 'Enable capture', submitLabel: 'Authorize', fields: [] }] }
+    vi.spyOn(api, 'invokeIntegrationAction').mockResolvedValue({ ...readOnly, deviceAuthorization })
+    const wrapper = mount(IntegrationConnectionSetup, { props: { ...props, status: readOnly } })
+    try {
+      await wrapper.get('form').trigger('submit')
+      await flushPromises()
+      expect(wrapper.get('code').text()).toBe('WRITE1234')
+      // A refresh already in flight can still return the status from before submission.
+      await wrapper.setProps({ status: { ...readOnly } })
+      expect(wrapper.get('code').text()).toBe('WRITE1234')
+      if (pendingStatusObserved)
+        await wrapper.setProps({ status: { ...readOnly, deviceAuthorization } })
+      await vi.advanceTimersByTimeAsync(2000)
+      const updates = wrapper.emitted('updated')!.length
+      await wrapper.setProps({ status: { connected: true, capabilities: { create: true }, forms: [] } })
+      expect(wrapper.find('code').exists()).toBe(false)
+      await vi.advanceTimersByTimeAsync(4000)
+      expect(wrapper.emitted('updated')).toHaveLength(updates)
+    }
+    finally {
+      wrapper.unmount()
+      delete window.craftHubDesktop
+      vi.useRealTimers()
+    }
+  })
 })

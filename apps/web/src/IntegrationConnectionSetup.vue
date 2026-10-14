@@ -34,9 +34,14 @@ watch(() => props.status.connected, (connected) => {
     stopWaiting()
   }
 })
-watch(() => props.status.deviceAuthorization, (value) => {
+watch([() => props.status.deviceAuthorization, () => props.status.capabilities?.create], ([value, canCreate], previous) => {
   if (value)
     waitForDeviceAuthorization(value)
+  // A grant can finish before a refresh has ever reflected the locally received code.
+  else if (deviceAuthorization.value && (previous?.[0] || (props.status.connected && canCreate === true))) {
+    deviceAuthorization.value = undefined
+    stopWaiting()
+  }
 }, { immediate: true })
 onBeforeUnmount(() => { active = false; stopWaiting() })
 
