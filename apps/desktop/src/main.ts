@@ -518,6 +518,12 @@ ipcMain.handle('craft-hub:check-for-updates', () => {
     throw new Error('Updater is still starting')
   return desktopUpdater.checkNow()
 })
+ipcMain.handle('craft-hub:install-update', () => {
+  if (!desktopUpdater)
+    throw new Error('Updater is still starting')
+  return desktopUpdater.requestInstall()
+})
+
 ipcMain.handle('craft-hub:cloud-status', () => personalCloud?.status() ?? { state: 'disabled' })
 ipcMain.handle('craft-hub:cloud-connect', () => personalCloud?.connect())
 ipcMain.handle('craft-hub:cloud-disconnect', () => personalCloud?.disconnect())

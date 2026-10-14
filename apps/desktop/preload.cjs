@@ -65,6 +65,7 @@ contextBridge.exposeInMainWorld('craftHubDesktop', {
   updateStatus: () => ipcRenderer.invoke('craft-hub:update-status'),
   setAutomaticUpdates: enabled => ipcRenderer.invoke('craft-hub:set-automatic-updates', enabled),
   checkForUpdates: () => ipcRenderer.invoke('craft-hub:check-for-updates'),
+  installUpdate: () => ipcRenderer.invoke('craft-hub:install-update'),
   onUpdateStatus: (callback) => {
     const listener = (_event, status) => callback(status)
     ipcRenderer.on('craft-hub:update-status-changed', listener)

@@ -68,6 +68,12 @@ const dotfilesResult = ref<DotfilesOperationResult>()
 const readonlyDotfilesOperations: DotfilesOperation[] = ['check', 'status', 'diff']
 const updateStatus = ref<DesktopUpdateStatus>()
 const updateBusy = ref(false)
+const updateError = ref('')
+const updateInFlight = computed(() => updateBusy.value || updateStatus.value?.phase === 'checking' || updateStatus.value?.phase === 'available')
+const updateSupported = computed(() => Boolean(updateStatus.value && updateStatus.value.phase !== 'unsupported'))
+const automaticUpdatesDisabled = computed(() => !updateSupported.value || updateInFlight.value || !window.craftHubDesktop?.setAutomaticUpdates)
+const checkUpdatesDisabled = computed(() => !updateSupported.value || updateInFlight.value || updateStatus.value?.phase === 'downloaded' || !window.craftHubDesktop?.checkForUpdates)
+const installUpdateDisabled = computed(() => !updateSupported.value || updateBusy.value || updateStatus.value?.phase !== 'downloaded' || !window.craftHubDesktop?.installUpdate)
 const codexActivityStatus = ref<CodexActivityStatus>()
 const codexActivityBusy = ref(false)
 const activeTab = ref<SettingsTab>(props.initialTab)
@@ -210,7 +216,10 @@ watch([() => props.open, () => props.initialTab], ([open, initialTab], previous)
 
 onMounted(() => {
   void keepSelectedTabVisible()
-  removeUpdateListener = window.craftHubDesktop?.onUpdateStatus?.(status => updateStatus.value = status)
+  removeUpdateListener = window.craftHubDesktop?.onUpdateStatus?.((status) => {
+    updateStatus.value = status
+    updateError.value = ''
+  })
   removeCodexActivityListener = window.craftHubDesktop?.onCodexActivityStatus?.(status => codexActivityStatus.value = status)
 })
 
@@ -241,18 +250,27 @@ async function setCodexActivityHooks(enabled: boolean): Promise<void> {
 }
 
 async function refreshUpdateStatus(): Promise<void> {
-  if (canManageUpdates)
+  if (!canManageUpdates)
+    return
+  updateError.value = ''
+  try {
     updateStatus.value = await window.craftHubDesktop?.updateStatus?.()
+  }
+  catch (error) {
+    updateError.value = error instanceof Error ? error.message : String(error)
+  }
 }
 
 async function setAutomaticUpdates(enabled: boolean): Promise<void> {
+  if (automaticUpdatesDisabled.value)
+    return
   updateBusy.value = true
-  transferError.value = ''
+  updateError.value = ''
   try {
     updateStatus.value = await window.craftHubDesktop!.setAutomaticUpdates!(enabled)
   }
   catch (error) {
-    transferError.value = error instanceof Error ? error.message : String(error)
+    updateError.value = error instanceof Error ? error.message : String(error)
   }
   finally {
     updateBusy.value = false
@@ -260,13 +278,31 @@ async function setAutomaticUpdates(enabled: boolean): Promise<void> {
 }
 
 async function checkForUpdates(): Promise<void> {
+  if (checkUpdatesDisabled.value)
+    return
   updateBusy.value = true
-  transferError.value = ''
+  updateError.value = ''
   try {
     updateStatus.value = await window.craftHubDesktop!.checkForUpdates!()
   }
   catch (error) {
-    transferError.value = error instanceof Error ? error.message : String(error)
+    updateError.value = error instanceof Error ? error.message : String(error)
+  }
+  finally {
+    updateBusy.value = false
+  }
+}
+
+async function installUpdate(): Promise<void> {
+  if (installUpdateDisabled.value)
+    return
+  updateBusy.value = true
+  updateError.value = ''
+  try {
+    updateStatus.value = await window.craftHubDesktop!.installUpdate!()
+  }
+  catch (error) {
+    updateError.value = error instanceof Error ? error.message : String(error)
   }
   finally {
     updateBusy.value = false
@@ -721,16 +757,21 @@ async function cleanupRuns(includeAllUnpinned: boolean): Promise<void> {
             <SettingsSection v-if="canManageUpdates" class="desktop-update-settings" :title="t('softwareUpdates')" :description="t('softwareUpdatesDescription')">
               <SettingsRow :label="t('checkUpdatesAutomatically')" control-id="settings-automatic-updates">
                 <template #control="{ labelId }">
-                  <Switch id="settings-automatic-updates" :aria-labelledby="labelId" :model-value="Boolean(updateStatus?.automaticCheck)" :disabled="updateBusy" data-testid="automatic-updates" @update:model-value="setAutomaticUpdates(Boolean($event))" />
+                  <Switch id="settings-automatic-updates" :aria-labelledby="labelId" :model-value="Boolean(updateStatus?.automaticCheck)" :disabled="automaticUpdatesDisabled" data-testid="automatic-updates" @update:model-value="setAutomaticUpdates(Boolean($event))" />
                 </template>
               </SettingsRow>
               <SettingsStatus class="desktop-update-status" :title="updateStatusLabel()" :description="t('currentVersion', { version: updateStatus?.currentVersion ?? '—' })" :tone="updateStatus?.phase === 'error' ? 'danger' : updateStatus?.phase === 'downloaded' || updateStatus?.phase === 'up-to-date' ? 'success' : 'neutral'" role="status" aria-live="polite">
+                <template #metadata>
+                  <small v-if="updateStatus?.releaseName">{{ t('updateRelease', { release: updateStatus.releaseName }) }}</small>
+                  <progress v-if="updateStatus?.phase === 'available'" :aria-label="t('updateStatus_available')" data-testid="update-download-progress" />
+                </template>
                 <template #actions>
-                  <UiButton size="compact" :disabled="updateBusy || updateStatus?.phase === 'checking' || updateStatus?.phase === 'downloaded'" data-testid="check-for-updates" @click="checkForUpdates">{{ t('checkNow') }}</UiButton>
+                  <UiButton v-if="updateStatus?.phase === 'downloaded'" size="compact" :disabled="installUpdateDisabled" data-testid="install-update" @click="installUpdate">{{ t('restartAndInstallUpdate') }}</UiButton>
+                  <UiButton v-else size="compact" :disabled="checkUpdatesDisabled" data-testid="check-for-updates" @click="checkForUpdates">{{ t('checkNow') }}</UiButton>
                 </template>
               </SettingsStatus>
-              <template v-if="updateStatus?.message" #footer>
-                <p class="error-message" role="alert">{{ updateStatus.message }}</p>
+              <template v-if="updateError || updateStatus?.message" #footer>
+                <p :class="updateError || updateStatus?.phase === 'error' ? 'error-message' : undefined" :role="updateError || updateStatus?.phase === 'error' ? 'alert' : undefined">{{ updateError || updateStatus?.message }}</p>
               </template>
             </SettingsSection>
           </TabsContent>
