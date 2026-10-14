@@ -59,3 +59,66 @@ it('retains an uncertain intent across closing and reopening, so retries reuse i
   expect(second.emitted('saved')).toBeUndefined()
   second.unmount()
 })
+
+it('resolves a list hashtag typed before lists finish loading without replacing other reviewed fields', async () => {
+  let resolveLists!: (page: { items: [], collections: Array<{ id: string, title: string }> }) => void
+  const page = new Promise<{ items: [], collections: Array<{ id: string, title: string }> }>((resolve) => {
+    resolveLists = resolve
+  })
+  const invoke = vi.spyOn(api, 'invokeIntegrationAction').mockImplementation(async (_integration, action) => {
+    if (action === 'connection')
+      return { connected: true, accountLabel: 'owner@example.com', capabilities: { create: true } }
+    if (action === 'tasks')
+      return page
+    return { id: 'new', title: 'Follow up' }
+  })
+  const wrapper = mount(QuickCaptureDialog, { props: { open: true }, global: { stubs } })
+  await flushPromises()
+  await wrapper.find('textarea').setValue('Follow up #Work')
+  await wrapper.find('details textarea').setValue('Keep this reviewed context')
+  await wrapper.find('input[type="checkbox"]').setValue(true)
+  resolveLists({ items: [], collections: [{ id: 'tasks', title: 'Tasks' }, { id: 'work', title: 'Work' }] })
+  await flushPromises()
+  expect(wrapper.find<HTMLInputElement>('input[maxlength="500"]').element.value).toBe('Follow up')
+  expect(wrapper.find<HTMLSelectElement>('select').element.value).toBe('work')
+  await wrapper.find('form').trigger('submit')
+  await flushPromises()
+  expect(invoke.mock.calls.find(call => call[1] === 'create')?.[2]).toMatchObject({ listId: 'work', title: 'Follow up', notes: 'Keep this reviewed context', important: true })
+  wrapper.unmount()
+})
+
+it('keeps a manually reviewed title and list when a later list refresh resolves the capture hashtag', async () => {
+  let resolveLists!: (page: { items: [], collections: Array<{ id: string, title: string }> }) => void
+  const pendingPage = new Promise<{ items: [], collections: Array<{ id: string, title: string }> }>((resolve) => {
+    resolveLists = resolve
+  })
+  const invoke = vi.spyOn(api, 'invokeIntegrationAction').mockImplementation(async (_integration, action) => {
+    if (action === 'connection')
+      return { connected: true, accountLabel: 'owner@example.com', capabilities: { create: true } }
+    if (action === 'tasks')
+      return { items: [], collections: [{ id: 'tasks', title: 'Tasks' }, { id: 'personal', title: 'Personal' }] }
+    return { id: 'new', title: 'Reviewed title' }
+  })
+  const wrapper = mount(QuickCaptureDialog, { props: { open: true }, global: { stubs } })
+  await flushPromises()
+  await wrapper.find('textarea').setValue('Follow up #Work')
+  await wrapper.find('input[maxlength="500"]').setValue('Reviewed title')
+  await wrapper.find('select').setValue('personal')
+  invoke.mockImplementation(async (_integration, action) => {
+    if (action === 'connection')
+      return { connected: true, accountLabel: 'owner@example.com', capabilities: { create: true } }
+    if (action === 'tasks')
+      return pendingPage
+    return { id: 'new', title: 'Reviewed title' }
+  })
+  await wrapper.find('button[aria-label="Refresh connection"], button[aria-label="刷新连接"]').trigger('click')
+  await flushPromises()
+  resolveLists({ items: [], collections: [{ id: 'tasks', title: 'Tasks' }, { id: 'personal', title: 'Personal' }, { id: 'work', title: 'Work' }] })
+  await flushPromises()
+  expect(wrapper.find<HTMLInputElement>('input[maxlength="500"]').element.value).toBe('Reviewed title')
+  expect(wrapper.find<HTMLSelectElement>('select').element.value).toBe('personal')
+  await wrapper.find('form').trigger('submit')
+  await flushPromises()
+  expect(invoke.mock.calls.find(call => call[1] === 'create')?.[2]).toMatchObject({ listId: 'personal', title: 'Reviewed title' })
+  wrapper.unmount()
+})

@@ -17,7 +17,9 @@ const formId = useId()
 const text = useLocalStorage('craft-hub-capture-text', '')
 const captureInput = ref<HTMLTextAreaElement>()
 const preferredLists = useLocalStorage<Record<string, string>>('craft-hub-capture-lists', {})
-const draft = useLocalStorage<CaptureDraft>('craft-hub-capture-draft', parseQuickCapture(text.value, []))
+const initialDraft = parseQuickCapture(text.value, [])
+const draft = useLocalStorage<CaptureDraft>('craft-hub-capture-draft', initialDraft)
+let previewFields = { title: initialDraft.title, listId: initialDraft.listId }
 const connection = ref<IntegrationConnectionStatus>()
 const lists = ref<Array<{ id: string, title: string }>>([])
 const loading = ref(false)
@@ -44,6 +46,7 @@ function focusInput(event: Event): void {
 function preview(): void {
   const parsed = parseQuickCapture(text.value, lists.value)
   draft.value = { ...parsed, listId: parsed.listId ?? draft.value.listId }
+  previewFields = { title: draft.value.title, listId: draft.value.listId }
   saved.value = ''
   error.value = ''
 }
@@ -79,9 +82,24 @@ async function load(): Promise<void> {
       const page = await api.invokeIntegrationAction<IntegrationEntityPage>('microsoft-todo', 'tasks', { locale: locale.value })
       if (version !== generation) return
       lists.value = page.collections ?? []
+      const parsed = parseQuickCapture(text.value, lists.value)
+      if (parsed.listId) {
+        // Newly loaded lists can resolve a typed hashtag, while reviewed fields keep their edits.
+        if (draft.value.title === previewFields.title) {
+          draft.value.title = parsed.title
+          previewFields.title = parsed.title
+        }
+        if (draft.value.listId === previewFields.listId) {
+          draft.value.listId = parsed.listId
+          previewFields.listId = parsed.listId
+        }
+      }
       const account = status.accountLabel ?? ''
       const preferred = preferredLists.value[account]
-      if (!lists.value.some(list => list.id === draft.value.listId)) draft.value.listId = lists.value.find(list => list.id === preferred)?.id ?? lists.value.find(list => /^(任务|Tasks|收件箱|Inbox)$/i.test(list.title))?.id ?? lists.value[0]?.id ?? null
+      if (!lists.value.some(list => list.id === draft.value.listId)) {
+        draft.value.listId = lists.value.find(list => list.id === preferred)?.id ?? lists.value.find(list => /^(任务|Tasks|收件箱|Inbox)$/i.test(list.title))?.id ?? lists.value[0]?.id ?? null
+        previewFields.listId = draft.value.listId
+      }
 
     }
     schedulePoll(version)

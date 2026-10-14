@@ -31,12 +31,24 @@ function number(text: string): number {
 export function parseQuickCapture(text: string, lists: Array<{ id: string, title: string }>, now = new Date()): CaptureDraft {
   let title = text.trim()
   const warnings: string[] = []
-  const list = [...lists].sort((a, b) => b.title.length - a.title.length).find(list => title.includes(`#${list.title}`))
+  let listIndex = -1
+  const list = [...lists].sort((a, b) => b.title.length - a.title.length).find((list) => {
+    const tag = `#${list.title}`
+    let index = title.indexOf(tag)
+    while (index !== -1) {
+      if (!/^[\p{L}\p{N}_]/u.test(title.slice(index + tag.length))) {
+        listIndex = index
+        return true
+      }
+      index = title.indexOf(tag, index + tag.length)
+    }
+    return false
+  })
   if (list)
-    title = title.replace(`#${list.title}`, '').trim()
+    title = `${title.slice(0, listIndex)}${title.slice(listIndex + list.title.length + 1)}`.trim()
   const important = /(?:^|\s)(?:!重要|!important|!高优先级)(?=\s|$)/i.test(title)
   title = title.replace(/(?:^|\s)(?:!重要|!important|!高优先级)(?=\s|$)/i, ' ').trim()
-  const dateMatch = /今天|明天|后天|today|tomorrow|(?:下|本)?(?:周|星期)[一二三四五六日天]|\d{4}-\d{2}-\d{2}/i.exec(title)
+  const dateMatch = /今天|明天|后天|\b(?:today|tomorrow)\b(?!['’ʼ]s\b)|(?:下|本)?(?:周|星期)[一二三四五六日天]|\d{4}-\d{2}-\d{2}/i.exec(title)
   let dueLocal: string | null = null
   let remind = false
   if (dateMatch) {
@@ -60,16 +72,23 @@ export function parseQuickCapture(text: string, lists: Array<{ id: string, title
       date.setDate(date.getDate() + offset)
     }
     const remainder = title.slice(dateMatch.index + dateMatch[0].length)
-    const time = /^\s*(?:(上午|早上|下午|晚上|中午)\s*)?([\d零一二两三四五六七八九十]+)(?::(\d{2})|(?:点|时)(半|[\d零一二三四五六七八九十]+分?)?)/.exec(remainder)
+    const time = /^\s*(?:at\s+)?(?:(上午|早上|下午|晚上|中午)\s*)?([\d零一二两三四五六七八九十]+)(?::(\d{2})(?!\d)|(?:点|时)(半|[\d零一二三四五六七八九十]+分?)?|(?=\s*[ap]\.?m\b))(?:\s*([ap])\.?m\b\.?)?/i.exec(remainder)
+    const clockIntent = /^\s*(?:at\s+(?:(?:上午|早上|下午|晚上|中午)\s*)?[\d零一二两三四五六七八九十]|(?:(?:上午|早上|下午|晚上|中午)\s*)?[\d零一二两三四五六七八九十]+(?:[:点时]|\s*[ap]\.?m\b\.?))/i.test(remainder)
     let hour = time ? number(time[2]!) : 23
     const minute = time ? time[3] ? Number(time[3]) : time[4] === '半' ? 30 : time[4] ? number(time[4].replace('分', '')) : 0 : 59
+    const period = time?.[5]?.toLowerCase()
+    const validPeriod = !period || (!time?.[1] && hour >= 1 && hour <= 12)
+    if (period)
+      hour = hour % 12 + (period === 'p' ? 12 : 0)
     if (time && ['下午', '晚上', '中午'].includes(time[1] ?? '') && hour < 12)
       hour += 12
     if (time && ['上午', '早上'].includes(time[1] ?? '') && hour === 12)
       hour = 0
     date.setHours(hour, minute, 0, 0)
     const value = localDateTime(date)
-    const valid = hour >= 0 && hour < 24 && minute >= 0 && minute < 60
+    const valid = validPeriod && (!clockIntent || Boolean(time))
+      && (!time || !/^[\d:a-z]/i.test(remainder.slice(time[0].length)))
+      && hour >= 0 && hour < 24 && minute >= 0 && minute < 60
       && date.getHours() === hour && date.getMinutes() === minute
       && (!/^\d{4}/.test(token) || value.startsWith(token))
     if (valid) {
