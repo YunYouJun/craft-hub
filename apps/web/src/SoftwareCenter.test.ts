@@ -334,6 +334,48 @@ describe('software center', () => {
     expect(api.softwareCatalog).toHaveBeenCalledOnce()
   })
 
+  it('opens detected Ghostty and saves its native launcher with the favorite', async () => {
+    const result = managedCatalog()
+    result.sources[0]!.items = [{
+      id: 'ghostty',
+      title: { en: 'Ghostty' },
+      group: { id: 'terminals', title: { en: 'Terminals' } },
+      url: 'https://ghostty.org/',
+      downloadUrl: 'https://ghostty.org/download',
+      repositoryUrl: 'https://github.com/ghostty-org/ghostty',
+      installation: { kind: 'brew-cask', packageId: 'ghostty' },
+      status: 'detected',
+      canOpen: true,
+    }]
+    vi.mocked(api.softwareCatalog).mockResolvedValue(result)
+    await open()
+    await wrapper!.get('[data-software-id="ghostty"] [data-testid="open-software"]').trigger('click')
+    await flushPromises()
+    expect(api.openSoftwareApplication).toHaveBeenCalledWith('local-source', 'ghostty')
+    expect(wrapper!.text()).toContain('Requested opening Ghostty')
+
+    await wrapper!.get('[data-software-id="ghostty"] footer button').trigger('click')
+    await flushPromises()
+    expect(useWorkbenchStore().settings!.settings['workbench.home'].tools.at(-1)).toMatchObject({
+      title: 'Ghostty',
+      url: 'https://ghostty.org/',
+      downloadUrl: 'https://ghostty.org/download',
+      repositoryUrl: 'https://github.com/ghostty-org/ghostty',
+      launch: { application: 'ghostty' },
+    })
+    expect(wrapper!.get('[data-software-id="ghostty"] footer button').text()).toContain('In favorites')
+  })
+
+  it('does not assign a native launcher from a catalog title or unofficial Ghostty URL', async () => {
+    const result = structuredClone(catalog)
+    result.sources[0]!.items = [{ ...result.sources[0]!.items[1]!, title: { en: 'Ghostty' }, url: 'https://ghostty.example.com/' }]
+    vi.mocked(api.softwareCatalog).mockResolvedValue(result)
+    await open()
+    await wrapper!.get('[data-software-id="assistant"] footer button').trigger('click')
+    await flushPromises()
+    expect(useWorkbenchStore().settings!.settings['workbench.home'].tools.at(-1)?.launch).toBeUndefined()
+  })
+
   it('deduplicates favorites by website even when IDs, titles, www and trailing slashes differ', async () => {
     useWorkbenchStore().settings = settings({ ...initialHome, tools: [...initialHome.tools, { id: 'different-id', title: 'My coding app', url: 'https://www.assistant.example.com///#saved', group: 'My tools' }] })
     await open()

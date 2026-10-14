@@ -23,7 +23,7 @@ export async function openPersonalWorkbenchTool(
   const application = tool.launch.application
   let fallbackReason: WorkbenchToolOpenResult['fallbackReason'] = 'unsupported-platform'
   if (platform === 'darwin') {
-    const applicationName = application === 'raycast' ? 'Raycast' : 'Orca'
+    const applicationName = { raycast: 'Raycast', orca: 'Orca', ghostty: 'Ghostty' }[application]
     const args = ['-a', applicationName]
     if (tool.launch.application === 'raycast' && tool.launch.commandUrl)
       args.push(tool.launch.commandUrl)

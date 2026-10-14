@@ -26,6 +26,7 @@ const toolLaunchSchema = z.discriminatedUnion('application', [
     commandUrl: z.string().max(4096).refine(isRaycastCommandUrl, 'Raycast command URLs must use raycast://extensions/owner/extension/command without parameters').optional(),
   }).strict(),
   z.object({ application: z.literal('orca') }).strict(),
+  z.object({ application: z.literal('ghostty') }).strict(),
 ])
 
 const toolWebsiteUrlSchema = z.string().max(4096).refine(value => !hasControlCharacters(value), 'Tool URLs must use HTTPS without credentials or control characters').pipe(z.string().trim().min(1).max(4096).url().refine((value) => {
@@ -67,10 +68,15 @@ export const personalWorkbenchHomeSchema = z.object({
 
 /** One grouped tool entry with HTTPS website, download and source links and an optional application launcher. */
 export type PersonalWorkbenchTool = z.infer<typeof personalWorkbenchToolSchema>
-/** Supported application launch presets; Orca intentionally receives no project context. */
+/** Supported application launch presets without automatic project or task context. */
 export type PersonalWorkbenchToolLaunch = z.infer<typeof toolLaunchSchema>
 /** Personal shortcuts, project pins and task display preferences stored in the operating-system data directory. */
 export type PersonalWorkbenchHome = z.infer<typeof personalWorkbenchHomeSchema>
+
+/** Infer a fixed launcher only for the canonical Ghostty homepage, with an optional trailing slash. */
+export function personalWorkbenchToolLaunchForUrl(url: string): PersonalWorkbenchToolLaunch | undefined {
+  return url === 'https://ghostty.org/' || url === 'https://ghostty.org' ? { application: 'ghostty' } : undefined
+}
 
 /** Outcome of a user-initiated tool handoff; Craft Hub does not transfer project or task context automatically. */
 export interface WorkbenchToolOpenResult {

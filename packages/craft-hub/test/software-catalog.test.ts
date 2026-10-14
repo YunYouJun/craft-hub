@@ -108,12 +108,18 @@ describe('read-only software catalogs', () => {
     expect(snapshot.sources[0]!.canManage).not.toBe(true)
     expect(snapshot.sources[0]!.items).toHaveLength(bundledSoftwareCatalog.items.length)
     expect(snapshot.sources[0]!.items.every(item => item.status === 'unknown' && item.canInstall === false && item.canOpen === false)).toBe(true)
+    expect(snapshot.sources[0]!.items.find(item => item.id === 'ghostty')).toMatchObject({
+      title: { en: 'Ghostty' },
+      group: { id: 'terminal-editor' },
+      url: 'https://ghostty.org/',
+      installation: { kind: 'brew-cask', packageId: 'ghostty' },
+    })
     await expect(service.preview('workstation', [bundledSoftwareCatalog.items[0]!.id])).rejects.toMatchObject({ status: 503 })
     await expect(service.open('workstation', bundledSoftwareCatalog.items[0]!.id)).rejects.toMatchObject({ status: 503 })
   })
 
   it('preserves native artwork for older plugins only when application and icon identities match', async () => {
-    const { iconUrl, macosIconUrl, iconStyle, iconScale, ...metadata } = bundledSoftwareCatalog.items.find(item => item.macosIconUrl)!
+    const { iconUrl, macosIconUrl, iconStyle, iconScale, ...metadata } = bundledSoftwareCatalog.items.find(item => item.macosIconUrl && item.iconScale !== undefined)!
     expect(macosIconUrl).toBeTruthy()
     const read = vi.fn(async () => ({ version: 1 as const, source: bundledSoftwareCatalog.source, items: [{ ...metadata, iconUrl, status: 'detected' as const }] }))
     const service = new SoftwareCatalogService([{ ...bundledSoftwareCatalog.source, url: bundledSoftwareCatalog.source.url!, read }], [bundledSoftwareCatalog])

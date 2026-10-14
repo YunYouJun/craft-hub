@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { createDefaultPersonalWorkbenchHome, isRaycastCommandUrl, personalWorkbenchToolSchema } from '../src/personal-workbench'
+import { createDefaultPersonalWorkbenchHome, isRaycastCommandUrl, personalWorkbenchToolLaunchForUrl, personalWorkbenchToolSchema } from '../src/personal-workbench'
 
 const tool = { id: 'launcher', title: 'Launcher', url: 'https://example.com/', group: 'Tools' }
 
@@ -33,10 +33,46 @@ describe('personal workbench launch contracts', () => {
     expect(personalWorkbenchToolSchema.parse(tool)).toEqual(tool)
     expect(personalWorkbenchToolSchema.parse({ ...tool, launch: { application: 'orca' } }).launch).toEqual({ application: 'orca' })
     expect(personalWorkbenchToolSchema.parse({ ...tool, launch: { application: 'raycast' } }).launch).toEqual({ application: 'raycast' })
+    expect(personalWorkbenchToolSchema.parse({ ...tool, launch: { application: 'ghostty' } }).launch).toEqual({ application: 'ghostty' })
     expect(() => personalWorkbenchToolSchema.parse({ ...tool, launch: { application: 'unknown' } })).toThrow()
     expect(() => personalWorkbenchToolSchema.parse({ ...tool, launch: { application: 'orca', commandUrl: 'orca://project/example' } })).toThrow()
     expect(() => personalWorkbenchToolSchema.parse({ ...tool, launch: { application: 'raycast', command: 'open', args: ['-a', 'Other app'] } })).toThrow()
     expect(() => personalWorkbenchToolSchema.parse({ ...tool, launch: { application: 'raycast' }, url: 'raycast://extensions/example/tools/open' })).toThrow()
+  })
+
+  it.each([
+    { command: 'sh' },
+    { args: ['-e', 'echo hello'] },
+    { path: '/project' },
+    { commandUrl: 'ghostty://project/example' },
+  ])('rejects extra Ghostty launch options %j', (options) => {
+    expect(personalWorkbenchToolSchema.safeParse({ ...tool, launch: { application: 'ghostty', ...options } }).success).toBe(false)
+  })
+
+  it.each(['https://ghostty.org', 'https://ghostty.org/'])('infers the fixed Ghostty launcher for its official homepage %s', (url) => {
+    expect(personalWorkbenchToolLaunchForUrl(url)).toEqual({ application: 'ghostty' })
+  })
+
+  it.each([
+    'https://ghostty.org/docs',
+    'https://ghostty.org/../',
+    'https://ghostty.org/?',
+    'https://ghostty.org/?command=sh',
+    'https://ghostty.org/#',
+    'https://ghostty.org/#download',
+    'https://user@ghostty.org/',
+    'https://user:password@ghostty.org/',
+    'https://ghostty.org:443/',
+    'https://ghostty.org:8443/',
+    'https://www.ghostty.org/',
+    'https://ghostty.org.example.com/',
+    'https://example.com/',
+    'http://ghostty.org/',
+    'ghostty://',
+    'https://ghostty.org/\n',
+    ' https://ghostty.org/',
+  ])('does not infer a launcher for other URLs %s', (url) => {
+    expect(personalWorkbenchToolLaunchForUrl(url)).toBeUndefined()
   })
 
   it('accepts the official command route and rejects other Raycast routes or implicit context', () => {
@@ -75,5 +111,6 @@ describe('personal workbench launch contracts', () => {
 
     expect(createDefaultPersonalWorkbenchHome().tools.find(tool => tool.id === 'raycast')?.launch).toEqual({ application: 'raycast' })
     expect(createDefaultPersonalWorkbenchHome().tools.find(tool => tool.id === 'orca')?.launch).toEqual({ application: 'orca' })
+    expect(home.tools.some(tool => tool.launch?.application === 'ghostty')).toBe(false)
   })
 })
