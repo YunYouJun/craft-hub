@@ -2,7 +2,7 @@
 /// <reference lib="dom" />
 
 import type { VueWrapper } from '@vue/test-utils'
-import type { SoftwareSourcePreview, SoftwareSourceSnapshot } from 'craft-hub'
+import type { SoftwareSource, SoftwareSourcePreview, SoftwareSourceSnapshot } from 'craft-hub'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -23,6 +23,7 @@ const source = {
   cache: { revision: 'a'.repeat(64), itemCount: 1, readFrom: 'local' as const, savedAt: '2026-10-13T00:00:00.000Z' },
 }
 const state: SoftwareSourceSnapshot = { version: 1, revision: 'initial', sources: [source], localAvailable: true }
+const workstationSource: SoftwareSource = { ...source, id: 'b'.repeat(24), title: 'Workstation', repository: 'https://github.com/yunyoujun/workstation', localPath: undefined, mode: 'remote', cache: { ...source.cache, readFrom: 'remote' } }
 const preview: SoftwareSourcePreview = {
   previewId: 'preview-one',
   source,
@@ -74,6 +75,7 @@ describe('software repository source controls', () => {
     expect(wrapper.text()).toContain('/repo')
     expect(api.refreshSoftwareSource).not.toHaveBeenCalled()
     expect(api.previewSoftwareSource).not.toHaveBeenCalled()
+    expect(api.applySoftwareSource).not.toHaveBeenCalled()
   })
 
   it('reuses an existing local project and saves only the reviewed preview token', async () => {
@@ -128,6 +130,152 @@ describe('software repository source controls', () => {
     expect(api.previewSoftwareSource).toHaveBeenCalledWith(expect.objectContaining({ mode: 'remote', localPath: undefined }))
     expect(document.body.textContent).toContain('exported softwareGroups literal array')
     expect(element('apply-software-source').disabled).toBe(true)
+    expect(api.applySoftwareSource).not.toHaveBeenCalled()
+  })
+
+  it('loads the public Workstation catalog and saves its association with one click', async () => {
+    vi.mocked(api.previewSoftwareSource).mockResolvedValue({ ...preview, source: workstationSource, replaces: undefined })
+    vi.mocked(api.applySoftwareSource).mockResolvedValue({ ...state, revision: 'saved', sources: [source, workstationSource] })
+    await open()
+    await click('load-workstation-source')
+    expect(api.previewSoftwareSource).toHaveBeenCalledExactlyOnceWith({ repository: 'https://github.com/YunYouJun/workstation', mode: 'remote', branch: 'HEAD', catalogPath: 'software.config.ts' })
+    expect(api.applySoftwareSource).toHaveBeenCalledExactlyOnceWith('preview-one')
+    expect(wrapper.emitted('changed')).toHaveLength(1)
+    expect(wrapper.findAll('[data-repository-source]')).toHaveLength(2)
+    expect(element('load-workstation-source').textContent).toContain('Refresh Workstation catalog')
+    expect(document.querySelector('[data-testid="software-source-url"]')).toBeNull()
+  })
+
+  it('does not duplicate requests while the one-click catalog is being read or saved', async () => {
+    let resolvePreview!: (value: SoftwareSourcePreview) => void
+    let resolveSave!: (value: SoftwareSourceSnapshot) => void
+    vi.mocked(api.previewSoftwareSource).mockReturnValue(new Promise((resolve) => {
+      resolvePreview = resolve
+    }))
+    vi.mocked(api.applySoftwareSource).mockReturnValue(new Promise((resolve) => {
+      resolveSave = resolve
+    }))
+    await open()
+    await click('load-workstation-source')
+    await click('load-workstation-source')
+    expect(element('load-workstation-source').disabled).toBe(true)
+    expect(element('add-software-source').disabled).toBe(true)
+    expect(api.previewSoftwareSource).toHaveBeenCalledTimes(1)
+    expect(api.applySoftwareSource).not.toHaveBeenCalled()
+    resolvePreview({ ...preview, replaces: undefined })
+    await flushPromises()
+    await click('load-workstation-source')
+    expect(api.applySoftwareSource).toHaveBeenCalledExactlyOnceWith('preview-one')
+    expect(wrapper.emitted('changed')).toBeUndefined()
+    resolveSave(state)
+    await flushPromises()
+    expect(element('load-workstation-source').disabled).toBe(false)
+    expect(wrapper.emitted('changed')).toHaveLength(1)
+  })
+
+  it('refreshes an existing Workstation binding without changing its local mode or branch', async () => {
+    const linked: SoftwareSource = { ...workstationSource, localPath: '/workstation', mode: 'local', branch: 'next', cache: { ...source.cache } }
+    vi.mocked(api.softwareSources).mockResolvedValue({ ...state, sources: [linked] })
+    vi.mocked(api.refreshSoftwareSource).mockResolvedValue({ ...state, sources: [{ ...linked, error: 'unavailable' }] })
+    await open()
+    expect(element('load-workstation-source').textContent).toContain('Refresh Workstation catalog')
+    await click('load-workstation-source')
+    expect(api.refreshSoftwareSource).toHaveBeenCalledExactlyOnceWith(linked.id)
+    expect(api.previewSoftwareSource).not.toHaveBeenCalled()
+    expect(api.applySoftwareSource).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('/workstation')
+    expect(wrapper.text()).toContain('next')
+    expect(wrapper.text()).toContain('Local working tree')
+    expect(wrapper.text()).toContain('Last refresh failed')
+    expect(wrapper.emitted('changed')).toHaveLength(1)
+  })
+
+  it('keeps hosted local bindings visible and disables the Workstation refresh shortcut', async () => {
+    vi.mocked(api.softwareSources).mockResolvedValue({ ...state, localAvailable: false, sources: [{ ...workstationSource, mode: 'local' }] })
+    await open()
+    expect(element('load-workstation-source').disabled).toBe(true)
+    await click('load-workstation-source')
+    expect(api.refreshSoftwareSource).not.toHaveBeenCalled()
+    expect(api.previewSoftwareSource).not.toHaveBeenCalled()
+    expect(element('edit-software-source').disabled).toBe(false)
+  })
+
+  it('loads the default catalog separately from a custom Workstation catalog path', async () => {
+    vi.mocked(api.softwareSources).mockResolvedValue({ ...state, sources: [{ ...workstationSource, catalogPath: 'custom.config.ts' }] })
+    vi.mocked(api.previewSoftwareSource).mockResolvedValue({ ...preview, replaces: undefined })
+    await open()
+    expect(element('load-workstation-source').textContent).toContain('Load Workstation catalog')
+    await click('load-workstation-source')
+    expect(api.previewSoftwareSource).toHaveBeenCalledWith(expect.objectContaining({ catalogPath: 'software.config.ts' }))
+    expect(api.refreshSoftwareSource).not.toHaveBeenCalled()
+  })
+
+  it.each(['preview', 'save'])('retains existing sources after a failed one-click %s and allows retry', async (stage) => {
+    vi.mocked(api.previewSoftwareSource).mockResolvedValue({ ...preview, replaces: undefined })
+    if (stage === 'preview')
+      vi.mocked(api.previewSoftwareSource).mockRejectedValueOnce(new Error('Unavailable'))
+    else
+      vi.mocked(api.applySoftwareSource).mockRejectedValueOnce(new Error('Stale preview'))
+    await open()
+    await click('load-workstation-source')
+    expect(wrapper.text()).toContain('Workstation catalog was not loaded')
+    expect(wrapper.findAll('[data-repository-source]')).toHaveLength(1)
+    expect(wrapper.text()).toContain('/repo')
+    expect(wrapper.emitted('changed')).toBeUndefined()
+    expect(element('load-workstation-source').disabled).toBe(false)
+    if (stage === 'preview')
+      expect(api.applySoftwareSource).not.toHaveBeenCalled()
+    await click('load-workstation-source')
+    expect(wrapper.emitted('changed')).toHaveLength(1)
+  })
+
+  it('waits for saved bindings before offering a new Workstation association', async () => {
+    let resolveSources!: (value: SoftwareSourceSnapshot) => void
+    vi.mocked(api.softwareSources).mockReturnValue(new Promise((resolve) => {
+      resolveSources = resolve
+    }))
+    await open()
+    expect(element('load-workstation-source').disabled).toBe(true)
+    await click('load-workstation-source')
+    expect(api.previewSoftwareSource).not.toHaveBeenCalled()
+    resolveSources({ ...state, sources: [workstationSource] })
+    await flushPromises()
+    await click('load-workstation-source')
+    expect(api.refreshSoftwareSource).toHaveBeenCalledExactlyOnceWith(workstationSource.id)
+    expect(api.previewSoftwareSource).not.toHaveBeenCalled()
+  })
+
+  it('requires a successful source reload after the initial read fails', async () => {
+    vi.mocked(api.softwareSources).mockRejectedValueOnce(new Error('Unavailable'))
+    vi.mocked(api.previewSoftwareSource).mockResolvedValue({ ...preview, replaces: undefined })
+    await open()
+    expect(wrapper.text()).toContain('Could not load repository sources')
+    expect(element('load-workstation-source').disabled).toBe(true)
+    await click('load-workstation-source')
+    expect(api.previewSoftwareSource).not.toHaveBeenCalled()
+    await click('reload-software-sources')
+    expect(element('load-workstation-source').disabled).toBe(false)
+    expect(wrapper.text()).not.toContain('Could not load repository sources')
+    await click('load-workstation-source')
+    expect(api.applySoftwareSource).toHaveBeenCalledExactlyOnceWith('preview-one')
+  })
+
+  it('does not replace a binding saved in another window after the initial source read', async () => {
+    const linked: SoftwareSource = { ...workstationSource, localPath: '/workstation', mode: 'local', branch: 'next' }
+    vi.mocked(api.previewSoftwareSource).mockResolvedValue({ ...preview, source: workstationSource, replaces: linked.id })
+    await open()
+    await click('load-workstation-source')
+    expect(wrapper.text()).toContain('The source list changed')
+    expect(wrapper.findAll('[data-repository-source]')).toHaveLength(1)
+    expect(api.applySoftwareSource).not.toHaveBeenCalled()
+    expect(wrapper.emitted('changed')).toBeUndefined()
+    vi.mocked(api.softwareSources).mockResolvedValue({ ...state, sources: [source, linked] })
+    vi.mocked(api.refreshSoftwareSource).mockResolvedValue({ ...state, sources: [source, linked] })
+    await click('reload-software-sources')
+    await click('load-workstation-source')
+    expect(api.refreshSoftwareSource).toHaveBeenCalledExactlyOnceWith(linked.id)
+    expect(wrapper.text()).toContain('/workstation')
+    expect(wrapper.text()).toContain('next')
     expect(api.applySoftwareSource).not.toHaveBeenCalled()
   })
 })

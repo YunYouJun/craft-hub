@@ -6,6 +6,13 @@ local checkout. There is no export, build or JSON publishing step.
 
 ## Add a repository source
 
+Open **Software center → Repository sources → Load Workstation catalog** to load
+the public Workstation catalog and save its repository association in one click.
+This reads the default branch's `software.config.ts` and caches metadata without
+installing software or importing machine configuration. If already linked, the
+button refreshes the saved source using its existing branch and reading mode,
+including a linked local checkout. Hosted workbenches cannot refresh local sources.
+
 Open **Software center → Repository sources → Add source**. Use the Workstation
 preset, enter an HTTPS repository URL, choose a registered local project, or enter
 a local Git root. The default catalog path is `software.config.ts`.
