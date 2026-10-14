@@ -42,6 +42,7 @@ const lockfileResolutionKeys = readLockfileResolutionKeys(readFileSync(new URL('
 const vulnerableRanges = [
   { name: '@modelcontextprotocol/client', range: '>=2.0.0 <2.2.0' },
   { name: '@modelcontextprotocol/sdk', range: '>=1.12.0 <1.31.0' },
+  { name: '@toon-format/toon', range: '<2.3.1' },
   { name: '@vue/server-renderer', range: '<3.5.42' },
   { name: 'brace-expansion', range: '>=2.0.0 <2.1.7 || >=4.0.0 <5.0.12' },
   { name: 'dompurify', range: '<=3.4.15' },

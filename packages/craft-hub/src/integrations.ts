@@ -22,6 +22,7 @@ export const integrationOperationSchema = z.enum([
   'work-items.list',
   'work-items.transitions',
   'work-items.update-status',
+  'work-items.create',
   'workspaces.get',
   'repositories.search',
   'merge-requests.list',
@@ -38,6 +39,7 @@ const remoteWriteOperations = new Set<IntegrationOperation>([
   'merge-requests.add-reviewer',
   'merge-requests.create',
   'work-items.update-status',
+  'work-items.create',
 ])
 const integrationViewBlockSchema = z.object({
   id: integrationIdSchema,
@@ -159,11 +161,15 @@ export interface IntegrationConnectionForm {
 
 export interface IntegrationConnectionStatus {
   connected: boolean
+  /** Writes are separately granted by the source account. */
+  capabilities?: { create?: boolean }
   accountLabel?: string
   message?: string
   forms?: IntegrationConnectionForm[]
   links?: Array<{ title: string, url: string }>
   authorizationUrl?: string
+  /** Public device-login instructions; never include access, refresh or device tokens. */
+  deviceAuthorization?: { verificationUrl: string, userCode: string, expiresAt: string }
 }
 
 export interface IntegrationEntity {
@@ -175,6 +181,8 @@ export interface IntegrationEntity {
   personalMembership?: WorkItemPersonalMembership
   /** Provider-local deadline and timezone, without host-local date conversion. */
   dueDate?: WorkItemDueDate
+  /** Enabled provider-local reminder and timezone; omitted when the source reminder is disabled. */
+  reminderDate?: WorkItemDueDate
   /** Source modification time as an ISO instant with a UTC offset. */
   updatedAt?: string
   /** Provider availability hint for this entity and request context; writes still require server authorization. */
@@ -228,6 +236,7 @@ export interface IntegrationEntityPage {
 }
 
 export interface WorkItemIntegrationAdapter {
+  create?: (context: IntegrationProviderContext, input: Record<string, unknown>) => Promise<IntegrationEntity>
   get?: (context: IntegrationProviderContext, input: Record<string, unknown>) => Promise<IntegrationEntity>
   search: (context: IntegrationProviderContext, query: IntegrationEntityQuery) => Promise<IntegrationEntityPage>
   list: (context: IntegrationProviderContext, query: IntegrationEntityQuery) => Promise<IntegrationEntityPage>
@@ -341,6 +350,7 @@ const operationSupport: Record<IntegrationOperation, (provider: IntegrationProvi
   'connection.update': provider => provider.connection !== undefined,
   'configuration.list': provider => Boolean(provider.configuration?.list),
   'configuration.update': provider => Boolean(provider.configurationManagement?.update || provider.configuration?.update),
+  'work-items.create': provider => provider.workItems?.create !== undefined,
   'work-items.get': provider => provider.workItems?.get !== undefined,
   'work-items.search': provider => provider.workItems !== undefined,
   'work-items.list': provider => provider.workItems !== undefined,
@@ -438,9 +448,9 @@ export class IntegrationRegistry {
       case 'resources.read': return requireAdapter(provider.resources, action.operation).read(context, input)
       case 'resources.update': return requireAdapter(provider.resources, action.operation).update(context, input)
       case 'resources.execute': return requireAdapter(provider.resources, action.operation).execute(context, input)
-      case 'connection.status': return provider.connectionStatus(context)
+      case 'connection.status': return validateConnectionStatus(await provider.connectionStatus(context))
       case 'connection.update': {
-        const result = await requireAdapter(provider.connection, action.operation).update(context, input)
+        const result = validateConnectionStatus(await requireAdapter(provider.connection, action.operation).update(context, input))
         if (result.authorizationUrl) {
           const url = new URL(result.authorizationUrl)
           const state = url.searchParams.get('state')
@@ -456,6 +466,7 @@ export class IntegrationRegistry {
       }
       case 'configuration.update': return requireMethod(provider.configurationManagement?.update ?? provider.configuration?.update, action.operation)(context, input)
       case 'configuration.list': return requireMethod(provider.configuration?.list, action.operation)(context, input)
+      case 'work-items.create': return validateWorkItem(await requireMethod(provider.workItems?.create, action.operation)(context, input), provider.id, options.contribution.id)
       case 'work-items.get': return validateWorkItem(await requireMethod(provider.workItems?.get, action.operation)(context, input), provider.id, options.contribution.id)
       case 'work-items.search': return validateWorkItemPage(await requireAdapter(provider.workItems, action.operation).search(context, query), provider.id, options.contribution.id)
       case 'work-items.list': return validateWorkItemPage(await requireAdapter(provider.workItems, action.operation).list(context, query), provider.id, options.contribution.id)
@@ -494,6 +505,21 @@ function validateWorkItem(item: IntegrationEntity, providerId: string, instanceI
   for (const ancestor of item.ancestors ?? [])
     validateWorkItem(ancestor, providerId, instanceId)
   return item
+}
+
+function validateConnectionStatus(status: IntegrationConnectionStatus): IntegrationConnectionStatus {
+  if (status.deviceAuthorization) {
+    const device = z.object({
+      verificationUrl: z.url().refine((value) => {
+        const url = new URL(value)
+        return url.protocol === 'https:' && !url.username && !url.password
+      }),
+      userCode: z.string().regex(/^[A-Z0-9-]{4,32}$/i),
+      expiresAt: z.iso.datetime({ offset: true }),
+    }).strict()
+    device.parse(status.deviceAuthorization)
+  }
+  return status
 }
 
 function validateWorkItemPage(page: IntegrationEntityPage, providerId: string, instanceId: string): IntegrationEntityPage {

@@ -12,6 +12,7 @@ allowBuilds:
   core-js-pure: true
   electron: true
   esbuild: true
+  keytar: true
   node-pty: true
   simple-git-hooks: true
   vue-demi: true
@@ -27,6 +28,7 @@ packages:
   - vendor/*
 overrides:
   '@modelcontextprotocol/client@>=2.0.0 <2.2.0': 2.2.0
+  '@toon-format/toon@<2.3.1': 2.3.1
   axios: ^1.20.0
   brace-expansion@>=2.0.0 <2.1.7: 2.1.7
   brace-expansion@>=4.0.0 <5.0.12: 5.0.12
@@ -65,6 +67,7 @@ catalog:
   '@openai/codex-sdk': ^0.149.1
   '@pierre/diffs': 1.2.11
   '@shikijs/vitepress-twoslash': ^4.4.3
+  '@softeria/ms-365-mcp-server': 0.140.0
   '@tauri-apps/cli': 2.12.1
   '@types/canvas-confetti': ^1.9.0
   '@types/node': ^26.3.0

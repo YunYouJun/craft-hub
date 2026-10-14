@@ -96,6 +96,16 @@ describe('work-item presentation contracts', () => {
     expect(() => workItemDueDateSchema.parse({ dateTime: '2026-10-15T18:00:00', timeZone: 'UTC', offset: 0 })).toThrow()
   })
 
+  it('preserves provider-local enabled reminders without requiring a deadline', () => {
+    const reminderDate = { dateTime: '2026-10-15T09:00:00.0000000', timeZone: 'Pacific Standard Time', precision: 'datetime' as const }
+    const value = workItemFieldsSchema.parse({ reminderDate })
+    expect(value).toEqual({ reminderDate })
+    expect(value).not.toHaveProperty('dueDate')
+    expect(() => workItemFieldsSchema.parse({ reminderDate: { ...reminderDate, dateTime: '2026-02-30T09:00:00' } })).toThrow()
+    expect(() => workItemFieldsSchema.parse({ reminderDate: { ...reminderDate, timeZone: '' } })).toThrow()
+    expect(() => workItemFieldsSchema.parse({ reminderDate: { ...reminderDate, precision: 'month' } })).toThrow()
+  })
+
   it('validates declared personal relationships and page coverage without manufacturing legacy metadata', () => {
     expect(workItemFieldsSchema.parse({ id: 'old', title: 'Legacy' })).toEqual({ id: 'old', title: 'Legacy' })
     expect(workItemPageFieldsSchema.parse({ items: [], nextCursor: 'opaque://cursor?native=1', coverage: 'partial', fetchedAt: '2026-10-12T05:00:00Z' })).toMatchObject({ coverage: 'partial' })

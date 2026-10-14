@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import type { IntegrationEntity, IntegrationEntityPage } from 'craft-hub'
-import { isPersonalWorkItem, workItemIdentityKey } from 'craft-hub/work-items'
+import type { HomeWorkSource } from './personal-workbench'
+import { isPersonalWorkItem, workItemIdentityKey, workItemSourceRefSchema } from 'craft-hub/work-items'
 import { computed, ref, useId, watch } from 'vue'
+import { Button as UiButton } from './components/ui/button'
 import { FormSelect } from './components/ui/select'
 import IntegrationEntityStatus from './IntegrationEntityStatus.vue'
 import IntegrationEntityMetadata from './IntegrationEntityMetadata.vue'
@@ -11,6 +13,8 @@ import IntegrationWorkItemDetail from './IntegrationWorkItemDetail.vue'
 import IntegrationConfigurationToggle from './IntegrationConfigurationToggle.vue'
 import IntegrationStatusTransitionControl from './IntegrationStatusTransitionControl.vue'
 import VisualIcon from './VisualIcon.vue'
+import { useWorkbenchStore } from './store'
+import WorkHandoffDialog from './WorkHandoffDialog.vue'
 
 interface IntegrationStatusActions {
   integrationId: string
@@ -21,7 +25,56 @@ interface IntegrationStatusActions {
 
 const props = defineProps<{ items: IntegrationEntity[], statusFilter?: 'active' | 'all', assigneeFilter?: 'current-user' | 'all', currentUser?: IntegrationEntityPage['currentUser'], selectable?: boolean, workItemActions?: { integrationId: string, projectId?: string, detailActionId?: string }, configurationActionId?: string, loading?: boolean, statusActions?: IntegrationStatusActions, sourceContext?: { integrationId: string, actionId: string, projectId?: string } }>()
 const emit = defineEmits<{ selected: [entity: IntegrationEntity], updated: [entity: IntegrationEntity], configurationUpdated: [page: IntegrationEntityPage] }>()
-const { t } = useI18n()
+const store = useWorkbenchStore()
+const { t, locale } = useI18n()
+const copy = (zh: string, en: string) => locale.value === 'zh-CN' ? zh : en
+const handoffOpen = ref(false)
+const handoffWork = ref<{ source: HomeWorkSource, item: IntegrationEntity }>()
+const handoffSource = computed<HomeWorkSource | undefined>(() => {
+  const context = props.sourceContext
+  if (!context || props.configurationActionId)
+    return undefined
+  const contribution = store.integrationContributions.find(candidate => candidate.id === context.integrationId)
+  const action = contribution?.actions.find(candidate => candidate.id === context.actionId)
+  if (!contribution || !action || !['work-items.get', 'work-items.list', 'work-items.search'].includes(action.operation))
+    return undefined
+  for (const view of contribution.views) {
+    if (context.projectId ? view.scope === 'global' : view.scope === 'project')
+      continue
+    const block = view.blocks.find(candidate => candidate.actionId === action.id && ['entity-list', 'entity-search'].includes(candidate.type))
+    if (!block)
+      continue
+    const input = { ...block.input, ...(contribution.translations ? { locale: locale.value } : {}) }
+    const sectionTitle = block.title ?? action.title
+    return {
+      key: JSON.stringify([contribution.provider.id, contribution.id, action.id, Object.entries(input).sort(([left], [right]) => left.localeCompare(right))]),
+      integrationId: contribution.id,
+      viewId: view.id,
+      title: contribution.translations?.[locale.value]?.[view.title] ?? view.title,
+      sectionTitle: contribution.translations?.[locale.value]?.[sectionTitle] ?? sectionTitle,
+      actionId: action.id,
+      input,
+    }
+  }
+  return undefined
+})
+
+function canPrepareHandoff(item: IntegrationEntity): boolean {
+  const source = handoffSource.value
+  return Boolean(source && workItemSourceRefSchema.safeParse(item.sourceRef).success && item.sourceRef?.instanceId === source.integrationId)
+}
+
+function prepareHandoff(item: IntegrationEntity): void {
+  if (!handoffSource.value || !canPrepareHandoff(item))
+    return
+  handoffWork.value = { source: handoffSource.value, item }
+  handoffOpen.value = true
+}
+
+watch([() => props.sourceContext?.integrationId, () => props.sourceContext?.actionId, () => props.sourceContext?.projectId, () => props.currentUser?.id], () => {
+  handoffOpen.value = false
+  handoffWork.value = undefined
+})
 const query = ref('')
 const statusSelection = ref<string>(props.statusFilter ?? 'all')
 const statusFilterId = useId()
@@ -318,6 +371,7 @@ function updatedTime(item: IntegrationEntity): { date: string, time: string, raw
           </span>
           <div class="integration-entity-actions">
             <a v-if="item.url" class="integration-original-link" :href="item.url" target="_blank" rel="noopener noreferrer" :aria-label="t('integrationOpenOriginal', { title: item.title })" :title="t('integrationOpenOriginal', { title: item.title })"><Icon name="externalLink" /></a>
+            <UiButton v-if="!context && canPrepareHandoff(item)" variant="ghost" size="compact" class="integration-handoff-trigger" :aria-label="`${copy('准备交接', 'Prepare handoff')} ${item.title}`" @click="prepareHandoff(item)"><Icon name="copy" />{{ copy('准备交接', 'Prepare handoff') }}</UiButton>
             <IntegrationConfigurationToggle
               v-if="!context && configurationActionId && sourceContext && item.configurationToggle"
               :key="`${sourceContext.projectId ?? 'global'}:${configurationActionId}`"
@@ -343,6 +397,7 @@ function updatedTime(item: IntegrationEntity): { date: string, time: string, raw
         </div>
       </div>
     </div>
+    <WorkHandoffDialog v-if="handoffWork" v-model:open="handoffOpen" :work="handoffWork" :initial-project-id="sourceContext?.projectId" />
   </div>
 </template>
 
