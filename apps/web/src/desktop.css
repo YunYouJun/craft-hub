@@ -10,3 +10,27 @@
 :root[data-desktop-platform='darwin'] .workbench-titlebar {
   user-select: none;
 }
+
+/*
+ * Desktop hosts behave like native windows: controls keep the arrow cursor and their labels are not
+ * selectable, while links, form fields and content keep browser behavior. Normal browsers keep web conventions.
+ */
+:root[data-desktop-platform] :is(button, [role='button'], [role='tab'], [role='menuitem'], [role='menuitemcheckbox'], [role='menuitemradio'], [role='option'], [role='switch'], [role='checkbox'], [role='radio'], summary, label, select) {
+  cursor: default;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* Titlebar controls carry their own scoped geometry, so they need a more specific native cursor rule. */
+:root[data-desktop-platform] .workbench-titlebar :is(button, [role='button']) {
+  cursor: default;
+}
+
+:root[data-desktop-platform] :is(.activity-rail, .status-bar, .ui-breadcrumb) {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+:root[data-desktop-platform] :is(button, [role='button'], .activity-rail, .status-bar) :is(img, svg, a) {
+  -webkit-user-drag: none;
+}

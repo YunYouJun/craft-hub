@@ -74,3 +74,15 @@
 成对布局验收覆盖 Chromium 1440 / 390 / 320px 和 WebKit 390px 暗色：两个动作的实际宽高与顶部位置一致，中文和英文复制成功前后尺寸稳定，按钮文字放大至 200% 时仍等宽同高且不裁字；焦点、复制完整身份上下文、关闭和 Escape 行为通过。截图按整体比例复查，而非仅以高度相等作为设计通过条件。
 
 参考：[Apple 列表](https://developer.apple.com/design/human-interface-guidelines/lists-and-tables)、[布局](https://developer.apple.com/design/human-interface-guidelines/layout)、[材质](https://developer.apple.com/design/human-interface-guidelines/materials)。
+
+## 动效与桌面宿主行为
+
+2026-10-15：对齐 YunLeFun/design main 新增的移动端与动效约定。`@yunlefun/ui@0.0.6` 尚未发布这些变量，`styles/tokens.css` 以 `--motion-*` 别名读取上游 `--ylf-*` 变量，回退值与上游一致；包发布后自动采用上游值，无需改调用方。
+
+- 按压：共享 Button 按下 100ms 缩至 0.98，松开用软弹簧回弹；悬停反馈只在 `hover: hover` 且 `pointer: fine` 时出现，触屏依赖按压与选中状态。
+- 开关：拇指位移改用软弹簧（480ms），按下时向行程方向拉长 4px。
+- 弹层：所有 Reka 定位弹层（菜单、Select、Combobox、Tooltip、Popover）在 `[data-reka-popper-content-wrapper]` 下统一从触发方向轻移 4px、淡入，收起时淡出，开合对称；菜单使用 160ms，接近原生菜单的即时感。居中 Dialog（含默认 `.dialog-content`）使用 240ms 进入、160ms 离开，命令面板保持 160ms。
+- 减少动态效果：沿用全局 `prefers-reduced-motion` 规则，并将位移、缩放和拇指拉伸归零；状态仍直接反映最终结果。
+- 桌面宿主（Electron / Tauri 注入 `data-desktop-platform`）：按钮、标签页、菜单项、开关等控件使用系统箭头光标且标签不可选中；侧栏、状态栏与面包屑不可选中，控件内图标与链接不可拖拽。链接、输入框、代码和正文保持浏览器行为；普通浏览器继续使用 Web 习惯的手形光标。
+
+本轮在浏览器中验证：变量解析、弹簧曲线有效、菜单弹层方向与变换原点、退出动画结束后卸载并把焦点交还触发器、桌面模式下所有按钮均为箭头光标。尚未在 Electron 安装版与 Tauri 中做原生验收。

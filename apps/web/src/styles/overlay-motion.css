@@ -1,0 +1,32 @@
+/*
+ * Popper overlays (menus, selects, comboboxes, tooltips) open from their trigger side and fade out symmetrically.
+ * Reka renders every positioned overlay inside this wrapper, so callers keep their own surface classes.
+ * Menus use the fast duration: they open often and should feel as immediate as native menus.
+ */
+[data-reka-popper-content-wrapper] > [data-state] {
+  transform-origin: var(--reka-popper-transform-origin);
+}
+
+[data-reka-popper-content-wrapper] > [data-state]:not([data-state='closed']) {
+  animation: popover-in var(--motion-duration-fast) var(--motion-ease-standard);
+}
+
+[data-reka-popper-content-wrapper] > [data-state='closed'] {
+  animation: popover-out var(--motion-duration-fast) var(--motion-ease-standard);
+}
+
+[data-reka-popper-content-wrapper] > [data-side='bottom'] { --popover-from-y: calc(-1 * var(--motion-popover-offset)); }
+[data-reka-popper-content-wrapper] > [data-side='top'] { --popover-from-y: var(--motion-popover-offset); }
+[data-reka-popper-content-wrapper] > [data-side='right'] { --popover-from-x: calc(-1 * var(--motion-popover-offset)); }
+[data-reka-popper-content-wrapper] > [data-side='left'] { --popover-from-x: var(--motion-popover-offset); }
+
+@keyframes popover-in {
+  from {
+    opacity: 0;
+    transform: translate(var(--popover-from-x, 0), var(--popover-from-y, 0)) scale(var(--motion-enter-scale));
+  }
+}
+
+@keyframes popover-out {
+  to { opacity: 0; }
+}

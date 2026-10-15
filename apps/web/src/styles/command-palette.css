@@ -108,6 +108,6 @@
   .palette-overlay { -webkit-backdrop-filter: none; backdrop-filter: none; background: var(--overlay); }
 }
 @media (prefers-reduced-motion: no-preference) {
-  .command-palette { animation: palette-in 140ms ease-out; }
+  .command-palette { animation: palette-in var(--motion-duration-fast) var(--motion-ease-standard); }
   @keyframes palette-in { from { opacity: 0; transform: translate(-50%, 6px); } }
 }

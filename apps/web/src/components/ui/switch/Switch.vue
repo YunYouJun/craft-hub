@@ -25,9 +25,13 @@ const forwarded = useForwardPropsEmits(computed(() => {
 .ui-switch:focus-visible { outline: var(--control-focus-width) solid var(--focus-ring); outline-offset: var(--control-focus-offset); }
 .ui-switch[data-disabled] { cursor: not-allowed; opacity: var(--control-disabled-opacity); }
 .ui-switch[aria-busy='true'] { cursor: wait; }
-.ui-switch-thumb { display: grid; position: relative; place-items: center; flex: none; width: var(--switch-thumb-size); height: var(--switch-thumb-size); border-radius: var(--radius-pill); background: var(--switch-thumb); color: var(--text-secondary); pointer-events: none; box-shadow: var(--switch-thumb-shadow); transform: translateX(0); transition: transform var(--motion-duration-fast) ease; }
+.ui-switch-thumb { display: grid; position: relative; place-items: center; flex: none; width: var(--switch-thumb-size); height: var(--switch-thumb-size); border-radius: var(--radius-pill); background: var(--switch-thumb); color: var(--text-secondary); pointer-events: none; box-shadow: var(--switch-thumb-shadow); transform: translateX(0); transition: width var(--motion-duration-slow) var(--motion-ease-spring), transform var(--motion-duration-slow) var(--motion-ease-spring); }
 .ui-switch[data-state='checked'] .ui-switch-thumb { transform: translateX(var(--switch-travel)); }
 .ui-switch:dir(rtl)[data-state='checked'] .ui-switch-thumb { transform: translateX(calc(-1 * var(--switch-travel))); }
+/* Pressing stretches the thumb toward its travel; the spring settles it on release. */
+.ui-switch:active:not([data-disabled]) .ui-switch-thumb { width: calc(var(--switch-thumb-size) + var(--switch-thumb-stretch)); }
+.ui-switch:active:not([data-disabled])[data-state='checked'] .ui-switch-thumb { transform: translateX(calc(var(--switch-travel) - var(--switch-thumb-stretch))); }
+.ui-switch:dir(rtl):active:not([data-disabled])[data-state='checked'] .ui-switch-thumb { transform: translateX(calc(-1 * (var(--switch-travel) - var(--switch-thumb-stretch)))); }
 .ui-switch-spinner { position: absolute; inset: 0; margin: auto; width: var(--switch-spinner-size); height: var(--switch-spinner-size); box-sizing: border-box; border: var(--control-focus-width) solid currentcolor; border-right-color: transparent; border-radius: var(--radius-pill); animation: switch-spin var(--motion-duration-spin) linear infinite; }
 @keyframes switch-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .ui-switch, .ui-switch-thumb { transition: none; } .ui-switch-spinner { animation: none; } }

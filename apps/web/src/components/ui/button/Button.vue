@@ -37,6 +37,18 @@ withDefaults(defineProps<{
   font-weight: 500;
   line-height: var(--line-height-body);
   box-shadow: none;
+  transition:
+    background-color var(--motion-duration-fast) var(--motion-ease-standard),
+    border-color var(--motion-duration-fast) var(--motion-ease-standard),
+    color var(--motion-duration-fast) var(--motion-ease-standard),
+    transform var(--motion-duration-fast) var(--motion-ease-spring);
+}
+
+/* Press responds immediately; release springs back. Hover feedback stays on precise pointers only. */
+.ui-button:active:not(:disabled) {
+  transform: scale(var(--motion-press-scale));
+  transition-duration: var(--motion-duration-press);
+  transition-timing-function: var(--motion-ease-standard);
 }
 
 .ui-button:focus-visible {
@@ -59,21 +71,18 @@ withDefaults(defineProps<{
   color: var(--on-accent);
 }
 
-.ui-button--primary:hover:not(:disabled) { background: var(--accent-hover); }
 
 .ui-button--warning {
   background: var(--warning-fill);
   color: var(--on-warning);
 }
 
-.ui-button--warning:hover:not(:disabled) { background: var(--warning-fill-hover); }
 
 .ui-button--danger {
   background: var(--danger-fill);
   color: var(--on-danger);
 }
 
-.ui-button--danger:hover:not(:disabled) { background: var(--danger-fill-hover); }
 
 .ui-button--danger-secondary {
   border-color: color-mix(in srgb, var(--danger) 38%, var(--border));
@@ -81,9 +90,6 @@ withDefaults(defineProps<{
   color: var(--danger);
 }
 
-.ui-button--danger-secondary:hover:not(:disabled) {
-  background: var(--danger-soft);
-}
 
 .ui-button--secondary {
   border-color: var(--border);
@@ -91,15 +97,24 @@ withDefaults(defineProps<{
   color: var(--text);
 }
 
-.ui-button--secondary:hover:not(:disabled),
-.ui-button--ghost:hover:not(:disabled) {
-  background: var(--surface-hover);
-  color: var(--accent);
-}
 
 .ui-button--ghost {
   background: transparent;
   color: var(--text-secondary);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .ui-button--primary:hover:not(:disabled) { background: var(--accent-hover); }
+  .ui-button--warning:hover:not(:disabled) { background: var(--warning-fill-hover); }
+  .ui-button--danger:hover:not(:disabled) { background: var(--danger-fill-hover); }
+  .ui-button--danger-secondary:hover:not(:disabled) {
+    background: var(--danger-soft);
+  }
+  .ui-button--secondary:hover:not(:disabled),
+  .ui-button--ghost:hover:not(:disabled) {
+    background: var(--surface-hover);
+    color: var(--accent);
+  }
 }
 
 .ui-button :deep(.app-icon) { width: var(--control-icon-size); height: var(--control-icon-size); }
