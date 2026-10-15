@@ -1,4 +1,4 @@
-import type { Input, MenuItemConstructorOptions } from 'electron'
+import type { ContextMenuParams, Input, MenuItemConstructorOptions } from 'electron'
 
 export const desktopSettingsAccelerator = 'CommandOrControl+,'
 
@@ -176,4 +176,34 @@ export function createWorkbenchMenuShortcutMatcher(platform: string): (input: Wo
     && input.alt === binding.alt
     && input.shift === binding.shift,
   )
+}
+
+/**
+ * Build the native edit menu for text fields and selected text. Returns no items when the page
+ * should keep its own behavior, such as plain clicks on controls or custom renderer menus.
+ */
+export function createEditContextMenu(params: Pick<ContextMenuParams, 'dictionarySuggestions' | 'editFlags' | 'isEditable' | 'misspelledWord' | 'selectionText'>, replaceMisspelling: (word: string) => void, locale: DesktopMenuLocale = 'en'): MenuItemConstructorOptions[] {
+  const label = (en: string, zh: string): string => menuLabel(locale, en, zh)
+  const copy: MenuItemConstructorOptions = { role: 'copy', label: label('Copy', '复制'), enabled: params.editFlags.canCopy }
+  if (!params.isEditable)
+    return params.selectionText.trim() ? [copy] : []
+
+  const suggestions: MenuItemConstructorOptions[] = params.misspelledWord
+    ? [
+        ...params.dictionarySuggestions.slice(0, 5).map(suggestion => ({ label: suggestion, click: () => replaceMisspelling(suggestion) })),
+        { type: 'separator' as const },
+      ]
+    : []
+  return [
+    ...suggestions,
+    { role: 'undo', label: label('Undo', '撤销'), enabled: params.editFlags.canUndo },
+    { role: 'redo', label: label('Redo', '重做'), enabled: params.editFlags.canRedo },
+    { type: 'separator' },
+    { role: 'cut', label: label('Cut', '剪切'), enabled: params.editFlags.canCut },
+    copy,
+    { role: 'paste', label: label('Paste', '粘贴'), enabled: params.editFlags.canPaste },
+    { role: 'pasteAndMatchStyle', label: label('Paste and Match Style', '粘贴并匹配样式'), enabled: params.editFlags.canPaste },
+    { type: 'separator' },
+    { role: 'selectAll', label: label('Select All', '全选'), enabled: params.editFlags.canSelectAll },
+  ]
 }

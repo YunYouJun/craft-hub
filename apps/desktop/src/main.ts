@@ -17,7 +17,7 @@ import { PersonalCloudController } from '@craft-hub/personal-cloud'
 import { communityDistribution, CraftHubRuntime, HostExtensionManager, loadCraftHubPlugins, startCraftHubServer } from 'craft-hub'
 import { app, BrowserWindow, clipboard, dialog, globalShortcut, ipcMain, Menu, nativeImage, nativeTheme, safeStorage, shell } from 'electron'
 import { aboutDocument, aboutPanelOptions } from './about.ts'
-import { createApplicationMenu, createWorkbenchMenuShortcutMatcher, isDesktopMenuLocale } from './application-menu.ts'
+import { createApplicationMenu, createEditContextMenu, createWorkbenchMenuShortcutMatcher, isDesktopMenuLocale } from './application-menu.ts'
 import { loadDesktopBuildInfo } from './build-info.ts'
 import { CodexActivityMonitor } from './codex-activity.ts'
 import { CodexAgentTaskProvider } from './codex-agent-task-provider.ts'
@@ -32,6 +32,7 @@ import { registerHostExtensionHandlers } from './host-extensions.ts'
 import { codexThreadUrl, editorTargetPaths, externalHttpUrl, focusCodexApplication, gitRemoteHttpUrl, macTerminalApplications, openCodexProject, openCursorEditor, openCustomEditor, openMacTerminalProject, openPersonalWorkbenchTool, projectContainsPath, vscodeUrl } from './open-targets.ts'
 import { createDeferredOnceTask } from './shutdown-task.ts'
 import { DesktopUpdater } from './updater.ts'
+import { mainWindowAppearance, windowBackgroundColor } from './window-appearance.ts'
 import { resolveWorkspaceLaunchTarget } from './workspace-launch-target.ts'
 
 const execFileAsync = promisify(execFile)
@@ -94,7 +95,7 @@ function isDesktopTheme(value: unknown): value is DesktopTheme {
 
 function applyDesktopTheme(theme: DesktopTheme): void {
   nativeTheme.themeSource = theme
-  mainWindow?.setBackgroundColor(nativeTheme.shouldUseDarkColors ? '#1f232b' : '#ffffff')
+  mainWindow?.setBackgroundColor(windowBackgroundColor(process.platform, nativeTheme.shouldUseDarkColors))
 }
 
 async function showAboutWindow(): Promise<void> {
@@ -203,7 +204,7 @@ app.setAboutPanelOptions(aboutPanelOptions(app.getVersion(), applicationIcon, pr
 const hasSingleInstanceLock = app.requestSingleInstanceLock()
 
 nativeTheme.on('updated', () => {
-  mainWindow?.setBackgroundColor(nativeTheme.shouldUseDarkColors ? '#1f232b' : '#ffffff')
+  mainWindow?.setBackgroundColor(windowBackgroundColor(process.platform, nativeTheme.shouldUseDarkColors))
 })
 
 app.setAsDefaultProtocolClient(desktopProtocol)
@@ -686,6 +687,7 @@ async function createWindow(): Promise<void> {
   applyDesktopTheme(settings['workbench.theme'])
   applyDesktopMenuLocale(settings['workbench.locale'])
 
+  const { additionalArguments, ...appearance } = mainWindowAppearance(process.platform, nativeTheme.shouldUseDarkColors)
   mainWindow = new BrowserWindow({
     width: 1440,
     height: 900,
@@ -693,17 +695,28 @@ async function createWindow(): Promise<void> {
     minHeight: 620,
     title: windowTitle,
     icon: applicationIcon,
+    // Reveal the window after its first styled frame so launch never shows an empty background.
+    show: false,
     titleBarStyle: process.platform === 'darwin' ? 'hidden' : 'default',
     // Center the 14px native controls in the renderer's 52px macOS toolbar.
     ...(process.platform === 'darwin' ? { trafficLightPosition: { x: 16, y: 19 }, titleBarOverlay: true } : {}),
-    backgroundColor: nativeTheme.shouldUseDarkColors ? '#1f232b' : '#ffffff',
+    ...appearance,
     webPreferences: {
+      additionalArguments,
       contextIsolation: true,
       nodeIntegration: false,
       preload: resolve(fileURLToPath(new URL('.', import.meta.url)), '../preload.cjs'),
     },
   })
+  const createdWindow = mainWindow
+  createdWindow.once('ready-to-show', () => createdWindow.show())
   const windowContents = mainWindow.webContents
+  windowContents.on('context-menu', (_event, params) => {
+    // Renderer menus cancel the DOM event, so this only covers text fields and plain selections.
+    const template = createEditContextMenu(params, word => windowContents.replaceMisspelling(word), desktopMenuLocale)
+    if (template.length)
+      Menu.buildFromTemplate(template).popup({ window: createdWindow })
+  })
   const isWorkbenchMenuShortcut = createWorkbenchMenuShortcutMatcher(process.platform)
   windowContents.on('before-input-event', (_event, input) => {
     // Keep native menu hints and clicks while letting the renderer prioritize custom shortcuts.
@@ -720,7 +733,15 @@ async function createWindow(): Promise<void> {
   mainWindow.once('closed', () => {
     mainWindow = undefined
   })
-  await loadUrlWithRetry(mainWindow, developmentUrl ?? craftHubServer.url)
+  try {
+    await loadUrlWithRetry(mainWindow, developmentUrl ?? craftHubServer.url)
+  }
+  catch (error) {
+    // A failed load never paints, but the window must still appear for the user and diagnostics.
+    if (!createdWindow.isDestroyed())
+      createdWindow.show()
+    throw error
+  }
   mainWindow.setTitle(windowTitle)
   if (desktopLinks.hasCelebration())
     mainWindow.webContents.send('craft-hub:celebration-requested')

@@ -1,6 +1,6 @@
-import type { Input, MenuItemConstructorOptions } from 'electron'
+import type { ContextMenuParams, Input, MenuItemConstructorOptions } from 'electron'
 import { describe, expect, it, vi } from 'vitest'
-import { createApplicationMenu, createWorkbenchMenuShortcutMatcher, createWorkbenchViewMenu, isDesktopMenuLocale } from './application-menu.ts'
+import { createApplicationMenu, createEditContextMenu, createWorkbenchMenuShortcutMatcher, createWorkbenchViewMenu, isDesktopMenuLocale } from './application-menu.ts'
 
 function commands(platform: string, onAction = vi.fn()) {
   return createWorkbenchViewMenu(onAction, platform).submenu as MenuItemConstructorOptions[]
@@ -277,5 +277,48 @@ describe('renderer-owned menu accelerators', () => {
       expect(matches(input('1', { control: true }))).toBe(false)
       expect(matches(input('c', { meta: false, control: true }))).toBe(false)
     }
+  })
+})
+
+const editFlags = { canCopy: true, canCut: true, canDelete: true, canEditRichly: false, canPaste: true, canRedo: false, canSelectAll: true, canUndo: true }
+
+function menuParams(overrides: Partial<ContextMenuParams>) {
+  return { dictionarySuggestions: [], editFlags, isEditable: false, misspelledWord: '', selectionText: '', ...overrides }
+}
+
+describe('native edit context menu', () => {
+  it('leaves non-editable regions without a selection to the page', () => {
+    expect(createEditContextMenu(menuParams({ selectionText: '  ' }), vi.fn())).toEqual([])
+  })
+
+  it('offers copy for selected read-only text', () => {
+    expect(createEditContextMenu(menuParams({ selectionText: 'pnpm build' }), vi.fn())).toEqual([{ role: 'copy', label: 'Copy', enabled: true }])
+  })
+
+  it('mirrors the field edit state for text fields', () => {
+    const template = createEditContextMenu(menuParams({ isEditable: true }), vi.fn())
+    expect(template.filter(item => item.role).map(item => [item.role, item.enabled])).toEqual([
+      ['undo', true],
+      ['redo', false],
+      ['cut', true],
+      ['copy', true],
+      ['paste', true],
+      ['pasteAndMatchStyle', true],
+      ['selectAll', true],
+    ])
+  })
+
+  it('puts spelling suggestions first and replaces the misspelled word', () => {
+    const replace = vi.fn()
+    const template = createEditContextMenu(menuParams({ dictionarySuggestions: ['project'], isEditable: true, misspelledWord: 'projcet' }), replace)
+    expect(template[0]?.label).toBe('project')
+    expect(template[1]?.type).toBe('separator')
+    template[0]?.click?.({} as never, undefined, {} as never)
+    expect(replace).toHaveBeenCalledExactlyOnceWith('project')
+  })
+
+  it('labels edit commands in the workbench locale', () => {
+    const template = createEditContextMenu(menuParams({ isEditable: true }), vi.fn(), 'zh-CN')
+    expect(template.filter(item => item.role).map(item => item.label)).toEqual(['撤销', '重做', '剪切', '复制', '粘贴', '粘贴并匹配样式', '全选'])
   })
 })

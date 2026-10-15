@@ -4,6 +4,9 @@ contextBridge.exposeInMainWorld('craftHubDesktop', {
   // Electron's sandbox exposes process as a safe, limited global.
   // eslint-disable-next-line node/prefer-global/process
   platform: process.platform,
+  // The main process passes its native window material so the renderer only turns translucent where it shows.
+  // eslint-disable-next-line node/prefer-global/process
+  windowMaterial: process.argv?.find(argument => argument.startsWith('--craft-hub-window-material='))?.slice('--craft-hub-window-material='.length),
   consumeQuickCapture: () => ipcRenderer.invoke('craft-hub:consume-quick-capture'),
   quickCaptureStatus: () => ipcRenderer.invoke('craft-hub:quick-capture-status'),
   onQuickCapture: (callback) => {

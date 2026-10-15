@@ -7,12 +7,15 @@ import 'virtual:uno.css'
 import './desktop.css'
 import './styles.css'
 
-const desktopPlatform = (
-  window as Window & { craftHubDesktop?: { platform?: string } }
-).craftHubDesktop?.platform
+const desktopHost = (
+  window as Window & { craftHubDesktop?: { platform?: string, windowMaterial?: string } }
+).craftHubDesktop
 
-if (desktopPlatform)
-  document.documentElement.dataset.desktopPlatform = desktopPlatform
+if (desktopHost?.platform)
+  document.documentElement.dataset.desktopPlatform = desktopHost.platform
+// Only hosts that draw a native material behind the page may make workbench surfaces translucent.
+if (desktopHost?.windowMaterial)
+  document.documentElement.dataset.desktopWindowMaterial = desktopHost.windowMaterial
 
 applyWorkbenchTheme('system')
 
