@@ -75,6 +75,27 @@ describe('shared tabs', () => {
     expect(tabs[1]!.attributes('aria-selected')).toBe('false')
   })
 
+  it('slides a shared indicator under segmented tabs only', async () => {
+    const segmented = mount(defineComponent({
+      components: { TabsList, TabsRoot, TabsTrigger },
+      template: `
+        <TabsRoot default-value="one">
+          <TabsList aria-label="Segments"><TabsTrigger value="one">One</TabsTrigger><TabsTrigger value="two">Two</TabsTrigger></TabsList>
+        </TabsRoot>
+      `,
+    }), { attachTo: document.body })
+    mounted.push(segmented)
+    // Browsers measure on the first resize observation; happy-dom only measures after a selection change.
+    await segmented.findAll('[role="tab"]')[1]!.trigger('mousedown', { button: 0 })
+    await vi.waitFor(() => expect(segmented.find('[role="tablist"] > [data-slot="tabs-indicator"]').exists()).toBe(true))
+    expect(segmented.get('[data-slot="tabs-indicator"]').attributes('style')).toContain('--reka-tabs-indicator-position')
+    expect(segmented.findAll('[role="tab"]')).toHaveLength(2)
+
+    const sidebar = renderTabs('vertical')
+    await nextTick()
+    expect(sidebar.find('[data-slot="tabs-indicator"]').exists()).toBe(false)
+  })
+
   it('supports asChild without adding a second control or losing attributes', async () => {
     const wrapper = mount(defineComponent({
       components: { TabsList, TabsRoot, TabsTrigger },

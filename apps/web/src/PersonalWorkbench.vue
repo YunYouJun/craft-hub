@@ -3,6 +3,7 @@ import type { IntegrationEntity, PersonalWorkbenchHome } from 'craft-hub'
 import type { HomeWorkSource } from './personal-workbench'
 import { computed, ref } from 'vue'
 import { api } from './api'
+import { SkeletonList } from './components/ui/skeleton'
 import { Icon } from './icons'
 import { useI18n } from './i18n'
 import { useWorkbenchStore } from './store'
@@ -99,10 +100,10 @@ function prepareHandoff(projectId = '', work?: { source: HomeWorkSource, item: I
       <aside class="home-support-column" :aria-label="copy('项目与工具', 'Projects and tools')">
         <section class="home-card home-projects">
           <div class="home-section-heading"><h2>{{ copy('常用项目', 'Projects') }}</h2><button v-if="store.hostEnvironment.capabilities.localProjectDirectories" class="home-text-button" :disabled="addingProject" @click="addProject"><Icon name="plus" />{{ copy('添加项目', 'Add project') }}</button></div>
-          <p v-if="['idle', 'loading'].includes(store.projectsLoadState) && !displayedProjects.length" class="home-hint" role="status">{{ copy('正在读取项目…', 'Loading projects…') }}</p>
+          <SkeletonList v-if="['idle', 'loading'].includes(store.projectsLoadState) && !displayedProjects.length" class="home-project-skeleton" :label="copy('正在读取项目…', 'Loading projects…')" icon />
           <p v-else-if="store.projectsLoadState === 'error'" class="home-error" role="alert">{{ copy('项目未载入。', 'Projects could not be loaded.') }}<button class="home-text-button" @click="store.loadProjects()">{{ copy('重试', 'Retry') }}</button></p>
           <div v-else-if="!displayedProjects.length" class="home-empty"><Icon name="folder" /><strong>{{ copy('把项目放到工作台', 'Bring your projects here') }}</strong><p>{{ copy('添加本机项目，或从工作区订阅中导入。', 'Add a local project or import a workspace subscription.') }}</p></div>
-          <div class="home-project-list"><div v-for="project in displayedProjects" :key="project.id" class="home-project-row">
+          <div class="home-project-list motion-reveal-list"><div v-for="project in displayedProjects" :key="project.id" class="home-project-row">
             <button class="home-project-open" :title="project.path" @click="emit('openProject', project.id)"><span class="home-project-icon"><VisualIcon :icon="project.icon" fallback="folder" /></span><span><strong>{{ project.name }}</strong><small>{{ project.path }}</small></span></button>
             <button class="home-icon-button" :aria-label="`${copy('准备交接', 'Prepare handoff')} ${project.name}`" @click="prepareHandoff(project.id)"><Icon name="copy" /></button>
             <button class="home-pin" :class="{ pinned: home.pinnedProjectIds?.includes(project.id) }" :disabled="saving || !store.settings" :aria-pressed="home.pinnedProjectIds?.includes(project.id) ?? false" :aria-label="`${home.pinnedProjectIds?.includes(project.id) ? copy('取消收藏', 'Unpin') : copy('收藏', 'Pin')} ${project.name}`" @click="togglePin(project.id)"><Icon :name="home.pinnedProjectIds?.includes(project.id) ? 'starFilled' : 'star'" /></button>
@@ -143,6 +144,7 @@ function prepareHandoff(projectId = '', work?: { source: HomeWorkSource, item: I
 .home-pin:disabled { opacity: .5; cursor: default; }
 .home-text-button:focus-visible, .home-icon-button:focus-visible, .home-pin:focus-visible, .home-project-open:focus-visible, .home-work-item:focus-visible, .home-workspaces > button:focus-visible, .home-entry-grid > button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .home-project-list { display: grid; }
+.home-project-skeleton { --skeleton-row-height: 50px; --skeleton-row-padding: 6px 0; }
 .home-project-row { display: flex; align-items: center; min-width: 0; min-height: 50px; gap: 2px; }
 .home-project-row + .home-project-row { border-top: 1px solid var(--border); }
 .home-project-row:hover { background: var(--surface-subtle); }

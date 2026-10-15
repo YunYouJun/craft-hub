@@ -102,6 +102,10 @@ export default defineComponent({
   white-space: nowrap;
   cursor: pointer;
   user-select: none;
+  transition:
+    background-color var(--motion-duration-fast) var(--motion-ease-standard),
+    color var(--motion-duration-fast) var(--motion-ease-standard),
+    box-shadow var(--motion-duration-fast) var(--motion-ease-standard);
 }
 
 .ui-navigation-item[data-variant='segmented'] {
@@ -120,9 +124,16 @@ export default defineComponent({
   color: var(--workbench-sidebar-color);
 }
 
-.ui-navigation-item:hover:not(:disabled, [data-disabled]) {
-  background: var(--surface-hover);
-  color: var(--text);
+/* Touch input would leave hover stuck after a tap, so hover feedback is limited to precise pointers. */
+@media (hover: hover) and (pointer: fine) {
+  .ui-navigation-item:hover:not(:disabled, [data-disabled]) {
+    background: var(--surface-hover);
+    color: var(--text);
+  }
+
+  .ui-navigation-item[data-variant='sidebar']:hover .visual-icon img {
+    opacity: 1;
+  }
 }
 
 .ui-navigation-item[data-variant='segmented']:is([data-state='active'], [aria-selected='true'], [aria-current='page'], .active) {
@@ -171,7 +182,7 @@ export default defineComponent({
   opacity: .65;
 }
 
-.ui-navigation-item[data-variant='sidebar']:is(:hover, :focus-visible) .visual-icon img {
+.ui-navigation-item[data-variant='sidebar']:focus-visible .visual-icon img {
   opacity: 1;
 }
 

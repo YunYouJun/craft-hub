@@ -4,6 +4,7 @@ import type { FocusEntry } from './today-focus'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { api } from './api'
 import { Button as UiButton } from './components/ui/button'
+import { SkeletonList } from './components/ui/skeleton'
 import { Icon } from './icons'
 import { useI18n } from './i18n'
 import { formatShortcut } from './shortcuts'
@@ -65,7 +66,7 @@ onUnmounted(() => { generation++; clearInterval(timer) })
       <span>{{ analysis ? `${copy('AI 建议', 'AI suggestions')} · ${analyzedAt}` : copy('截止时间与优先级', 'Deadlines & priority') }}</span>
       <div><UiButton variant="ghost" size="compact" :disabled="loading || analyzing || !ranked.length || !available" @click="analyze"><Icon :name="analyzing ? 'loading' : 'skill'" />{{ analyzing ? copy('分析中…', 'Analyzing…') : copy('AI 分析', 'AI analysis') }}</UiButton><UiButton variant="ghost" size="icon" :disabled="loading" :aria-label="copy('刷新今日重点', 'Refresh today’s focus')" @click="emit('refresh')"><Icon :name="loading ? 'loading' : 'refresh'" /></UiButton></div>
     </div>
-    <ol v-if="rows.length" class="focus-list">
+    <ol v-if="rows.length" class="focus-list motion-reveal-list">
       <li v-for="(row, index) in visibleRows" :key="`${snapshot}:${row.key}`">
         <span class="focus-number">{{ index + 1 }}</span>
         <details class="focus-item">
@@ -77,7 +78,8 @@ onUnmounted(() => { generation++; clearInterval(timer) })
         </details>
       </li>
     </ol>
-    <p v-else class="focus-empty" role="status">{{ loading ? copy('正在汇总…', 'Reading sources…') : copy('暂无未完成事项，记录一件事开始吧。', 'No unfinished work. Capture a task to get started.') }}</p>
+    <SkeletonList v-else-if="loading" class="focus-skeleton" :label="copy('正在汇总…', 'Reading sources…')" />
+    <p v-else class="focus-empty motion-reveal" role="status">{{ copy('暂无未完成事项，记录一件事开始吧。', 'No unfinished work. Capture a task to get started.') }}</p>
     <UiButton v-if="rows.length > 3" variant="ghost" size="compact" class="focus-more" :aria-expanded="expanded" @click="expanded = !expanded">{{ expanded ? copy('收起', 'Show less') : copy(`另 ${rows.length - 3} 项建议`, `${rows.length - 3} more suggestions`) }}<Icon name="arrowDown" /></UiButton>
     <p v-if="error" class="focus-warning" role="alert">{{ error }}</p>
     <details class="focus-context">
@@ -112,7 +114,7 @@ onUnmounted(() => { generation++; clearInterval(timer) })
 .focus-item[open] strong { white-space: normal; overflow-wrap: anywhere; }
 .focus-item small { display: flex; align-items: center; gap: 5px; color: var(--muted); font-size: 11px; line-height: 16px; overflow: hidden; white-space: nowrap; }
 .focus-item small .visual-icon { flex: none; width: 12px; height: 12px; }
-.focus-disclosure { flex: none; width: 14px; height: 14px; color: var(--muted); }
+.focus-disclosure { flex: none; width: 14px; height: 14px; color: var(--muted); transition: transform var(--motion-duration-enter) var(--motion-ease-standard); }
 .focus-item[open] .focus-disclosure { transform: rotate(90deg); }
 .focus-detail { padding: 0 0 10px; }
 .focus-detail p { margin: 0 0 6px; color: var(--muted); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
@@ -120,7 +122,11 @@ onUnmounted(() => { generation++; clearInterval(timer) })
 .focus-detail button { padding-left: 0; color: var(--accent); }
 .focus-context { border-top: 1px solid var(--border); font-size: 11px; color: var(--muted); line-height: 1.6; }
 .focus-context summary { display: flex; align-items: center; justify-content: space-between; min-height: 32px; cursor: pointer; }
-.focus-context summary .app-icon { width: 14px; height: 14px; }
+.focus-context summary .app-icon { width: 14px; height: 14px; transition: transform var(--motion-duration-enter) var(--motion-ease-standard); }
+/* Disclosures expand to their content height where the engine supports animating to auto; others open instantly. */
+.today-focus { interpolate-size: allow-keywords; }
+:is(.focus-item, .focus-context)::details-content { block-size: 0; overflow: hidden; transition: block-size var(--motion-duration-enter) var(--motion-ease-standard), content-visibility var(--motion-duration-enter) allow-discrete; }
+:is(.focus-item, .focus-context)[open]::details-content { block-size: auto; }
 .focus-context[open] summary .app-icon { transform: rotate(180deg); }
 .focus-context p { margin: 0 0 10px; }
 .focus-context .focus-summary { color: var(--text); font-size: 12px; }
@@ -131,6 +137,8 @@ onUnmounted(() => { generation++; clearInterval(timer) })
   .focus-item summary { min-height: 52px; }
   .focus-item strong { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; white-space: normal; }
   .focus-item[open] strong { display: block; }
+  .focus-skeleton { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0 16px; padding-block: 6px; --skeleton-row-height: 52px; --skeleton-row-divider: 0; }
+  .focus-skeleton .ui-skeleton-row:not(:first-of-type) { border-left: 1px solid var(--border); padding-left: 38px; }
 }
 summary { list-style: none; }
 summary::-webkit-details-marker { display: none; }
@@ -138,5 +146,7 @@ summary:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2p
 .focus-more { width: 100%; color: var(--accent); }
 .focus-warning { font-size: 12px; line-height: 1.5; color: var(--warning); }
 .focus-empty { padding: 12px 0; color: var(--muted); font-size: 12px; }
+/* Mirror the ranked rows: number column, title and source caption. */
+.focus-skeleton { --skeleton-row-padding: 6px 0 6px 22px; }
 @media (max-width: 400px) { .today-focus { padding-inline: 12px; } .focus-title time { display: none; } }
 </style>

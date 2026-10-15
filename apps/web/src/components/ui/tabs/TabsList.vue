@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { TabsListProps } from 'reka-ui'
 import type { NavigationVariant } from '../navigation'
-import { TabsList, useForwardExpose, useForwardProps } from 'reka-ui'
+import { TabsIndicator, TabsList, useForwardExpose, useForwardProps } from 'reka-ui'
 import { computed } from 'vue'
 import { NavigationList } from '../navigation'
 
@@ -23,6 +23,8 @@ const { forwardRef } = useForwardExpose()
   <NavigationList as-child :variant="variant">
     <TabsList :ref="forwardRef" data-slot="tabs-list" v-bind="listProps">
       <slot />
+      <!-- Segmented tabs slide one shared selection surface instead of swapping backgrounds. -->
+      <TabsIndicator v-if="variant === 'segmented' && !asChild" class="ui-navigation-indicator" data-slot="tabs-indicator" />
     </TabsList>
   </NavigationList>
 </template>

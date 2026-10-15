@@ -5,6 +5,7 @@
 @import './styles/workbench-view.css';
 @import './styles/daily-workbench.css';
 @import './styles/overlay-motion.css';
+@import './styles/content-motion.css';
 
 :root {
   --workbench-toolbar-height: 44px;
@@ -659,15 +660,13 @@ button.workspace-project-open:hover { background: var(--surface-muted); }
 .workspace-capability-shortcut .app-icon { width: 12px; height: 12px; flex: 0 0 12px; }
 .workspace-capability-shortcut span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .workspace-project-summary.unresolved .workspace-project-open { color: var(--muted); }
-.workspace-project-loading { display: grid; align-content: start; gap: 8px; padding: 8px 10px 0 0; }
-.workspace-project-loading span { height: 54px; border-radius: 8px; background: linear-gradient(90deg, var(--surface-muted), var(--surface-hover), var(--surface-muted)); background-size: 200% 100%; animation: workspace-loading 1.4s ease-in-out infinite; }
+.workspace-project-loading { --skeleton-block-height: 54px; display: grid; align-content: start; gap: 8px; padding: 8px 10px 0 0; }
 .workspace-project-empty, .workspace-project-error { display: grid; align-content: center; justify-items: center; gap: 10px; padding: 28px 18px; color: var(--muted); text-align: center; }
 .workspace-project-empty > .app-icon, .workspace-project-error > .app-icon { width: 28px; height: 28px; }
 .workspace-project-empty p, .workspace-project-error p { margin: 0; font-size: var(--font-size-control); line-height: 1.5; }
 .workspace-capability-back { display: flex; align-items: center; gap: 5px; margin: 0 0 14px; border-radius: 6px; background: transparent; padding: 5px 7px; color: var(--muted); font-size: var(--font-size-control); }
 .workspace-capability-back:hover { background: var(--surface-muted); color: var(--text-secondary); }
 .workspace-capability-back .app-icon { width: 13px; height: 13px; transform: rotate(180deg); }
-@keyframes workspace-loading { from { background-position: 100% 0; } to { background-position: -100% 0; } }
 .search-box { display: flex; align-items: center; gap: 10px; border: 2px solid var(--accent); border-radius: 8px; padding: 0 12px; color: var(--muted); }
 .search-box { border-width: 1px; border-color: var(--border-strong); border-radius: 7px; padding: 0 9px; }
 .search-box:focus-within { border-color: var(--accent); box-shadow: 0 0 0 2px rgb(20 99 223 / 10%); }
@@ -1395,6 +1394,11 @@ textarea.ui-form-control { height: auto; min-height: 88px; resize: vertical; }
 .ui-form-checkbox [data-slot='checkbox-indicator'] { display: grid; place-items: center; }
 .ui-form-checkbox .app-icon { width: 14px; height: 14px; }
 .ui-form-checkbox:disabled { opacity: .5; cursor: not-allowed; }
+.ui-form-checkbox { transition: background-color var(--motion-duration-fast) var(--motion-ease-standard), border-color var(--motion-duration-fast) var(--motion-ease-standard), transform var(--motion-duration-fast) var(--motion-ease-spring); }
+.ui-form-checkbox:active:not(:disabled) { transform: scale(.9); transition-duration: var(--motion-duration-press); }
+.ui-form-checkbox[data-changed] [data-slot='checkbox-indicator'][data-state='checked'] { animation: checkbox-check var(--motion-duration-slow) var(--motion-ease-spring); }
+@keyframes checkbox-check { from { opacity: 0; transform: scale(.4); } }
+@media (prefers-reduced-motion: reduce) { .ui-form-checkbox:active:not(:disabled) { transform: none; } }
 [data-slot='field'] [data-slot='select-trigger'] { width: 100%; min-height: var(--control-height-default); border-radius: var(--control-radius); }
 @media (max-width: 767.9px), (pointer: coarse) { .ui-form-control { font-size: 16px; } }
 

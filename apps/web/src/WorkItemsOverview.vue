@@ -5,6 +5,7 @@ import { personalActiveWork, workItemIdentityKey } from 'craft-hub/work-items'
 import { computed, onUnmounted, ref, watch } from 'vue'
 import { api } from './api'
 import { Button as UiButton } from './components/ui/button'
+import { SkeletonList } from './components/ui/skeleton'
 import { TabsContent, TabsList, TabsRoot, TabsTrigger } from './components/ui/tabs'
 import { Icon } from './icons'
 import { useI18n } from './i18n'
@@ -200,8 +201,8 @@ onUnmounted(() => { generation++ })
       <h2>{{ copy('我的工作', 'My work') }}</h2>
       <UiButton v-if="sources.length" variant="ghost" size="icon" class="home-icon-button" :disabled="loading" :aria-label="copy('刷新我的工作', 'Refresh my work')" @click="refresh"><Icon :name="loading ? 'loading' : 'refresh'" /></UiButton>
     </div>
-    <div v-if="['idle', 'loading'].includes(store.integrationsLoadState) && !sources.length" class="daily-surface daily-empty home-hint" role="status">
-      <Icon name="loading" /><strong>{{ copy('正在读取工作来源…', 'Loading work sources…') }}</strong>
+    <div v-if="['idle', 'loading'].includes(store.integrationsLoadState) && !sources.length" class="daily-surface home-loading">
+      <SkeletonList :label="copy('正在读取工作来源…', 'Loading work sources…')" icon />
     </div>
     <div v-else-if="store.integrationsLoadState === 'error'" class="daily-surface daily-empty home-error" role="alert">
       <strong>{{ copy('工作来源未载入', 'Work sources could not be loaded') }}</strong>
@@ -262,7 +263,8 @@ onUnmounted(() => { generation++ })
                 <UiButton variant="ghost" size="icon" class="home-icon-button" :disabled="states[source.key]?.loading" :aria-label="`${copy('刷新', 'Refresh')} ${source.sectionTitle}`" @click="load(source)"><Icon :name="states[source.key]?.loading ? 'loading' : 'refresh'" /></UiButton>
               </div>
             </div>
-            <div v-if="states[source.key]?.loading" class="home-source-notice home-hint daily-caption" role="status"><Icon name="loading" />{{ copy('正在读取…', 'Loading…') }}</div>
+            <SkeletonList v-if="states[source.key]?.loading && !states[source.key]?.page" :label="copy('正在读取…', 'Loading…')" icon />
+            <p v-else-if="states[source.key]?.loading" class="sr-only" role="status">{{ copy('正在读取…', 'Loading…') }}</p>
             <div v-if="states[source.key]?.error" class="home-source-notice home-error" role="alert">
               <div><strong>{{ states[source.key]?.error }}</strong><p v-if="states[source.key]?.page" class="daily-caption">{{ copy('保留上次结果，可能已过期。', 'Previous results may be stale.') }}</p></div>
               <div class="home-source-actions">
@@ -295,7 +297,7 @@ onUnmounted(() => { generation++ })
                     </div>
                   </template>
                 </WorkCollectionBrowser>
-                <div v-else class="daily-list">
+                <div v-else class="daily-list motion-reveal-list">
                   <div v-for="item in visibleItems(source)" :key="workItemIdentityKey(item)" class="home-work-row daily-row">
                     <button class="home-work-item daily-row-main" :title="`${item.title} · ${item.id}`" @click="emit('openIntegration', source.integrationId, source.viewId, 'global')">
                       <VisualIcon :icon="item.icon" :fallback="workItemTypeIcon(item)" class="home-item-symbol" />

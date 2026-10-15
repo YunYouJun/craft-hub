@@ -1,0 +1,22 @@
+/*
+ * Content that replaces a loading placeholder rises into place once. List rows follow one another by a short
+ * stagger capped at six rows, so long results never feel slow. Only the backwards fill is kept: finished rows
+ * carry no transform and do not become containing blocks for popovers or fixed descendants.
+ */
+.motion-reveal,
+.motion-reveal-list > * {
+  animation: content-reveal var(--motion-duration-enter) var(--motion-ease-standard) backwards;
+}
+
+.motion-reveal-list > :nth-child(2) { animation-delay: var(--motion-stagger); }
+.motion-reveal-list > :nth-child(3) { animation-delay: calc(2 * var(--motion-stagger)); }
+.motion-reveal-list > :nth-child(4) { animation-delay: calc(3 * var(--motion-stagger)); }
+.motion-reveal-list > :nth-child(5) { animation-delay: calc(4 * var(--motion-stagger)); }
+.motion-reveal-list > :nth-child(n + 6) { animation-delay: calc(5 * var(--motion-stagger)); }
+
+@keyframes content-reveal {
+  from {
+    opacity: 0;
+    transform: translateY(var(--motion-reveal-offset));
+  }
+}

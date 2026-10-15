@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { Button as UiButton } from './components/ui/button'
+import { SkeletonList } from './components/ui/skeleton'
 import { Icon } from './icons'
 import { useI18n } from './i18n'
 import { useWorkbenchStore } from './store'
@@ -20,12 +21,12 @@ const handoffProjectId = ref('')
       <strong>{{ copy('项目未载入', 'Projects could not be loaded') }}</strong>
       <UiButton size="compact" @click="store.loadProjects()">{{ copy('重试', 'Retry') }}</UiButton>
     </div>
-    <div v-else-if="['idle', 'loading'].includes(store.projectsLoadState)" class="daily-surface daily-empty" role="status"><Icon name="loading" />{{ copy('正在读取项目…', 'Loading projects…') }}</div>
+    <div v-else-if="['idle', 'loading'].includes(store.projectsLoadState)" class="daily-surface"><SkeletonList :label="copy('正在读取项目…', 'Loading projects…')" icon /></div>
     <div v-else-if="!store.projects.length" class="daily-surface daily-empty">
       <Icon name="folder" /><strong>{{ copy('添加你的项目', 'Add your projects') }}</strong>
       <p class="daily-caption">{{ copy('先在项目与工作区中添加本机项目。', 'Add a local project in Projects and workspaces first.') }}</p>
     </div>
-    <div v-if="store.projects.length" class="daily-surface daily-list">
+    <div v-if="store.projects.length" class="daily-surface daily-list motion-reveal-list">
       <article v-for="project in store.projects" :key="project.id" class="daily-row">
         <button class="daily-row-main" :data-testid="`open-project-${project.id}`" :aria-label="`${copy('打开项目', 'Open project')} ${project.name}`" @click="emit('openProject', project.id)">
           <Icon name="folder" />

@@ -2,6 +2,7 @@
 import type { Capability, ProjectRecord, WorkspaceRecord } from 'craft-hub'
 import { computed, ref } from 'vue'
 import { Button as UiButton } from './components/ui/button'
+import { Skeleton } from './components/ui/skeleton'
 import { Icon } from './icons'
 import { useI18n } from './i18n'
 import { useWorkbenchStore } from './store'
@@ -101,8 +102,9 @@ async function retry(): Promise<void> {
       </div>
     </div>
 
-    <div v-if="store.workspaceLoading && !workspace" class="workspace-project-loading" aria-live="polite">
-      <span v-for="index in 3" :key="index" />
+    <div v-if="store.workspaceLoading && !workspace" class="workspace-project-loading" role="status" aria-busy="true">
+      <span class="sr-only">{{ t('loading') }}</span>
+      <Skeleton v-for="index in 3" :key="index" shape="block" />
     </div>
     <div v-else-if="store.workspaceError && !workspace" class="workspace-project-error">
       <Icon name="error" />
@@ -116,7 +118,7 @@ async function retry(): Promise<void> {
         <Icon name="plus" /> {{ adding ? t('adding') : t('addProject') }}
       </UiButton>
     </div>
-    <div v-else class="workspace-project-summary-list">
+    <div v-else class="workspace-project-summary-list motion-reveal-list">
       <article v-for="row in rows" :key="row.project.id" class="workspace-project-summary">
         <button class="workspace-project-open" type="button" @click="store.selectProject(row.project.id)">
           <span class="workspace-project-icon"><Icon name="folder" /></span>

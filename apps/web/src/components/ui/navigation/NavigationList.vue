@@ -53,6 +53,38 @@ const { forwardRef } = useForwardExpose()
   display: none;
 }
 
+/*
+ * Tabs render one selection surface that slides between segments on the upstream soft spring. The list is always
+ * the offset parent, because the indicator measures the active tab before it first renders. Items paint above it
+ * through the isolated stacking context; the first measurement places it without animating.
+ */
+.ui-navigation-list[data-variant='segmented'] {
+  position: relative;
+  isolation: isolate;
+}
+
+.ui-navigation-indicator {
+  position: absolute;
+  z-index: -1;
+  top: 50%;
+  left: 0;
+  width: var(--reka-tabs-indicator-size);
+  height: var(--reka-tabs-indicator-thickness);
+  border-radius: var(--navigation-item-radius);
+  background: var(--surface);
+  box-shadow: 0 1px 2px var(--shadow);
+  transform: translate(var(--reka-tabs-indicator-position), -50%);
+  transition:
+    transform var(--motion-duration-slow) var(--motion-ease-spring),
+    width var(--motion-duration-slow) var(--motion-ease-spring);
+  pointer-events: none;
+}
+
+.ui-navigation-list:has(> .ui-navigation-indicator) > .ui-navigation-item[data-variant='segmented']:is([data-state='active'], [aria-selected='true']) {
+  background: transparent;
+  box-shadow: none;
+}
+
 .ui-navigation-list[data-variant='sidebar'] {
   display: grid;
   align-content: start;
