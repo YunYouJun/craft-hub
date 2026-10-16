@@ -55,6 +55,7 @@ export const softwareGroups = [
         downloadUrl: 'https://example.com/editor/download',
         iconUrl: 'https://example.com/editor/icon.png',
         cask: 'example-editor',
+        platforms: ['macos', 'windows', 'linux'],
       },
     ],
   },
@@ -73,6 +74,16 @@ Groups require `id`, localized `label`, and `items`. Items require `id`, localiz
 `cask` and `formula` supply portable metadata. Other literal fields are ignored.
 Application paths and `installCommand` never enter the browser catalog. IDs must
 be unique. Files are bounded to 2 MiB and catalogs to 1,000 applications.
+
+## Supported platforms
+
+Set optional `platforms` to a nonempty, unique array of `macos`, `windows`
+and/or `linux`, based on verified product support. Software cards display each
+declared platform as a labeled icon. Omit the field when support is unknown;
+Homebrew recipes, application artwork and the host OS do not establish the
+product's full platform support. These labels describe the product, not whether
+the connected local adapter can install it. Existing catalogs without this field
+remain valid.
 
 ## Application artwork
 

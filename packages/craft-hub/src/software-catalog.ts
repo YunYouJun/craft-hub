@@ -29,6 +29,8 @@ export const softwareMetadataSchema = z.object({
   iconStyle: personalWorkbenchToolSchema.shape.iconStyle,
   iconScale: personalWorkbenchToolSchema.shape.iconScale,
   description: z.string().max(1024).optional(),
+  /** Explicit product support, independent of local installation capability. Omitted means unknown. */
+  platforms: z.array(z.enum(['macos', 'windows', 'linux'])).min(1).max(3).refine(platforms => new Set(platforms).size === platforms.length, 'Platforms must be unique').optional(),
   installation,
 }).strict()
 
@@ -165,7 +167,9 @@ export interface SoftwareCatalogSnapshot {
   sources: SoftwareCatalogSource[]
 }
 
-function withFallbackIcon(item: SoftwareCatalogItem, fallback?: SoftwareCatalogItem): SoftwareCatalogItem {
+function withFallbackMetadata(item: SoftwareCatalogItem, fallback?: SoftwareCatalogItem): SoftwareCatalogItem {
+  if (fallback && item.url === fallback.url && item.installation.kind === fallback.installation.kind && item.installation.packageId === fallback.installation.packageId && item.platforms === undefined && fallback.platforms)
+    item = { ...item, platforms: [...fallback.platforms] }
   if (!fallback || item.url !== fallback.url || (item.iconUrl && item.iconUrl !== fallback.iconUrl))
     return item
   const preferredIcon = item.macosIconUrl ?? fallback.macosIconUrl ?? item.iconUrl ?? fallback.iconUrl
@@ -210,7 +214,7 @@ export class SoftwareCatalogService {
         repositorySourceId: source.id,
         repositoryReadFrom: source.cache.readFrom,
         repositoryStale: source.error === 'unavailable',
-        items: catalog.items.map(item => withFallbackIcon({ ...structuredClone(item), status: 'unknown', canInstall: false, canOpen: false }, fallbackItems.get(item.id))),
+        items: catalog.items.map(item => withFallbackMetadata({ ...structuredClone(item), status: 'unknown', canInstall: false, canOpen: false }, fallbackItems.get(item.id))),
       })
     }
     if (localDiscovery) {
@@ -234,7 +238,7 @@ export class SoftwareCatalogService {
             }) }
           }
           const items = new Map((fallback?.items ?? []).map(item => [item.id, item]))
-          observedItems.forEach(item => items.set(item.id, withFallbackIcon(item, items.get(item.id))))
+          observedItems.forEach(item => items.set(item.id, withFallbackMetadata(item, items.get(item.id))))
           return { ...supportedSource, items: [...items.values()] }
         }
         catch { return fallback ?? { ...source, items: [], error: 'unavailable' } }

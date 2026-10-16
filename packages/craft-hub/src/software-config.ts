@@ -26,6 +26,7 @@ const itemSchema = z.object({
   iconScale: softwareMetadataSchema.shape.iconScale,
   favicon: softwareMetadataSchema.shape.iconUrl,
   note: softwareMetadataSchema.shape.description,
+  platforms: softwareMetadataSchema.shape.platforms,
   cask: z.string().max(256).optional(),
   formula: z.string().max(256).optional(),
 })
@@ -99,6 +100,7 @@ export function parseSoftwareConfig(content: string, source: SoftwareCatalogMani
       ...(item.iconStyle ? { iconStyle: item.iconStyle } : {}),
       ...(item.iconScale !== undefined ? { iconScale: item.iconScale } : {}),
       ...(item.note ? { description: item.note } : {}),
+      ...(item.platforms ? { platforms: item.platforms } : {}),
       installation: packageId && /^(?:[a-z0-9][a-z0-9._+-]*\/){0,2}[a-z0-9][a-z0-9._+-]*$/.test(packageId)
         ? { kind: item.cask ? 'brew-cask' : 'brew-formula', packageId }
         : { kind: item.downloadUrl ? 'download' : 'manual' },

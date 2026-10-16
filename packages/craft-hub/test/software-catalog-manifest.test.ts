@@ -24,6 +24,19 @@ describe('static TypeScript software catalogs', () => {
     expect(bundledSoftwareCatalog.items.find(item => item.id === 'stats')?.group.id).toBe('system-utilities')
   })
 
+  it('preserves explicit platforms, validates them, and leaves unknown support unset', () => {
+    const withPlatforms = (platforms: unknown) => config.replace('id: \'editor\',', `id: 'editor', platforms: ${JSON.stringify(platforms)},`)
+    for (const platforms of [['macos'], ['windows'], ['linux'], ['macos', 'windows', 'linux']]) {
+      const parsed = parseSoftwareConfig(withPlatforms(platforms), source)
+      expect(parsed.items[0]!.platforms).toEqual(platforms)
+      expect(parseSoftwareCatalogManifest(parsed).items[0]!.platforms).toEqual(platforms)
+      expect(parsed.revision).not.toBe(parseSoftwareConfig(config, source).revision)
+    }
+    expect(parseSoftwareConfig(config, source).items[0]).not.toHaveProperty('platforms')
+    for (const platforms of [[], ['macos', 'macos'], ['android'], ['darwin'], 'macos', null])
+      expect(() => parseSoftwareConfig(withPlatforms(platforms), source)).toThrow()
+  })
+
   it('reads native artwork and rounding metadata with a legacy favicon fallback', () => {
     const image = { macosIconUrl: 'https://example.com/mac.png', iconStyle: 'rounded', iconScale: 1.25, iconUrl: 'https://example.com/icon.png', favicon: 'https://example.com/favicon.ico' }
     const withImage = (value: object) => config.replace('id: \'editor\',', `id: 'editor', ${JSON.stringify(value).slice(1, -1)},`)

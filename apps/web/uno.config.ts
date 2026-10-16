@@ -24,6 +24,9 @@ export default defineConfig({
     }),
   ],
   safelist: [
+    'i-ri-apple-fill',
+    'i-ri-windows-fill',
+    'i-simple-icons-linux',
     'i-lucide-arrow-right-left',
     'i-lucide-keyboard',
     'i-logos-claude-icon',

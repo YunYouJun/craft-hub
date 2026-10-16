@@ -118,6 +118,20 @@ describe('read-only software catalogs', () => {
     await expect(service.open('workstation', bundledSoftwareCatalog.items[0]!.id)).rejects.toMatchObject({ status: 503 })
   })
 
+  it('preserves explicit platform metadata for older plugins only for the same application', async () => {
+    const metadata = bundledSoftwareCatalog.items[0]!
+    const platforms = ['macos', 'windows', 'linux'] as const
+    const bundled = { ...bundledSoftwareCatalog, items: [{ ...metadata, platforms: [...platforms] }] }
+    const read = vi.fn(async () => ({ version: 1 as const, source: bundled.source, items: [{ ...metadata, platforms: undefined, status: 'detected' as const }] }))
+    const service = new SoftwareCatalogService([{ ...bundled.source, url: bundled.source.url!, read }], [bundled])
+    const liveItem = async () => (await service.snapshot()).sources[0]!.items[0]!
+    expect((await liveItem()).platforms).toEqual(platforms)
+    read.mockResolvedValueOnce({ version: 1, source: bundled.source, items: [{ ...metadata, platforms: undefined, url: 'https://different.example.com/', status: 'detected' }] })
+    expect((await liveItem()).platforms).toBeUndefined()
+    const explicit = new SoftwareCatalogService([{ ...bundled.source, url: bundled.source.url!, read: async () => ({ version: 1, source: bundled.source, items: [{ ...metadata, platforms: ['windows'], status: 'detected' }] }) }], [bundled])
+    expect((await explicit.snapshot()).sources[0]!.items[0]!.platforms).toEqual(['windows'])
+  })
+
   it('preserves native artwork for older plugins only when application and icon identities match', async () => {
     const { iconUrl, macosIconUrl, iconStyle, iconScale, ...metadata } = bundledSoftwareCatalog.items.find(item => item.macosIconUrl && item.iconScale !== undefined)!
     expect(macosIconUrl).toBeTruthy()

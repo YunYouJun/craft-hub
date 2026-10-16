@@ -224,6 +224,25 @@ describe('software center', () => {
     expect(wrapper!.get('[data-testid="software-operation-support"]').text()).toContain('Update the local CLI')
   })
 
+  it('shows every declared platform with accessible labels and no guesses for unknown support', async () => {
+    const result = structuredClone(catalog)
+    result.sources[0]!.items[0]!.platforms = ['macos', 'windows', 'linux']
+    result.sources[0]!.items[1]!.platforms = ['macos']
+    vi.mocked(api.softwareCatalog).mockResolvedValue(result)
+    await open()
+    const editor = wrapper!.get('[data-software-id="editor"]')
+    expect(editor.get('.software-platforms').attributes('aria-label')).toBe('Supported platforms')
+    expect(editor.findAll('[data-platform]').map(icon => icon.attributes('aria-label'))).toEqual(['macOS', 'Windows', 'Linux'])
+    expect(editor.get('[data-platform="macos"] .app-icon').classes()).toContain('i-ri-apple-fill')
+    expect(editor.get('[data-platform="windows"] .app-icon').classes()).toContain('i-ri-windows-fill')
+    expect(editor.get('[data-platform="linux"] .app-icon').classes()).toContain('i-simple-icons-linux')
+    expect(wrapper!.findAll('[data-software-id="assistant"] [data-platform]')).toHaveLength(1)
+    expect(wrapper!.find('[data-software-id="cli"] .software-platforms').exists()).toBe(false)
+    useI18n().setLocale('zh-CN')
+    await flushPromises()
+    expect(editor.get('.software-platforms').attributes('aria-label')).toBe('支持的平台')
+  })
+
   it('reads metadata without writes and distinguishes partial detection with offline brand icons', async () => {
     await open()
     expect(api.softwareCatalog).toHaveBeenCalledOnce()

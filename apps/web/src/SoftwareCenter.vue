@@ -21,6 +21,7 @@ const { locale } = useI18n()
 const zh = computed(() => locale.value === 'zh-CN')
 const copy = (chinese: string, english: string) => zh.value ? chinese : english
 const text = (value: { en: string, zh?: string }) => zh.value ? value.zh || value.en : value.en
+const platformLabels = { macos: 'macOS', windows: 'Windows', linux: 'Linux' } as const
 const snapshot = ref<SoftwareCatalogSnapshot>()
 const loading = ref(false)
 const loadError = ref(false)
@@ -543,7 +544,12 @@ defineExpose({ refresh: loadCatalog })
           <header><div class="software-identity"><h2 :title="text(entry.item.title)"><SoftwareIcon class="software-mark" :url="entry.item.url" :icon-url="entry.item.iconUrl" :macos-icon-url="entry.item.macosIconUrl" :icon-style="entry.item.iconStyle" :icon-scale="entry.item.iconScale" /><span class="software-title">{{ text(entry.item.title) }}</span></h2><p class="software-category" :title="`${text(entry.item.group.title)} · ${entry.sourceTitle}`">{{ text(entry.item.group.title) }} · {{ entry.sourceTitle }}</p></div><Badge :variant="entry.item.status === 'detected' ? 'success' : 'secondary'">{{ statusLabel(entry.item.status) }}</Badge></header>
           <p class="software-description" :title="entry.item.description">{{ entry.item.description }}</p>
           <div class="software-card-actions">
-            <SoftwareLinks class="software-links" :title="text(entry.item.title)" :url="entry.item.url" :download-url="entry.item.downloadUrl" :repository-url="entry.item.repositoryUrl" />
+            <div class="software-links-and-platforms">
+              <SoftwareLinks class="software-links" :title="text(entry.item.title)" :url="entry.item.url" :download-url="entry.item.downloadUrl" :repository-url="entry.item.repositoryUrl" />
+              <span v-if="entry.item.platforms?.length" class="software-platforms" role="group" :aria-label="copy('支持的平台', 'Supported platforms')">
+                <span v-for="platform in entry.item.platforms" :key="platform" class="software-platform" role="img" :aria-label="platformLabels[platform]" :title="platformLabels[platform]" :data-platform="platform"><Icon :name="platform" /></span>
+              </span>
+            </div>
             <div class="software-install-actions">
               <template v-if="entry.item.status === 'not-detected' && entry.canManage && entry.item.canInstall">
                 <div class="software-primary-action">
@@ -642,6 +648,9 @@ defineExpose({ refresh: loadCatalog })
 .software-card .software-category { margin-top: 0; line-height: 20px; padding-left: 52px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .software-category, .software-package { color: var(--muted); font-size: var(--font-size-caption); line-height: 1.6; overflow-wrap: anywhere; }
 .software-description { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; color: var(--text-secondary); font-size: 13px; line-height: 20px; }
+.software-links-and-platforms { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); min-width: 0; }
+.software-platforms { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); }
+.software-platform { display: inline-flex; }
 .software-card-actions { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); min-width: 0; }
 .software-links { flex: none; margin-left: -8px; }
 .software-install-actions { min-width: 0; margin-left: auto; }
