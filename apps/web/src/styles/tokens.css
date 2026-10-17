@@ -6,17 +6,13 @@
   --control-disabled-opacity: 0.5;
   --motion-duration-fast: var(--ylf-duration-fast);
   --motion-duration-spin: 700ms;
-  /*
-   * YunLeFun motion language. Upstream main defines these variables, but @yunlefun/ui@0.0.6 does not
-   * publish them yet; the fallbacks mirror upstream values and yield to the package once it ships them.
-   */
-  --motion-duration-press: var(--ylf-duration-press, 100ms);
-  --motion-duration-enter: var(--ylf-duration-enter, 240ms);
-  --motion-duration-exit: var(--ylf-duration-exit, 160ms);
-  --motion-duration-slow: var(--ylf-duration-slow, 480ms);
-  --motion-ease-standard: var(--ylf-ease-standard, cubic-bezier(0.2, 0, 0, 1));
-  --motion-ease-spring: var(--ylf-ease-spring, linear(0, 0.009, 0.035 2.1%, 0.141 4.4%, 0.723 12.9%, 0.938 16.7%, 1.017 19.4%, 1.067, 1.089 24.6%, 1.088 27.4%, 1.061 31.2%, 1.008 38.7%, 0.988 44.4%, 0.999 61.5%, 1));
-  --motion-press-scale: var(--ylf-press-scale, 0.98);
+  --motion-duration-press: var(--ylf-duration-press);
+  --motion-duration-enter: var(--ylf-duration-enter);
+  --motion-duration-exit: var(--ylf-duration-exit);
+  --motion-duration-slow: var(--ylf-duration-slow);
+  --motion-ease-standard: var(--ylf-ease-standard);
+  --motion-ease-spring: var(--ylf-ease-spring);
+  --motion-press-scale: var(--ylf-press-scale);
   --motion-popover-offset: 4px;
   --motion-dialog-offset: 8px;
   --motion-enter-scale: 0.98;

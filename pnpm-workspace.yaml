@@ -85,7 +85,7 @@ catalog:
   '@yunlefun/server-session': ^0.2.0
   '@yunlefun/server-session-cloudbase': ^0.2.0
   '@yunlefun/sso': ^0.6.2
-  '@yunlefun/ui': 0.0.6
+  '@yunlefun/ui': 0.0.7
   '@yunyoujun/docs': ^0.1.14
   bumpp: ^12.2.1
   cac: ^7.0.0

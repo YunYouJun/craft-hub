@@ -1,5 +1,5 @@
 @import '@yunlefun/ui/css';
-@import './styles/vendor/yunlefun/admin.css';
+@import '@yunlefun/ui/admin.css';
 @import './styles/tokens.css';
 @import './styles/command-palette.css';
 @import './styles/workbench-view.css';

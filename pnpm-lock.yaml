@@ -293,8 +293,8 @@ catalogs:
       specifier: ^0.6.2
       version: 0.6.2
     '@yunlefun/ui':
-      specifier: 0.0.6
-      version: 0.0.6
+      specifier: 0.0.7
+      version: 0.0.7
     '@yunyoujun/docs':
       specifier: ^0.1.14
       version: 0.1.14
@@ -623,7 +623,7 @@ importers:
         version: 6.0.0
       '@yunlefun/ui':
         specifier: 'catalog:'
-        version: 0.0.6
+        version: 0.0.7
       canvas-confetti:
         specifier: 'catalog:'
         version: 1.9.4
@@ -3402,8 +3402,8 @@ packages:
   '@yunlefun/sso@0.6.2':
     resolution: {integrity: sha512-53XQA8uGpotYEo3ewgiP+osF/aZFfV24aNGK2vXXn4GYRnHdSS7/7M6WaGXiwO2VqBVJvRrHHbWIxgtuTctfiQ==}
 
-  '@yunlefun/ui@0.0.6':
-    resolution: {integrity: sha512-XWvfNpKbTlF+0FA+dJg9koGbdx8/0QuXXQetB9GmCBT9kKZsreBMf89m5WpzML4DHxStBRxyb3GOBegl6TNidQ==}
+  '@yunlefun/ui@0.0.7':
+    resolution: {integrity: sha512-YWV04EDTA5LS0Tr4ervVBEEgotCZC7n71hiG84zRToc/HL8o35ie2VeR13mP1qjJnqFvgA8QWN8m5/y5Ax1ZEw==}
     peerDependencies:
       sass: ^1.101.0
     peerDependenciesMeta:
@@ -9261,7 +9261,7 @@ snapshots:
     dependencies:
       jose: 6.2.10
 
-  '@yunlefun/ui@0.0.6': {}
+  '@yunlefun/ui@0.0.7': {}
 
   '@yunyoujun/docs@0.1.14(vite@8.3.0)':
     dependencies:

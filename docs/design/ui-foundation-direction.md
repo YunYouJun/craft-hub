@@ -10,9 +10,8 @@
 
 ## 实际接入方式
 
-- 使用 pnpm catalog 固定 `@yunlefun/ui@0.0.6`，导入其已发布的 `@yunlefun/ui/css`。
-- 官方 main `45ad5ba3788de14144a282d0aea0a975fb6c121c` 已提供 Admin / Editor CSS，但 CSS `0.0.6` 发布包尚未包含这两个入口。暂存该提交的原始 `admin.css`，随后导入本地语义 token；来源见 [vendor 记录](https://github.com/YunYouJun/craft-hub/blob/main/apps/web/src/styles/vendor/yunlefun/README.md)。
-- MIT 许可保存在 Web 的 public/licenses 中，随 Vite 产物和桌面 Web 资源分发。上游 Admin 入口正式发布后，验证一致性并切换包入口。
+- 使用 pnpm catalog 固定 `@yunlefun/ui@0.0.7`，依次导入已发布的 `@yunlefun/ui/css` 与 `@yunlefun/ui/admin.css`，随后导入本地语义 token。不再暂存上游 CSS；Craft Hub 的覆盖只写在 `styles/tokens.css`。
+- MIT 许可保存在 Web 的 public/licenses 中，随 Vite 产物和桌面 Web 资源分发。
 - `styles/tokens.css` 将表面、文本、品牌、焦点、状态、字体和间距映射到上游变量；保留工作台页面几何和特定业务状态。根元素的 `.ylf-theme-light` / `.ylf-theme-dark` 与原有 `data-theme` 由同一主题偏好驱动，body 下的 Portal 继承同一套主题。
 - 状态文字、实色填充和填充前景分别映射，避免把状态文字色直接用作按钮底色。共享按钮、输入和选择控件消费密度变量，工作台规则不覆盖 Button 的 size 接口。
 
@@ -36,13 +35,13 @@
 
 ## 已完成与后续验收
 
-- [x] 固定实际发布的基础 CSS，暂存官方 Admin profile，并映射本地语义 token。
+- [x] 固定实际发布的基础 CSS 与 Admin profile，并映射本地语义 token。
 - [x] 同步系统与手动主题选择器，分离状态文字与实色前景。
 - [x] 补齐上述品牌图标，验证 UnoCSS 的真实输出和未知品牌回退。
 - [x] 构建后验证工具总览、环境检测与真实工具配置长列表：系统主题、Portal 继承、键盘焦点、固定头尾、默认/紧凑控件尺寸、320 / 390 / 768 / 1440px 无页面横向溢出；Chromium 完整流程和 WebKit 明暗主题弹层冒烟通过。运行时无相关控制台错误或远程图标/字体请求。
 - [x] 构建并安装 macOS arm64 Electron 到 `/Applications/Craft Hub.app`；安装与 release 的 ASAR 一致，333 个 Web / Desktop 资源与当前 dist 的 SHA256 一致，实际进程和本地 API 均来自安装版。原生窗口侧栏顺序、品牌图标和本机环境检测通过，六项工具均可用。
 - [ ] 补充 Electron 原生明暗主题与键盘交互的完整验收，以及 Tauri 的原生消费端验证；当前原生启动与环境页检查不代替全部宿主验收。
-- [ ] 上游 Admin CSS 发布后替换暂存入口并复核主题、密度与包体积。
+- [x] 2026-10-17：`@yunlefun/ui@0.0.7` 发布 `admin.css`，与原暂存副本逐字节一致；改为导入包入口并删除暂存副本，复核明暗主题与密度。
 - [ ] 逐个评估基础控件内部实现替换，继续保留本地调用接口；不单独发布一套新的通用 UI 包。
 
 本轮验证：`pnpm lint`、根目录及 Web `typecheck`、全量 `pnpm test --run`（926 通过、2 个平台相关跳过）和 `pnpm build` 通过。浏览器插件未提供，使用已有 Playwright 执行验收。抽查正文/辅助文字、品牌按钮及 warning/danger/success 的文字、实底与 hover 配对，明暗主题最低对比度 4.82:1；这不代表所有历史控件已完成无障碍审计。
@@ -77,7 +76,7 @@
 
 ## 动效与桌面宿主行为
 
-2026-10-15：对齐 YunLeFun/design main 新增的移动端与动效约定。`@yunlefun/ui@0.0.6` 尚未发布这些变量，`styles/tokens.css` 以 `--motion-*` 别名读取上游 `--ylf-*` 变量，回退值与上游一致；包发布后自动采用上游值，无需改调用方。
+2026-10-15：对齐 YunLeFun/design main 新增的移动端与动效约定。`styles/tokens.css` 以 `--motion-*` 别名读取上游 `--ylf-*` 变量，调用方只用 `--motion-*`。2026-10-17：`@yunlefun/ui@0.0.7` 已发布这些变量，取值与原本地回退一致，回退值随之移除。上游在减少动态效果时把时长归零、按压缩放设为 1；全局规则原本就将时长压到 0.01ms，实际表现不变。
 
 - 按压：共享 Button 按下 100ms 缩至 0.98，松开用软弹簧回弹；悬停反馈只在 `hover: hover` 且 `pointer: fine` 时出现，触屏依赖按压与选中状态。
 - 开关：拇指位移改用软弹簧（480ms），按下时向行程方向拉长 4px。
