@@ -12,7 +12,6 @@ import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 import codexConfigurationPlugin from '@craft-hub/craft-hub-plugin-codex'
 import { createMicrosoftTodoPlugin, createMicrosoftTodoTransport } from '@craft-hub/craft-hub-plugin-microsoft-todo'
-import workstationPlugin from '@craft-hub/craft-hub-plugin-workstation'
 import { PersonalCloudController } from '@craft-hub/personal-cloud'
 import { communityDistribution, CraftHubRuntime, HostExtensionManager, loadCraftHubPlugins, startCraftHubServer } from 'craft-hub'
 import { app, BrowserWindow, clipboard, dialog, globalShortcut, ipcMain, Menu, nativeImage, nativeTheme, safeStorage, screen, shell } from 'electron'
@@ -35,11 +34,13 @@ import { DesktopUpdater } from './updater.ts'
 import { mainWindowAppearance, windowBackgroundColor } from './window-appearance.ts'
 import { readWindowState, restoreWindowState, writeWindowState } from './window-state.ts'
 import { resolveWorkspaceLaunchTarget } from './workspace-launch-target.ts'
+import { desktopWorkstation } from './workstation-runtime.ts'
 
 const execFileAsync = promisify(execFile)
 const microsoftTodoTransport = createMicrosoftTodoTransport({ keepAlive: true })
 const microsoftTodoWriteTransport = createMicrosoftTodoTransport({ keepAlive: true, writable: true })
 const microsoftTodoPlugin = createMicrosoftTodoPlugin({ transport: microsoftTodoTransport, writeTransport: microsoftTodoWriteTransport })
+const workstation = desktopWorkstation({ directory: fileURLToPath(new URL('../workstation-runtime', import.meta.url)).replace(/\.asar(?=\/)/, '.asar.unpacked') })
 let quickCaptureRegistered = false
 let pendingQuickCapture = false
 
@@ -228,6 +229,7 @@ function directoryDialogDefaultPath(value: unknown): string | undefined {
 const hostExtensionManager = new HostExtensionManager(desktopDataDirectories.runtimeDataDir)
 registerHostExtensionHandlers({
   manager: hostExtensionManager,
+  bundledExtensions: workstation.bundled ? [{ id: 'workstation', name: 'Workstation', version: workstation.bundled.version }] : [],
   window: () => mainWindow,
   localPluginPath: async (packageName) => {
     const plugin = (await craftHubServer?.runtime.pluginManager.listInstalled())?.find(item => item.package === packageName)
@@ -666,7 +668,7 @@ async function createWindow(): Promise<void> {
       : []
     const hostPlugins = await hostExtensionManager.load([
       ...configuredPlugins.plugins,
-      ...[codexConfigurationPlugin, microsoftTodoPlugin, workstationPlugin].filter(builtin => !configuredPlugins.plugins.some(plugin => plugin.id === builtin.id)),
+      ...[codexConfigurationPlugin, microsoftTodoPlugin, workstation.plugin].filter(builtin => !configuredPlugins.plugins.some(plugin => plugin.id === builtin.id)),
     ], preloadedModules)
     hostPlugins.diagnostics.unshift(...configuredPlugins.diagnostics)
     for (const diagnostic of hostPlugins.diagnostics)

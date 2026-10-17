@@ -8,6 +8,10 @@ Use Orca or your preferred coding workbench for daily coding, agent sessions, wo
 
 ## What works
 
+- Save selected software and synchronized global configuration references in **Development environment → My environment profile** (`/environment/setup`), export/import the profile on another Mac, and follow the target setup guide for Apple developer tools, Homebrew, Node.js, Workstation and configuration sources. Recheck prerequisites, then continue through the existing reviewed installation and configuration workflows; see the [capability audit and recovery plan](docs/plans/environment-profile.md).
+- New macOS desktop packages include a prebuilt Workstation environment engine that uses the app runtime. A fresh Mac can recover configuration without installing terminal Node/npm or building Workstation; configuration repositories connect separately. **Plugins → Host extensions** shows the bundled engine and its version.
+- Connect HTTPS configuration repositories directly in **My environment profile**. Existing Git sign-in is tried first; when needed, enter a Git username and access token in the page. The token is used only for that connection, and configuration still requires a separate preview and apply.
+
 - Start at the personal overview (`/overview`) with commonly used projects, tools, and connected work items
 - Add, edit, remove, and group HTTPS tool destinations, with optional Raycast or Orca application launch presets on macOS
 - Prepare a work-item or project handoff, select the target project explicitly, review the text, and copy it for your external tool

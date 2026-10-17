@@ -1,11 +1,14 @@
 import type { ConfigurationManagementPage, CraftHubPlugin, OperationSupport, SoftwareApplicationOpen, SoftwareCatalog, SoftwareInstallationPlan, SoftwareInstallationRun, SoftwareInstallationRuns } from 'craft-hub'
 import type { WorkstationSupport } from './host-support'
+import type { WorkstationSetupOptions } from './setup-guide'
 import { spawn } from 'node:child_process'
 import process from 'node:process'
-import { parseRepositoryContentValidation, SoftwareOperationError } from 'craft-hub'
+import { EnvironmentSourceError, parseRepositoryContentValidation, SoftwareOperationError } from 'craft-hub'
 import { configurationItems, skillsAudit } from './configuration-display'
 import { unavailableSupport, workstationDoctor, WorkstationHostError, workstationSupport } from './host-support'
 import { resolveLocalExecutable } from './local-executable'
+import { workstationSetupProvider } from './setup-guide'
+import { workstationSourceProvider } from './source-connection'
 
 export type WorkstationTransport = (request: Record<string, unknown>) => Promise<Record<string, unknown>>
 
@@ -25,11 +28,11 @@ function softwareError(code: unknown): SoftwareOperationError {
  Invoke only the workstation JSON API
 paths and invocation are configured on the trusted host.
  */
-export function workstationTransport(command = process.env.CRAFT_HUB_WORKSTATION_COMMAND ?? 'workstation', args: string[] = [], apiCommand: 'configuration' | 'software-json' | 'host-json' = 'configuration'): WorkstationTransport {
+export function workstationTransport(command = process.env.CRAFT_HUB_WORKSTATION_COMMAND ?? 'workstation', args: string[] = [], apiCommand: 'configuration' | 'software-json' | 'host-json' = 'configuration', environment: NodeJS.ProcessEnv = {}): WorkstationTransport {
   return async (request) => {
     const executable = resolveLocalExecutable(command)
     return new Promise((resolve, reject) => {
-      const child = spawn(executable.command, [...args, apiCommand], { shell: false, stdio: ['pipe', 'pipe', 'pipe'], env: executable.env })
+      const child = spawn(executable.command, [...args, apiCommand], { shell: false, stdio: ['pipe', 'pipe', 'pipe'], env: { ...executable.env, ...environment } })
       let output = ''
       const timer = setTimeout(() => {
         child.kill()
@@ -76,7 +79,7 @@ export function workstationTransport(command = process.env.CRAFT_HUB_WORKSTATION
 }
 
 /** Thin Host Plugin adapter: no file interpretation, merging, backups or Git implementation. */
-export function createWorkstationPlugin(transport: WorkstationTransport = workstationTransport(), softwareTransport: WorkstationTransport = workstationTransport(undefined, [], 'software-json'), hostTransport: WorkstationTransport = workstationTransport(undefined, [], 'host-json')): CraftHubPlugin {
+export function createWorkstationPlugin(transport: WorkstationTransport = workstationTransport(), softwareTransport: WorkstationTransport = workstationTransport(undefined, [], 'software-json'), hostTransport: WorkstationTransport = workstationTransport(undefined, [], 'host-json'), setupOptions: WorkstationSetupOptions = {}): CraftHubPlugin {
   // Coalesce concurrent reads only; every later refresh or operation checks the current CLI.
   let negotiation: Promise<WorkstationSupport> | undefined
   function negotiate(): Promise<WorkstationSupport> {
@@ -120,10 +123,20 @@ export function createWorkstationPlugin(transport: WorkstationTransport = workst
       ...extra,
     }
   }
+  const sourceProvider = workstationSourceProvider(setupOptions)
   return {
     id: '@craft-hub/craft-hub-plugin-workstation',
     name: '开发环境',
     version: '0.1.0',
+    environmentSetupProviders: [workstationSetupProvider(negotiate, transport, setupOptions)],
+    environmentSourceProviders: [{
+      ...sourceProvider,
+      connect: async (input, context) => {
+        if (!allowed((await negotiate()).configuration, 'inspect'))
+          throw new EnvironmentSourceError(503, 'unavailable')
+        return sourceProvider.connect(input, context)
+      },
+    }],
     repositoryValidationProviders: [{
       id: 'workstation-projects',
       format: 'projects',
@@ -283,3 +296,5 @@ export function createWorkstationPlugin(transport: WorkstationTransport = workst
 }
 
 export default createWorkstationPlugin()
+
+export { resolveLocalExecutable } from './local-executable'

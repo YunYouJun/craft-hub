@@ -21,6 +21,8 @@ import { resolveCommandInvocation, resolvePersistedCommandInvocation } from './c
 import { applyProjectConfigInitialization, loadProjectConfig, previewProjectConfigInitialization } from './config'
 import { collectWorkbenchDiagnostics, readHostDiagnosticProviders } from './diagnostics'
 import { DotfilesManager } from './dotfiles-manager'
+import { EnvironmentSetupService } from './environment-setup'
+import { EnvironmentSourceService } from './environment-sources'
 import { executeCommand } from './executor'
 import { builtinCapabilityProvider, communityDistribution } from './extensions'
 import { GitIntegration } from './git-integration'
@@ -37,6 +39,7 @@ import { readProjectOverviewAsset, readProjectReadme } from './project-overview'
 import { ProjectRegistry } from './projects'
 import { ReleasePlanner } from './release-planner'
 import { CraftHubSettingsService } from './settings'
+import { SetupProfileService } from './setup-profile'
 import { localSkillActivationSettingsSchema, resolveSkillActivations } from './skill-activation'
 import { SoftwareCatalogService, SoftwareOperationError } from './software-catalog'
 import { SoftwareSourceService } from './software-sources'
@@ -68,6 +71,9 @@ export class CraftHubRuntime {
   readonly workspaceCatalog: WorkspaceCatalogService
   private readonly softwareCatalog: SoftwareCatalogService
   readonly softwareSources: SoftwareSourceService
+  readonly setupProfile: SetupProfileService
+  readonly environmentSetup: EnvironmentSetupService
+  readonly environmentSources: EnvironmentSourceService
   readonly workspaceImports: WorkspaceImportService
   readonly personalGitSync: PersonalGitSyncService
   readonly accountSync: AccountSyncService
@@ -107,6 +113,26 @@ export class CraftHubRuntime {
     this.hostPluginDiagnostics = structuredClone(normalizedOptions.pluginDiagnostics ?? [])
     this.store = new CraftHubStore(normalizedOptions.dataDir ?? getCraftHubDataDir(process.env, this.distribution.dataDirectoryName ?? this.distribution.name))
     this.softwareSources = new SoftwareSourceService(this.store.dataDir, this.hostEnvironment.kind === 'local')
+    this.setupProfile = new SetupProfileService(this.store.dataDir, () => this.softwareCatalogSnapshot(), async () => {
+      const { integrations } = await this.integrationContributions()
+      return Promise.all(integrations.flatMap((integration) => {
+        const view = integration.views.find(view => view.scope !== 'project' && view.blocks.some(block => block.type === 'configuration-manager'))
+        const block = view?.blocks.find(block => block.type === 'configuration-manager')
+        const action = block && 'actionId' in block ? integration.actions.find(action => action.id === block.actionId && action.operation === 'configuration.read' && action.effect === 'local-read') : undefined
+        if (!view || !action)
+          return []
+        const source = { integrationId: integration.id, href: `/integrations/${encodeURIComponent(integration.id)}/${encodeURIComponent(view.id)}` }
+        return [(async () => {
+          try {
+            const result = await this.invokeIntegrationAction({ integrationId: integration.id, actionId: action.id })
+            return { ...source, ...('configuration' in result && result.configuration === true && Array.isArray(result.items) ? { page: result } : {}) }
+          }
+          catch { return source }
+        })()]
+      }))
+    }, this.hostEnvironment.kind === 'local')
+    this.environmentSetup = new EnvironmentSetupService(() => this.localEnvironmentSnapshot(), () => this.setupProfile.snapshot(), plugins.flatMap(plugin => plugin.environmentSetupProviders ?? []), this.hostEnvironment.kind === 'local')
+    this.environmentSources = new EnvironmentSourceService(plugins.flatMap(plugin => plugin.environmentSourceProviders ?? []), this.hostEnvironment.kind === 'local')
     this.pluginManager = new PluginManager(
       this.store.dataDir,
       this.distribution.marketplaceSources,
@@ -636,6 +662,7 @@ export class CraftHubRuntime {
 
   /** Cancel active agent tasks and commands during host shutdown. */
   async close(): Promise<void> {
+    await this.environmentSources.close()
     await this.agentTasks.cancelAll()
     await this.cancelAllRuns()
     await this.userConfig.close()

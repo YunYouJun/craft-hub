@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, useId, watch } from 'vue'
 import { useI18n } from './i18n'
-import { Icon } from './icons'
+import SidebarIcon from './SidebarIcon.vue'
 
 interface AccountStatus {
   enabled: boolean
@@ -174,7 +174,7 @@ onBeforeUnmount(() => {
     <button ref="trigger" type="button" :popovertarget="panelId" class="activity-button account-trigger" :title="status.identity?.name || (zh ? '账号' : 'Account')" :aria-label="zh ? '打开账号信息' : 'Open account details'">
       <img v-if="avatarUrl && !failedAvatar" :src="avatarUrl" class="account-avatar account-photo" alt="" referrerpolicy="no-referrer" @error="failedAvatar = true">
       <span v-else-if="status.identity" class="account-avatar" aria-hidden="true">{{ status.identity.name.slice(0, 1).toUpperCase() }}</span>
-      <Icon v-else name="personal" />
+      <SidebarIcon v-else name="personal" />
       <span v-if="placement === 'sidebar'" class="account-trigger-label" aria-hidden="true">{{ zh ? '账号' : 'Account' }}</span>
     </button>
     <div :id="panelId" popover="auto" class="account-panel" :style="panelPosition" @beforetoggle="positionPanel">

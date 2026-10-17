@@ -57,11 +57,11 @@ describe('desktop package scripts', () => {
     expect(packageMacSource).toContain('timestamp: \'none\'')
   })
 
-  it('unpacks native PTY, credential and Codex packages from the Electron asar archive', async () => {
+  it('unpacks native packages and the prebuilt environment backend from the Electron asar archive', async () => {
     const packageMacSource = await readFile(new URL('../../../scripts/package-macos.ts', import.meta.url), 'utf8')
     const nodePtyPatch = await readFile(new URL('../../../patches/node-pty@1.1.0.patch', import.meta.url), 'utf8')
 
-    expect(packageMacSource).toContain('asar: { unpack: \'**/{node-pty,keytar,@openai/codex*}/**\' }')
+    expect(packageMacSource).toContain('asar: { unpack: \'**/{node-pty,keytar,@openai/codex*,workstation-runtime}/**\' }')
     expect(packageMacSource).toContain('options.codexMode ?? process.env.CRAFT_HUB_DESKTOP_CODEX_MODE ?? \'external\'')
     expect(nodePtyPatch).toContain('fs.chmodSync(spawnHelper, 0o755)')
   })

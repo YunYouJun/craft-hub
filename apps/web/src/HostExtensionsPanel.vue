@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { HostExtensionStatus } from 'craft-hub'
 import { onMounted, ref } from 'vue'
+import { RouterLink } from 'vue-router'
 import { Button as UiButton } from './components/ui/button'
 import { useI18n } from './i18n'
 
@@ -44,6 +45,12 @@ onMounted(() => operate(() => desktop?.hostExtensions?.()))
       <UiButton :disabled="busy" @click="operate(() => desktop?.restartForHostExtensions?.())">{{ t('restartCraftHub') }}</UiButton>
     </div>
     <p v-for="diagnostic in state.diagnostics" :key="diagnostic.pluginId" role="alert" class="marketplace-error">{{ diagnostic.pluginId }}: {{ diagnostic.message }}</p>
+    <div v-if="state.bundledExtensions?.length" class="plugin-list" data-testid="bundled-host-extensions">
+      <article v-for="extension in state.bundledExtensions" :key="extension.id" class="host-extension-row">
+        <div><strong>{{ extension.name }}</strong><span class="host-extension-state">{{ extension.version }} · {{ t('bundledHostExtension') }}</span><small>{{ t('bundledHostExtensionDescription') }}</small></div>
+        <RouterLink to="/environment/setup">{{ t('openEnvironmentRecovery') }}</RouterLink>
+      </article>
+    </div>
     <div v-if="state.extensions.length" class="plugin-list">
       <article v-for="extension in state.extensions" :key="extension.id" class="host-extension-row">
         <div>

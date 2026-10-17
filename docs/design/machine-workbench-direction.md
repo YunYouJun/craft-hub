@@ -1,6 +1,8 @@
 # 个人软件与开发环境工作台
 
-更新：2026-10-12。产品方向见 [ADR 0011](../adr/0011-focus-on-machine-setup-and-environment.md)。当前路线由用户的软件安装、工具跳转与环境迁移需求驱动；下列待办不代表已经交付。
+更新：2026-10-16。产品方向见 [ADR 0011](../adr/0011-focus-on-machine-setup-and-environment.md)。当前路线由用户的软件安装、工具跳转与环境迁移需求驱动；下列待办不代表已经交付。
+
+2026-10-16 起，优先验证“保存我的环境方案 → 在另一台 Mac 恢复”。现有能力、接口缺口、首版前置条件和验收边界见[环境方案闭环](../plans/environment-profile.md)。开发环境新增“我的环境方案”，支持显式选择、文件导出 / 导入、目标机前置引导、检查与现有安装 / 配置审阅入口。缺少工具时按阶段提供终端命令及实际复检，Workstation 配置源连接后继续原审阅流程；实体第二台 Mac 验收仍按该计划推进。
 
 Craft Hub 帮助用户准备并使用一台能工作的电脑：看清软件和环境状态，选择缺失工具，审阅配置恢复步骤，完成后打开日常工具。“迁移”在这里指换机或重装后的配置与项目恢复，不是把 Workstation 的实现复制进 Craft Hub。
 
@@ -39,8 +41,8 @@ Craft Hub 帮助用户准备并使用一台能工作的电脑：看清软件和�
 | 安装状态 | Workstation 仓库脚本检查应用目录、PATH、brew / MAS | 软件目录按常见 macOS 应用目录或可执行路径报告已检测 / 未检测到；无检测声明或其他平台报告未知。进一步补版本、来源和检测失败原因 |
 | 软件安装 | `software-json` 提供按软件 ID 的不可变计划、独立 worker、逐项结果及本机历史 | 首版在 macOS 使用 Homebrew 安装声明的 cask / formula；其他来源保留官方下载入口 |
 | 工具打开 | `software-json` 通过软件 ID 重新检测并打开 macOS 应用；网站和下载入口独立 | 补充其他平台的可信宿主打开适配器 |
-| 环境诊断 | Craft Hub `/environment` 只读检查 Git、Node、pnpm、fnm、Homebrew 与 Workstation 的路径、版本和来源，单独展示后台 Node 与宿主架构；Workstation doctor 检查配置、chezmoi / APM | 补充工具本身的架构与选定项目环境检查；环境检测不依赖 Workstation 已安装 |
-| 配置恢复 | Workstation configuration v1 与现有开发环境插件提供检查、预览、应用、历史、恢复及 Git 动作 | 复用既有计划和备份；补源连接与分阶段向导，不再实现另一套合并引擎 |
+| 环境诊断 | Craft Hub `/environment` 只读检查 Git、Node、npm、pnpm、fnm、Homebrew 与 Workstation 的路径、版本和来源，单独展示后台 Node 与宿主架构；Workstation doctor 检查配置、chezmoi / APM | 补充工具本身的架构与选定项目环境检查；环境检测不依赖 Workstation 已安装 |
+| 配置恢复 | Workstation configuration v1 与现有开发环境插件提供检查、预览、应用、历史、恢复及 Git 动作 | 复用既有计划和备份；方案页已补源连接与分阶段向导，项目恢复继续补齐 |
 | 项目恢复 | Workstation 有项目清单、克隆 / 状态 / 布局迁移能力 | 提供稳定的结构化合同，恢复后重新绑定 Craft Hub 的本机项目路径；项目仍需独立信任 |
 
 Workstation 的 `software.config.ts` 继续作为软件清单的唯一来源，新增独立 `workstation software-json` 命令，读取 stdin `{ "version": 1, "operation": "catalog" }`，返回版本化目录。Host Plugin 通过 `softwareCatalogProviders` 提供只读目录及可选管理接口；软件安装计划、执行和进度由 Workstation 独立持久化，配置同步仍走 `workstation configuration`。读取不会触发安装或配置写入。目录只传展示、安装来源和链接元数据，不能透传或执行 `installCommand`；浏览器不能指定宿主命令或源文件路径。目录读取不要求项目信任，也不改变已有项目信任。
@@ -69,6 +71,11 @@ Workstation 的 `software.config.ts` 继续作为软件清单的唯一来源，�
 
 ## P1：环境检查与换机恢复
 
+- [x] 环境方案支持软件与已同步配置的显式选择、文件导出 / 导入、目标机差异检查，以及原软件安装和全局配置审阅入口；两个隔离 HOME 的恢复闭环通过，实体第二台 Mac 仍待验收。
+- [x] 目标 Mac 缺少 Apple 工具、Homebrew、Node/npm、Workstation 或配置源时提供分阶段引导，用户在终端完成步骤后复检；实际源码构建、CLI 能力与私有源连接已在隔离 HOME 验证，系统安装器与真实 Git 认证待实体 Mac 验收。
+- [x] 新 macOS 安装包携带固定提交的预构建 Workstation 后端，复用 Electron 运行时；新机器不再需要终端 Node/npm、pnpm 或手动构建环境引擎。市场的宿主扩展页展示随应用提供的组件，配置源独立连接并保留用户目录的读写边界。
+- [x] 配置源连接接入方案页，支持 HTTPS 仓库地址、现有 Git 登录、临时用户名 / 访问令牌、取消与重试；Workstation 验证后保存来源绑定，自动复检，再进入原配置审阅流程。
+
 - [x] 环境页只读检查固定工具的可执行路径、版本和来源，区分工作台后端 Node 与本机搜索路径中的 Node，显示宿主架构、检查时间和逐项错误；Finder / 终端的搜索路径差异通过来源与检索路径展示。
 - [ ] 补充工具本身的架构、所选项目的环境要求及其 Node 版本；本机 Node 观测结果不证明某个项目已经可运行。
 - [ ] 连接用户选择的配置源，分别选择软件、终端配置、MCP / skills 与项目恢复；展示平台不适用、无权限、未连接和本机冲突。
@@ -80,7 +87,7 @@ Workstation 的 `software.config.ts` 继续作为软件清单的唯一来源，�
 
 ## P2：便携方案与分发
 
-- [x] 保留共享 Node 后端与 Electron；macOS 默认使用本机 Codex CLI，缺失时可通过软件中心按需安装。工作台启动无需 Codex CLI 或本机 Node，已有 SDK 调用与项目信任保持原合同；显式 `CRAFT_HUB_DESKTOP_CODEX_MODE=bundled` 保留内置 CLI 兼容构建。Workstation CLI 本身仍需要本机 Node。
+- [x] 保留共享 Node 后端与 Electron；macOS 默认使用本机 Codex CLI，缺失时可通过软件中心按需安装。工作台启动无需 Codex CLI 或本机 Node，已有 SDK 调用与项目信任保持原合同；显式 `CRAFT_HUB_DESKTOP_CODEX_MODE=bundled` 保留内置 CLI 兼容构建。新桌面包的 Workstation 使用 Electron 运行时，独立外部 CLI 仍需本机 Node。
 - [ ] 将其余内部 Agent 执行调用者迁移到外部工作台，再评估是否移除 SDK。包体积测量见 [桌面包分析](../research/desktop-package-size.md)。
 - [ ] 若继续 Tauri + 本机 Node，先提供独立的启动检查 / 设置页与可验证的引导合同，再谈默认分发；不能先调用依赖 Node 的 Workstation CLI 来查找缺失 Node。
 - [ ] 将便携方案接入已有 Personal / Team 配置源模型；软件偏好与本机观测、路径绑定保持分离，不创建第二套账号与同步系统。

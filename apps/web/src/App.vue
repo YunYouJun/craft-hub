@@ -9,6 +9,7 @@ const PluginWorkbench = lazyComponent(() => import('./PluginWorkbench.vue'))
 const ToolsWorkbench = lazyComponent(() => import('./ToolsWorkbench.vue'))
 const WorkbenchesOverview = lazyComponent(() => import('./WorkbenchesOverview.vue'))
 const SoftwareCenter = lazyComponent(() => import('./SoftwareCenter.vue'))
+const SetupProfileWorkbench = lazyComponent(() => import('./SetupProfileWorkbench.vue'))
 const EnvironmentWorkbench = lazyComponent(() => import('./EnvironmentWorkbench.vue'))
 const DiagnosticsWorkbench = lazyComponent(() => import('./DiagnosticsWorkbench.vue'))
 const IntegrationWorkbench = lazyComponent(() => import('./IntegrationWorkbench.vue'))
@@ -108,7 +109,8 @@ const subscriptionsOpen = computed(() => String(route.name).startsWith('subscrip
 const navigationOpen = computed(() => route.name === 'navigation')
 const overviewOpen = computed(() => route.name === 'overview')
 const diagnosticsOpen = computed(() => route.name === 'diagnostics')
-const environmentOpen = computed(() => route.name === 'environment')
+const setupProfileOpen = computed(() => route.name === 'setup-profile')
+const environmentOpen = computed(() => route.name === 'environment' || setupProfileOpen.value)
 const softwareOpen = computed(() => route.name === 'software')
 const toolsOpen = computed(() => route.name === 'tools')
 const workbenchesOpen = computed(() => route.name === 'workbenches')
@@ -145,7 +147,10 @@ const sectionGroups = computed<WorkbenchNavigationGroup[]>(() => {
   }
   if (activeSection.value === 'environment') {
     return [
-      { entries: [{ key: 'environment', title: copy('本机检测', 'Machine checks'), icon: 'builtin:terminal', to: '/environment' }] },
+      { entries: [
+        { key: 'environment', title: copy('本机检测', 'Machine checks'), icon: 'builtin:terminal', to: '/environment' },
+        { key: 'setup-profile', title: copy('我的环境方案', 'My environment profile'), icon: 'builtin:settings', to: '/environment/setup' },
+      ] },
       { title: copy('环境配置', 'Environment configuration'), entries: store.integrationViews.filter(isEnvironmentView).map(view => ({
         key: `${view.integrationId}:${view.id}`, title: view.title, icon: view.icon ?? 'builtin:settings', to: integrationPath(view.integrationId, view.id),
       })) },
@@ -167,7 +172,7 @@ const sectionGroups = computed<WorkbenchNavigationGroup[]>(() => {
 })
 const pageBreadcrumbs = computed(() => {
   const pluginWorkbench = store.pluginWorkbenches.find(workbench => workbench.pluginId === route.params.pluginId && workbench.id === route.params.workbenchId)
-  const label = overviewOpen.value ? copy('首页', 'Home') : marketplaceOpen.value ? copy('插件管理', 'Plugins') : navigationOpen.value ? copy('网站导航', 'Website navigation') : softwareOpen.value ? copy('软件中心', 'Software center') : toolsOpen.value ? copy('常用工具', 'Favorite tools') : workbenchesOpen.value ? copy('全部工作台', 'All workbenches') : environmentOpen.value ? copy('本机检测', 'Machine checks') : diagnosticsOpen.value ? t('diagnostics') : integrationOpen.value ? (currentIntegrationView.value?.title ?? copy('集成', 'Integration')) : (pluginWorkbench?.title ?? copy('插件工作台', 'Plugin workbench'))
+  const label = overviewOpen.value ? copy('首页', 'Home') : marketplaceOpen.value ? copy('插件管理', 'Plugins') : navigationOpen.value ? copy('网站导航', 'Website navigation') : softwareOpen.value ? copy('软件中心', 'Software center') : toolsOpen.value ? copy('常用工具', 'Favorite tools') : workbenchesOpen.value ? copy('全部工作台', 'All workbenches') : setupProfileOpen.value ? copy('我的环境方案', 'My environment profile') : environmentOpen.value ? copy('本机检测', 'Machine checks') : diagnosticsOpen.value ? t('diagnostics') : integrationOpen.value ? (currentIntegrationView.value?.title ?? copy('集成', 'Integration')) : (pluginWorkbench?.title ?? copy('插件工作台', 'Plugin workbench'))
   return [
     { label: store.applicationName, to: '/overview' },
     ...(activeSection.value && activeSection.value !== 'home' ? [{ label: sectionTitle.value, to: sectionPath.value }] : []),
@@ -684,6 +689,7 @@ onBeforeUnmount(() => {
         <ToolsWorkbench v-else-if="toolsOpen" />
         <WorkbenchesOverview v-else-if="workbenchesOpen" />
         <SoftwareCenter v-else-if="softwareOpen" ref="activePage" />
+        <SetupProfileWorkbench v-else-if="setupProfileOpen" />
         <EnvironmentWorkbench v-else-if="environmentOpen" />
         <DiagnosticsWorkbench v-else-if="diagnosticsOpen" @open-target="openDiagnosticTarget" />
         <IntegrationWorkbench v-else-if="integrationOpen" ref="activePage" :integration-id="activeIntegrationId" :view-id="activeIntegrationViewId" :initial-scope="route.query.scope === 'global' ? 'global' : undefined" />

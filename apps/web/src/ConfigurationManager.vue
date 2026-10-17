@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { ConfigurationManagementItem, ConfigurationManagementPage, ConfigurationManagementTool, ResolvedIntegrationContribution } from 'craft-hub'
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, inject, reactive, ref, watch } from 'vue'
+import { routeLocationKey, RouterLink } from 'vue-router'
 import { api } from './api'
 import FilePreview from './FilePreview.vue'
 import FileDiffPreview from './FileDiffPreview.vue'
@@ -18,6 +19,7 @@ import { useI18n } from './i18n'
 const props = defineProps<{ page: ConfigurationManagementPage, contribution: ResolvedIntegrationContribution, projectId?: string }>()
 const emit = defineEmits<{ updated: [page: ConfigurationManagementPage] }>()
 const { locale } = useI18n()
+const route = inject(routeLocationKey, undefined)
 const copy = (en: string, zh: string) => locale.value === 'zh-CN' ? zh : en
 const translate = (value: string) => props.contribution.translations?.[locale.value]?.[value] ?? value
 const selected = ref('')
@@ -130,7 +132,7 @@ async function openTool(tool: ConfigurationManagementTool): Promise<void> {
 const tone = (state: string) => state === 'synced' ? 'success' : ['error', 'conflict', 'failed'].includes(state) ? 'danger' : ['first-adoption', 'local-modified', 'source-modified'].includes(state) ? 'warning' : 'secondary'
 const choiceLabel = (id: string) => choiceOptions.value.find(option => option.value === choices[id])?.label
 watch(rows, (next) => {
-  if (!next.some(row => row.id === selected.value)) selected.value = next[0]?.id ?? ''
+  if (!next.some(row => row.id === selected.value)) selected.value = next.find(row => row.id === route?.query.setupItem)?.id ?? next[0]?.id ?? ''
 }, { immediate: true })
 watch(() => props.page.preview, value => { previewOpen.value = !!value }, { immediate: true })
 function clearChoices() {
@@ -176,6 +178,7 @@ async function invoke(operation: string, input: Record<string, unknown> = {}) {
 
 <template>
   <section class="configuration-manager" :aria-busy="busy">
+    <p v-if="route?.query.setupItem" class="configuration-note"><RouterLink to="/environment/setup">{{ copy('Back to my environment profile', '返回我的环境方案') }}</RouterLink> · {{ copy('Review the source and local difference, choose a direction, then preview and apply.', '请核对源配置与本机差异，选择处理方向，再预览并应用。') }}</p>
     <div class="configuration-overview">
       <p>{{ copy('Review differences, choose a direction, then preview before applying.', '查看差异、选择处理方向，再预览并应用。') }}</p>
       <Badge :variant="attentionCount ? 'warning' : 'success'">{{ attentionCount }} {{ copy('need review', '项待审阅') }}</Badge>

@@ -4,6 +4,7 @@ import type { IconName } from './icons'
 const environmentIcons = {
   git: 'git',
   node: 'nodejs',
+  npm: 'nodejs',
   pnpm: 'pnpm',
   fnm: 'terminal',
   homebrew: 'homebrew',
