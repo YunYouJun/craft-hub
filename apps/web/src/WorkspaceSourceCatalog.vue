@@ -3,6 +3,7 @@ import type { WorkspaceSourceCatalog } from 'craft-hub'
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Button } from './components/ui/button'
+import { SkeletonList } from './components/ui/skeleton'
 import { Icon } from './icons'
 import { useI18n } from './i18n'
 
@@ -59,7 +60,7 @@ onMounted(() => void load())
       <label class="catalog-search">{{ text('搜索源', 'Search sources') }}<input v-model="query" type="search" :placeholder="text('名称、维护者或仓库地址', 'Name, publisher or repository')"></label>
       <label>{{ text('市场', 'Market') }}<select v-model="market"><option value="">{{ text('全部市场', 'All markets') }}</option><option v-for="catalog in catalogs" :key="catalog.id" :value="catalog.id">{{ catalog.name }}</option></select></label>
     </div>
-    <p v-if="loading" role="status">{{ text('正在读取目录…', 'Loading catalog…') }}</p>
+    <div v-if="loading" class="daily-surface"><SkeletonList :label="text('正在读取目录…', 'Loading catalog…')" icon /></div>
     <p v-if="error" role="alert">{{ error }}</p>
     <div v-else-if="!loading && !resultCount" class="catalog-empty" role="status">
       <Icon name="workspace" />
@@ -69,7 +70,7 @@ onMounted(() => void load())
     <p v-if="!loading && resultCount" class="result-count">{{ resultCount }} {{ text('个可用源', 'available sources') }}</p>
     <section v-for="catalog in visibleCatalogs.filter(item => item.entries.length)" :key="catalog.id" class="catalog-group">
       <h3>{{ catalog.name }} <span>{{ catalog.entries.length }}</span></h3>
-      <div class="source-list">
+      <div class="source-list motion-reveal-list">
         <article v-for="entry in catalog.entries" :key="entry.id" class="source-entry">
           <div class="source-symbol" aria-hidden="true"><Icon name="workspace" /></div>
           <div class="source-information">

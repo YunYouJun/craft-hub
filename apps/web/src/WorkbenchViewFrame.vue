@@ -4,6 +4,8 @@ import WorkbenchViewHeader from './WorkbenchViewHeader.vue'
 
 defineProps<{ title: string, description?: string, icon?: string }>()
 const scrollContainer = ref<HTMLElement>()
+// The title header stays put; its separator appears once content scrolls beneath it, like a native toolbar.
+const scrolled = ref(false)
 defineExpose({
   getScrollTop: () => scrollContainer.value?.scrollTop ?? 0,
   scrollTo: (top: number) => { if (scrollContainer.value) scrollContainer.value.scrollTop = top },
@@ -11,7 +13,7 @@ defineExpose({
 </script>
 
 <template>
-  <main class="workbench-view workbench-view-frame">
+  <main class="workbench-view workbench-view-frame" :data-scrolled="scrolled || undefined">
     <div class="workbench-frame-header">
       <WorkbenchViewHeader :title="title" :description="description" :icon="icon">
         <template v-if="$slots.actions" #actions><slot name="actions" /></template>
@@ -20,7 +22,7 @@ defineExpose({
     </div>
     <div class="workbench-frame-layout">
       <aside v-if="$slots.sidebar" class="workbench-frame-sidebar"><slot name="sidebar" /></aside>
-      <div ref="scrollContainer" class="workbench-frame-scroll">
+      <div ref="scrollContainer" class="workbench-frame-scroll" @scroll.passive="scrolled = (scrollContainer?.scrollTop ?? 0) > 0">
         <div class="workbench-frame-content"><slot /></div>
       </div>
     </div>

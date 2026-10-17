@@ -296,15 +296,18 @@ function dragClasses(id: string): Record<string, boolean> {
 .sidebar-primary, .sidebar-utilities, .sidebar-builtins-entries, .sidebar-plugins-entries, .sidebar-utilities-entries { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .sidebar-primary { min-height: 0; overflow-y: auto; scrollbar-width: none; }
 .sidebar-utilities { flex: none; margin-top: auto; padding-top: 8px; }
-.sidebar-navigation .activity-button { display: flex; align-items: center; gap: 9px; width: 100%; height: 32px; min-width: 0; padding: 0 10px; border-radius: 6px; text-align: start; }
+.sidebar-navigation .activity-button { display: flex; align-items: center; gap: 9px; width: 100%; height: 32px; min-width: 0; padding: 0 10px; border-radius: 6px; text-align: start; transition: background-color 160ms ease, color 160ms ease, padding 220ms var(--motion-ease-standard); }
 .sidebar-navigation .activity-button > .app-icon, .sidebar-navigation .activity-button > .visual-icon { width: 18px; height: 18px; flex: none; }
-.activity-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; line-height: 1.3; }
+.activity-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; line-height: 1.3; transition: opacity 120ms ease 100ms; }
 .sidebar-navigation .activity-badge { position: static; flex: none; height: 18px; min-width: 18px; border: 0; border-radius: 9px; padding: 0 4px; font-size: 10px; }
-.sidebar-navigation-collapsed { padding-inline: 7px; }
-.sidebar-navigation-collapsed .activity-button { width: 36px; height: 34px; justify-content: center; padding: 0; }
-.sidebar-navigation-collapsed .activity-label { display: none; }
+/*
+ * Collapsing keeps the expanded geometry: rows stay full width and icons hold their place while the rail narrows, and
+ * labels fade out first (in last on expand) instead of reflowing.
+ */
+.sidebar-navigation-collapsed .activity-button { padding-inline: 9px; }
+.sidebar-navigation-collapsed .activity-label { opacity: 0; transition-delay: 0ms; }
 .sidebar-navigation-collapsed .activity-badge { position: absolute; top: -2px; right: -2px; height: 16px; min-width: 16px; border: 1px solid var(--activity-rail); font-size: 9px; }
-.sidebar-divider { position: relative; flex: none; height: 15px; margin-inline: 10px; cursor: grab; }
+.sidebar-divider { position: relative; flex: none; height: 15px; margin-inline: 10px; cursor: grab; transition: margin 220ms var(--motion-ease-standard); }
 .sidebar-divider::after { content: ''; position: absolute; top: 7px; inset-inline: 0; height: 1px; background: var(--border); }
 .sidebar-plugin-divider { cursor: default; }
 .sidebar-navigation-collapsed .sidebar-divider { margin-inline: 5px; }

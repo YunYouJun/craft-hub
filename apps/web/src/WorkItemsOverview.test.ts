@@ -205,7 +205,9 @@ describe('shared work items overview', () => {
 
     expect(wrapper!.findAll('.home-work-source')).toHaveLength(1)
     expect(source().findAll('.home-connection')).toHaveLength(1)
-    expect(source().findAll('.home-work-list')).toHaveLength(3)
+    // Until the account connects, the prompt stands alone instead of three empty lists.
+    expect(source().findAll('.home-work-list')).toHaveLength(0)
+    expect(source().text()).not.toContain('View all')
     expect(api.invokeIntegrationAction).toHaveBeenCalledExactlyOnceWith('source-a', 'status', { locale: 'en' })
     await button('Connect account').trigger('click')
     expect(wrapper!.emitted('openIntegration')).toEqual([['source-a', 'work', 'global']])
@@ -215,10 +217,29 @@ describe('shared work items overview', () => {
     await source().get('[aria-label="Refresh Issue tracker"]').trigger('click')
     await flushPromises()
     expect(source().find('.home-connection').exists()).toBe(false)
+    expect(source().findAll('.home-work-list')).toHaveLength(3)
     expect(api.invokeIntegrationAction).toHaveBeenCalledTimes(4)
     expect(api.invokeIntegrationAction).toHaveBeenCalledWith('source-a', 'list', { mode: 'personal', limit: 20 })
     expect(api.invokeIntegrationAction).toHaveBeenCalledWith('source-a', 'work-items', {})
     expect(api.invokeIntegrationAction).toHaveBeenCalledWith('source-a', 'list', { mode: 'personal' })
+  })
+
+  it('keeps the connection prompt in place while a refresh checks the account again', async () => {
+    useWorkbenchStore().integrationContributions = [groupedWorkSource()]
+    vi.mocked(api.invokeIntegrationAction).mockResolvedValue({ connected: false, message: 'Connect your issue tracker account.' })
+    await open()
+    let answer: (status: IntegrationConnectionStatus) => void = () => {}
+    vi.mocked(api.invokeIntegrationAction).mockImplementation(() => new Promise(resolve => answer = resolve as typeof answer))
+
+    await source().get('[aria-label="Refresh Issue tracker"]').trigger('click')
+    await flushPromises()
+    expect(source().findAll('.home-connection')).toHaveLength(1)
+    expect(source().findAll('.home-work-list')).toHaveLength(0)
+
+    answer({ connected: false, message: 'Still waiting for authorization.' })
+    await flushPromises()
+    expect(source().get('.home-connection').text()).toContain('Still waiting for authorization.')
+    expect(source().findAll('.home-work-list')).toHaveLength(0)
   })
 
   it('keeps grouped list failures, retries and pagination independent', async () => {

@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
 import { Button as UiButton } from './components/ui/button'
+import { SkeletonList } from './components/ui/skeleton'
 import { useI18n } from './i18n'
 import Icon from './NavigationIcon.vue'
 import { useWorkbenchStore } from './store'
@@ -30,7 +31,7 @@ const empty = computed(() => !store.pluginWorkbenches.length && !integrationView
 
     <section v-if="store.pluginWorkbenches.length" class="workbenches-section" :aria-label="copy('已安装工作台', 'Installed workbenches')">
       <h2>{{ copy('已安装工作台', 'Installed workbenches') }}</h2>
-      <div class="workbenches-grid">
+      <div class="workbenches-grid motion-reveal-list">
         <RouterLink
           v-for="workbench in store.pluginWorkbenches"
           :key="`${workbench.pluginId}:${workbench.id}`"
@@ -51,7 +52,7 @@ const empty = computed(() => !store.pluginWorkbenches.length && !integrationView
 
     <section v-if="integrationViews.length" class="workbenches-section" :aria-label="copy('独立集成', 'Standalone integrations')">
       <h2>{{ copy('独立集成', 'Standalone integrations') }}</h2>
-      <div class="workbenches-grid">
+      <div class="workbenches-grid motion-reveal-list">
         <RouterLink
           v-for="view in integrationViews"
           :key="`${view.pluginId}:${view.integrationId}:${view.id}`"
@@ -69,10 +70,7 @@ const empty = computed(() => !store.pluginWorkbenches.length && !integrationView
       </div>
     </section>
 
-    <div v-if="empty && ['idle', 'loading'].includes(store.integrationsLoadState)" class="workbenches-state" role="status">
-      <Icon name="loading" />
-      <p>{{ copy('正在读取工作台…', 'Loading workbenches…') }}</p>
-    </div>
+    <div v-if="empty && ['idle', 'loading'].includes(store.integrationsLoadState)" class="daily-surface"><SkeletonList :label="copy('正在读取工作台…', 'Loading workbenches…')" icon /></div>
     <div v-else-if="store.integrationsLoadState === 'error'" class="workbenches-state" role="alert">
       <Icon name="error" />
       <strong>{{ copy('集成未载入', 'Integrations could not be loaded') }}</strong>

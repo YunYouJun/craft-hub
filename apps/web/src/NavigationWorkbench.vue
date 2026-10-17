@@ -6,6 +6,7 @@ import { Icon } from './icons'
 import { useI18n } from './i18n'
 import NavigationPanelCollection from './NavigationPanelCollection.vue'
 import { Button as UiButton } from './components/ui/button'
+import { SkeletonList } from './components/ui/skeleton'
 import WorkbenchViewFrame from './WorkbenchViewFrame.vue'
 
 const props = withDefaults(defineProps<{ refreshKey?: number }>(), { refreshKey: 0 })
@@ -50,10 +51,10 @@ onMounted(() => void loadPanels())
       <label class="navigation-search"><Icon name="search" /><input v-model="query" type="search" :placeholder="t('searchNavigationLinks')" :aria-label="t('searchNavigationLinks')"><button v-if="query" type="button" :aria-label="t('clearSearch')" @click="query = ''"><Icon name="close" /></button></label>
       <span v-if="panels.length" class="navigation-count">{{ t('navigationSourceCount', { plugins: String(pluginCount), links: String(linkCount) }) }}</span>
     </div>
-    <section v-if="loading" class="navigation-state" aria-live="polite"><Icon name="loading" /><p>{{ t('loadingNavigationLinks') }}</p></section>
+    <div v-if="loading" class="daily-surface"><SkeletonList :label="t('loadingNavigationLinks')" :rows="5" icon /></div>
     <section v-else-if="error" class="navigation-state error" role="alert"><Icon name="error" /><h2>{{ t('navigationLoadFailed') }}</h2><p>{{ error }}</p><button type="button" @click="loadPanels">{{ t('retry') }}</button></section>
     <section v-else-if="!panels.length" class="navigation-state empty"><span class="navigation-state-icon"><Icon name="compass" /></span><h2>{{ t('navigationEmptyTitle') }}</h2><p>{{ t('navigationEmptyDescription') }}</p><button type="button" @click="emit('managePlugins')"><Icon name="plugins" />{{ t('browseNavigationPlugins') }}</button></section>
     <section v-else-if="!visiblePanels.length" class="navigation-state empty"><span class="navigation-state-icon"><Icon name="search" /></span><h2>{{ t('navigationNoResultsTitle') }}</h2><p>{{ t('navigationNoResultsDescription', { query }) }}</p><button type="button" @click="query = ''">{{ t('clearSearch') }}</button></section>
-    <NavigationPanelCollection v-else :panels="visiblePanels" />
+    <NavigationPanelCollection v-else class="motion-reveal" :panels="visiblePanels" />
   </WorkbenchViewFrame>
 </template>

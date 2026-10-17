@@ -1,48 +1,55 @@
+<script lang="ts">
+import { lazyComponent } from './lazy-components'
+
+// Home, project and shell chrome stay in the startup bundle; other views and dialogs load on demand and prefetch
+// while idle so first navigation still feels immediate. Module scope keeps one wrapper per view for the app's life.
+const MarketplaceDialog = lazyComponent(() => import('./MarketplaceDialog.vue'))
+const ConfigurationSubscriptions = lazyComponent(() => import('./ConfigurationSubscriptions.vue'))
+const PluginWorkbench = lazyComponent(() => import('./PluginWorkbench.vue'))
+const ToolsWorkbench = lazyComponent(() => import('./ToolsWorkbench.vue'))
+const WorkbenchesOverview = lazyComponent(() => import('./WorkbenchesOverview.vue'))
+const SoftwareCenter = lazyComponent(() => import('./SoftwareCenter.vue'))
+const EnvironmentWorkbench = lazyComponent(() => import('./EnvironmentWorkbench.vue'))
+const DiagnosticsWorkbench = lazyComponent(() => import('./DiagnosticsWorkbench.vue'))
+const IntegrationWorkbench = lazyComponent(() => import('./IntegrationWorkbench.vue'))
+const NavigationWorkbench = lazyComponent(() => import('./NavigationWorkbench.vue'))
+const WorkspaceDashboard = lazyComponent(() => import('./WorkspaceDashboard.vue'))
+const WelcomePanel = lazyComponent(() => import('./WelcomePanel.vue'))
+const CommandPalette = lazyComponent(() => import('./CommandPalette.vue'))
+const SettingsDialog = lazyComponent(() => import('./SettingsDialog.vue'))
+const QuickCaptureDialog = lazyComponent(() => import('./QuickCaptureDialog.vue'))
+const ProjectAgentActionDialog = lazyComponent(() => import('./ProjectAgentActionDialog.vue'))
+const DesktopNavigationDialog = lazyComponent(() => import('./DesktopNavigationDialog.vue'))
+</script>
+
 <script setup lang="ts">
 import type { WorkbenchDiagnosticTarget } from 'craft-hub'
 import type { WorkbenchNavigationGroup } from './workbench-navigation'
 import type { DesktopMenuAction } from './shortcuts'
-import { useLocalStorage, useMediaQuery } from '@vueuse/core'
-import { computed, defineAsyncComponent, onBeforeMount, onBeforeUnmount, ref, watch } from 'vue'
+import { TransitionPresets, useLocalStorage, useMediaQuery, useTransition } from '@vueuse/core'
+import { computed, onBeforeMount, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { DialogClose, DialogContent, DialogDescription, DialogOverlay, DialogPortal, DialogRoot, DialogTitle, SplitterPanel } from 'reka-ui'
 import { useRoute, useRouter } from 'vue-router'
 import { subscribeToProjectChanges } from './api'
 import CapabilityList from './CapabilityList.vue'
 import { celebration } from './celebration'
-import CommandPalette from './CommandPalette.vue'
 import { Button as UiButton } from './components/ui/button'
-import DesktopNavigationDialog from './DesktopNavigationDialog.vue'
 import DetailPanel from './DetailPanel.vue'
-import DiagnosticsWorkbench from './DiagnosticsWorkbench.vue'
-import EnvironmentWorkbench from './EnvironmentWorkbench.vue'
 import Icon from './NavigationIcon.vue'
 import { useI18n } from './i18n'
-import IntegrationWorkbench from './IntegrationWorkbench.vue'
-import NavigationWorkbench from './NavigationWorkbench.vue'
-import ToolsWorkbench from './ToolsWorkbench.vue'
-import WorkbenchesOverview from './WorkbenchesOverview.vue'
 import WorkbenchSectionNavigation from './WorkbenchSectionNavigation.vue'
 import { classifyWorkbenchSection, isEnvironmentView } from './workbench-navigation'
-import QuickCaptureDialog from './QuickCaptureDialog.vue'
 import PersonalWorkbench from './PersonalWorkbench.vue'
-import PluginWorkbench from './PluginWorkbench.vue'
 import ProjectRail from './ProjectRail.vue'
-import ProjectAgentActionDialog from './ProjectAgentActionDialog.vue'
 import ProjectToolbar from './ProjectToolbar.vue'
-import ConfigurationSubscriptions from './ConfigurationSubscriptions.vue'
-import SettingsDialog from './SettingsDialog.vue'
-import SoftwareCenter from './SoftwareCenter.vue'
 import { capabilityShortcutPrefix, commandPaletteShortcutId, defaultCommandPaletteShortcut, desktopWorkbenchShortcuts, formatShortcut, matchesShortcut, parseCapabilityShortcutId } from './shortcuts'
-import WelcomePanel from './WelcomePanel.vue'
 import WorkbenchPageShell from './WorkbenchPageShell.vue'
 import WorkbenchToolbar from './WorkbenchToolbar.vue'
 import WorkbenchResizeHandle from './WorkbenchResizeHandle.vue'
 import WorkbenchSplitter from './WorkbenchSplitter.vue'
-import WorkspaceDashboard from './WorkspaceDashboard.vue'
 import WorkspaceProjectList from './WorkspaceProjectList.vue'
 import { useWorkbenchStore } from './store'
-
-const MarketplaceDialog = defineAsyncComponent(() => import('./MarketplaceDialog.vue'))
+import { prefetchLazyComponents, useOpenedOnce } from './lazy-components'
 
 const quickCaptureOpen = ref(false)
 let stopQuickCapture: (() => void) | undefined
@@ -52,7 +59,13 @@ const route = useRoute()
 const router = useRouter()
 const compactViewport = useMediaQuery('(max-width: 760px)')
 const desktopSidebarCollapsed = useLocalStorage('craft-hub-desktop-sidebar-collapsed', false)
-const activityRailWidth = computed(() => compactViewport.value ? 48 : desktopSidebarCollapsed.value ? 52 : 176)
+const reducedMotion = useMediaQuery('(prefers-reduced-motion: reduce)')
+// The rail glides between its widths like a native sidebar; the grid and the home splitter both follow every frame.
+// Compact layouts and reduced motion switch at once.
+const activityRailWidth = useTransition(
+  computed(() => compactViewport.value ? 48 : desktopSidebarCollapsed.value ? 52 : 176),
+  { duration: computed(() => compactViewport.value || reducedMotion.value ? 0 : 220), transition: TransitionPresets.easeOutCubic },
+)
 const mobileNavigationOpen = ref(false)
 watch(() => route.fullPath, () => { mobileNavigationOpen.value = false })
 const desktopMac = window.craftHubDesktop?.platform === 'darwin'
@@ -85,6 +98,11 @@ function showPalette(mode: 'all' | 'projects' | 'commands'): void {
 }
 const settingsOpen = ref(false)
 const settingsInitialTab = ref<'general' | 'help'>('general')
+const paletteMounted = useOpenedOnce(() => paletteOpen.value)
+const settingsMounted = useOpenedOnce(() => settingsOpen.value)
+const quickCaptureMounted = useOpenedOnce(() => quickCaptureOpen.value)
+const agentActionMounted = useOpenedOnce(() => store.agentActionDialogOpen)
+onMounted(prefetchLazyComponents)
 const marketplaceOpen = computed(() => route.name === 'marketplace' || route.name === 'plugin-detail')
 const subscriptionsOpen = computed(() => String(route.name).startsWith('subscriptions'))
 const navigationOpen = computed(() => route.name === 'navigation')
@@ -589,7 +607,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <QuickCaptureDialog v-model:open="quickCaptureOpen" @saved="refreshCurrentView" />
+  <QuickCaptureDialog v-if="quickCaptureMounted" v-model:open="quickCaptureOpen" @saved="refreshCurrentView" />
   <div class="app-shell" :style="{ '--workbench-activity-width': `${activityRailWidth}px` }" :class="{ 'mobile-navigation-open': mobileNavigationOpen, 'has-app-notices': toolbarRefreshError || store.runtimeSchemaMismatch || (store.projectsLoadState === 'error' && store.projects.length) }">
     <WorkbenchToolbar
       :title="toolbarTitle"
@@ -756,9 +774,9 @@ onBeforeUnmount(() => {
         <span v-if="store.selectedProject">{{ t('project', { name: store.selectedProject.name }) }}</span>
       </div>
     </footer>
-    <CommandPalette v-model:open="paletteOpen" :mode="paletteMode" @open-workbench="openWorkbench" @open-integration="openIntegration" @open-plugin-workbench="openPluginWorkbench" @open-settings="openSettings()" @refresh="refreshWorkbench" />
-    <SettingsDialog v-model:open="settingsOpen" :initial-tab="settingsInitialTab" />
-    <ProjectAgentActionDialog v-model:open="store.agentActionDialogOpen" />
+    <CommandPalette v-if="paletteMounted" v-model:open="paletteOpen" :mode="paletteMode" @open-workbench="openWorkbench" @open-integration="openIntegration" @open-plugin-workbench="openPluginWorkbench" @open-settings="openSettings()" @refresh="refreshWorkbench" />
+    <SettingsDialog v-if="settingsMounted" v-model:open="settingsOpen" :initial-tab="settingsInitialTab" />
+    <ProjectAgentActionDialog v-if="agentActionMounted" v-model:open="store.agentActionDialogOpen" />
     <DesktopNavigationDialog
       v-if="desktopNavigation"
       :matches="desktopNavigation.matches"

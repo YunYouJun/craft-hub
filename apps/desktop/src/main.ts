@@ -6,7 +6,7 @@ import type { WorkspaceLaunchTarget } from './workspace-launch-target.ts'
 import { execFile } from 'node:child_process'
 import { appendFileSync, existsSync } from 'node:fs'
 import { realpath } from 'node:fs/promises'
-import { dirname, isAbsolute, relative, resolve } from 'node:path'
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
@@ -15,7 +15,7 @@ import { createMicrosoftTodoPlugin, createMicrosoftTodoTransport } from '@craft-
 import workstationPlugin from '@craft-hub/craft-hub-plugin-workstation'
 import { PersonalCloudController } from '@craft-hub/personal-cloud'
 import { communityDistribution, CraftHubRuntime, HostExtensionManager, loadCraftHubPlugins, startCraftHubServer } from 'craft-hub'
-import { app, BrowserWindow, clipboard, dialog, globalShortcut, ipcMain, Menu, nativeImage, nativeTheme, safeStorage, shell } from 'electron'
+import { app, BrowserWindow, clipboard, dialog, globalShortcut, ipcMain, Menu, nativeImage, nativeTheme, safeStorage, screen, shell } from 'electron'
 import { aboutDocument, aboutPanelOptions } from './about.ts'
 import { createApplicationMenu, createEditContextMenu, createWorkbenchMenuShortcutMatcher, isDesktopMenuLocale } from './application-menu.ts'
 import { loadDesktopBuildInfo } from './build-info.ts'
@@ -33,6 +33,7 @@ import { codexThreadUrl, editorTargetPaths, externalHttpUrl, focusCodexApplicati
 import { createDeferredOnceTask } from './shutdown-task.ts'
 import { DesktopUpdater } from './updater.ts'
 import { mainWindowAppearance, windowBackgroundColor } from './window-appearance.ts'
+import { readWindowState, restoreWindowState, writeWindowState } from './window-state.ts'
 import { resolveWorkspaceLaunchTarget } from './workspace-launch-target.ts'
 
 const execFileAsync = promisify(execFile)
@@ -688,9 +689,14 @@ async function createWindow(): Promise<void> {
   applyDesktopMenuLocale(settings['workbench.locale'])
 
   const { additionalArguments, ...appearance } = mainWindowAppearance(process.platform, nativeTheme.shouldUseDarkColors)
+  // Reopen where the user left the window, as native apps do; frames from a disconnected display fall back to centered.
+  const windowStateFile = join(app.getPath('userData'), 'window-state.json')
+  const windowState = restoreWindowState(readWindowState(windowStateFile), screen.getAllDisplays().map(display => display.workArea), { width: 1440, height: 900, minWidth: 900, minHeight: 620 })
   mainWindow = new BrowserWindow({
-    width: 1440,
-    height: 900,
+    x: windowState.x,
+    y: windowState.y,
+    width: windowState.width,
+    height: windowState.height,
     minWidth: 900,
     minHeight: 620,
     title: windowTitle,
@@ -709,7 +715,10 @@ async function createWindow(): Promise<void> {
     },
   })
   const createdWindow = mainWindow
+  if (windowState.maximized)
+    createdWindow.maximize()
   createdWindow.once('ready-to-show', () => createdWindow.show())
+  createdWindow.on('close', () => writeWindowState(windowStateFile, createdWindow.getNormalBounds(), createdWindow.isMaximized()))
   const windowContents = mainWindow.webContents
   windowContents.on('context-menu', (_event, params) => {
     // Renderer menus cancel the DOM event, so this only covers text fields and plain selections.

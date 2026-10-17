@@ -4,13 +4,14 @@
 import type { ProjectRecord, ResolvedIntegrationContribution, WorkspaceRecord } from 'craft-hub'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { nextTick } from 'vue'
 import { createMemoryHistory } from 'vue-router'
 import { api } from './api'
 import App from './App.vue'
 import EnvironmentWorkbench from './EnvironmentWorkbench.vue'
 import IntegrationWorkbench from './IntegrationWorkbench.vue'
+import { loadLazyComponents } from './lazy-components'
 import PersonalWorkbench from './PersonalWorkbench.vue'
 import { createWorkbenchRouter } from './router'
 import { isMacPlatform } from './shortcuts'
@@ -80,6 +81,9 @@ function stubStartupData(): void {
 }
 
 describe('app startup', () => {
+  // Lazy views resolve once here, as idle prefetch does in the app, so routes render in the same tick.
+  beforeAll(loadLazyComponents)
+
   it('opens software discovery only from its route and returns to project navigation', async () => {
     stubStartupData()
     const catalog = vi.spyOn(api, 'softwareCatalog').mockResolvedValue({ version: 1, sources: [] })
@@ -305,7 +309,8 @@ describe('app startup', () => {
     expect(wrapper.get('.sidebar-toggle').attributes('aria-expanded')).toBe('true')
     await wrapper.get('.sidebar-toggle').trigger('click')
     expect(localStorage.getItem('craft-hub-desktop-sidebar-collapsed')).toBe('true')
-    expect(wrapper.get('.app-shell').attributes('style')).toContain('52px')
+    // The rail width glides to its collapsed size over a few frames.
+    await vi.waitFor(() => expect(wrapper.get('.app-shell').attributes('style')).toContain('52px'))
     await router.push('/tools')
     await flushPromises()
     expect(wrapper.get('.sidebar-toggle').attributes('aria-expanded')).toBe('false')

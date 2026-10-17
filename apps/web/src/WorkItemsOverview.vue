@@ -86,6 +86,11 @@ function disconnectedSources(group: HomeWorkGroup): HomeWorkSource[] {
   return [...disconnected.values()]
 }
 
+/** A group whose every source still needs authorization shows only its connection prompt, not empty list chrome. */
+function awaitingConnection(group: HomeWorkGroup): boolean {
+  return group.sources.every(source => states.value[source.key]?.connection?.connected === false)
+}
+
 function groupCount(group: HomeWorkGroup): number | undefined {
   const pages = group.sources.flatMap(source => states.value[source.key]?.page ? [states.value[source.key]!.page!] : [])
   return pages.length ? new Set(pages.flatMap(page => personalActiveWork(page).map(workItemIdentityKey))).size : undefined
@@ -110,7 +115,7 @@ async function load(source: HomeWorkSource, more = false): Promise<void> {
   state.loading = true
   state.retryMore = more
   state.error = undefined
-  state.connection = undefined
+  // The last known connection stays until the new check answers, so a refresh does not flash empty lists.
   try {
     if (source.connection) {
       // A failed optional status check must not prevent an otherwise usable read.
@@ -236,7 +241,7 @@ onUnmounted(() => { generation++ })
             </template>
           </div>
           <div class="home-source-actions">
-            <UiButton v-if="group.sources.length === 1" variant="ghost" size="compact" class="home-text-button" @click="emit('openIntegration', group.integrationId, group.sources[0]!.viewId, 'global')">{{ copy('查看全部', 'View all') }}<Icon name="arrowRight" /></UiButton>
+            <UiButton v-if="group.sources.length === 1 && !awaitingConnection(group)" variant="ghost" size="compact" class="home-text-button" @click="emit('openIntegration', group.integrationId, group.sources[0]!.viewId, 'global')">{{ copy('查看全部', 'View all') }}<Icon name="arrowRight" /></UiButton>
             <UiButton variant="ghost" size="icon" class="home-icon-button" :disabled="group.sources.some(source => states[source.key]?.loading)" :aria-label="`${copy('刷新', 'Refresh')} ${group.title}`" @click="refreshGroup(group)"><Icon :name="group.sources.some(source => states[source.key]?.loading) ? 'loading' : 'refresh'" /></UiButton>
           </div>
         </div>
@@ -244,7 +249,7 @@ onUnmounted(() => { generation++ })
           <div><strong>{{ copy('需要连接账号', 'Account connection required') }}</strong><p class="daily-caption">{{ states[source.key]?.connection?.message || copy('请先授权此来源，完成后刷新即可读取待办。', 'Authorize this source, then refresh to load your work items.') }}</p></div>
           <UiButton variant="secondary" size="compact" @click="emit('openIntegration', source.integrationId, source.viewId, 'global')">{{ copy('连接账号', 'Connect account') }}<Icon name="arrowRight" /></UiButton>
         </div>
-        <component :is="tabbed && group.sources.length > 1 ? TabsRoot : 'div'" class="home-source-lists" v-bind="tabbed && group.sources.length > 1 ? { modelValue: selectedSources[group.integrationId] } : {}" @update:model-value="(value: string | number) => selectSource(group.integrationId, value)">
+        <component :is="tabbed && group.sources.length > 1 ? TabsRoot : 'div'" v-if="!awaitingConnection(group)" class="home-source-lists" v-bind="tabbed && group.sources.length > 1 ? { modelValue: selectedSources[group.integrationId] } : {}" @update:model-value="(value: string | number) => selectSource(group.integrationId, value)">
           <div v-if="tabbed && group.sources.length > 1" class="home-list-switcher">
             <TabsList :aria-label="`${group.title} ${copy('列表', 'lists')}`">
               <TabsTrigger v-for="source in group.sources" :key="source.key" :value="source.key">{{ source.sectionTitle }}</TabsTrigger>

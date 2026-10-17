@@ -4,6 +4,7 @@ import type { IntegrationActionResult, ResourcePage, ResolvedIntegrationContribu
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { api } from './api'
 import { Button as UiButton } from './components/ui/button'
+import { SkeletonList } from './components/ui/skeleton'
 import Icon from './NavigationIcon.vue'
 import IntegrationActionForm from './IntegrationActionForm.vue'
 import IntegrationEntityList from './IntegrationEntityList.vue'
@@ -165,7 +166,7 @@ onBeforeUnmount(() => { revision++; clearTimeout(timer) })
         </div>
       </details>
     </template>
-    <p v-else-if="loading">{{ t('loading') }}</p>
+    <SkeletonList v-else-if="loading" :label="t('loading')" icon />
   </section>
 </template>
 

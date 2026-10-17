@@ -5,6 +5,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { api } from './api'
 import { Button as UiButton } from './components/ui/button'
 import { DialogShell } from './components/ui/dialog'
+import { SkeletonList } from './components/ui/skeleton'
 import { Icon } from './icons'
 import { useI18n } from './i18n'
 import { useWorkbenchStore } from './store'
@@ -167,9 +168,9 @@ async function reloadDraft(): Promise<void> {
     <div class="home-section-heading"><h2>{{ compact ? copy('常用工具', 'Favorite tools') : copy('已收藏工具', 'Saved tools') }}</h2><button v-if="compact" class="home-text-button" data-testid="view-all-tools" @click="emit('openNavigation')">{{ copy('查看全部工具', 'View all tools') }}<Icon name="arrowRight" /></button><UiButton v-else :disabled="saving" @click="openEditor"><Icon name="edit" />{{ copy('自定义工具', 'Customize tools') }}</UiButton></div>
     <p v-if="!compact" class="home-hint">{{ copy('快捷启动交给 Raycast，编码会话交给 Orca。这里保留工作上下文和来源。', 'Use Raycast for quick actions and Orca for coding sessions. Keep work context and sources here.') }}</p>
     <label v-if="!compact" class="home-search"><Icon name="search" /><input v-model="query" type="search" :aria-label="copy('搜索工具', 'Search tools')" :placeholder="copy('搜索工具…', 'Search tools…')"></label>
-    <p v-if="toolsLoading" class="home-hint" role="status">{{ copy('正在读取工具设置…', 'Loading tool settings…') }}</p>
+    <SkeletonList v-if="toolsLoading" :label="copy('正在读取工具设置…', 'Loading tool settings…')" :rows="4" icon />
     <p v-if="toolsError" class="home-error" role="alert">{{ toolsError }} <button class="home-text-button" @click="ensureSettings">{{ copy('重试', 'Retry') }}</button></p>
-    <div class="home-tool-groups">
+    <div class="home-tool-groups motion-reveal-list">
       <section v-for="group in toolGroups" :key="group.title" class="home-tool-group"><h3>{{ displayGroup(group.title) }}</h3><div class="home-tool-grid">
         <div v-for="tool in group.tools" :key="tool.id" class="home-tool-card">
           <a class="home-tool" :href="tool.url" target="_blank" rel="noopener noreferrer" :title="`${tool.title} · ${tool.description || tool.url}`" :aria-busy="openingToolId === tool.id" @click="openTool(tool, $event)">

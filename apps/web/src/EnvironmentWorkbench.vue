@@ -4,6 +4,7 @@ import { computed, onMounted } from 'vue'
 import { Alert } from './components/ui/alert'
 import { Badge } from './components/ui/badge'
 import { Button as UiButton } from './components/ui/button'
+import { SkeletonList } from './components/ui/skeleton'
 import { useI18n } from './i18n'
 import { Icon } from './icons'
 import { useWorkbenchStore } from './store'
@@ -83,19 +84,16 @@ function toolMessage(tool: LocalEnvironmentTool): string | undefined {
       <Icon name="cloud" />
       <p>{{ t('environmentHosted') }}</p>
     </section>
-    <section v-else-if="store.localEnvironmentLoading && !snapshot" class="environment-state" aria-live="polite" data-testid="environment-loading">
-      <Icon name="loading" />
-      <p>{{ t('environmentLoading') }}</p>
-    </section>
+    <div v-else-if="store.localEnvironmentLoading && !snapshot" class="daily-surface" data-testid="environment-loading"><SkeletonList :label="t('environmentLoading')" :rows="5" icon /></div>
     <template v-else-if="snapshot">
       <p v-if="store.localEnvironmentLoading" class="environment-updating" aria-live="polite">{{ t('environmentUpdating') }}</p>
-      <div class="environment-summary" data-testid="environment-summary">
+      <div class="environment-summary motion-reveal" data-testid="environment-summary">
         <span>{{ t('environmentAvailableCount', { count: String(counts.available) }) }}</span>
         <span>{{ t('environmentMissingCount', { count: String(counts.missing) }) }}</span>
         <span>{{ t('environmentAttentionCount', { count: String(counts.attention) }) }}</span>
         <time :datetime="snapshot.checkedAt">{{ t('environmentCheckedAt') }}: {{ checkedAt }}</time>
       </div>
-      <section class="environment-details">
+      <section class="environment-details motion-reveal">
         <details class="environment-runtime" data-testid="environment-runtime">
           <summary>
             <div class="environment-runtime-heading">

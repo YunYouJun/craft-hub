@@ -5,6 +5,7 @@ import { Icon } from './icons'
 import { useI18n } from './i18n'
 import { useWorkbenchStore } from './store'
 import { Button as UiButton } from './components/ui/button'
+import { SkeletonList } from './components/ui/skeleton'
 import WorkbenchViewFrame from './WorkbenchViewFrame.vue'
 
 const emit = defineEmits<{ openTarget: [target: WorkbenchDiagnosticTarget] }>()
@@ -72,13 +73,10 @@ function openLabel(target: WorkbenchDiagnosticTarget): string {
         </div>
       </section>
 
-      <section v-else-if="store.workbenchDiagnosticsLoading && !store.workbenchDiagnostics.checkedAt" class="diagnostics-state" aria-live="polite">
-        <Icon name="loading" />
-        <p>{{ t('loadingDiagnostics') }}</p>
-      </section>
+      <div v-else-if="store.workbenchDiagnosticsLoading && !store.workbenchDiagnostics.checkedAt" class="daily-surface"><SkeletonList :label="t('loadingDiagnostics')" :rows="4" icon /></div>
 
       <template v-else>
-        <section v-if="providers.length" class="diagnostics-providers" :aria-label="t('diagnosticProviders')" data-testid="diagnostics-providers">
+        <section v-if="providers.length" class="diagnostics-providers motion-reveal-list" :aria-label="t('diagnosticProviders')" data-testid="diagnostics-providers">
           <article v-for="provider in providers" :key="provider.id" class="diagnostic-provider" :data-state="provider.state">
             <header>
               <strong>{{ provider.title }}</strong>

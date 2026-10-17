@@ -5,6 +5,25 @@
 :root[data-desktop-platform='darwin'] {
   --workbench-toolbar-height: 52px;
   font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif;
+  /* Match AppKit's grayscale text rendering, most visible on light text in dark mode. */
+  -webkit-font-smoothing: antialiased;
+}
+
+/*
+ * Like AppKit sidebars, selection drops its accent while another window is key, so the user still sees where they are
+ * without the window competing for attention. The sidebar active background resolves at the root, so it is redefined
+ * here as well.
+ */
+:root[data-desktop-platform][data-window-inactive] :is(.project-rail, .workbench-page-sidebar, .workbench-frame-sidebar) {
+  --accent: var(--text-secondary);
+  --accent-soft: color-mix(in srgb, var(--text) 8%, transparent);
+  --workbench-sidebar-active-background: color-mix(in srgb, var(--text) 8%, var(--workbench-sidebar-background));
+}
+
+/* A native window never rubber-bands as a whole; scroll areas inside it keep their own bounce. */
+:root[data-desktop-platform],
+:root[data-desktop-platform] body {
+  overscroll-behavior: none;
 }
 
 :root[data-desktop-platform='darwin'] .workbench-titlebar {
