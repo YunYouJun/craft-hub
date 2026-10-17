@@ -67,7 +67,7 @@ describe('target Mac prerequisite guidance', () => {
     expect(next.prerequisitesReady).toBe(false)
   })
 
-  it('generates literal, failure-gated source-build commands and never overwrites an existing launcher', async () => {
+  it.skipIf(process.platform === 'win32')('generates literal, failure-gated source-build commands and never overwrites an existing launcher', async () => {
     const adapter = workstationSetupProvider(async () => unavailableSupport(new Error('Unavailable fixture')), async () => ({}), { homeDirectory: home, sourceExists: () => false })
     const steps = await adapter.read({ environment: environment(['git', 'homebrew', 'node', 'npm']), profile })
     const copies = steps.flatMap(step => step.actions.filter(action => action.kind === 'copy'))
@@ -82,7 +82,7 @@ describe('target Mac prerequisite guidance', () => {
     expect(JSON.stringify(await existing.read({ environment: environment(), profile }))).not.toContain('git clone')
   })
 
-  it('uses an app-managed engine without build prerequisites and connects sources independently', async () => {
+  it.skipIf(process.platform === 'win32')('uses an app-managed engine without build prerequisites and connects sources independently', async () => {
     const adapter = workstationSetupProvider(async () => connected(), async () => ({ version: 1, items: [] }), {
       homeDirectory: home,
       managed: true,

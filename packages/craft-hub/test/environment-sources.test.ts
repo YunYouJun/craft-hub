@@ -94,7 +94,14 @@ describe('workstation source adapter and transient Git authentication', () => {
     await expect(pending).rejects.toBeDefined()
   })
 
-  it('answers real askpass only for the requested HTTPS host and removes helpers without writing credentials', async () => {
+  it.runIf(process.platform === 'win32')('reports source connection as unavailable on Windows before running Git', async () => {
+    const run = vi.fn(async () => '')
+    const adapter = workstationSourceProvider({ homeDirectory: tmpdir(), sourceDataDirectory: tmpdir() }, run, vi.fn())
+    await expect(adapter.connect({ kind: 'public', repository }, { signal: new AbortController().signal, phase: vi.fn() })).rejects.toMatchObject({ code: 'unavailable' })
+    expect(run).not.toHaveBeenCalled()
+  })
+
+  it.skipIf(process.platform === 'win32')('answers real askpass only for the requested HTTPS host and removes helpers without writing credentials', async () => {
     const auth = await gitAuthentication(repository, { username: 'fixture-user', token: 'fixture-token' })
     const helper = auth.environment.GIT_ASKPASS!
     try {
@@ -109,7 +116,7 @@ describe('workstation source adapter and transient Git authentication', () => {
     await expect(readFile(helper)).rejects.toMatchObject({ code: 'ENOENT' })
   })
 
-  it('connects public files separately and rejects a conflicting checkout without fetching or overwriting it', async () => {
+  it.skipIf(process.platform === 'win32')('connects public files separately and rejects a conflicting checkout without fetching or overwriting it', async () => {
     const root = await mkdtemp(join(tmpdir(), 'craft-hub-public-source-'))
     roots.push(root)
     const target = join(root, 'public')
@@ -132,7 +139,7 @@ describe('workstation source adapter and transient Git authentication', () => {
     expect(run.mock.calls.some(([, args]) => args.includes('pull') || args.includes('connect'))).toBe(false)
   })
 
-  it('validates in staging and binds only with the owning tool, preserving previous source on validation failure', async () => {
+  it.skipIf(process.platform === 'win32')('validates in staging and binds only with the owning tool, preserving previous source on validation failure', async () => {
     const root = await mkdtemp(join(tmpdir(), 'craft-hub-source-adapter-'))
     roots.push(root)
     const home = join(root, 'home')
