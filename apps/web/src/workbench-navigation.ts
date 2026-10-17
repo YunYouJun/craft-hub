@@ -29,7 +29,7 @@ export function classifyWorkbenchSection(routeName: string | symbol | null | und
     return 'projects'
   if (routeName === 'tools' || routeName === 'software' || routeName === 'navigation')
     return 'tools'
-  if (routeName === 'environment' || (routeName === 'integration' && isEnvironmentView(integrationView)))
+  if (routeName === 'environment' || routeName === 'setup-profile' || (routeName === 'integration' && isEnvironmentView(integrationView)))
     return 'environment'
   if (routeName === 'workbenches' || routeName === 'plugin-workbench' || routeName === 'integration')
     return 'workbenches'

@@ -59,10 +59,19 @@ describe('local environment inspection', () => {
     expect(probe.mock.calls[0]?.[2]).toMatchObject({ shell: false, cwd: tmpdir(), timeout: 3000, maxBuffer: 16 * 1024 })
   })
 
+  it.skipIf(process.platform === 'win32')('checks npm separately with a fixed version probe and no package download', async () => {
+    const root = await fixture()
+    const command = await executable(root, 'npm')
+    const probe = vi.fn().mockResolvedValue('11.0.0\n')
+    const snapshot = await inspectLocalEnvironment({ env: { PATH: root }, commonDirectories: [], probeVersion: probe })
+    expect(snapshot.tools.find(tool => tool.id === 'npm')).toMatchObject({ status: 'available', version: '11.0.0', executablePath: command })
+    expect(probe).toHaveBeenCalledExactlyOnceWith(command, ['--version'], expect.objectContaining({ shell: false }))
+  })
+
   it('reports missing tools without calling any executable or claiming an installed backend is local Node', async () => {
     const probe = vi.fn()
     const snapshot = await inspectLocalEnvironment({ env: { PATH: '' }, commonDirectories: [], probeVersion: probe })
-    expect(snapshot.tools).toHaveLength(6)
+    expect(snapshot.tools).toHaveLength(7)
     expect(snapshot.tools.filter(tool => tool.id !== 'homebrew').every(tool => tool.status === 'missing')).toBe(true)
     expect(snapshot.tools.find(tool => tool.id === 'node')?.version).toBeUndefined()
     expect(probe).not.toHaveBeenCalled()

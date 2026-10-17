@@ -1,22 +1,13 @@
 <script setup lang="ts">
 import type { WorkbenchNavigationEntry, WorkbenchNavigationGroup } from './workbench-navigation'
-import { computed } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { NavigationItem, NavigationList } from './components/ui/navigation'
-import { isIconName } from './icons'
-import NavigationIcon from './NavigationIcon.vue'
-import VisualIcon from './VisualIcon.vue'
+import SidebarIcon from './SidebarIcon.vue'
 
-const props = defineProps<{ title: string, icon?: string, groups: WorkbenchNavigationGroup[] }>()
+defineProps<{ title: string, icon?: string, groups: WorkbenchNavigationGroup[] }>()
 
 const route = useRoute()
 const router = useRouter()
-const headerBuiltinIcon = computed(() => builtinIcon(props.icon))
-
-function builtinIcon(icon?: string) {
-  const name = icon?.startsWith('builtin:') ? icon.slice('builtin:'.length) : undefined
-  return isIconName(name) ? name : undefined
-}
 
 function isActive(entry: WorkbenchNavigationEntry): boolean {
   const target = router.resolve(entry.to)
@@ -33,8 +24,7 @@ function isActive(entry: WorkbenchNavigationEntry): boolean {
 
 <template>
   <header class="section-navigation-header">
-    <NavigationIcon v-if="headerBuiltinIcon" :name="headerBuiltinIcon" />
-    <VisualIcon v-else :icon="icon" fallback="workspace" />
+    <SidebarIcon :icon="icon" fallback="workspace" />
     <strong>{{ title }}</strong>
   </header>
   <NavigationList as="nav" variant="sidebar" class="section-navigation" :aria-label="title">
@@ -42,8 +32,7 @@ function isActive(entry: WorkbenchNavigationEntry): boolean {
       <h2 v-if="group.title">{{ group.title }}</h2>
       <RouterLink v-for="entry in group.entries" :key="entry.key" v-slot="{ href, navigate }" :to="entry.to" custom>
         <NavigationItem as="a" :href="href" :title="entry.title" :class="{ active: isActive(entry) }" :aria-current="isActive(entry) ? 'page' : undefined" @click="navigate">
-          <NavigationIcon v-if="builtinIcon(entry.icon)" :name="builtinIcon(entry.icon)!" />
-          <VisualIcon v-else :icon="entry.icon" fallback="list" />
+          <SidebarIcon :icon="entry.icon" fallback="list" :active="isActive(entry)" />
           <span class="ui-navigation-label">{{ entry.title }}</span>
         </NavigationItem>
       </RouterLink>

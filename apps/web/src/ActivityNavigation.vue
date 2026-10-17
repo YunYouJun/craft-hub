@@ -7,9 +7,8 @@ import { computed, ref } from 'vue'
 import { Button as UiButton } from './components/ui/button'
 import { DialogShell } from './components/ui/dialog'
 import { useI18n } from './i18n'
-import Icon from './NavigationIcon.vue'
+import Icon from './SidebarIcon.vue'
 import { addSidebarSeparator, groupSidebarEntries, isSidebarUtility, moveSidebarEntry, removeSidebarEntry, resolveSidebarEntries, retainSidebarSeparatorGroups, setSidebarItemVisible, sidebarEntryGroup, visibleSidebarEntries } from './sidebar-navigation'
-import VisualIcon from './VisualIcon.vue'
 
 const props = withDefaults(defineProps<{
   items: ActivityNavigationItem[]
@@ -177,8 +176,7 @@ function dragClasses(id: string): Record<string, boolean> {
                 @dragleave="dropTarget = undefined"
                 @drop="drop($event, row.entry.id, horizontal)"
               >
-                <Icon v-if="row.item.builtinIcon" :name="row.item.builtinIcon" />
-                <VisualIcon v-else :icon="row.item.icon" fallback="plugins" />
+                <Icon :name="row.item.builtinIcon" :icon="row.item.icon" :active="row.item.active" />
                 <span class="activity-label">{{ row.item.shortTitle || row.item.title }}</span>
                 <span v-if="row.item.badge" class="activity-badge" aria-hidden="true">{{ row.item.badge }}</span>
               </button>
@@ -211,15 +209,14 @@ function dragClasses(id: string): Record<string, boolean> {
         <PopoverRoot v-if="section.kind === 'builtins'" v-model:open="moreOpen">
           <PopoverTrigger as-child>
             <button type="button" class="activity-button sidebar-more" :class="{ active: hiddenActive }" data-testid="sidebar-more" :aria-label="copy('More navigation', '更多导航')" :title="copy('More navigation', '更多导航')">
-              <Icon name="more" /><span class="activity-label">{{ copy('More', '更多') }}</span>
+              <Icon name="more" :active="hiddenActive" /><span class="activity-label">{{ copy('More', '更多') }}</span>
             </button>
           </PopoverTrigger>
           <PopoverPortal>
             <PopoverContent class="sidebar-more-menu" :side="horizontal ? 'bottom' : 'right'" align="start" :side-offset="10" :collision-padding="8" :aria-label="copy('All navigation', '全部导航')">
               <div v-for="item in menuItems" :key="item.id" class="sidebar-menu-row">
                 <button type="button" class="sidebar-menu-navigation" :class="{ active: item.active }" :aria-current="item.active ? 'page' : undefined" :data-sidebar-menu-item="item.id" @click="activate(item.id)">
-                  <Icon v-if="item.builtinIcon" :name="item.builtinIcon" />
-                  <VisualIcon v-else :icon="item.icon" fallback="plugins" />
+                  <Icon :name="item.builtinIcon" :icon="item.icon" :active="item.active" />
                   <span>{{ item.title }}</span>
                 </button>
                 <button
@@ -233,7 +230,7 @@ function dragClasses(id: string): Record<string, boolean> {
                   :data-sidebar-pin="item.id"
                   @click="changeVisibility(item.id, !isVisible(item.id))"
                 >
-                  <span aria-hidden="true" class="app-icon i-lucide-pin" />
+                  <span aria-hidden="true" class="app-icon" :class="isVisible(item.id) ? 'i-ri-pushpin-fill' : 'i-ri-pushpin-line'" />
                 </button>
               </div>
               <div class="sidebar-menu-footer">
@@ -269,14 +266,13 @@ function dragClasses(id: string): Record<string, boolean> {
         <Icon name="drag" class="sidebar-drag-handle" />
         <label v-if="row.item" class="sidebar-customization-item">
           <input type="checkbox" :checked="isVisible(row.entry.id)" :disabled="saving" :aria-label="copy(`Show ${row.item.title} in sidebar`, `在侧栏显示${row.item.title}`)" @change="changeVisibility(row.entry.id, ($event.target as HTMLInputElement).checked)">
-          <Icon v-if="row.item.builtinIcon" :name="row.item.builtinIcon" />
-          <VisualIcon v-else :icon="row.item.icon" fallback="plugins" />
+          <Icon :name="row.item.builtinIcon" :icon="row.item.icon" :active="row.item.active" />
           <span>{{ row.item.title }}</span>
         </label>
         <span v-else class="sidebar-customization-divider">{{ copy('Divider', '分割线') }}</span>
         <div class="sidebar-order-actions">
-          <UiButton size="icon" variant="ghost" :disabled="saving || !canMove(row.entry.id, -1)" :aria-label="copy(`Move ${row.item?.title || 'divider'} up`, `上移${row.item?.title || '分割线'}`)" @click="move(row.entry.id, -1)"><span aria-hidden="true" class="app-icon i-lucide-chevron-up" /></UiButton>
-          <UiButton size="icon" variant="ghost" :disabled="saving || !canMove(row.entry.id, 1)" :aria-label="copy(`Move ${row.item?.title || 'divider'} down`, `下移${row.item?.title || '分割线'}`)" @click="move(row.entry.id, 1)"><span aria-hidden="true" class="app-icon i-lucide-chevron-down" /></UiButton>
+          <UiButton size="icon" variant="ghost" :disabled="saving || !canMove(row.entry.id, -1)" :aria-label="copy(`Move ${row.item?.title || 'divider'} up`, `上移${row.item?.title || '分割线'}`)" @click="move(row.entry.id, -1)"><span aria-hidden="true" class="app-icon i-ri-arrow-up-s-line" /></UiButton>
+          <UiButton size="icon" variant="ghost" :disabled="saving || !canMove(row.entry.id, 1)" :aria-label="copy(`Move ${row.item?.title || 'divider'} down`, `下移${row.item?.title || '分割线'}`)" @click="move(row.entry.id, 1)"><span aria-hidden="true" class="app-icon i-ri-arrow-down-s-line" /></UiButton>
           <UiButton v-if="row.item && !isSidebarUtility(row.entry.id)" size="icon" variant="ghost" :disabled="saving" :aria-label="copy(`Add divider after ${row.item.title}`, `在${row.item.title}后添加分割线`)" @click="addSeparator(row.entry.id)"><Icon name="plus" /></UiButton>
           <UiButton v-else-if="!row.item" size="icon" variant="ghost" :disabled="saving" :aria-label="copy('Remove divider', '移除分割线')" @click="update(removeSidebarEntry(currentSetting, row.entry.id))"><Icon name="close" /></UiButton>
         </div>

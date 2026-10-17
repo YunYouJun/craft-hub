@@ -20,6 +20,8 @@ export type HostExtension = z.infer<typeof registrationSchema>
 
 /** Installation state and the result of the last application startup. */
 export interface HostExtensionStatus {
+  /** Executable components shipped and updated by the application, independently of Marketplace packages. */
+  bundledExtensions?: Array<{ id: string, name: string, version: string }>
   extensions: HostExtension[]
   diagnostics: LoadCraftHubPluginsResult['diagnostics']
   restartRequired: boolean

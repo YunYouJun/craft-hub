@@ -7,7 +7,7 @@ import { isAbsolute, join, win32 } from 'node:path'
 import process from 'node:process'
 
 /** Fixed tools observed by the workbench; clients cannot supply executable commands. */
-export type LocalEnvironmentToolId = 'git' | 'node' | 'pnpm' | 'fnm' | 'homebrew' | 'workstation'
+export type LocalEnvironmentToolId = 'git' | 'node' | 'npm' | 'pnpm' | 'fnm' | 'homebrew' | 'workstation'
 
 /** One tool observed on the API host, without implying installation or project compatibility. */
 export interface LocalEnvironmentTool {
@@ -45,6 +45,7 @@ export interface LocalEnvironmentInspectionOptions {
 const tools: Array<{ id: LocalEnvironmentToolId, name: string, command: string, version: RegExp }> = [
   { id: 'git', name: 'Git', command: 'git', version: /^git version (\d+\.\d\S*)/m },
   { id: 'node', name: 'Node.js', command: 'node', version: /^v(\d+\.\d+\.\d\S*)/m },
+  { id: 'npm', name: 'npm', command: 'npm', version: /^(\d+\.\d+\.\d+(?:[-+][\w.-]+)?)\s*$/m },
   { id: 'pnpm', name: 'pnpm', command: 'pnpm', version: /^(\d+\.\d+\.\d+(?:[-+][\w.-]+)?)\s*$/m },
   { id: 'fnm', name: 'fnm', command: 'fnm', version: /^fnm (\d+\.\d\S*)/m },
   { id: 'homebrew', name: 'Homebrew', command: 'brew', version: /^Homebrew (\d+\.\d\S*)/m },

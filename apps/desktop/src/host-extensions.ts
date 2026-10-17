@@ -1,4 +1,4 @@
-import type { HostExtension, HostExtensionManager } from 'craft-hub'
+import type { HostExtension, HostExtensionManager, HostExtensionStatus } from 'craft-hub'
 import type { BrowserWindow, IpcMainInvokeEvent } from 'electron'
 import { access } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
@@ -44,8 +44,10 @@ export function registerHostExtensionHandlers(options: {
   window: () => BrowserWindow | undefined
   restart: () => Promise<void>
   localPluginPath: (packageName: string) => Promise<string | undefined>
+  bundledExtensions?: HostExtensionStatus['bundledExtensions']
 }): void {
   const { manager } = options
+  const status = async (): Promise<HostExtensionStatus> => ({ ...await manager.status(), ...(options.bundledExtensions?.length ? { bundledExtensions: options.bundledExtensions } : {}) })
   function windowFor(event: IpcMainInvokeEvent): BrowserWindow {
     const window = options.window()
     if (!window || event.sender !== window.webContents || event.senderFrame !== window.webContents.mainFrame)
@@ -71,7 +73,7 @@ export function registerHostExtensionHandlers(options: {
   }
   ipcMain.handle('craft-hub:host-extensions', async (event) => {
     windowFor(event)
-    return manager.status()
+    return status()
   })
   ipcMain.handle('craft-hub:install-host-extension', async (event) => {
     const window = windowFor(event)
@@ -82,10 +84,10 @@ export function registerHostExtensionHandlers(options: {
       properties: ['openFile'],
     })
     if (selected.canceled || !selected.filePaths[0])
-      return manager.status()
+      return status()
     const extension = await prepareDesktopHostExtension(manager, selected.filePaths[0])
     await installReviewed(window, extension)
-    return manager.status()
+    return status()
   })
   ipcMain.handle('craft-hub:configure-local-plugin-host', async (event, packageName: unknown) => {
     const window = windowFor(event)
@@ -95,21 +97,21 @@ export function registerHostExtensionHandlers(options: {
     const extension = path ? await findLocalHostExtension(manager, path) : undefined
     if (extension)
       await installReviewed(window, extension)
-    return manager.status()
+    return status()
   })
   ipcMain.handle('craft-hub:set-host-extension-enabled', async (event, id: unknown, enabled: unknown) => {
     windowFor(event)
     if (typeof id !== 'string' || typeof enabled !== 'boolean')
       throw new Error('Invalid host extension state')
     await manager.setEnabled(id, enabled)
-    return manager.status()
+    return status()
   })
   ipcMain.handle('craft-hub:remove-host-extension', async (event, id: unknown) => {
     windowFor(event)
     if (typeof id !== 'string')
       throw new Error('Invalid host extension id')
     await manager.remove(id)
-    return manager.status()
+    return status()
   })
   ipcMain.handle('craft-hub:restart-for-host-extensions', async (event) => {
     windowFor(event)

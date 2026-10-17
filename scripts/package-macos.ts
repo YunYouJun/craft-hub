@@ -13,6 +13,7 @@ import { macosApplicationVersion } from '../apps/desktop/src/macos-version.ts'
 import { loadCraftHubPlugins } from '../packages/craft-hub/src/plugins.ts'
 import { parseLocalSigningIdentities, resolveLocalSigningIdentity } from './macos-local-signing.ts'
 import { packageHostPlugins } from './package-host-plugins.ts'
+import { packageWorkstationRuntime } from './package-workstation-runtime.ts'
 import { prepareDesktopArchitecture, prepareDesktopPackage } from './prepare-desktop-package.ts'
 
 const execFileAsync = promisify(execFile)
@@ -297,6 +298,7 @@ export async function packageMacos(options: MacosPackageOptions = {}): Promise<M
 
   try {
     await deployDesktop(desktopDirectory)
+    await packageWorkstationRuntime(join(desktopDirectory, 'workstation-runtime'))
     await writeFile(
       join(desktopDirectory, 'desktop-build.json'),
       `${JSON.stringify(createDesktopBuildInfo(process.env.MACOS_SIGNING_ENABLED === 'true', codexMode), null, 2)}\n`,
@@ -364,7 +366,7 @@ export async function packageMacos(options: MacosPackageOptions = {}): Promise<M
       appCategoryType: 'public.app-category.developer-tools',
       arch: architectures,
       appVersion: macosApplicationVersion(desktopVersion),
-      asar: { unpack: '**/{node-pty,keytar,@openai/codex*}/**' },
+      asar: { unpack: '**/{node-pty,keytar,@openai/codex*,workstation-runtime}/**' },
       dir: stagingDirectory,
       electronVersion: electronPackage.version,
       icon: macosApplicationIcon,

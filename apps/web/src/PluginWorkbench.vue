@@ -10,8 +10,8 @@ import Icon from './NavigationIcon.vue'
 import { useI18n } from './i18n'
 import IntegrationWorkbench from './IntegrationWorkbench.vue'
 import NavigationPanelCollection from './NavigationPanelCollection.vue'
+import SidebarIcon from './SidebarIcon.vue'
 import { useWorkbenchStore } from './store'
-import VisualIcon from './VisualIcon.vue'
 import WorkbenchPageShell from './WorkbenchPageShell.vue'
 import WorkbenchViewFrame from './WorkbenchViewFrame.vue'
 import WorkbenchProjectCatalog from './WorkbenchProjectCatalog.vue'
@@ -130,9 +130,9 @@ onMounted(() => void loadPanels())
   <WorkbenchPageShell class="plugin-workbench" :breadcrumbs="breadcrumbs">
     <template v-if="workbench" #sidebar>
       <header class="plugin-workbench-sidebar-header">
-        <VisualIcon :icon="workbench.icon" fallback="plugins" />
+        <SidebarIcon :icon="workbench.icon" />
         <strong :title="workbench.description">{{ workbench.title }}</strong>
-        <UiButton size="icon" :title="t('managePluginWorkbench')" :aria-label="t('managePluginWorkbench')" @click="emit('managePlugins')"><Icon name="settings" /></UiButton>
+        <UiButton size="icon" :title="t('managePluginWorkbench')" :aria-label="t('managePluginWorkbench')" @click="emit('managePlugins')"><SidebarIcon name="settings" /></UiButton>
       </header>
       <NavigationList as="nav" variant="sidebar" class="plugin-workbench-sidebar" role="tablist" :aria-label="workbench.title" :aria-orientation="compactNavigation ? 'horizontal' : 'vertical'" @keydown="moveSelection">
         <div v-for="group in groups" :key="group.title" class="plugin-workbench-group" role="presentation">
@@ -151,9 +151,9 @@ onMounted(() => void loadPanels())
           :class="{ active: activeMember?.key === member.key, unavailable: !member.available }"
           @click="selectedKey = member.key"
         >
-          <VisualIcon :icon="member.icon" :fallback="member.reference.type === 'integration' ? 'list' : 'web'" />
+          <SidebarIcon :icon="member.icon" :fallback="member.reference.type === 'integration' ? 'list' : 'web'" :active="activeMember?.key === member.key" />
           <span class="ui-navigation-label">{{ member.title }}</span>
-          <Icon v-if="!member.available && !(member.reference.type === 'navigation' && panelsLoading)" name="error" />
+          <SidebarIcon v-if="!member.available && !(member.reference.type === 'navigation' && panelsLoading)" name="error" />
         </NavigationItem>
         </div>
       </NavigationList>
@@ -206,7 +206,7 @@ onMounted(() => void loadPanels())
 
 <style scoped>
 .plugin-workbench-sidebar-header { display: flex; flex: none; min-height: var(--workbench-sidebar-header-height); align-items: center; gap: var(--space-2); padding: 6px var(--workbench-sidebar-padding-inline); border-bottom: 1px solid var(--workbench-sidebar-border); }
-.plugin-workbench-sidebar-header > .visual-icon { width: var(--workbench-sidebar-icon-size); height: var(--workbench-sidebar-icon-size); flex: none; }
+.plugin-workbench-sidebar-header > .sidebar-icon { width: var(--workbench-sidebar-icon-size); height: var(--workbench-sidebar-icon-size); flex: none; }
 .plugin-workbench-sidebar-header strong { flex: 1; min-width: 0; color: var(--workbench-sidebar-color); font-size: var(--workbench-sidebar-font-size); font-weight: var(--workbench-sidebar-heading-weight); overflow-wrap: anywhere; }
 .plugin-workbench-sidebar-header .ui-button { flex: none; width: var(--workbench-sidebar-action-size); height: var(--workbench-sidebar-action-size); min-height: var(--workbench-sidebar-action-size); padding: 4px; border: 0; background: transparent; }
 .plugin-workbench-sidebar-header .app-icon { width: var(--workbench-sidebar-icon-size); height: var(--workbench-sidebar-icon-size); }

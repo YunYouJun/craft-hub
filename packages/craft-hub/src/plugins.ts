@@ -1,5 +1,7 @@
 import type { AccountProvider } from './accounts'
 import type { HostDiagnosticProvider } from './diagnostics'
+import type { EnvironmentSetupProvider } from './environment-setup'
+import type { EnvironmentSourceProvider } from './environment-sources'
 import type { CapabilityProvider } from './extensions'
 import type { IntegrationContribution, IntegrationProvider } from './integrations'
 import type { RepositoryValidationProvider } from './repository-validation'
@@ -18,6 +20,10 @@ export interface CraftHubPlugin {
   id: string
   name?: string
   version?: string
+  /** Display-only prerequisite and source-connection guidance; never an execution provider. */
+  environmentSetupProviders?: EnvironmentSetupProvider[]
+  /** Explicit local source connections, separate from read-only prerequisite checks. */
+  environmentSourceProviders?: EnvironmentSourceProvider[]
   accountProvider?: AccountProvider
   workspaceRepositoryProviders?: WorkspaceRepositoryProvider[]
   workspaceCatalogProviders?: WorkspaceCatalogProvider[]
@@ -115,6 +121,10 @@ function assertPlugin(value: unknown, specifier: string): asserts value is Craft
     throw new TypeError(`Plugin ${specifier} integrationProviders must be an array`)
   if (plugin.softwareCatalogProviders !== undefined && !Array.isArray(plugin.softwareCatalogProviders))
     throw new TypeError(`Plugin ${specifier} softwareCatalogProviders must be an array`)
+  if (plugin.environmentSetupProviders !== undefined && (!Array.isArray(plugin.environmentSetupProviders) || plugin.environmentSetupProviders.length > 20))
+    throw new TypeError(`Plugin ${specifier} environmentSetupProviders must be an array with at most 20 providers`)
+  if (plugin.environmentSourceProviders !== undefined && (!Array.isArray(plugin.environmentSourceProviders) || plugin.environmentSourceProviders.length > 20))
+    throw new TypeError(`Plugin ${specifier} environmentSourceProviders must be an array with at most 20 providers`)
   if (plugin.repositoryValidationProviders !== undefined)
     assertRepositoryValidationProviders(plugin.repositoryValidationProviders)
   if (plugin.diagnosticProviders !== undefined) {

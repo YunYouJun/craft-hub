@@ -15,7 +15,7 @@ import { TabsContent, TabsList, TabsRoot, TabsTrigger } from './components/ui/ta
 import { Textarea } from './components/ui/textarea'
 import { Icon } from './icons'
 import { useI18n } from './i18n'
-import NavigationIcon from './NavigationIcon.vue'
+import SidebarIcon from './SidebarIcon.vue'
 import { applicationShortcutReferencesForPlatform, capabilityShortcutId, commandPaletteShortcutId, defaultCommandPaletteShortcut, formatShortcut, shortcutFromKeyboardEvent } from './shortcuts'
 import { useWorkbenchStore } from './store'
 
@@ -650,7 +650,7 @@ async function cleanupRuns(includeAllUnpinned: boolean): Promise<void> {
         <div ref="settingsNavigation" class="settings-navigation">
           <TabsList variant="sidebar" class="settings-tab-list" :aria-label="t('settings')">
             <TabsTrigger v-for="tab in settingsTabs" :key="tab.value" :value="tab.value" :title="tab.label" :aria-label="tab.label">
-              <template #icon><NavigationIcon :name="tab.icon" /></template>
+              <template #icon><SidebarIcon :name="tab.icon" :active="activeTab === tab.value" /></template>
               <template #default><span class="ui-navigation-label">{{ tab.label }}</span></template>
             </TabsTrigger>
           </TabsList>

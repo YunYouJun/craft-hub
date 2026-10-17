@@ -11,6 +11,19 @@ afterEach(() => {
   delete window.craftHubDesktop
 })
 
+it('shows the prebuilt environment engine separately from removable extensions', async () => {
+  useI18n().setLocale('zh-CN')
+  window.craftHubDesktop = { hostExtensions: vi.fn(async () => ({ extensions: [], diagnostics: [], restartRequired: false, bundledExtensions: [{ id: 'workstation', name: 'Workstation', version: '0.1.0' }] })) }
+  const wrapper = mount(HostExtensionsPanel, { global: { stubs: { RouterLink: { template: '<a><slot /></a>' } } } })
+  await flushPromises()
+  const bundled = wrapper.get('[data-testid="bundled-host-extensions"]')
+  expect(bundled.text()).toContain('Workstation')
+  expect(bundled.text()).toContain('随应用提供')
+  expect(bundled.text()).toContain('打开环境恢复')
+  expect(bundled.find('button').exists()).toBe(false)
+  wrapper.unmount()
+})
+
 it('installs, disables and removes extensions with a persistent restart prompt', async () => {
   useI18n().setLocale('zh-CN')
   const installed: HostExtensionStatus = { extensions: [{ id: 'acme', name: 'Acme', enabled: true, manifestPath: '/example/distribution.json', modules: ['/example/host.mjs'] }], diagnostics: [], restartRequired: true }

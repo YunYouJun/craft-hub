@@ -17,11 +17,13 @@ import { CommandInputValidationError } from './command-inputs'
 import { projectConfigSchemaRevision } from './config'
 import { startDeliveryConnection } from './delivery/connection'
 import { dotfilesOperations, DotfilesTrustError, DotfilesValidationError } from './dotfiles-manager'
+import { environmentSourceCommandSchema, EnvironmentSourceError } from './environment-sources'
 import { GitIntegrationConflictError, GitIntegrationValidationError } from './git-integration'
 import { isLocalDirectoryMutation } from './host-environment'
 import { IntegrationConfirmationRequiredError } from './integrations'
 import { CraftHubRuntime } from './runtime'
 import { SettingsConflictError, SettingsValidationError } from './settings'
+import { setupProfileCommandSchema, SetupProfileError } from './setup-profile'
 import { softwareApplicationRequestSchema, softwareInstallationConfirmationSchema, softwareInstallationRequestSchema, SoftwareOperationError } from './software-catalog'
 import { softwareSourceCommandSchema, SoftwareSourceError } from './software-sources'
 import { TeamLifecycleValidationError } from './teams'
@@ -254,6 +256,42 @@ export async function startCraftHubServer(options: CraftHubServerOptions = {}): 
         if (request.method === 'DELETE')
           return sendJson(response, 200, await runtime.workItemProjects.remove(workItemProjectDeleteRequestSchema.parse(await jsonBody(request, 16 * 1024))))
         return sendJson(response, 405, { error: 'Method not allowed' })
+      }
+
+      if (['/api/setup-profile', '/api/environment/setup', '/api/environment/sources'].includes(url.pathname)) {
+        const declaredOrigin = options.publicOrigin ?? runtime.accountProvider?.publicOrigin
+        const origin = declaredOrigin ? new URL(declaredOrigin).origin : `http://${request.headers.host}`
+        if ((!declaredOrigin && !addressesThisSocket(request.headers.host ?? '', request))
+          || request.headers['sec-fetch-site'] === 'cross-site'
+          || (request.headers.origin && request.headers.origin !== origin)
+          || (request.method !== 'GET' && request.headers['content-type']?.split(';')[0]?.trim().toLowerCase() !== 'application/json')) {
+          return sendJson(response, 403, { error: 'Environment profiles require a same-origin JSON request' })
+        }
+        if (url.search)
+          return sendJson(response, 400, { error: 'Environment profiles accept no query parameters' })
+        if (url.pathname === '/api/environment/sources') {
+          if (request.method === 'GET')
+            return sendJson(response, 200, runtime.environmentSources.snapshot())
+          if (request.method === 'POST')
+            return sendJson(response, 200, runtime.environmentSources.command(environmentSourceCommandSchema.parse(await jsonBody(request, 16 * 1024))))
+          return sendJson(response, 405, { error: 'Method not allowed' })
+        }
+        if (request.method === 'GET' && url.pathname === '/api/environment/setup')
+          return sendJson(response, 200, await runtime.environmentSetup.snapshot())
+        if (url.pathname === '/api/environment/setup')
+          return sendJson(response, 405, { error: 'Setup guidance is read-only' })
+        if (request.method === 'GET')
+          return sendJson(response, 200, await runtime.setupProfile.snapshot())
+        if (request.method !== 'POST')
+          return sendJson(response, 405, { error: 'Method not allowed' })
+        const input = setupProfileCommandSchema.parse(await jsonBody(request, 256 * 1024))
+        if (input.operation === 'inventory')
+          return sendJson(response, 200, await runtime.setupProfile.inventory())
+        if (input.operation === 'review')
+          return sendJson(response, 200, await runtime.setupProfile.review())
+        if (input.operation === 'save')
+          return sendJson(response, 200, await runtime.setupProfile.save(input))
+        return sendJson(response, 200, await runtime.setupProfile.import(input.profile, input.revision))
       }
 
       if (url.pathname === '/api/software-sources') {
@@ -1226,7 +1264,7 @@ export async function startCraftHubServer(options: CraftHubServerOptions = {}): 
         return sendJson(response, 409, { error: error.message, actualRevision: error.actualRevision })
       if (error instanceof WorkItemProjectError)
         return sendJson(response, error.status, { error: error.message })
-      if (error instanceof SoftwareOperationError || error instanceof SoftwareSourceError)
+      if (error instanceof SoftwareOperationError || error instanceof SoftwareSourceError || error instanceof SetupProfileError || error instanceof EnvironmentSourceError)
         return sendJson(response, error.status, { error: error.message })
       if (error instanceof SettingsConflictError)
         return sendJson(response, 409, { error: error.message, actualRevision: error.actualRevision })

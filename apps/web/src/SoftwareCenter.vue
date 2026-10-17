@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import type { PersonalWorkbenchTool, SoftwareCatalogItem, SoftwareCatalogSnapshot, SoftwareInstallationPlan, SoftwareInstallationRun } from 'craft-hub'
 import { personalWorkbenchHomeSchema, personalWorkbenchToolLaunchForUrl } from 'craft-hub/personal-workbench'
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, inject, onMounted, onUnmounted, ref } from 'vue'
+import { routeLocationKey, RouterLink } from 'vue-router'
 import { api } from './api'
 import { Alert } from './components/ui/alert'
 import { Badge } from './components/ui/badge'
@@ -17,6 +18,7 @@ import SoftwareSources from './SoftwareSources.vue'
 import WorkbenchViewFrame from './WorkbenchViewFrame.vue'
 
 const store = useWorkbenchStore()
+const route = inject(routeLocationKey, undefined)
 const { locale } = useI18n()
 const zh = computed(() => locale.value === 'zh-CN')
 const copy = (chinese: string, english: string) => zh.value ? chinese : english
@@ -162,7 +164,16 @@ function refreshAfterSourceChange(): void {
   else
     void loadCatalog()
 }
-onMounted(() => { void loadCatalog() })
+onMounted(async () => {
+  await loadCatalog()
+  if (!mounted || route?.query.setup !== '1') return
+  try {
+    const review = await api.reviewSetupProfile()
+    if (mounted)
+      selectedKeys.value = review.software.filter(item => item.canInstall).map(item => JSON.stringify([item.reference.sourceId, item.reference.softwareId]))
+  }
+  catch { if (mounted) operationError.value = copy('无法读取环境方案，请返回方案页重新检查。', 'Could not read the environment profile. Return to the profile and check again.') }
+})
 onUnmounted(() => {
   mounted = false
   generation++
@@ -490,6 +501,7 @@ defineExpose({ refresh: loadCatalog })
     <template #actions>
       <UiButton size="compact" :disabled="loading" data-testid="refresh-software" @click="loadCatalog"><Icon :name="loading ? 'loading' : 'refresh'" />{{ copy('刷新', 'Refresh') }}</UiButton>
     </template>
+    <p v-if="route?.query.setup === '1'" class="software-note"><RouterLink to="/environment/setup">{{ copy('返回我的环境方案', 'Back to my environment profile') }}</RouterLink> · {{ copy('已选择方案中可安装的缺失软件，请审阅后安装。', 'Missing, installable software from your profile is selected for review.') }}</p>
     <p v-for="source in snapshot?.sources.filter(source => source.operationSupport)" :key="`support-${source.id}`" class="software-note" data-testid="software-operation-support">{{ source.title }} · {{ source.operationSupport?.platform }}<template v-if="source.operationSupport?.cliVersion"> · CLI {{ source.operationSupport.cliVersion }}</template><template v-if="supportReason(source.id, 'install')"> · {{ supportReason(source.id, 'install') }}</template></p>
     <p v-if="snapshot?.sources.some(source => source.bundled)" class="software-note" data-testid="software-bundled-note">{{ copy('正在浏览内置目录，尚未检测本机安装状态。官网、下载和收藏可用；本机检测与自动安装需要本地软件管理插件。', 'Browsing the bundled catalog without local installation checks. Website, download and favorites are available; local detection and automatic installation require a local software management plugin.') }}</p>
     <p v-if="snapshot?.sources.some(source => source.repositorySourceId && !source.canManage)" class="software-note" data-testid="software-repository-note">{{ copy('正在浏览仓库目录缓存，本机安装状态尚未检测。连接本机软件管理插件后可检测、安装和打开应用。', 'Browsing a cached repository catalog without local installation checks. Connect a local software management plugin to detect, install and open applications.') }}</p>
