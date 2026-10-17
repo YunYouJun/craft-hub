@@ -192,6 +192,8 @@ const toolbarRefreshError = ref('')
 const marketplaceImportCatalogUrl = ref('')
 const onboardingOpen = ref(false)
 const desktopNavigation = ref<Extract<DesktopNavigation, { kind: 'project' }>>()
+/** Kept separate from the navigation so the dialog keeps its content while it animates closed. */
+const desktopNavigationOpen = ref(false)
 const eventStreamConnected = ref(false)
 const codexActivityStatus = ref<CodexActivityStatus>()
 const runningCodexTaskCount = computed(() => {
@@ -309,7 +311,7 @@ function openSettings(tab: 'general' | 'help' = 'general'): void {
 async function openDesktopNavigation(navigation: DesktopNavigation): Promise<void> {
   onboardingOpen.value = false
   settingsOpen.value = false
-  desktopNavigation.value = undefined
+  desktopNavigationOpen.value = false
   if (navigation.kind === 'marketplace') {
     await openMarketplace()
     return
@@ -336,6 +338,7 @@ async function openDesktopNavigation(navigation: DesktopNavigation): Promise<voi
     return
   }
   desktopNavigation.value = navigation
+  desktopNavigationOpen.value = true
 }
 
 async function openShortcutCapability(shortcutId: string): Promise<void> {
@@ -785,11 +788,11 @@ onBeforeUnmount(() => {
     <ProjectAgentActionDialog v-if="agentActionMounted" v-model:open="store.agentActionDialogOpen" />
     <DesktopNavigationDialog
       v-if="desktopNavigation"
+      v-model:open="desktopNavigationOpen"
       :matches="desktopNavigation.matches"
       :reference="desktopNavigation.reference"
       :capability-id="desktopNavigation.capabilityId"
-      @close="desktopNavigation = undefined"
-      @resolved="desktopNavigation = undefined"
+      @resolved="desktopNavigationOpen = false"
     />
     <DialogRoot :open="store.packageCapabilityDrawerOpen" @update:open="$event || store.closePackageCapabilityDrawer()">
       <DialogPortal>
