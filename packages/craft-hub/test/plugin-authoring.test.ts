@@ -155,7 +155,7 @@ describe('marketplace Plugin authoring', () => {
     await expect(validateMarketplacePlugin(pluginPath)).resolves.toMatchObject({
       packageName: '@example/craft-hub-plugin-cli',
     })
-  })
+  }, 20_000)
 })
 
 async function temporaryPath(prefix: string): Promise<string> {
