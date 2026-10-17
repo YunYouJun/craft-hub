@@ -42,7 +42,8 @@ describe('portable environment profiles', () => {
     const contents = await readFile(join(root, 'a/setup-profile.v1.json'), 'utf8')
     for (const forbidden of ['machine-specific', 'EDITOR=vi', 'machine-revision', 'localPath', 'sourcePath', 'trust', 'detected'])
       expect(contents).not.toContain(forbidden)
-    expect((await stat(join(root, 'a/setup-profile.v1.json'))).mode & 0o777).toBe(0o600)
+    if (process.platform !== 'win32')
+      expect((await stat(join(root, 'a/setup-profile.v1.json'))).mode & 0o777).toBe(0o600)
     expect(await service().snapshot()).toEqual(first)
 
     let softwareStatus: 'detected' | 'not-detected' | 'unknown' = 'not-detected'
