@@ -268,22 +268,46 @@ kbd { white-space: nowrap; flex-shrink: 0; border: 1px solid var(--border-strong
 .package-drawer-content[data-state='closed'] { animation: package-drawer-out var(--motion-duration-exit) var(--motion-ease-standard); }
 .package-drawer-content > .detail-panel { height: 100%; padding: 24px 58px 24px 28px; }
 .package-drawer-close { position: absolute; top: 16px; right: 18px; }
-.desktop-navigation-dialog { width: min(560px, calc(100vw - 40px)); }
-.desktop-navigation-mark { display: grid; width: 38px; height: 38px; place-items: center; margin-bottom: 14px; border-radius: 10px; background: var(--accent-soft); color: var(--accent); }
-.desktop-navigation-mark .app-icon { width: 22px; height: 22px; }
-.desktop-reference { display: grid; gap: 8px; margin: 0; border: 1px solid var(--border); border-radius: 9px; background: var(--surface-muted); padding: 12px; }
-.desktop-reference div { display: grid; grid-template-columns: 88px minmax(0, 1fr); gap: 10px; }
-.desktop-reference dt { color: var(--muted); font-size: var(--font-size-control); }
-.desktop-reference dd { overflow: hidden; margin: 0; font: var(--font-size-control) ui-monospace, SFMono-Regular, Menlo, monospace; text-overflow: ellipsis; white-space: nowrap; }
-.desktop-project-matches { display: grid; gap: 8px; margin-top: 14px; }
+/*
+ * "Open in Craft Hub": a light key-value card, a neutral safety footnote and one emphasized action.
+ * Tints mix a little status color into the surface so both themes stay low-saturation.
+ */
+.desktop-navigation-dialog.dialog-panel { --dialog-panel-width: 520px; }
+.desktop-navigation-dialog .dialog-panel-header { justify-content: flex-start; border-bottom: 0; padding-bottom: var(--space-2); }
+.desktop-navigation-dialog .dialog-panel-header > div { flex: 1; }
+.desktop-navigation-dialog .dialog-panel-body { display: grid; gap: var(--space-3); padding-top: var(--space-2); }
+.desktop-navigation-dialog .dialog-panel-footer { border-top-color: transparent; background: transparent; padding-top: var(--space-1); padding-bottom: var(--dialog-panel-padding); }
+.desktop-navigation-mark { display: grid; order: -1; width: 40px; height: 40px; flex: none; place-items: center; border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--border)); border-radius: var(--panel-radius); background: color-mix(in srgb, var(--accent) 9%, var(--surface)); color: var(--accent); }
+.desktop-navigation-mark .app-icon { width: 20px; height: 20px; }
+.desktop-navigation-dialog[data-state='open'] .desktop-navigation-mark { animation: desktop-navigation-mark-in var(--motion-duration-slow) var(--motion-ease-spring) 60ms backwards; }
+.desktop-reference { display: grid; margin: 0; border: 1px solid var(--border); border-radius: var(--panel-radius); background: var(--surface-subtle); }
+.desktop-reference-row { display: grid; min-height: 40px; grid-template-columns: 16px 72px minmax(0, 1fr) auto; align-items: center; column-gap: var(--space-2); padding: var(--space-1) var(--space-1) var(--space-1) var(--space-3); }
+.desktop-reference-row + .desktop-reference-row { border-top: 1px solid var(--border); }
+.desktop-reference-icon { display: grid; color: var(--muted); }
+.desktop-reference-icon .app-icon { width: 16px; height: 16px; }
+.desktop-reference dt { color: var(--muted); font-size: var(--font-size-caption); line-height: var(--line-height-caption); }
+.desktop-reference dd { min-width: 0; overflow: hidden; margin: 0; color: var(--text); font: var(--font-size-control) / var(--line-height-control) var(--font-mono); text-overflow: ellipsis; white-space: nowrap; }
+.desktop-reference-row > dd:last-child { grid-column: 3 / -1; padding-right: var(--space-2); }
+.desktop-reference-copy { color: var(--muted); }
+.desktop-reference-copy.copied { color: var(--success); }
+.desktop-reference-copy.copied .app-icon { animation: desktop-navigation-mark-in var(--motion-duration-slow) var(--motion-ease-spring); }
+.desktop-project-matches { display: grid; gap: var(--space-2); }
 .desktop-project-matches .ui-button { justify-content: flex-start; text-align: left; }
 .desktop-project-matches .ui-button > span { display: grid; min-width: 0; gap: 2px; }
 .desktop-project-matches strong, .desktop-project-matches small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .desktop-project-matches small { color: var(--muted); font-size: var(--font-size-caption); font-weight: 400; }
-.desktop-link-safety { margin-bottom: 0 !important; border-left: 2px solid var(--accent); background: var(--accent-soft); padding: 9px 11px; }
-.desktop-selected-checkout { display: flex; min-width: 0; align-items: center; gap: 8px; margin-top: 12px; border: 1px solid var(--success); border-radius: 8px; padding: 9px 10px; color: var(--success); font-size: var(--font-size-control); }
-.desktop-selected-checkout span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.desktop-navigation-dialog footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+.desktop-link-safety { display: flex; align-items: flex-start; gap: var(--space-2); margin: 0; border-radius: var(--control-radius); background: color-mix(in srgb, var(--accent) 6%, var(--surface)); padding: var(--space-2) var(--space-3); color: var(--text-secondary); font-size: var(--font-size-caption); line-height: var(--line-height-caption); }
+.desktop-link-safety > span:first-child { display: grid; flex: none; height: var(--line-height-caption); place-items: center; color: var(--accent); }
+.desktop-link-safety .app-icon { width: 14px; height: 14px; }
+.desktop-selected-checkout { display: flex; min-width: 0; align-items: flex-start; gap: var(--space-2); border: 1px solid color-mix(in srgb, var(--success) 30%, var(--border)); border-radius: var(--panel-radius); background: color-mix(in srgb, var(--success) 7%, var(--surface)); padding: var(--space-2) var(--space-3); }
+.desktop-selected-checkout-icon { display: grid; flex: none; height: var(--line-height-body); place-items: center; color: var(--success); }
+.desktop-selected-checkout-icon .app-icon { width: 16px; height: 16px; }
+.desktop-selected-checkout-text { display: grid; min-width: 0; gap: 2px; }
+.desktop-selected-checkout-text strong { color: var(--text); font-size: var(--font-size-body); font-weight: 500; }
+.desktop-selected-checkout-text span { overflow: hidden; color: var(--muted); font: var(--font-size-control) / var(--line-height-control) var(--font-mono); text-overflow: ellipsis; white-space: nowrap; }
+.desktop-navigation-error { font-size: var(--font-size-caption); line-height: var(--line-height-caption); }
+@keyframes desktop-navigation-mark-in { from { opacity: 0; transform: scale(var(--desktop-navigation-mark-from, .6)); } }
+@media (prefers-reduced-motion: reduce) { :root { --desktop-navigation-mark-from: 1; } }
 .workspace-dialog { width: min(560px, calc(100vw - 40px)); max-height: calc(100vh - 40px); overflow-y: auto; }
 /* Centered dialogs share one enter / exit pair; every listed surface is positioned with translate(-50%, -50%). */
 :is(.dialog-content, .add-project-dialog, .settings-dialog, .agent-action-dialog, .trust-run-dialog)[data-state="open"] { animation: dialog-in var(--motion-duration-enter) var(--motion-ease-standard); }
