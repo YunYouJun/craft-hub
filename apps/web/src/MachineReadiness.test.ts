@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { api } from './api'
 import { useI18n } from './i18n'
 import MachineReadiness from './MachineReadiness.vue'
-import { useWorkbenchStore } from './store'
+import { machineReadinessReuseMs, useWorkbenchStore } from './store'
 
 const revision = 'a'.repeat(64)
 const step = (id: string, state: EnvironmentSetupStep['state'], dependsOn: string[] = [], title = id): EnvironmentSetupStep => ({ id, title: { en: title, zh: title }, description: { en: `${title} description` }, state, dependsOn, actions: [] })
@@ -26,10 +26,10 @@ function review(states: { software: SetupProfileReview['software'][number]['stat
 const allReadySteps = [step('developer-tools', 'ready', [], 'Git'), step('homebrew', 'ready', ['developer-tools'], 'Homebrew'), step('workstation.node', 'not-required'), step('workstation.cli', 'ready', ['developer-tools'], 'Workstation'), step('workstation.sources', 'ready', ['workstation.cli'], 'Sources')]
 
 const wrappers: ReturnType<typeof mount>[] = []
-function render() {
+function render(props: { refreshKey?: number } = {}) {
   const target = (to: { path: string, query?: Record<string, string> }) => to.path + (to.query ? `?${new URLSearchParams(to.query)}` : '')
   const RouterLink = { props: ['to'], methods: { target }, template: '<a :data-to="target(to)"><slot /></a>' }
-  const wrapper = mount(MachineReadiness, { global: { stubs: { RouterLink } } })
+  const wrapper = mount(MachineReadiness, { props, global: { stubs: { RouterLink } } })
   wrappers.push(wrapper)
   return wrapper
 }
@@ -43,7 +43,11 @@ beforeEach(() => {
 afterEach(() => {
   wrappers.splice(0).forEach(wrapper => wrapper.unmount())
   vi.restoreAllMocks()
+  vi.useRealTimers()
 })
+function leave() {
+  wrappers.splice(0).forEach(wrapper => wrapper.unmount())
+}
 
 describe('machine readiness home', () => {
   it('declares the environment ready only when every profile item is freshly verified', async () => {
@@ -159,5 +163,82 @@ describe('machine readiness home', () => {
     await flushPromises()
     expect(api.environmentSetup).not.toHaveBeenCalled()
     expect(hosted.find('[data-testid="readiness-hosted"]').exists()).toBe(true)
+  })
+})
+
+describe('machine readiness across home page visits', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-10-20T08:30:00.000Z'))
+  })
+
+  it('shows the last result at once and does not probe again within the reuse window', async () => {
+    render()
+    await flushPromises()
+    leave()
+    vi.setSystemTime(Date.now() + machineReadinessReuseMs - 1000)
+    const wrapper = render()
+    expect(wrapper.get('[data-testid="readiness-summary"]').text()).toContain('Environment ready')
+    expect(wrapper.text()).toContain('Checked')
+    await flushPromises()
+    expect(api.environmentSetup).toHaveBeenCalledTimes(1)
+    expect(api.reviewSetupProfile).toHaveBeenCalledTimes(1)
+  })
+
+  it('shows the last result while a later visit rechecks in the background', async () => {
+    render()
+    await flushPromises()
+    leave()
+    vi.setSystemTime(Date.now() + machineReadinessReuseMs + 1000)
+    let finish!: (value: EnvironmentSetupSnapshot) => void
+    vi.mocked(api.environmentSetup).mockReturnValueOnce(new Promise(resolve => finish = resolve))
+    vi.mocked(api.reviewSetupProfile).mockResolvedValueOnce(review({ software: ['missing', 'ready'], configurations: ['ready'] }))
+    const wrapper = render()
+    await flushPromises()
+    expect(api.environmentSetup).toHaveBeenCalledTimes(2)
+    expect(wrapper.get('[data-testid="readiness-summary"]').text()).toContain('Environment ready')
+    expect(wrapper.text()).toContain('Last checked')
+    expect(wrapper.get('[data-testid="refresh-machine-readiness"]').text()).toContain('Checking')
+    finish(setup(allReadySteps))
+    await flushPromises()
+    expect(wrapper.get('[data-testid="readiness-summary"]').text()).toContain('6 / 7 ready')
+    expect(wrapper.get('[data-testid="difference-missing"]').text()).toContain('iTerm2')
+  })
+
+  it('always rechecks on a manual request or a new refresh key', async () => {
+    const wrapper = render({ refreshKey: 1 })
+    await flushPromises()
+    await wrapper.get('[data-testid="refresh-machine-readiness"]').trigger('click')
+    await flushPromises()
+    expect(api.environmentSetup).toHaveBeenCalledTimes(2)
+    await wrapper.setProps({ refreshKey: 2 })
+    await flushPromises()
+    expect(api.environmentSetup).toHaveBeenCalledTimes(3)
+    leave()
+    render({ refreshKey: 2 })
+    await flushPromises()
+    expect(api.environmentSetup).toHaveBeenCalledTimes(3)
+    leave()
+    render({ refreshKey: 3 })
+    await flushPromises()
+    expect(api.environmentSetup).toHaveBeenCalledTimes(4)
+  })
+
+  it('keeps a failed recheck unconfirmed after leaving and returning', async () => {
+    const wrapper = render()
+    await flushPromises()
+    vi.mocked(api.reviewSetupProfile).mockRejectedValueOnce(new Error('Service offline'))
+    await wrapper.get('[data-testid="refresh-machine-readiness"]').trigger('click')
+    await flushPromises()
+    leave()
+    const returned = render()
+    await flushPromises()
+    expect(api.reviewSetupProfile).toHaveBeenCalledTimes(2)
+    const summary = returned.get('[data-testid="readiness-summary"]').text()
+    expect(summary).toContain('Current state not confirmed')
+    expect(summary).toContain('7 / 7 ready at the last check')
+    expect(returned.text()).not.toContain('Environment ready')
+    expect(returned.text()).toContain('Last checked')
+    expect(returned.get('[data-testid="readiness-next"]').text()).toContain('Check this machine again')
   })
 })

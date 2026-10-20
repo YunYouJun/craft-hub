@@ -1,26 +1,22 @@
 <script setup lang="ts">
-import type { EnvironmentSetupSnapshot, SetupProfileReview } from 'craft-hub'
 import type { ReadinessItem, ReadinessItemState, ReadinessText } from './machine-readiness'
-import { computed, onUnmounted, ref, watch } from 'vue'
+import { storeToRefs } from 'pinia'
+import { computed, watch } from 'vue'
 import { RouterLink } from 'vue-router'
-import { api } from './api'
 import { Badge } from './components/ui/badge'
 import { Button as UiButton } from './components/ui/button'
 import { Icon } from './icons'
 import { useI18n } from './i18n'
 import { machineReadiness } from './machine-readiness'
-import { useWorkbenchStore } from './store'
+import { useMachineReadinessStore, useWorkbenchStore } from './store'
 
 const props = defineProps<{ refreshKey?: number }>()
 const store = useWorkbenchStore()
 const { locale } = useI18n()
 const copy = (zh: string, en: string) => locale.value === 'zh-CN' ? zh : en
 const text = (value: ReadinessText) => locale.value === 'zh-CN' ? value.zh ?? value.en : value.en
-const setup = ref<EnvironmentSetupSnapshot>()
-const review = ref<SetupProfileReview>()
-const setupFailed = ref(false)
-const reviewFailed = ref(false)
-const busy = ref(false)
+const machine = useMachineReadinessStore()
+const { setup, review, setupFailed, reviewFailed, busy } = storeToRefs(machine)
 const hosted = computed(() => store.localEnvironmentAccess === 'hosted')
 const readiness = computed(() => machineReadiness({ setup: setup.value, review: review.value, setupFailed: setupFailed.value, reviewFailed: reviewFailed.value }))
 const unconfirmed = computed(() => setupFailed.value || reviewFailed.value)
@@ -51,30 +47,9 @@ const preview = (items: ReadinessItem[]) => {
   return items.length > 3 ? copy(`${names} 等 ${items.length} 项`, `${names} and ${items.length - 3} more`) : names
 }
 
-let generation = 0
-let mounted = true
-async function refresh(): Promise<void> {
-  if (hosted.value)
-    return
-  const current = ++generation
-  busy.value = true
-  const [setupResult, reviewResult] = await Promise.allSettled([api.environmentSetup(), api.reviewSetupProfile()])
-  if (!mounted || current !== generation)
-    return
-  // A failed or malformed read keeps the earlier observation, which is then shown as unconfirmed.
-  const nextSetup = setupResult.status === 'fulfilled' && Array.isArray(setupResult.value?.steps) ? setupResult.value : undefined
-  const nextReview = reviewResult.status === 'fulfilled' && reviewResult.value?.snapshot && Array.isArray(reviewResult.value.software) && Array.isArray(reviewResult.value.configurations) ? reviewResult.value : undefined
-  setup.value = nextSetup ?? setup.value
-  setupFailed.value = !nextSetup
-  review.value = nextReview ?? review.value
-  reviewFailed.value = !nextReview
-  busy.value = false
-}
-watch(() => [props.refreshKey, hosted.value], () => void refresh(), { immediate: true })
-onUnmounted(() => {
-  mounted = false
-  generation++
-})
+// Re-entering the home page shows the last observation at once and only probes again once it is no longer recent.
+watch(() => [props.refreshKey, hosted.value] as const, ([refreshKey]) => void machine.refresh({ refreshKey }), { immediate: true })
+const recheck = () => void machine.refresh({ force: true, refreshKey: props.refreshKey })
 </script>
 
 <template>
@@ -82,9 +57,9 @@ onUnmounted(() => {
     <header class="readiness-header">
       <div>
         <h2 id="machine-readiness-title">{{ copy('这台电脑的准备情况', 'This machine') }}</h2>
-        <p v-if="checkedAt">{{ unconfirmed ? copy(`上次检查 ${checkedAt}`, `Last checked ${checkedAt}`) : copy(`检查于 ${checkedAt}`, `Checked ${checkedAt}`) }}</p>
+        <p v-if="checkedAt">{{ unconfirmed || busy ? copy(`上次检查 ${checkedAt}`, `Last checked ${checkedAt}`) : copy(`检查于 ${checkedAt}`, `Checked ${checkedAt}`) }}</p>
       </div>
-      <UiButton v-if="!hosted" size="compact" :disabled="busy" data-testid="refresh-machine-readiness" @click="refresh"><Icon name="refresh" />{{ busy ? copy('检查中…', 'Checking…') : copy('重新检查', 'Check again') }}</UiButton>
+      <UiButton v-if="!hosted" size="compact" :disabled="busy" data-testid="refresh-machine-readiness" @click="recheck"><Icon name="refresh" />{{ busy ? copy('检查中…', 'Checking…') : copy('重新检查', 'Check again') }}</UiButton>
     </header>
 
     <p v-if="hosted" class="readiness-note" data-testid="readiness-hosted">{{ copy('本机检测需要在这台电脑上打开 Craft Hub。托管页面不会读取访问设备的软件与环境。', 'Machine checks require Craft Hub running on this machine. A hosted page does not inspect the visiting device.') }}</p>
@@ -106,7 +81,7 @@ onUnmounted(() => {
           <span class="readiness-label">{{ copy('下一步', 'Next step') }}</span>
           <strong>{{ text(readiness.next.title) }}</strong>
           <p v-if="readiness.next.detail">{{ text(readiness.next.detail) }}</p>
-          <UiButton v-if="readiness.next.kind === 'recheck'" variant="primary" size="compact" :disabled="busy" @click="refresh">{{ copy('重新检查', 'Check again') }}</UiButton>
+          <UiButton v-if="readiness.next.kind === 'recheck'" variant="primary" size="compact" :disabled="busy" @click="recheck">{{ copy('重新检查', 'Check again') }}</UiButton>
           <RouterLink v-else class="readiness-cta" :to="readiness.next.to">{{ readiness.next.to.path === '/software' ? copy('前往软件中心', 'Open Software center') : readiness.next.to.path === '/environment/setup' ? copy('前往准备引导', 'Open the setup guide') : copy('前往审阅', 'Open review') }}<Icon name="arrowRight" /></RouterLink>
         </div>
         <p v-else-if="readiness.environmentReady" class="readiness-note">{{ copy('方案中的软件与配置均已通过本次检查。', 'Every profile item passed this check.') }}</p>
