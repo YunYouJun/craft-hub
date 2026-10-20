@@ -8,6 +8,7 @@ import { Badge } from './components/ui/badge'
 import { Button as UiButton } from './components/ui/button'
 import { useI18n } from './i18n'
 import EnvironmentSourceConnection from './EnvironmentSourceConnection.vue'
+import { waitingOn } from './machine-readiness'
 
 const props = defineProps<{ profileRevision: string }>()
 const { locale } = useI18n()
@@ -59,7 +60,7 @@ onUnmounted(() => { mounted = false; generation++ })
     <p v-if="notice" class="guide-note" role="status">{{ notice }}</p>
     <ol v-if="snapshot" class="guide-steps">
       <li v-for="step in snapshot.steps" :key="step.id" :data-testid="`setup-stage-${step.id}`">
-        <div class="guide-step-header"><h3>{{ text(step.title) }}</h3><Badge :variant="!error && step.state === 'ready' ? 'success' : 'secondary'">{{ error ? copy('尚未确认', 'Not confirmed') : copy(...labels[step.state]) }}</Badge></div>
+        <div class="guide-step-header"><h3>{{ text(step.title) }}</h3><span v-for="dependency in waitingOn(step, snapshot.steps)" :key="dependency.en" class="guide-waiting" data-testid="setup-stage-waiting">{{ copy('等待：', 'Waiting for: ') }}{{ text(dependency) }}</span><Badge :variant="!error && step.state === 'ready' ? 'success' : 'secondary'">{{ error ? copy('尚未确认', 'Not confirmed') : copy(...labels[step.state]) }}</Badge></div>
         <p class="guide-note">{{ text(step.description) }}</p>
         <EnvironmentSourceConnection v-if="step.id === 'workstation.sources' && !['blocked', 'not-required'].includes(step.state) && !error" @connected="refresh" />
         <div class="guide-links"><a v-for="(action, index) in step.actions.filter(action => action.kind === 'link')" :key="index" :href="action.url" target="_blank" rel="noopener noreferrer">{{ text(action.title) }} ↗</a></div>
@@ -83,7 +84,8 @@ onUnmounted(() => { mounted = false; generation++ })
 .guide-steps { list-style: decimal; margin: var(--space-4) 0; padding-left: 24px; }
 .guide-steps li { min-width: 0; padding: var(--space-4) 0; }
 .guide-steps li + li { border-top: 1px solid var(--border); }
-.guide-step-header h3 { font-size: var(--font-size-control); }
+.guide-step-header h3 { flex: 1; min-width: min(160px, 100%); font-size: var(--font-size-control); }
+.guide-waiting { border-radius: 4px; padding: 1px 6px; background: var(--surface-hover); color: var(--muted); font-size: var(--font-size-caption); line-height: 18px; }
 .guide-links { display: flex; flex-wrap: wrap; gap: var(--space-3); font-size: var(--font-size-control); }
 .guide-command { margin-top: var(--space-3); font-size: var(--font-size-control); }
 .guide-command summary { cursor: pointer; padding: var(--space-2) 0; }
