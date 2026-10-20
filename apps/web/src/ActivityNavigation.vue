@@ -296,7 +296,7 @@ function dragClasses(id: string): Record<string, boolean> {
 .sidebar-navigation .activity-button.active { background: var(--workbench-sidebar-active-background); color: var(--workbench-sidebar-active-color); font-weight: var(--workbench-sidebar-active-weight); }
 .sidebar-navigation .activity-button > .app-icon, .sidebar-navigation .activity-button > .visual-icon { width: 16px; height: 16px; flex: none; }
 .activity-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; line-height: 1.3; transition: opacity 120ms ease 100ms; }
-.sidebar-navigation .activity-badge { position: static; flex: none; height: 18px; min-width: 18px; border: 0; border-radius: 9px; padding: 0 4px; font-size: 10px; }
+.sidebar-navigation .activity-badge { position: static; flex: none; height: 18px; min-width: 18px; border: 0; border-radius: 9px; padding: 0 5px; font-size: 11px; }
 /*
  * Labels fade out before the rail finishes narrowing and return last on expansion. The compact icon buttons keep
  * their own square geometry instead of stretching to fill the rail.
