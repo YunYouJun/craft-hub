@@ -17,6 +17,7 @@ export type OperationSupport = z.infer<typeof operationSupportSchema>
 export interface ConfigurationManagementPage {
   configuration: true
   items: ConfigurationManagementItem[]
+  registry?: ConfigurationRepositoryRegistry
   preview?: { planId: string, changes: { path: string, direction: string, before: string, after: string, deletion: boolean }[] }
   history?: { planId: string, state: string, createdAt?: string, paths?: string[], error?: string }[]
   repositories?: { id: string, root: string, branch?: string, revision?: string, ahead?: number | null, behind?: number | null, outgoing?: string[], outgoingChanges?: string[], outgoingDiff?: string, workingDiff?: string, dirty?: boolean, diverged?: boolean, error?: string, paths?: { path: string, status: string }[] }[]
@@ -35,6 +36,10 @@ export interface ConfigurationManagementItem {
   owner: string
   origin: string
   localPath: string
+  sourceId?: string
+  audience?: 'public' | 'personal' | 'work' | 'unclassified'
+  resource?: string
+  competingSources?: string[]
   sourcePath?: string
   status: string
   revision: string
@@ -65,4 +70,13 @@ export interface ConfigurationManagementTool {
   title: string
   url: string
   software?: { sourceId: string, softwareId: string }
+}
+
+/** Device-local references; provider owns validation, identity, encryption and writes. */
+export interface ConfigurationRepositoryRegistry {
+  version: 1
+  revision: string
+  sources: { id: string, name: string, root: string, kind: 'dotfiles' | 'overlay', audience: 'public' | 'personal' | 'work' | 'unclassified', manifest?: string, enabled: boolean }[]
+  targets: { id: string, name: string, root?: string, directory: string, audience: 'personal' | 'work', driver: 'workstation' | 'external', sourceIds: string[], keyEnvironment?: string }[]
+  ownership: Record<string, string>
 }

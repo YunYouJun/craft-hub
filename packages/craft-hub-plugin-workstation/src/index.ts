@@ -109,6 +109,7 @@ export function createWorkstationPlugin(transport: WorkstationTransport = workst
       configuration: true,
       operationSupport: support,
       items: configurationItems(inventory.items),
+      ...(allowed(support, 'repositories') && inventory.registry ? { registry: inventory.registry as ConfigurationManagementPage['registry'] } : {}),
       skillsAudit: skillsAudit(inventory.skillsAudit),
       managementTools: [
         { id: 'workstation', title: 'Workstation', url: 'https://github.com/YunYouJun/workstation/blob/main/docs/en/guide/codex-skills.md' },
@@ -217,6 +218,16 @@ export function createWorkstationPlugin(transport: WorkstationTransport = workst
         update: async (context, input) => {
           if (!context.confirmed)
             throw new Error('Review and confirm the configuration action')
+          if (input.operation === 'repositories-update') {
+            await configurationOperation('repositories-update')
+            await transport({ operation: 'repositories-update', registry: input.registry })
+            return page({}, context.projectPath)
+          }
+          if (input.operation === 'backup-preview') {
+            await configurationOperation('backup-preview')
+            const preview = await transport({ operation: 'backup-preview', targetId: input.targetId, action: input.action, resolution: input.resolution, revision: input.revision })
+            return page({ preview: preview as unknown as ConfigurationManagementPage['preview'] }, context.projectPath)
+          }
           if (input.operation === 'preview') {
             await configurationOperation('preview')
             const preview = await transport({ operation: 'preview', decisions: input.decisions })

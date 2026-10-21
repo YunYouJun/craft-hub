@@ -1,6 +1,6 @@
 import type { HostDiagnosticReport, OperationSupport } from 'craft-hub'
 
-export const configurationOperations = ['inspect', 'preview', 'apply', 'restore', 'history', 'git-status', 'git-fetch', 'git-commit', 'git-publish'] as const
+export const configurationOperations = ['inspect', 'preview', 'apply', 'restore', 'history', 'git-status', 'git-fetch', 'git-commit', 'git-publish', 'repositories', 'repositories-update', 'backup-preview'] as const
 export const softwareOperations = ['catalog', 'preview', 'install', 'runs', 'cancel', 'open'] as const
 const reasonCodes = new Set(['unsupported-platform', 'unsupported-version', 'unavailable'])
 export const unsupportedMessage = 'This Workstation version does not support capability negotiation. Update the local CLI to enable managed operations.'
@@ -56,6 +56,10 @@ function permissions(value: unknown, keys: readonly string[], compatible: boolea
   const operations: OperationSupport['operations'] = {}
   for (const key of keys) {
     const permission = value[key]
+    if (permission === undefined && ['repositories', 'repositories-update', 'backup-preview'].includes(key)) {
+      operations[key] = { supported: false, reason: 'unsupported-version' }
+      continue
+    }
     if (!record(permission) || typeof permission.supported !== 'boolean'
       || (permission.reason !== undefined && (typeof permission.reason !== 'string' || !reasonCodes.has(permission.reason)))) {
       throw new WorkstationHostError('invalid')

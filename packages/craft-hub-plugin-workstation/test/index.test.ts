@@ -282,3 +282,16 @@ describe('workstation host adapter', () => {
     finally { await rm(directory, { recursive: true, force: true }) }
   })
 })
+
+it('delegates repository registration and encrypted backup previews without implementing sync in the host', async () => {
+  const registry = { version: 1, revision: 'reviewed-registry', sources: [], targets: [], ownership: {} }
+  const call = vi.fn<WorkstationTransport>(async request => ({ version: 1, ...(request.operation === 'inspect' ? { items: [], registry } : request.operation === 'history' ? { plans: [] } : request.operation === 'backup-preview' ? { planId: 'backup-plan', changes: [] } : { repositories: [] }) }))
+  const management = createWorkstationPlugin(call).integrationProviders![0].configurationManagement!
+  expect((await management.read({}, {})).registry).toEqual(registry)
+  await expect(management.update({}, { operation: 'repositories-update', registry })).rejects.toThrow('confirm')
+  await management.update({ confirmed: true }, { operation: 'repositories-update', registry })
+  expect(call).toHaveBeenCalledWith({ operation: 'repositories-update', registry })
+  const page = await management.update({ confirmed: true }, { operation: 'backup-preview', targetId: 'backup', action: 'restore', revision: 'reviewed-registry' })
+  expect(page.preview).toMatchObject({ planId: 'backup-plan' })
+  expect(call).toHaveBeenCalledWith({ operation: 'backup-preview', targetId: 'backup', action: 'restore', revision: 'reviewed-registry', resolution: undefined })
+})

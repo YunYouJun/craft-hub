@@ -3,6 +3,7 @@ import type { ConfigurationManagementItem, ConfigurationManagementPage, Configur
 import { computed, inject, reactive, ref, watch } from 'vue'
 import { routeLocationKey, RouterLink } from 'vue-router'
 import { api } from './api'
+import ConfigurationRepositories from './ConfigurationRepositories.vue'
 import FilePreview from './FilePreview.vue'
 import FileDiffPreview from './FileDiffPreview.vue'
 import { TabsContent, TabsList, TabsRoot, TabsTrigger } from './components/ui/tabs'
@@ -29,6 +30,10 @@ const status = ref('all')
 const client = ref('all')
 const scope = ref('all')
 const manager = ref('all')
+const sourceFilter = ref('all')
+const sourceName = (id?: string) => props.page.registry?.sources.find(source => source.id === id)?.name ?? id
+const audienceName = (value?: string) => value === 'public' ? copy('Public', '公开') : value === 'personal' ? copy('Personal private', '个人私有') : value === 'work' ? copy('Work private', '公司私有') : copy('Classification required', '待分类')
+const sourceOptions = computed(() => [{ value: 'all', label: copy('All sources', '全部配置源') }, ...(props.page.registry?.sources ?? []).map(source => ({ value: source.id, label: source.name }))])
 const section = ref('configuration')
 const previewOpen = ref(false)
 const choices = reactive<Record<string, string>>({})
@@ -38,7 +43,7 @@ const error = ref('')
 const openingTool = ref('')
 const toolResult = ref<{ id: string, state: 'success' | 'error', message: string }>()
 const gitReview = ref<{ repository: string, revision: string, action: string, paths: string[], message: string, outgoing?: string[], diff?: string }>()
-const commitMessage = ref('Update workstation configuration')
+const commitMessage = ref('chore(config): sync workstation configuration')
 const commitPaths = reactive<Record<string, string[]>>({})
 function declaredSupport(operation: string): boolean {
   const support = props.page.operationSupport
@@ -64,15 +69,17 @@ const rows = computed(() => props.page.items.filter(item => (kind.value === 'all
   && (status.value === 'all' || (status.value === 'attention' ? !['synced', 'read-only'].includes(item.status) : item.status === status.value))
   && (client.value === 'all' || (item.client ?? 'unknown') === client.value)
   && (scope.value === 'all' || (item.scope ?? 'unknown') === scope.value)
+  && (sourceFilter.value === 'all' || item.sourceId === sourceFilter.value)
   && (manager.value === 'all' || (item.manager ?? 'unknown') === manager.value)
   && [item.title, label(item.status), label(item.origin), item.client, clientLabel(item.client), scopeLabel(item.scope), item.manager, managerLabel(item.manager), item.provenance?.label, item.provenance ? translate(item.provenance.label) : '', item.provenance?.path, item.localPath, item.sourcePath].join(' ').toLowerCase().includes(filter.value.toLowerCase())))
 const item = computed(() => props.page.items.find(row => row.id === selected.value))
 const labels: Record<string, [string, string]> = {
+  'ownership-conflict': ['Source ownership conflict', '来源归属冲突'], 'to-backup': ['Source → encrypted backup', '配置源 → 加密备份'],
   synced: ['Synchronized', '已同步'], 'local-modified': ['Local changes', '本机修改'], 'source-modified': ['Source changes', '源端修改'], conflict: ['Conflict', '双方冲突'],
   'first-adoption': ['First adoption · no baseline', '首次接管差异 · 无历史基线'], unmanaged: ['Unmanaged', '未纳管'], 'read-only': ['Read only', '不可写'], error: ['Scan failed', '扫描失败'],
   local: ['Device local', '设备本地'], public: ['Public workstation', '公开 workstation'], private: ['Private dotfiles', '私有 dotfiles'], user: ['User maintained', '用户维护'], installer: ['Installer managed', '安装器管理'], project: ['Project configuration', '项目配置'],
   'to-local': ['Source → local file', '源配置 → 本机文件'], 'to-source': ['Local → repository source', '本机 → 仓库源文件'],
-  applied: ['Applied', '已应用'], restored: ['Restored', '已恢复'], failed: ['Failed · recovery available', '失败 · 可检查恢复'], applying: ['Interrupted · inspect recovery', '未完成 · 检查恢复'], preview: ['Preview only', '仅预览'],
+  applied: ['Applied', '已应用'], restoring: ['Recovery interrupted · retry available', '恢复中断 · 可重试'], restored: ['Restored', '已恢复'], failed: ['Failed · recovery available', '失败 · 可检查恢复'], applying: ['Interrupted · inspect recovery', '未完成 · 检查恢复'], preview: ['Preview only', '仅预览'],
 }
 const label = (value: string) => labels[value] ? copy(...labels[value]) : value
 const clientLabel = (value?: string) => value === 'codex' ? 'Codex' : value === 'shared' ? copy('Shared Skills directory', '共享 Skills 目录') : (!value || value === 'unknown') ? copy('Unknown', '未知') : value
@@ -87,10 +94,10 @@ const decisions = computed(() => canStage.value ? props.page.items.filter(item =
 const kindOptions = computed(() => [{ value: 'all', label: copy('All types', '全部类型') }, { value: 'mcp', label: 'MCP' }, { value: 'skill', label: 'Skills' }, { value: 'instructions', label: copy('Global instructions', '全局指令') }, { value: 'terminal', label: copy('Terminal', '终端') }])
 const choiceOptions = computed(() => [{ value: 'skip', label: copy('Defer', '暂不处理') }, { value: 'local', label: copy('Keep local → update source', '保留本机 → 更新源文件') }, { value: 'source', label: copy('Use source → update local', '使用源配置 → 更新本机') }, { value: 'merge', label: copy('Choose fields → update both', '按字段合并 → 更新双方') }])
 const fieldOptions = computed(() => [{ value: 'local', label: copy('Local', '本机') }, { value: 'source', label: copy('Source', '源端') }])
-const statusOptions = computed(() => [{ value: 'all', label: copy('All states', '全部状态') }, { value: 'attention', label: copy('Needs review', '待审阅') }, ...['conflict', 'first-adoption', 'local-modified', 'source-modified', 'synced', 'unmanaged', 'read-only', 'error'].map(value => ({ value, label: label(value) }))])
+const statusOptions = computed(() => [{ value: 'all', label: copy('All states', '全部状态') }, { value: 'attention', label: copy('Needs review', '待审阅') }, ...['ownership-conflict', 'conflict', 'first-adoption', 'local-modified', 'source-modified', 'synced', 'unmanaged', 'read-only', 'error'].map(value => ({ value, label: label(value) }))])
 const attentionCount = computed(() => props.page.items.filter(item => !['synced', 'read-only'].includes(item.status)).length)
 function isWritable(value: ConfigurationManagementItem): boolean {
-  return !!value.sourcePath && !['error', 'read-only'].includes(value.status)
+  return !!value.sourcePath && !['error', 'read-only', 'ownership-conflict'].includes(value.status)
     && value.owner === 'user'
     && !['installer', 'external', 'project'].includes(value.origin)
     && (!value.manager || value.manager === 'workstation')
@@ -129,7 +136,7 @@ async function openTool(tool: ConfigurationManagementTool): Promise<void> {
   }
   finally { openingTool.value = '' }
 }
-const tone = (state: string) => state === 'synced' ? 'success' : ['error', 'conflict', 'failed'].includes(state) ? 'danger' : ['first-adoption', 'local-modified', 'source-modified'].includes(state) ? 'warning' : 'secondary'
+const tone = (state: string) => state === 'synced' ? 'success' : ['error', 'conflict', 'ownership-conflict', 'failed'].includes(state) ? 'danger' : ['first-adoption', 'local-modified', 'source-modified'].includes(state) ? 'warning' : 'secondary'
 const choiceLabel = (id: string) => choiceOptions.value.find(option => option.value === choices[id])?.label
 watch(rows, (next) => {
   if (!next.some(row => row.id === selected.value)) selected.value = next.find(row => row.id === route?.query.setupItem)?.id ?? next[0]?.id ?? ''
@@ -191,6 +198,7 @@ async function invoke(operation: string, input: Record<string, unknown> = {}) {
       <TabsList class="workbench-tabs" :aria-label="copy('Configuration management', '配置管理')">
         <TabsTrigger value="configuration">{{ copy('Review configurations', '配置审阅') }} <small>{{ page.items.length }}</small></TabsTrigger>
         <TabsTrigger value="skills-audit">{{ copy('Skills audit', 'Skills 审计') }}<small v-if="audit?.state === 'available' && audit.summary">{{ audit.summary.warningCount + audit.summary.errorCount }}</small></TabsTrigger>
+        <TabsTrigger v-if="page.registry" value="sources">{{ copy('Sources and targets', '配置源与目标') }}</TabsTrigger>
         <TabsTrigger value="repositories">{{ copy('Repository sync', '仓库同步') }}</TabsTrigger>
         <TabsTrigger value="history">{{ copy('Recovery history', '恢复记录') }} <small>{{ page.history?.length ?? 0 }}</small></TabsTrigger>
       </TabsList>
@@ -204,6 +212,7 @@ async function invoke(operation: string, input: Record<string, unknown> = {}) {
         <div class="configuration-metadata-filters">
           <FormSelect v-model="client" :options="clientOptions" :aria-label="copy('Configuration client', '配置客户端')" />
           <FormSelect v-model="scope" :options="scopeOptions" :aria-label="copy('Configuration scope', '配置作用域')" />
+          <FormSelect v-if="page.registry" v-model="sourceFilter" :options="sourceOptions" :aria-label="copy('Configuration source', '配置来源')" />
           <FormSelect v-model="manager" :options="managerOptions" :aria-label="copy('Configuration manager', '配置管理器')" />
         </div>
         <div class="configuration-columns">
@@ -213,7 +222,7 @@ async function invoke(operation: string, input: Record<string, unknown> = {}) {
               <li v-for="row in rows" :key="row.id">
                 <button type="button" class="configuration-item" :aria-pressed="row.id === selected" @click="selected = row.id">
                   <span class="configuration-item-title"><Icon :name="row.kind === 'mcp' ? 'plugins' : row.kind === 'skill' ? 'skill' : row.kind === 'terminal' ? 'terminal' : 'docs'" /><strong>{{ row.title }}</strong><Icon v-if="choices[row.id] && choices[row.id] !== 'skip'" name="check" /></span>
-                  <span class="configuration-item-meta"><Badge :variant="tone(row.status)">{{ label(row.status) }}</Badge><small>{{ label(row.origin) }}</small></span>
+                  <span class="configuration-item-meta"><Badge :variant="tone(row.status)">{{ label(row.status) }}</Badge><small>{{ row.sourceId ? sourceName(row.sourceId) : label(row.origin) }}</small></span>
                   <small class="configuration-item-ownership">{{ clientLabel(row.client) }} · {{ scopeLabel(row.scope) }} · {{ managerLabel(row.manager) }}</small>
                   <small v-if="choices[row.id] && choices[row.id] !== 'skip'" class="configuration-choice-summary">{{ choiceLabel(row.id) }}</small>
                 </button>
@@ -237,6 +246,10 @@ async function invoke(operation: string, input: Record<string, unknown> = {}) {
               <UiButton v-if="itemTool.software" size="compact" :disabled="!!openingTool || !supports('software-open')" :title="supportReason('software-open')" @click="openTool(itemTool)">{{ copy('Open', '打开') }} {{ translate(itemTool.title) }}</UiButton>
             </div>
             <Alert v-if="item.status === 'first-adoption'">{{ copy('No previous baseline. Review both versions before adopting this configuration.', '没有历史基线。请审阅双方内容后决定如何接管。') }}</Alert>
+            <p v-if="item.sourceId" class="configuration-note">{{ copy('Write-back source', '写回来源') }}: {{ sourceName(item.sourceId) }} · {{ audienceName(item.audience) }}</p>
+            <Alert v-if="item.status === 'ownership-conflict'">{{ copy('Several sources claim this configuration. Select its owner within the same content scope, or separate the declarations.', '多个来源声明了此配置。请在相同内容范围内选择归属，或拆分源声明。') }}
+              <UiButton v-if="item.sourceId && page.registry" size="compact" :disabled="busy || !supports('repositories-update')" @click="invoke('repositories-update', { registry: { action: 'claim', resource: item.resource, sourceId: item.sourceId, revision: page.registry.revision } })">{{ copy('Use this source as owner', '归属于此配置源') }}</UiButton>
+            </Alert>
             <p v-if="item.management" class="configuration-note">{{ translate(item.management) }}</p>
             <FieldGroup class="configuration-decision">
               <Field v-if="writable">
@@ -302,6 +315,9 @@ async function invoke(operation: string, input: Record<string, unknown> = {}) {
           </ul>
         </section>
       </TabsContent>
+      <TabsContent v-if="page.registry" value="sources">
+        <ConfigurationRepositories :registry="page.registry" :busy="busy" :can-manage="supports('repositories-update')" :can-backup="supports('backup-preview') && supports('apply')" @request="invoke" />
+      </TabsContent>
       <TabsContent value="repositories">
     <section class="configuration-repositories">
       <h3>{{ copy('Repository synchronization', '仓库同步') }}</h3>
@@ -333,7 +349,7 @@ async function invoke(operation: string, input: Record<string, unknown> = {}) {
       <p v-if="!supports('restore') && page.history?.length" class="configuration-note">{{ supportReason('restore') }}</p>
       <h3>{{ copy('Application and recovery history', '应用与恢复记录') }}</h3><p class="configuration-note">{{ copy('Restore only files unchanged since application. Later edits are protected.', '仅恢复应用后未再次修改的文件，后续修改会受到保护。') }}</p><p v-if="!page.history?.length">{{ copy('No application history yet.', '暂无应用记录。') }}</p>
       <article v-for="plan in page.history" :key="plan.planId"><code>{{ plan.planId }}</code> · {{ label(plan.state) }}<small>{{ plan.createdAt }}</small><code v-for="path in plan.paths" :key="path">{{ path }}</code><p v-if="plan.error">{{ translate(plan.error) }}</p>
-        <UiButton size="compact" v-if="['applied', 'failed', 'applying'].includes(plan.state)" :disabled="busy || !supports('restore')" :title="supportReason('restore')" @click="invoke('restore', { planId: plan.planId })">{{ copy('Restore unchanged files from backup', '从备份恢复未再次修改的文件') }}</UiButton>
+        <UiButton size="compact" v-if="['applied', 'failed', 'applying', 'restoring'].includes(plan.state)" :disabled="busy || !supports('restore')" :title="supportReason('restore')" @click="invoke('restore', { planId: plan.planId })">{{ copy('Restore unchanged files from backup', '从备份恢复未再次修改的文件') }}</UiButton>
       </article>
     </section>
       </TabsContent>

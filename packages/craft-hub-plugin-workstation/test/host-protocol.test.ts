@@ -195,3 +195,16 @@ describe('workstation host protocol integration', () => {
     finally { await rm(directory, { recursive: true, force: true }) }
   })
 })
+
+it('keeps older v1 hosts usable while disabling additive multi-repository operations', async () => {
+  const fixture = capabilities('darwin')
+  for (const key of ['repositories', 'repositories-update', 'backup-preview']) delete fixture.operations.configuration[key]
+  const { plugin, configuration } = transports(fixture)
+  const management = plugin.integrationProviders![0].configurationManagement!
+  const page = await management.read({}, {})
+  expect(page.operationSupport?.state).toBe('available')
+  expect(page.operationSupport?.operations['repositories-update']).toEqual({ supported: false, reason: 'unsupported-version' })
+  configuration.mockClear()
+  await expect(management.update({ confirmed: true }, { operation: 'repositories-update', registry: {} })).rejects.toThrow('unavailable')
+  expect(configuration).not.toHaveBeenCalled()
+})
