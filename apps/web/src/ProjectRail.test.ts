@@ -299,7 +299,7 @@ describe('project rail', () => {
     const buttons = wrapper.findAll('.plugin-workbench-button')
     expect(buttons.map(button => button.get('.activity-label').text())).toEqual(['Engineering', 'Team workspace'])
     expect(buttons[0]!.find('.i-ri-briefcase-4-fill').exists()).toBe(true)
-    expect(buttons[1]!.find('.i-ri-apps-2-line').exists()).toBe(true)
+    expect(buttons[1]!.get('.visual-icon-emoji').text()).toBe('🌱')
     expect(buttons[0]!.classes()).toContain('active')
     expect(buttons[0]!.attributes('aria-current')).toBe('page')
     expect(buttons[1]!.attributes('aria-current')).toBeUndefined()
@@ -319,6 +319,7 @@ describe('project rail', () => {
     await wrapper.setProps({ activePluginWorkbenchPluginId: '@acme/craft-hub-plugin-team' })
     expect(buttons[0]!.attributes('aria-current')).toBeUndefined()
     expect(buttons[1]!.attributes('aria-current')).toBe('page')
+    expect(buttons[1]!.get('.visual-icon-emoji').text()).toBe('🌱')
     expect(wrapper.findAll('.activity-button[aria-current="page"]')).toHaveLength(1)
 
     store.integrationContributions[0]!.views[0]!.showInSidebar = true

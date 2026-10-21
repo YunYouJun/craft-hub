@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { IconName } from './icons'
 import { computed } from 'vue'
+import VisualIcon from './VisualIcon.vue'
 
 const props = withDefaults(defineProps<{
   name?: IconName | 'home'
@@ -9,6 +10,7 @@ const props = withDefaults(defineProps<{
   active?: boolean
 }>(), { fallback: 'plugins', active: false })
 
+const customIcon = computed(() => !props.name && props.icon && !props.icon.startsWith('builtin:'))
 const pluginIcons = ['i-ri-apps-2-line', 'i-ri-apps-2-fill'] as const
 // Keep both variants literal so UnoCSS includes every selected-state icon.
 const sidebarIcons: Record<string, readonly [string, string]> = {
@@ -63,5 +65,6 @@ const iconClass = computed(() => {
 </script>
 
 <template>
-  <span aria-hidden="true" class="app-icon sidebar-icon" :class="iconClass" />
+  <VisualIcon v-if="customIcon" :icon="icon" :fallback="fallback" aria-hidden="true" class="sidebar-icon" />
+  <span v-else aria-hidden="true" class="app-icon sidebar-icon" :class="iconClass" />
 </template>
