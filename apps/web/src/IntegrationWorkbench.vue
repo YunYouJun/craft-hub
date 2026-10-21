@@ -2,7 +2,7 @@
 import type { ConfigurationManagementPage, IntegrationActionResult, IntegrationConnectionStatus, IntegrationEntityPage } from 'craft-hub'
 import type { WorkbenchIntegrationView } from './store'
 import { workItemIdentityKey } from 'craft-hub/work-items'
-import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { api } from './api'
 import { FormSelect } from './components/ui/select'
 import { Badge } from './components/ui/badge'
@@ -22,7 +22,11 @@ const props = withDefaults(defineProps<{ embedded?: boolean, integrationId: stri
 const store = useWorkbenchStore()
 const { t, locale } = useI18n()
 
+type ListFilters = { query: string, status: string, assignee: string }
+
 interface BlockState {
+  filters?: ListFilters
+  filterAccount?: string
   loading: boolean
   error: string
   result?: IntegrationActionResult
@@ -37,7 +41,26 @@ interface BlockState {
 const states = reactive<Record<string, BlockState>>({})
 const searches = ref<Record<string, string>>({})
 let contextGeneration = 0
-onBeforeUnmount(() => contextGeneration++)
+const filterTimers = new Map<string, ReturnType<typeof setTimeout>>()
+const now = ref(Date.now())
+let connectionTimer: ReturnType<typeof setInterval> | undefined
+onMounted(() => {
+  connectionTimer = setInterval(() => {
+    now.value = Date.now()
+    const due = view.value?.blocks.find(block => {
+      const status = connectionStatus(states[block.id]?.result)
+      const expires = Date.parse(status?.session?.expiresAt ?? '')
+      return status?.connected && Number.isFinite(expires) && expires - now.value <= 5 * 60_000
+    })
+    if (due)
+      void refresh()
+  }, 60_000)
+})
+onBeforeUnmount(() => {
+  contextGeneration++
+  clearInterval(connectionTimer)
+  for (const timer of filterTimers.values()) clearTimeout(timer)
+})
 const inspectedProjectId = ref('')
 watch([() => props.initialScope, () => store.selectedProjectId], ([scope, projectId]) => {
   inspectedProjectId.value = scope === 'global' ? '' : projectId || ''
@@ -77,6 +100,60 @@ function connectionStatus(result: IntegrationActionResult | undefined): Integrat
   return result && 'connected' in result ? result : undefined
 }
 
+function currentSession(): IntegrationConnectionStatus['session'] {
+  for (const block of view.value?.blocks ?? []) {
+    const session = connectionStatus(states[block.id]?.result)?.session
+    if (session) return session
+  }
+}
+
+function listReadOnly(blockId: string): boolean {
+  return Boolean(stateFor(blockId).stale || entityPage(stateFor(blockId).result)?.cache?.readOnly
+    || view.value?.blocks.some(block => connectionStatus(states[block.id]?.result)?.connected === false))
+}
+
+function sessionHint(status: IntegrationConnectionStatus): string {
+  const session = status.session
+  if (!session) return ''
+  if (session.expiresAt && Date.parse(session.expiresAt) <= now.value)
+    return copy('授权已到期 · 请重新连接', 'Authorization expired · reconnect')
+  if (session.renewal === 'failed')
+    return copy('自动续期失败 · 将重试', 'Automatic renewal failed · will retry')
+  if (session.renewal === 'automatic')
+    return copy('自动续期已启用', 'Automatic renewal enabled')
+  return copy('自动续期未启用', 'Automatic renewal unavailable')
+}
+
+async function restoreFilters(block: WorkbenchIntegrationView['blocks'][number]): Promise<void> {
+  const accountKey = currentSession()?.cacheKey
+  if (!accountKey || !['entity-list', 'entity-search'].includes(block.type)) return
+  const state = stateFor(block.id)
+  if (state.filterAccount === accountKey) return
+  const generation = contextGeneration
+  try {
+    const result = await api.integrationViewFilters(props.integrationId, { viewId: props.viewId, blockId: block.id, projectId: inspectedProjectId.value || undefined, accountKey })
+    if (generation === contextGeneration && currentSession()?.cacheKey === accountKey) {
+      state.filters = result.filters ?? undefined
+      state.filterAccount = accountKey
+    }
+  }
+  catch { /* Local preferences must not block remote reads. */ }
+}
+
+function saveFilters(blockId: string, filters: ListFilters): void {
+  const state = stateFor(blockId)
+  const accountKey = currentSession()?.cacheKey
+  if (!accountKey || state.filterAccount !== accountKey || JSON.stringify(state.filters) === JSON.stringify(filters)) return
+  state.filters = filters
+  clearTimeout(filterTimers.get(blockId))
+  const integrationId = props.integrationId
+  const options = { viewId: props.viewId, blockId, projectId: inspectedProjectId.value || undefined, accountKey, filters }
+  filterTimers.set(blockId, setTimeout(() => {
+    void api.integrationViewFilters(integrationId, options).catch(() => {})
+    filterTimers.delete(blockId)
+  }, 250))
+}
+
 function entityPage(result: IntegrationActionResult | undefined): IntegrationEntityPage | undefined {
   return result && 'items' in result && !('configuration' in result) ? result : result && 'id' in result && 'title' in result ? { items: [result] } : undefined
 }
@@ -92,7 +169,7 @@ function statusActionsFor(block: WorkbenchIntegrationView['blocks'][number]): {
   updateActionId: string
 } | undefined {
   const currentContribution = contribution.value
-  if (!currentContribution)
+  if (!currentContribution || listReadOnly(block.id))
     return undefined
   const blockAction = currentContribution.actions.find(action => action.id === block.actionId)
   if (!blockAction || !['work-items.get', 'work-items.list', 'work-items.search'].includes(blockAction.operation))
@@ -111,7 +188,7 @@ function statusActionsFor(block: WorkbenchIntegrationView['blocks'][number]): {
 
 function workItemActionsFor(block: WorkbenchIntegrationView['blocks'][number]) {
   const current = contribution.value
-  if (!current?.actions.some(action => action.id === block.actionId && ['work-items.list', 'work-items.search'].includes(action.operation)))
+  if (listReadOnly(block.id) || !current?.actions.some(action => action.id === block.actionId && ['work-items.list', 'work-items.search'].includes(action.operation)))
     return undefined
   return {
     integrationId: current.id,
@@ -138,7 +215,8 @@ function pageProgress(blockId: string): string {
   const progress = page.nextCursor || page.coverage === 'partial'
     ? copy('已加载部分事项', 'Partially loaded')
     : page.coverage === 'complete' ? copy('已加载全部事项', 'Fully loaded') : copy('已加载事项，总范围未知', 'Loaded items; total coverage unknown')
-  return state.stale ? `${progress} · ${copy('内容已过期', 'Content is stale')}` : progress
+  const reason = page.cache?.reason
+  return page.cache ? `${progress} · ${reason === 'preview' ? copy('本机缓存 · 正在更新', 'Local cache · updating') : reason === 'authorization' ? copy('本机缓存 · 授权已到期 · 只读', 'Local cache · authorization expired · read-only') : copy('本机缓存 · 读取失败 · 只读', 'Local cache · source unavailable · read-only')}` : state.stale ? `${progress} · ${copy('内容已过期 · 只读', 'Content is stale · read-only')}` : progress
 }
 
 function readBlock(block: WorkbenchIntegrationView['blocks'][number]): boolean {
@@ -148,7 +226,7 @@ function readBlock(block: WorkbenchIntegrationView['blocks'][number]): boolean {
 
 function needsConnection(block: WorkbenchIntegrationView['blocks'][number]): boolean {
   const action = contribution.value?.actions.find(action => action.id === block.actionId)
-  return Boolean(action?.effect === 'remote-read' && action.operation.startsWith('work-items.') && view.value?.blocks.some(candidate => candidate.type === 'connection-status' && connectionStatus(states[candidate.id]?.result)?.connected === false))
+  return Boolean(!currentSession()?.cacheReads && action?.effect === 'remote-read' && action.operation.startsWith('work-items.') && view.value?.blocks.some(candidate => candidate.type === 'connection-status' && connectionStatus(states[candidate.id]?.result)?.connected === false))
 }
 
 async function invoke(block: WorkbenchIntegrationView['blocks'][number], extraInput?: Record<string, unknown>, append = false): Promise<void> {
@@ -188,12 +266,15 @@ async function invoke(block: WorkbenchIntegrationView['blocks'][number], extraIn
     if (currentView.scope === 'project' && !projectId)
       throw new Error(t('integrationProjectRequired'))
     const callInput = { ...(block.input ?? {}), ...input, ...(cursor ? { cursor } : {}), ...(contribution.value?.translations || contribution.value?.actions.find(action => action.id === block.actionId)?.operation === 'configuration.list' ? { locale: locale.value } : {}) }
-    if (!state.result && block.previewInput) {
+    if (!state.result && (block.previewInput || (currentSession()?.cacheReads && block.type === 'entity-list'))) {
       try {
-        const preview = await api.invokeIntegrationAction(integrationId, block.actionId, { ...callInput, ...block.previewInput }, projectId)
+        const preview = await api.invokeIntegrationAction(integrationId, block.actionId, { ...callInput, ...(block.previewInput ?? { cacheOnly: true }) }, projectId)
         if (!current())
           return
-        state.result = preview
+        if (!('items' in preview) || preview.items.length) {
+          state.result = preview
+          state.fetchedAt = entityPage(preview)?.fetchedAt
+        }
       }
       catch {
         // The complete read remains authoritative when an optional preview fails.
@@ -223,7 +304,7 @@ async function invoke(block: WorkbenchIntegrationView['blocks'][number], extraIn
       state.result = result
     }
     state.fetchedAt = nextPage?.fetchedAt ?? new Date().toISOString()
-    state.stale = false
+    state.stale = Boolean(nextPage?.cache)
     if (cursor && !identityChanged)
       state.seenCursors.add(cursor)
     const loadedPage = entityPage(state.result)
@@ -263,11 +344,18 @@ async function loadBlocks(includeConfiguration = false): Promise<void> {
   if (!currentView)
     return
   const generation = contextGeneration
+  const previousAccount = currentSession()?.cacheKey
   await Promise.all(currentView.blocks
     .filter(block => block.type === 'connection-status')
     .map(block => invoke(block)))
   if (generation !== contextGeneration || currentView !== view.value)
     return
+  if (previousAccount && previousAccount !== currentSession()?.cacheKey) {
+    for (const block of currentView.blocks.filter(block => block.type !== 'connection-status'))
+      delete states[block.id]
+  }
+  await Promise.all(currentView.blocks.map(block => restoreFilters(block)))
+  if (generation !== contextGeneration) return
   await Promise.all(currentView.blocks
     .filter(block => block.type === 'entity-list' || (includeConfiguration && block.type === 'configuration-manager'))
     .map(block => invoke(block)))
@@ -281,6 +369,8 @@ watch(
   [() => props.integrationId, () => view.value?.id, () => view.value?.scope, () => inspectedProjectId.value, () => locale.value, () => JSON.stringify(view.value?.blocks.map(block => [block.id, block.actionId, block.input]))],
   async () => {
     contextGeneration++
+    for (const timer of filterTimers.values()) clearTimeout(timer)
+    filterTimers.clear()
     for (const key of Object.keys(states))
       delete states[key]
     await loadBlocks(true)
@@ -355,11 +445,16 @@ defineExpose({ refresh: refresh })
 
           <p v-if="stateFor(block.id).error" class="integration-error" role="alert">{{ translate(stateFor(block.id).error) }}</p>
 
+          <p v-if="entityPage(stateFor(block.id).result) && (stateFor(block.id).stale || entityPage(stateFor(block.id).result)?.cache)" class="integration-cache-notice" role="status">
+            {{ pageProgress(block.id) }}
+            <time v-if="stateFor(block.id).fetchedAt" :datetime="stateFor(block.id).fetchedAt">{{ copy('最近成功读取', 'Last successful read') }}: {{ new Date(stateFor(block.id).fetchedAt!).toLocaleString(locale) }}</time>
+          </p>
+
           <div v-if="connectionStatus(stateFor(block.id).result)" class="integration-connection" :class="{ connected: connectionStatus(stateFor(block.id).result)?.connected }">
             <span class="integration-connection-mark"><Icon :name="connectionStatus(stateFor(block.id).result)?.connected ? 'check' : 'link'" /></span>
             <div class="integration-connection-body">
               <div class="integration-connection-title">
-                <strong>{{ connectionStatus(stateFor(block.id).result)?.connected ? t('integrationConnected') : t('integrationDisconnected') }}</strong>
+                <strong>{{ connectionStatus(stateFor(block.id).result)?.session?.expiresAt && Date.parse(connectionStatus(stateFor(block.id).result)!.session!.expiresAt!) <= now ? copy('授权已到期', 'Authorization expired') : connectionStatus(stateFor(block.id).result)?.connected ? t('integrationConnected') : t('integrationDisconnected') }}</strong>
                 <Badge v-if="connectionStatus(stateFor(block.id).result)?.accountLabel" :variant="connectionStatus(stateFor(block.id).result)?.connected ? 'success' : 'secondary'">{{ connectionStatus(stateFor(block.id).result)?.accountLabel }}</Badge>
               </div>
               <p v-if="connectionStatus(stateFor(block.id).result)?.message">{{ translate(connectionStatus(stateFor(block.id).result)?.message ?? '') }}</p>
@@ -374,9 +469,15 @@ defineExpose({ refresh: refresh })
             @updated="stateFor(block.id).result = $event"
           />
 
+          <p v-if="connectionStatus(stateFor(block.id).result)?.session" class="integration-session" role="status">
+            <span>{{ sessionHint(connectionStatus(stateFor(block.id).result)!) }}</span>
+            <time v-if="connectionStatus(stateFor(block.id).result)?.session?.expiresAt" :datetime="connectionStatus(stateFor(block.id).result)?.session?.expiresAt">{{ copy('访问凭据到期', 'Access expires') }}: {{ new Date(connectionStatus(stateFor(block.id).result)!.session!.expiresAt!).toLocaleString(locale) }}</time>
+            <time v-if="connectionStatus(stateFor(block.id).result)?.session?.renewalExpiresAt" :datetime="connectionStatus(stateFor(block.id).result)?.session?.renewalExpiresAt">{{ copy('续期授权到期', 'Renewal expires') }}: {{ new Date(connectionStatus(stateFor(block.id).result)!.session!.renewalExpiresAt!).toLocaleString(locale) }}</time>
+          </p>
+
           <IntegrationConnectionSetup
             v-if="connectionStatus(stateFor(block.id).result)"
-            :key="`${integrationId}:${inspectedProjectId}:${locale}`"
+            :key="`${integrationId}:${viewId}:${inspectedProjectId}:${locale}:${currentSession()?.cacheKey ?? ''}`"
             :status="connectionStatus(stateFor(block.id).result)!"
             :integration-id="integrationId"
             :action-id="contribution?.actions.find(action => action.operation === 'connection.update')?.id"
@@ -386,13 +487,16 @@ defineExpose({ refresh: refresh })
 
           <IntegrationEntityList
             v-else-if="entityPage(stateFor(block.id).result)"
+            :read-only="listReadOnly(block.id)"
+            :filter-state="stateFor(block.id).filters"
+            @filters-changed="saveFilters(block.id, $event)"
             :items="entityPage(stateFor(block.id).result)!.items"
             :status-filter="block.statusFilter"
             :assignee-filter="block.assigneeFilter"
             :current-user="entityPage(stateFor(block.id).result)!.currentUser"
             :status-actions="statusActionsFor(block)"
             :work-item-actions="workItemActionsFor(block)"
-            :key="`${integrationId}:${inspectedProjectId}:${locale}`"
+            :key="`${integrationId}:${viewId}:${inspectedProjectId}:${locale}:${currentSession()?.cacheKey ?? ''}`"
             :loading="stateFor(block.id).loading"
             :configuration-action-id="contribution?.actions.find(action => action.operation === 'configuration.list' && action.id === block.actionId) ? contribution.actions.find(action => action.operation === 'configuration.update')?.id : undefined"
             @configuration-updated="stateFor(block.id).result = $event"
@@ -455,6 +559,8 @@ defineExpose({ refresh: refresh })
 .integration-search > .app-icon { width: 16px; height: 16px; color: var(--muted); }
 .integration-search input { min-width: 0; min-height: var(--control-height-compact); border: 0; outline: 0; color: var(--text); background: transparent; font: inherit; font-size: var(--font-size-body); }
 .integration-search:focus-within { box-shadow: inset 0 0 0 var(--control-focus-width) var(--focus-ring); }
+.integration-cache-notice { display: grid; gap: var(--space-1); margin: 0; padding: var(--space-2) var(--integration-row-padding-inline); color: var(--text-secondary); background: var(--surface-subtle); border-bottom: 1px solid var(--integration-card-border); font-size: var(--font-size-caption); }
+.integration-session { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-4); padding: 0 var(--integration-row-padding-inline) var(--space-3); margin: 0; color: var(--muted); font-size: var(--font-size-caption); }
 .integration-connection { display: flex; align-items: flex-start; gap: var(--integration-row-gap); padding: var(--integration-row-padding-block) var(--integration-row-padding-inline); }
 .integration-connection-mark { display: grid; place-items: center; width: 26px; height: 26px; flex: none; border-radius: var(--radius-pill); color: var(--integration-status-neutral); background: color-mix(in srgb, var(--integration-status-neutral) var(--integration-status-tint), var(--surface)); }
 .integration-connection-mark .app-icon { width: 15px; height: 15px; }

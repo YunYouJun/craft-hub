@@ -27,7 +27,8 @@ import { executeCommand } from './executor'
 import { builtinCapabilityProvider, communityDistribution } from './extensions'
 import { GitIntegration } from './git-integration'
 import { describeHostEnvironment } from './host-environment'
-import { integrationContributionSchema, IntegrationRegistry } from './integrations'
+import { integrationFiltersSchema, IntegrationLocalState } from './integration-local-state'
+import { IntegrationConfirmationRequiredError, integrationContributionSchema, IntegrationRegistry } from './integrations'
 import { inspectLocalEnvironment } from './local-environment'
 import { PluginManager } from './marketplace'
 import { OwnerScopeService } from './owner-scopes'
@@ -56,6 +57,11 @@ import { WorkspaceSubscriptionService } from './workspace-subscriptions'
 import { WorkspaceService } from './workspaces'
 
 export class CraftHubRuntime {
+  private get integrationLocalState(): IntegrationLocalState {
+    return this.localIntegrationState ??= new IntegrationLocalState(this.store.dataDir)
+  }
+
+  private localIntegrationState?: IntegrationLocalState
   readonly hostEnvironment: HostEnvironment
   readonly accountProvider?: AccountProvider
   readonly store: CraftHubStore
@@ -331,8 +337,13 @@ export class CraftHubRuntime {
     const contribution = integrations.find(candidate => candidate.id === options.integrationId)
     if (!contribution)
       throw new Error(`Integration contribution is unavailable: ${options.integrationId}`)
+    const action = contribution.actions.find(candidate => candidate.id === options.actionId)
+    if (!action)
+      throw new Error(`Integration action is unavailable: ${options.actionId}`)
+    if (action.effectiveConfirmation !== 'never' && options.confirmed !== true)
+      throw new IntegrationConfirmationRequiredError(contribution.id, action.id)
     const project = options.projectId ? await this.projects.get(options.projectId) : undefined
-    const operation = contribution.actions.find(action => action.id === options.actionId)?.operation
+    const operation = action.operation
     if (operation === 'resources.update' || operation === 'resources.execute') {
       if (!this.hostEnvironment.capabilities.localProjectDirectories)
         throw new Error('Local project resource operations are unavailable on this host')
@@ -346,13 +357,94 @@ export class CraftHubRuntime {
         throw new Error('Trust the project before changing configuration')
     }
     const resourceProjects = operation?.startsWith('resources.') ? await this.projects.list() : undefined
-    return this.integrationRegistry.invoke({
+    const invoke = (input = options.input): Promise<IntegrationActionResult> => this.integrationRegistry.invoke({
       contribution,
       actionId: options.actionId,
       context: { hostEnvironment: this.hostEnvironment.kind, ...(resourceProjects ? { projects: resourceProjects } : {}), ...(contribution.actions.find(action => action.id === options.actionId)?.operation === 'connection.update' ? { callbackUrl: options.callbackUrl } : {}), ...(project ? { projectId: project.id, projectPath: project.path } : {}), ...(options.input?.locale === 'zh-CN' ? { locale: 'zh-CN' as const } : {}) },
-      input: options.input,
+      input,
       confirmed: options.confirmed,
     })
+    const connectionAction = contribution.actions.find(action => action.operation === 'connection.status')
+    const cacheable = this.hostEnvironment.kind === 'local' && ['work-items.list', 'work-items.search'].includes(operation ?? '')
+    const writingWorkItems = this.hostEnvironment.kind === 'local' && operation?.startsWith('work-items.') && contribution.actions.find(action => action.id === options.actionId)?.effect === 'remote-write' && options.confirmed === true
+    const readConnection = (): Promise<IntegrationActionResult | undefined> => connectionAction
+      ? this.integrationRegistry.invoke({ contribution, actionId: connectionAction.id, context: { hostEnvironment: this.hostEnvironment.kind, ...(project ? { projectId: project.id, projectPath: project.path } : {}), ...(options.input?.locale === 'zh-CN' ? { locale: 'zh-CN' as const } : {}) } })
+      : Promise.resolve(undefined)
+    // Optional continuity metadata must not prevent the provider's authoritative operation.
+    const connection = cacheable || writingWorkItems
+      ? await readConnection().catch(() => undefined)
+      : undefined
+    const session = connection && 'connected' in connection ? connection.session : undefined
+    const key = cacheable && session?.cacheReads ? session.cacheKey : undefined
+    if (!key) {
+      if (cacheable && options.input?.cacheOnly === true)
+        return { items: [] }
+      const result = await invoke()
+      if (writingWorkItems) {
+        // Retain the pre-write identity if a successful write makes the next probe fail.
+        const status = await readConnection().catch(() => undefined)
+        const keys = new Set([session?.cacheKey, status && 'connected' in status ? status.session?.cacheKey : undefined].filter((value): value is string => Boolean(value)))
+        await Promise.all([...keys].map(key => this.integrationLocalState.invalidate(contribution.id, key).catch(() => {})))
+      }
+      return result
+    }
+    const { cacheOnly, ...input } = options.input ?? {}
+    const scope = [options.actionId, project?.path ?? '', input]
+    const reason = connection && 'connected' in connection && !connection.connected ? 'authorization' as const : 'offline' as const
+    const cached = await this.integrationLocalState.cached(contribution.id, key, scope, cacheOnly === true ? 'preview' : reason)
+    if (cacheOnly === true)
+      return cached ?? { items: [] }
+    if (reason === 'authorization' && cached)
+      return cached
+    const epoch = this.integrationLocalState.epoch(contribution.id, key)
+    let accountChanged = false
+    try {
+      const result = await invoke(input)
+      const current = await readConnection()
+      if (!current || !('connected' in current) || current.session?.cacheKey !== key) {
+        accountChanged = true
+        throw new Error('Account changed during read; refresh to load the current account')
+      }
+      if ('items' in result && !('configuration' in result)) {
+        result.fetchedAt ??= new Date().toISOString()
+        await this.integrationLocalState.savePage(contribution.id, key, scope, result, epoch).catch(() => {})
+      }
+      return result
+    }
+    catch (error) {
+      if (cached && !accountChanged) {
+        const current = await readConnection()
+        if (current && 'connected' in current && current.session?.cacheKey === key)
+          return cached
+      }
+      throw error
+    }
+  }
+
+  /** Persist display filters in local, account-isolated storage after validating the installed view. */
+  async integrationViewFilters(options: { integrationId: string, viewId: string, blockId: string, projectId?: string, accountKey?: string, filters?: unknown }): Promise<unknown> {
+    if (this.hostEnvironment.kind !== 'local')
+      throw new Error('Local view state is unavailable on this host')
+    const { integrations } = await this.integrationContributions()
+    const contribution = integrations.find(item => item.id === options.integrationId)
+    const view = contribution?.views.find(item => item.id === options.viewId)
+    const block = view?.blocks.find(item => item.id === options.blockId)
+    if (!contribution || !view || !block || !['entity-list', 'entity-search'].includes(block.type))
+      throw new Error('Integration view is unavailable')
+    const project = options.projectId ? await this.projects.get(options.projectId) : undefined
+    if ((options.projectId && !project) || (view.scope === 'global' && project) || (view.scope === 'project' && !project))
+      throw new Error('Invalid view project scope')
+    const action = contribution.actions.find(item => item.operation === 'connection.status')
+    if (!action)
+      return undefined
+    const status = await this.integrationRegistry.invoke({ contribution, actionId: action.id, context: { hostEnvironment: this.hostEnvironment.kind, ...(project ? { projectId: project.id, projectPath: project.path } : {}) } })
+    if (!('connected' in status) || !status.session?.cacheKey)
+      return undefined
+    if (options.accountKey && options.accountKey !== status.session.cacheKey)
+      throw new Error('Account changed; refresh before saving filters')
+    if (options.filters !== undefined)
+      integrationFiltersSchema.parse(options.filters)
+    return this.integrationLocalState.filters(contribution.id, status.session.cacheKey, [view.id, block.id, project?.path ?? ''], options.filters)
   }
 
   /** Finish only an OAuth session previously started through an enabled integration. */

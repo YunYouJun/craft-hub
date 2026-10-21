@@ -169,6 +169,7 @@ export const api = {
   pluginWorkbenches: (locale: WorkbenchLocale) => request<InstalledPluginWorkbench[]>(`/api/workbenches?locale=${encodeURIComponent(locale)}`),
   integrations: () => request<{ integrations: ResolvedIntegrationContribution[], diagnostics: IntegrationDiagnostic[] }>('/api/integrations'),
   diagnostics: () => request<WorkbenchDiagnosticSnapshot>('/api/diagnostics'),
+  integrationViewFilters: (integrationId: string, options: { viewId: string, blockId: string, projectId?: string, accountKey?: string, filters?: { query: string, status: string, assignee: string } }) => request<{ filters: { query: string, status: string, assignee: string } | null }>(`/api/integrations/${encodeURIComponent(integrationId)}/view-filters`, { method: 'POST', body: JSON.stringify(options) }),
   invokeIntegrationAction,
   pluginDocument: (sourceId: string, packageName: string, version?: string, path?: string) => request<PluginDocumentPreview>(`/api/plugins/document?${new URLSearchParams({ sourceId, package: packageName, ...(version ? { version } : {}), ...(path ? { path } : {}) })}`),
   pluginDocumentAssetUrl: (sourceId: string, packageName: string, version: string, path: string) => `/api/plugins/document-asset?${new URLSearchParams({ sourceId, package: packageName, version, path })}`,

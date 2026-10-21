@@ -23,8 +23,8 @@ interface IntegrationStatusActions {
   updateActionId: string
 }
 
-const props = defineProps<{ items: IntegrationEntity[], statusFilter?: 'active' | 'all', assigneeFilter?: 'current-user' | 'all', currentUser?: IntegrationEntityPage['currentUser'], selectable?: boolean, workItemActions?: { integrationId: string, projectId?: string, detailActionId?: string }, configurationActionId?: string, loading?: boolean, statusActions?: IntegrationStatusActions, sourceContext?: { integrationId: string, actionId: string, projectId?: string } }>()
-const emit = defineEmits<{ selected: [entity: IntegrationEntity], updated: [entity: IntegrationEntity], configurationUpdated: [page: IntegrationEntityPage] }>()
+const props = defineProps<{ readOnly?: boolean, filterState?: { query: string, status: string, assignee: string }, items: IntegrationEntity[], statusFilter?: 'active' | 'all', assigneeFilter?: 'current-user' | 'all', currentUser?: IntegrationEntityPage['currentUser'], selectable?: boolean, workItemActions?: { integrationId: string, projectId?: string, detailActionId?: string }, configurationActionId?: string, loading?: boolean, statusActions?: IntegrationStatusActions, sourceContext?: { integrationId: string, actionId: string, projectId?: string } }>()
+const emit = defineEmits<{ filtersChanged: [filters: { query: string, status: string, assignee: string }], selected: [entity: IntegrationEntity], updated: [entity: IntegrationEntity], configurationUpdated: [page: IntegrationEntityPage] }>()
 const store = useWorkbenchStore()
 const { t, locale } = useI18n()
 const copy = (zh: string, en: string) => locale.value === 'zh-CN' ? zh : en
@@ -32,7 +32,7 @@ const handoffOpen = ref(false)
 const handoffWork = ref<{ source: HomeWorkSource, item: IntegrationEntity }>()
 const handoffSource = computed<HomeWorkSource | undefined>(() => {
   const context = props.sourceContext
-  if (!context || props.configurationActionId)
+  if (!context || props.configurationActionId || props.readOnly)
     return undefined
   const contribution = store.integrationContributions.find(candidate => candidate.id === context.integrationId)
   const action = contribution?.actions.find(candidate => candidate.id === context.actionId)
@@ -84,9 +84,19 @@ const priorityColumnId = useId()
 const updatedColumnId = useId()
 const assigneeSelection = ref('all')
 watch([() => props.assigneeFilter, () => props.currentUser?.id], () => {
+  if (props.filterState)
+    return
   assigneeSelection.value = props.assigneeFilter === 'current-user' && props.currentUser ? 'current-user' : 'all'
 }, { immediate: true })
-watch(() => props.statusFilter, value => statusSelection.value = value ?? 'all')
+watch(() => props.statusFilter, (value) => { if (!props.filterState) statusSelection.value = value ?? 'all' })
+watch(() => props.filterState, (value) => {
+  if (!value)
+    return
+  query.value = value.query
+  statusSelection.value = value.status
+  assigneeSelection.value = value.assignee
+}, { immediate: true, deep: true })
+watch([query, statusSelection, assigneeSelection], () => emit('filtersChanged', { query: query.value, status: statusSelection.value, assignee: assigneeSelection.value }))
 const sourceError = ref('')
 const openingSource = ref(false)
 const desktopSource = Boolean(window.craftHubDesktop?.openIntegrationSource)
@@ -368,7 +378,7 @@ function updatedTime(item: IntegrationEntity): { date: string, time: string, raw
           </div>
           <span class="integration-entity-tail">
             <IntegrationStatusTransitionControl
-              v-if="!context && !item.archived && statusActions && item.status && item.statusUpdateAvailable !== false"
+              v-if="!readOnly && !context && !item.archived && statusActions && item.status && item.statusUpdateAvailable !== false"
               :entity="item" trigger="status"
               :integration-id="statusActions.integrationId"
               :project-id="statusActions.projectId"
@@ -389,7 +399,7 @@ function updatedTime(item: IntegrationEntity): { date: string, time: string, raw
               @updated="emit('configurationUpdated', $event)"
             />
             <IntegrationWorkItemDetail
-              v-if="!context && workItemActions"
+              v-if="!readOnly && !context && workItemActions"
               :entity="item" :integration-id="workItemActions.integrationId"
               :project-id="workItemActions.projectId" :detail-action-id="workItemActions.detailActionId"
             />

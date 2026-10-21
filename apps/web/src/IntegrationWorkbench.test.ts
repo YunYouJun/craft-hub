@@ -551,4 +551,63 @@ describe('integration workbench', () => {
     expect(invoke).not.toHaveBeenCalled()
     wrapper.unmount()
   })
+  it('shows a read-only preview with grant expiry, restores filters and retains them when fresh items arrive', async () => {
+    vi.useFakeTimers()
+    const store = workSource()
+    const source = store.integrationContributions[0]!
+    source.actions.push({ id: 'status', title: 'Connection', operation: 'connection.status', effect: 'remote-read', confirmation: 'never', effectiveConfirmation: 'never' })
+    source.views[0]!.blocks.unshift({ id: 'connection', type: 'connection-status', actionId: 'status' })
+    source.views[0]!.blocks[1]!.statusFilter = 'all'
+    const filters = { query: 'Private', status: 'all', assignee: 'all' }
+    const preferences = vi.spyOn(api, 'integrationViewFilters').mockResolvedValue({ filters })
+    let finish!: (page: IntegrationEntityPage) => void
+    const page: IntegrationEntityPage = { items: [task('one', 'Private task')], fetchedAt: '2026-10-21T01:00:00Z' }
+    vi.spyOn(api, 'invokeIntegrationAction').mockImplementation(async (_id, action, input) => {
+      if (action === 'status')
+        return { connected: true, session: { cacheKey: 'account', cacheReads: true, expiresAt: '2099-01-01T00:00:00Z', renewal: 'automatic' as const } }
+      if (input?.cacheOnly)
+        return { ...page, cache: { readOnly: true as const, reason: 'preview' as const } }
+      return new Promise(resolve => finish = resolve)
+    })
+    const wrapper = mount(IntegrationWorkbench, { props: { integrationId: 'tasks', viewId: 'work' }, global: { plugins: [pinia] } })
+    try {
+      await flushPromises()
+      expect(wrapper.text()).toContain('Automatic renewal enabled')
+      expect(wrapper.text()).toContain('Access expires')
+      expect(wrapper.text()).toContain('Local cache · updating')
+      const list = wrapper.getComponent(IntegrationEntityList)
+      expect(list.props('readOnly')).toBe(true)
+      expect(list.props('filterState')).toEqual(filters)
+      finish(page)
+      await flushPromises()
+      expect(list.props('readOnly')).toBe(false)
+      expect(list.props('filterState')).toEqual(filters)
+      list.vm.$emit('filtersChanged', { ...filters, query: 'Edited' })
+      await vi.advanceTimersByTimeAsync(300)
+      expect(preferences).toHaveBeenLastCalledWith('tasks', expect.objectContaining({ accountKey: 'account', filters: { ...filters, query: 'Edited' } }))
+    }
+    finally {
+      wrapper.unmount()
+      vi.useRealTimers()
+    }
+  })
+
+  it('retains authorized-account cached todos when authorization expires, with write controls removed', async () => {
+    const store = workSource()
+    const source = store.integrationContributions[0]!
+    source.actions.push({ id: 'status', title: 'Connection', operation: 'connection.status', effect: 'remote-read', confirmation: 'never', effectiveConfirmation: 'never' })
+    source.views[0]!.blocks.unshift({ id: 'connection', type: 'connection-status', actionId: 'status' })
+    vi.spyOn(api, 'integrationViewFilters').mockResolvedValue({ filters: null })
+    vi.spyOn(api, 'invokeIntegrationAction').mockImplementation(async (_id, action) => action === 'status'
+      ? { connected: false, session: { cacheKey: 'expired-account', cacheReads: true, expiresAt: '2020-01-01T00:00:00Z', renewal: 'unavailable' as const } }
+      : { items: [task('one', 'Cached task')], cache: { reason: 'authorization' as const, readOnly: true as const }, fetchedAt: '2026-10-21T01:00:00Z' })
+    const wrapper = mount(IntegrationWorkbench, { props: { integrationId: 'tasks', viewId: 'work' }, global: { plugins: [pinia] } })
+    await flushPromises()
+    expect(wrapper.text()).toContain('Cached task')
+    expect(wrapper.text()).toContain('Authorization expired · reconnect')
+    expect(wrapper.text()).toContain('Local cache · authorization expired · read-only')
+    expect(wrapper.getComponent(IntegrationEntityList).props('readOnly')).toBe(true)
+    expect(wrapper.findComponent(IntegrationStatusTransitionControl).exists()).toBe(false)
+    wrapper.unmount()
+  })
 })
