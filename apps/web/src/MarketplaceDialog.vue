@@ -7,9 +7,11 @@ import { api } from './api'
 import { Button as UiButton } from './components/ui/button'
 import { NavigationItem, NavigationList } from './components/ui/navigation'
 import { DialogShell } from './components/ui/dialog'
+import { Skeleton } from './components/ui/skeleton'
+import { Switch as UiSwitch } from './components/ui/switch'
 import { Icon } from './icons'
 import { useI18n } from './i18n'
-import { marketplaceActionDisabled, marketplaceActionLabels, marketplacePluginAction } from './marketplace-plugin-action'
+import { marketplaceActionDisabled, marketplaceActionIcons, marketplaceActionLabels, marketplaceActionVariant, marketplacePluginAction } from './marketplace-plugin-action'
 import { pluginIconUrl } from './plugin-icon'
 import { pluginDescription, pluginDisplayName } from './plugin-text'
 import HostExtensionsPanel from './HostExtensionsPanel.vue'
@@ -23,6 +25,7 @@ const router = useRouter()
 type CatalogItem = CatalogPluginV1 & { sourceId: string, sourceName: string, sourceKind: MarketplaceSource['kind'] }
 type PluginTarget = Pick<CatalogItem, 'displayName' | 'package' | 'sourceId' | 'version'>
 type MarketplaceTab = 'discover' | 'installed' | 'sources' | 'hosts'
+type DiscoverFilter = 'all' | 'installed' | 'updates'
 
 const activeTab = ref<MarketplaceTab>('discover')
 const tabsId = useId()
@@ -31,6 +34,8 @@ const installed = ref<ManagedPlugin[]>([])
 const localPluginPath = ref('')
 const sources = ref<MarketplaceSource[]>([])
 const query = ref('')
+const discoverFilter = ref<DiscoverFilter>('all')
+const loading = ref(true)
 const busy = ref('')
 const error = ref('')
 const sourceName = ref('')
@@ -102,6 +107,18 @@ const filteredCatalog = computed(() => {
   ].some(text => text?.toLowerCase().includes(normalized)))
 })
 const installedByPackage = computed(() => new Map(installed.value.map(plugin => [plugin.package, plugin])))
+const discoverFilterMatches: Record<DiscoverFilter, (plugin: CatalogItem) => boolean> = {
+  all: () => true,
+  installed: plugin => installedByPackage.value.has(plugin.package),
+  updates: plugin => catalogAction(plugin) === 'update',
+}
+const discoverFilterLabels = { all: 'all', installed: 'installedPlugins', updates: 'pluginFilterUpdates' } as const
+const discoverFilters = computed(() => (['all', 'installed', 'updates'] as const).map(id => ({
+  id,
+  label: discoverFilterLabels[id],
+  count: filteredCatalog.value.filter(discoverFilterMatches[id]).length,
+})))
+const visibleCatalog = computed(() => filteredCatalog.value.filter(discoverFilterMatches[discoverFilter.value]))
 const installedPackMembers = computed(() => new Set(installed.value.flatMap(plugin => plugin.manifest.includesPlugins.map(included => included.package))))
 const rootInstalled = computed(() => installed.value.filter(plugin => !installedPackMembers.value.has(plugin.package)))
 
@@ -192,6 +209,9 @@ async function load(): Promise<void> {
   }
   catch (caught) {
     error.value = caught instanceof Error ? caught.message : String(caught)
+  }
+  finally {
+    loading.value = false
   }
 }
 
@@ -485,6 +505,7 @@ function openIncludedPlugin(parent: ManagedPlugin, packageName: string, range: s
   <section v-if="open" class="marketplace-page" role="region" :aria-label="t('pluginMarketplace')">
     <PluginDetail
       v-if="detailOpen"
+      :key="`${detailSourceId}:${detailPackageName}`"
       :catalog="catalog"
       :installed="installed"
       :package-name="detailPackageName"
@@ -506,13 +527,31 @@ function openIncludedPlugin(parent: ManagedPlugin, packageName: string, range: s
         </NavigationList>
       </template>
 
-        <section :id="`${tabsId}-panel`" class="marketplace-tab-panel" role="tabpanel" :aria-labelledby="`${tabsId}-${activeTab}`" tabindex="0">
-        <p v-if="error" class="marketplace-error" role="alert">{{ error }}</p>
+      <section :id="`${tabsId}-panel`" class="marketplace-tab-panel" role="tabpanel" :aria-labelledby="`${tabsId}-${activeTab}`" tabindex="0">
+        <p v-if="error" class="marketplace-error" role="alert"><Icon name="error" /><span>{{ error }}</span></p>
 
-        <section v-if="activeTab === 'discover'" class="marketplace-view">
-          <label class="marketplace-search"><Icon name="search" /><input v-model="query" :placeholder="t('searchPlugins')"></label>
-          <div v-if="filteredCatalog.length" class="plugin-list">
-            <article v-for="plugin in filteredCatalog" :key="`${plugin.sourceId}:${plugin.package}:${plugin.version}`" class="plugin-row">
+        <section v-if="activeTab === 'discover'" class="marketplace-view discover-view motion-reveal">
+          <div class="marketplace-toolbar">
+            <label class="marketplace-search">
+              <Icon name="search" />
+              <input v-model="query" type="search" :placeholder="t('searchPlugins')" :aria-label="t('searchPlugins')">
+              <button v-if="query" type="button" class="marketplace-search-clear" :aria-label="t('clearSearch')" @click="query = ''"><Icon name="close" /></button>
+            </label>
+            <div class="marketplace-filters" role="group" :aria-label="t('pluginFilterLabel')">
+              <button v-for="filter in discoverFilters" :key="filter.id" type="button" :class="{ active: discoverFilter === filter.id }" :aria-pressed="discoverFilter === filter.id" @click="discoverFilter = filter.id">
+                {{ t(filter.label) }}<span>{{ filter.count }}</span>
+              </button>
+            </div>
+          </div>
+          <div v-if="loading" class="plugin-grid" role="status" aria-busy="true">
+            <span class="sr-only">{{ t('loadingPlugins') }}</span>
+            <div v-for="index in 6" :key="index" class="plugin-card plugin-card-skeleton" aria-hidden="true">
+              <Skeleton shape="block" width="44px" height="44px" />
+              <span><Skeleton width="46%" /><Skeleton width="68%" /><Skeleton width="92%" /></span>
+            </div>
+          </div>
+          <div v-else-if="visibleCatalog.length" class="plugin-list plugin-grid motion-reveal-list">
+            <article v-for="plugin in visibleCatalog" :key="`${plugin.sourceId}:${plugin.package}:${plugin.version}`" class="plugin-row plugin-card is-linked" :class="{ 'is-installed': installedVersion(plugin), 'has-update': catalogAction(plugin) === 'update' }">
               <button class="plugin-summary-link" :aria-label="t('viewPluginDetails', { name: pluginDisplayName(plugin, locale) })" @click="openPluginDetail(plugin.sourceId, plugin.package, plugin.version)">
                 <div class="plugin-mark" :class="{ 'has-pack-count': plugin.includesPlugins.length }">
                   <img v-if="visibleIcon(catalogIcon(plugin))" data-testid="plugin-icon" :src="visibleIcon(catalogIcon(plugin))" alt="" referrerpolicy="no-referrer" @error="markIconFailed(catalogIcon(plugin))">
@@ -520,23 +559,34 @@ function openIncludedPlugin(parent: ManagedPlugin, packageName: string, range: s
                   <span v-if="plugin.includesPlugins.length" class="plugin-pack-count" :aria-label="t('pluginPackCount', { count: String(plugin.includesPlugins.length) })">{{ plugin.includesPlugins.length }}</span>
                 </div>
                 <div class="plugin-copy">
-                  <div class="plugin-title"><strong>{{ pluginDisplayName(plugin, locale) }}</strong><span v-if="plugin.includesPlugins.length" class="plugin-pack-badge">{{ t('pluginPackBadge') }}</span><code>{{ plugin.package }}</code><span class="view-plugin-detail">{{ t('viewPluginDetailsAction') }}</span></div>
+                  <div class="plugin-title"><strong>{{ pluginDisplayName(plugin, locale) }}</strong><span v-if="plugin.includesPlugins.length" class="plugin-pack-badge">{{ t('pluginPackBadge') }}</span><span v-if="catalogAction(plugin) === 'local'" class="local-plugin-badge">{{ t('localPluginBadge') }}</span></div>
+                  <code class="plugin-package">{{ plugin.package }}</code>
                   <p>{{ pluginDescription(plugin, locale) }}</p>
-                  <dl><div><dt>{{ t('pluginPublisher') }}</dt><dd>{{ plugin.publisher }}</dd></div><div><dt>{{ t('pluginVersion') }}</dt><dd><span v-if="catalogAction(plugin) === 'update'" class="plugin-version-update"><span>{{ installedVersion(plugin) }}</span><Icon name="arrowRight" /><strong>{{ plugin.version }}</strong></span><span v-else-if="installedVersion(plugin) && installedVersion(plugin) !== plugin.version">{{ t('pluginCurrentAndMarketVersion', { current: installedVersion(plugin)!, target: plugin.version }) }}</span><span v-else>{{ plugin.version }}</span></dd></div><div><dt>{{ t('pluginSource') }}</dt><dd>{{ plugin.sourceName }}</dd></div></dl>
-                  <p v-if="catalogAction(plugin) === 'local'" class="local-plugin-note"><span class="local-plugin-badge">{{ t('localPluginBadge') }}</span> {{ t('localPluginOverridesMarket') }}</p>
+                  <p v-if="catalogAction(plugin) === 'local'" class="local-plugin-note"><Icon name="folderOpen" />{{ t('localPluginOverridesMarket') }}</p>
                 </div>
+                <span class="view-plugin-detail" aria-hidden="true"><Icon name="arrowRight" /></span>
               </button>
-              <UiButton size="compact" :variant="catalogAction(plugin) === 'local' ? 'secondary' : 'primary'" :disabled="busy !== '' || marketplaceActionDisabled(catalogAction(plugin))" @click="install(plugin)">
-                {{ busy === `install:${plugin.package}` ? t('installingPlugin') : t(marketplaceActionLabels[catalogAction(plugin)]) }}
+              <dl class="plugin-meta">
+                <div><dt>{{ t('pluginPublisher') }}</dt><dd>{{ plugin.publisher }}</dd></div>
+                <div><dt>{{ t('pluginVersion') }}</dt><dd><span v-if="catalogAction(plugin) === 'update'" class="plugin-version-update"><span>{{ installedVersion(plugin) }}</span><Icon name="arrowRight" /><strong>{{ plugin.version }}</strong></span><span v-else-if="installedVersion(plugin) && installedVersion(plugin) !== plugin.version">{{ t('pluginCurrentAndMarketVersion', { current: installedVersion(plugin)!, target: plugin.version }) }}</span><span v-else>{{ plugin.version }}</span></dd></div>
+                <div><dt>{{ t('pluginSource') }}</dt><dd>{{ plugin.sourceName }}</dd></div>
+              </dl>
+              <UiButton size="compact" :variant="marketplaceActionVariant(catalogAction(plugin))" :disabled="busy !== '' || marketplaceActionDisabled(catalogAction(plugin))" @click="install(plugin)">
+                <Icon :name="busy === `install:${plugin.package}` ? 'loading' : marketplaceActionIcons[catalogAction(plugin)]" />{{ busy === `install:${plugin.package}` ? t('installingPlugin') : t(marketplaceActionLabels[catalogAction(plugin)]) }}
               </UiButton>
             </article>
           </div>
-          <p v-else class="marketplace-empty">{{ t('noPluginsFound') }}</p>
+          <div v-else class="marketplace-empty">
+            <span class="marketplace-empty-mark"><Icon :name="query ? 'search' : 'plugins'" /></span>
+            <p>{{ t(query ? 'noPluginsFound' : 'noPluginsInFilter') }}</p>
+            <UiButton v-if="query" size="compact" @click="query = ''">{{ t('clearSearch') }}</UiButton>
+          </div>
         </section>
 
-        <section v-else-if="activeTab === 'installed'" class="marketplace-view">
+        <section v-else-if="activeTab === 'installed'" class="marketplace-view installed-view motion-reveal">
           <form class="local-plugin-form" data-testid="local-plugin-form" @submit.prevent="linkLocalPlugin">
-            <div>
+            <span class="local-plugin-mark" aria-hidden="true"><Icon name="folderOpen" /></span>
+            <div class="local-plugin-intro">
               <h3>{{ t('loadLocalPlugin') }} <span class="local-plugin-badge">{{ t('localPluginBadge') }}</span></h3>
               <p>{{ t('loadLocalPluginDescription') }}</p>
               <p class="local-plugin-format-help">
@@ -554,8 +604,15 @@ function openIncludedPlugin(parent: ManagedPlugin, packageName: string, range: s
               </UiButton>
             </div>
           </form>
-          <div v-if="rootInstalled.length" class="plugin-list">
-            <article v-for="plugin in rootInstalled" :key="plugin.package" class="plugin-row installed-plugin-row" :class="{ 'plugin-pack-row': isPluginPack(plugin) }">
+          <div v-if="loading" class="plugin-stack" role="status" aria-busy="true">
+            <span class="sr-only">{{ t('loadingPlugins') }}</span>
+            <div v-for="index in 2" :key="index" class="plugin-card plugin-card-skeleton" aria-hidden="true">
+              <Skeleton shape="block" width="44px" height="44px" />
+              <span><Skeleton width="34%" /><Skeleton width="58%" /></span>
+            </div>
+          </div>
+          <div v-else-if="rootInstalled.length" class="plugin-list plugin-stack motion-reveal-list">
+            <article v-for="plugin in rootInstalled" :key="plugin.package" class="plugin-row installed-plugin-row plugin-card" :class="{ 'plugin-pack-row': isPluginPack(plugin), 'is-disabled': !isPluginPack(plugin) && !plugin.enabled, 'has-error': plugin.error }">
               <button class="plugin-summary-link" :aria-label="t('viewPluginDetails', { name: pluginDisplayName(plugin.manifest, locale) })" @click="openPluginDetail(plugin.sourceId, plugin.package, plugin.version)">
                 <div class="plugin-mark" :class="{ disabled: !plugin.enabled, 'has-pack-count': isPluginPack(plugin) }">
                   <img v-if="visibleIcon(installedIcon(plugin))" data-testid="installed-plugin-icon" :src="visibleIcon(installedIcon(plugin))" alt="" referrerpolicy="no-referrer" @error="markIconFailed(installedIcon(plugin))">
@@ -563,48 +620,65 @@ function openIncludedPlugin(parent: ManagedPlugin, packageName: string, range: s
                   <span v-if="isPluginPack(plugin)" class="plugin-pack-count" :aria-label="t('pluginPackCount', { count: String(plugin.manifest.includesPlugins.length) })">{{ plugin.manifest.includesPlugins.length }}</span>
                 </div>
                 <div class="plugin-copy">
-                  <div class="plugin-title"><strong>{{ pluginDisplayName(plugin.manifest, locale) }}</strong><span v-if="isPluginPack(plugin)" class="plugin-pack-badge">{{ t('pluginPackBadge') }}</span><span v-if="plugin.origin === 'local'" class="local-plugin-badge">{{ t('localPluginBadge') }}</span><span v-if="plugin.error" class="plugin-error-badge">{{ t('pluginPackError') }}</span><code>{{ plugin.package }}</code><span class="view-plugin-detail">{{ t('viewPluginDetailsAction') }}</span></div>
+                  <div class="plugin-title"><strong>{{ pluginDisplayName(plugin.manifest, locale) }}</strong><span v-if="isPluginPack(plugin)" class="plugin-pack-badge">{{ t('pluginPackBadge') }}</span><span v-if="plugin.origin === 'local'" class="local-plugin-badge">{{ t('localPluginBadge') }}</span><span v-if="plugin.error" class="plugin-error-badge">{{ t('pluginPackError') }}</span></div>
+                  <code class="plugin-package">{{ plugin.package }}</code>
                   <p>{{ pluginDescription(plugin.manifest, locale) }}</p>
-                  <dl><div><dt>{{ t('pluginVersion') }}</dt><dd>{{ plugin.version }}</dd></div><div v-if="isPluginPack(plugin)"><dt>{{ t('pluginPackContents') }}</dt><dd>{{ t('pluginPackAvailability', { installed: String(installedPackCount(plugin)), total: String(plugin.manifest.includesPlugins.length) }) }}</dd></div><div><dt>{{ t(plugin.origin === 'local' ? 'localPluginPath' : 'pluginSource') }}</dt><dd>{{ plugin.origin === 'local' ? plugin.packagePath : plugin.sourceId }}</dd></div></dl>
                 </div>
+                <span class="view-plugin-detail" aria-hidden="true"><Icon name="arrowRight" /></span>
               </button>
+              <dl class="plugin-meta">
+                <div><dt>{{ t('pluginVersion') }}</dt><dd>{{ plugin.version }}</dd></div>
+                <div v-if="isPluginPack(plugin)"><dt>{{ t('pluginPackContents') }}</dt><dd>{{ t('pluginPackAvailability', { installed: String(installedPackCount(plugin)), total: String(plugin.manifest.includesPlugins.length) }) }}</dd></div>
+                <div class="plugin-meta-path"><dt>{{ t(plugin.origin === 'local' ? 'localPluginPath' : 'pluginSource') }}</dt><dd :title="plugin.origin === 'local' ? plugin.packagePath : undefined">{{ plugin.origin === 'local' ? plugin.packagePath : plugin.sourceId }}</dd></div>
+              </dl>
               <div class="plugin-actions">
-                <UiButton v-if="isPluginPack(plugin)" size="compact" :aria-expanded="expandedPacks.has(plugin.package)" @click="togglePluginPack(plugin)">{{ t(expandedPacks.has(plugin.package) ? 'hidePluginPackContents' : 'showPluginPackContents') }}</UiButton>
-                <UiButton v-else size="compact" :disabled="busy !== ''" @click="togglePlugin(plugin)">{{ t(plugin.enabled ? 'disablePlugin' : 'enablePlugin') }}</UiButton>
-                <UiButton v-if="plugin.origin === 'local'" size="compact" :disabled="busy !== ''" @click="refreshLocalPlugin(plugin)">{{ t('refreshLocalPlugin') }}</UiButton>
-                <UiButton v-else-if="!isPluginPack(plugin)" size="compact" :disabled="busy !== '' || !plugin.previousVersion" @click="rollback(plugin)">{{ t('rollbackPlugin') }}</UiButton>
+                <UiButton v-if="isPluginPack(plugin)" class="plugin-pack-toggle" size="compact" :aria-expanded="expandedPacks.has(plugin.package)" @click="togglePluginPack(plugin)">{{ t(expandedPacks.has(plugin.package) ? 'hidePluginPackContents' : 'showPluginPackContents') }}<Icon name="arrowDown" /></UiButton>
+                <label v-else class="plugin-enable-toggle" :class="{ on: plugin.enabled }">
+                  <UiSwitch :model-value="plugin.enabled" :loading="busy === `toggle:${plugin.package}`" :disabled="busy !== ''" :aria-label="pluginDisplayName(plugin.manifest, locale)" @update:model-value="togglePlugin(plugin)" />
+                  <span>{{ t(plugin.enabled ? 'pluginEnabled' : 'pluginDisabled') }}</span>
+                </label>
+                <span class="plugin-actions-divider" aria-hidden="true" />
+                <UiButton v-if="plugin.origin === 'local'" size="compact" variant="ghost" :disabled="busy !== ''" @click="refreshLocalPlugin(plugin)"><Icon :name="busy === `refresh-local:${plugin.package}` ? 'loading' : 'refresh'" />{{ t('refreshLocalPlugin') }}</UiButton>
+                <UiButton v-else-if="!isPluginPack(plugin)" size="compact" variant="ghost" :disabled="busy !== '' || !plugin.previousVersion" @click="rollback(plugin)">{{ t('rollbackPlugin') }}</UiButton>
                 <UiButton v-if="plugin.origin === 'local'" size="compact" variant="danger-secondary" :disabled="busy !== ''" @click="unlinkLocalPlugin(plugin)">{{ t('unlinkLocalPlugin') }}</UiButton>
                 <UiButton v-else size="compact" variant="danger-secondary" :disabled="busy !== ''" @click="removePlugin(plugin)">{{ t(isPluginPack(plugin) ? 'removePluginPack' : 'uninstallPlugin') }}</UiButton>
               </div>
-              <section v-if="isPluginPack(plugin) && expandedPacks.has(plugin.package)" class="plugin-pack-contents" :aria-label="t('pluginPackContents')">
-                <header><strong>{{ t('pluginPackContentsWithCount', { count: String(plugin.manifest.includesPlugins.length) }) }}</strong><span>{{ t('pluginPackIndependent') }}</span></header>
-                <div class="plugin-pack-grid">
-                  <button v-for="included in plugin.manifest.includesPlugins" :key="included.package" class="plugin-pack-item" :disabled="!includedCatalogPlugin(plugin, included.package, included.version)" @click="openIncludedPlugin(plugin, included.package, included.version)">
-                    <div class="plugin-pack-item-icon">
-                      <img v-if="visibleIcon(includedIcon(plugin, included.package, included.version))" :src="visibleIcon(includedIcon(plugin, included.package, included.version))" alt="" referrerpolicy="no-referrer" @error="markIconFailed(includedIcon(plugin, included.package, included.version))">
-                      <Icon v-else name="plugins" />
-                    </div>
-                    <div><strong>{{ includedPluginName(included.package, plugin.sourceId) }}</strong><code>{{ included.package }}</code></div>
-                    <div class="plugin-pack-item-status"><span v-if="includedPlugin(included.package)?.origin === 'local'" class="local-plugin-badge">{{ t('localPluginBadge') }}</span><span>{{ includedPlugin(included.package)?.version || included.version }}</span><span :class="{ muted: !includedPlugin(included.package)?.enabled }">{{ includedPluginStatus(included.package) }}</span></div>
-                  </button>
-                </div>
-              </section>
+              <Transition name="plugin-pack-reveal">
+                <section v-if="isPluginPack(plugin) && expandedPacks.has(plugin.package)" class="plugin-pack-contents" :aria-label="t('pluginPackContents')">
+                  <header><strong>{{ t('pluginPackContentsWithCount', { count: String(plugin.manifest.includesPlugins.length) }) }}</strong><span>{{ t('pluginPackIndependent') }}</span></header>
+                  <div class="plugin-pack-grid motion-reveal-list">
+                    <button v-for="included in plugin.manifest.includesPlugins" :key="included.package" class="plugin-pack-item" :disabled="!includedCatalogPlugin(plugin, included.package, included.version)" @click="openIncludedPlugin(plugin, included.package, included.version)">
+                      <div class="plugin-pack-item-icon">
+                        <img v-if="visibleIcon(includedIcon(plugin, included.package, included.version))" :src="visibleIcon(includedIcon(plugin, included.package, included.version))" alt="" referrerpolicy="no-referrer" @error="markIconFailed(includedIcon(plugin, included.package, included.version))">
+                        <Icon v-else name="plugins" />
+                      </div>
+                      <div><strong>{{ includedPluginName(included.package, plugin.sourceId) }}</strong><code>{{ included.package }}</code></div>
+                      <div class="plugin-pack-item-status" :class="{ error: includedPlugin(included.package)?.error, off: !includedPlugin(included.package)?.enabled }"><span v-if="includedPlugin(included.package)?.origin === 'local'" class="local-plugin-badge">{{ t('localPluginBadge') }}</span><span class="plugin-pack-item-version">{{ includedPlugin(included.package)?.version || included.version }}</span><span class="plugin-pack-item-state">{{ includedPluginStatus(included.package) }}</span></div>
+                    </button>
+                  </div>
+                </section>
+              </Transition>
             </article>
           </div>
-          <p v-else class="marketplace-empty">{{ t('noInstalledPlugins') }}</p>
+          <div v-else class="marketplace-empty">
+            <span class="marketplace-empty-mark"><Icon name="plugins" /></span>
+            <p>{{ t('noInstalledPlugins') }}</p>
+            <UiButton size="compact" @click="activeTab = 'discover'"><Icon name="compass" />{{ t('discoverPlugins') }}</UiButton>
+          </div>
         </section>
 
-        <HostExtensionsPanel v-else-if="activeTab === 'hosts'" />
+        <HostExtensionsPanel v-else-if="activeTab === 'hosts'" class="motion-reveal" />
 
-        <section v-else class="marketplace-view sources-view">
-          <div class="source-list">
-            <article v-for="source in sources" :key="source.id" class="source-row">
+        <section v-else class="marketplace-view sources-view motion-reveal">
+          <div class="source-list plugin-stack motion-reveal-list">
+            <article v-for="source in sources" :key="source.id" class="source-row plugin-card" :class="{ 'has-error': source.error }">
+              <span class="source-mark" :class="source.kind" aria-hidden="true"><Icon :name="source.kind === 'builtin' ? 'package' : source.verification ? 'trusted' : 'web'" /></span>
               <div class="source-copy">
                 <div class="source-heading">
                   <strong>{{ source.name }}</strong>
                   <span class="source-kind" :title="sourceKindDescription(source)">{{ sourceKind(source) }}</span>
-                  <span v-if="source.verification" class="source-verification" :title="t('sourcePublisherVerifiedDescription', { organization: source.verification.organization })">{{ t('sourcePublisherVerified') }}</span>
-                  <span v-if="source.catalog && !source.error" class="source-validation">{{ t('sourceCatalogValidated') }}</span>
+                  <span v-if="source.verification" class="source-verification" :title="t('sourcePublisherVerifiedDescription', { organization: source.verification.organization })"><Icon name="trusted" />{{ t('sourcePublisherVerified') }}</span>
+                  <span v-if="source.catalog && !source.error" class="source-validation"><Icon name="check" />{{ t('sourceCatalogValidated') }}</span>
                   <code>{{ source.id }}</code>
                 </div>
                 <dl class="source-details">
@@ -620,16 +694,16 @@ function openIncludedPlugin(parent: ManagedPlugin, packageName: string, range: s
                     <dd>{{ source.registry }}</dd>
                   </div>
                 </dl>
-                <p v-if="source.error">{{ source.error }}</p>
+                <p v-if="source.error" class="source-error"><Icon name="error" />{{ source.error }}</p>
               </div>
               <div class="plugin-actions">
-                <UiButton v-if="source.catalogUrl" size="compact" :disabled="busy !== ''" @click="refreshSource(source)">{{ t('refreshSource') }}</UiButton>
+                <UiButton v-if="source.catalogUrl" size="compact" :disabled="busy !== ''" @click="refreshSource(source)"><Icon :name="busy === `refresh:${source.id}` ? 'loading' : 'refresh'" />{{ t('refreshSource') }}</UiButton>
                 <UiButton v-if="source.kind === 'user'" size="compact" variant="danger-secondary" :disabled="busy !== ''" @click="removeSource(source)">{{ t('removeSource') }}</UiButton>
               </div>
             </article>
           </div>
           <form class="source-form" @submit.prevent="previewSource">
-            <h3>{{ t('addMarketplaceSource') }}</h3>
+            <h3><span class="source-form-mark" aria-hidden="true"><Icon name="plus" /></span>{{ t('addMarketplaceSource') }}</h3>
             <div class="source-fields">
               <label>
                 <span class="source-field-label">{{ t('sourceName') }} <small v-if="importCatalogUrl">{{ t('autoFilled') }}</small></span>
@@ -642,57 +716,48 @@ function openIncludedPlugin(parent: ManagedPlugin, packageName: string, range: s
               <label><span>{{ t('registryUrl') }}</span><input v-model="registry" type="url" placeholder="https://registry.npmjs.org"></label>
             </div>
             <UiButton variant="primary" type="submit" :disabled="busy !== '' || !sourceName.trim() || !catalogUrl.trim()">
-              {{ busy === 'preview-source' ? t('checkingMarketplaceSource') : t('previewMarketplaceSource') }}
+              <Icon v-if="busy === 'preview-source'" name="loading" />{{ busy === 'preview-source' ? t('checkingMarketplaceSource') : t('previewMarketplaceSource') }}
             </UiButton>
             <div v-if="sourceError" class="source-form-error" data-testid="source-preview-error" role="alert">
               <p>{{ sourceError }}</p>
               <UiButton data-testid="retry-source-preview" size="compact" type="button" @click="previewSource">{{ t('retry') }}</UiButton>
             </div>
-            <p v-if="sourceSuccess" class="source-form-success" role="status">{{ sourceSuccess }}</p>
+            <p v-if="sourceSuccess" class="source-form-success" role="status"><Icon name="check" />{{ sourceSuccess }}</p>
           </form>
         </section>
-        </section>
+      </section>
 
-        <DialogShell
-          :open="Boolean(sourcePreview)"
-          content-class="dialog-content source-confirm-dialog"
-          data-testid="source-confirm-dialog"
-          @update:open="updateSourcePreviewOpen"
-        >
-          <template #title>{{ t('sourcePreviewTitle') }}</template>
-          <template #description>{{ t('sourcePreviewDescription') }}</template>
-          <p v-if="sourcePreview?.verification" class="source-preview-verification" role="status">
-            {{ t('sourcePublisherVerifiedDescription', { organization: sourcePreview.verification.organization }) }}
-          </p>
-          <dl v-if="sourcePreview" class="source-preview-details">
-            <div><dt>{{ t('sourceName') }}</dt><dd>{{ sourcePreview.catalog.name }}</dd></div>
-            <div><dt>{{ t('sourceCatalogLocation') }}</dt><dd>{{ sourcePreview.finalCatalogUrl }}</dd></div>
-            <div><dt>{{ t('sourceRegistryLocation') }}</dt><dd>{{ sourcePreview.registry || t('sourceDefaultRegistry') }}</dd></div>
-          </dl>
-          <section v-if="sourcePreview" class="source-preview-plugins">
-            <strong>{{ t('sourcePreviewPlugins', { count: String(sourcePreview.catalog.plugins.length) }) }}</strong>
-            <ul>
-              <li v-for="plugin in sourcePreview.catalog.plugins" :key="`${plugin.package}:${plugin.version}`">
-                <span>{{ pluginDisplayName(plugin, locale) }}</span><code>{{ plugin.package }}@{{ plugin.version }}</code>
-              </li>
-            </ul>
-          </section>
-          <footer>
-            <UiButton :disabled="busy === 'add-source'" @click="updateSourcePreviewOpen(false)">{{ t('cancel') }}</UiButton>
-            <UiButton data-testid="confirm-source-import" variant="primary" :disabled="busy !== ''" @click="addSource">
-              {{ busy === 'add-source' ? t('adding') : t('confirmMarketplaceSourceImport') }}
-            </UiButton>
-          </footer>
-        </DialogShell>
+      <DialogShell
+        :open="Boolean(sourcePreview)"
+        content-class="dialog-content source-confirm-dialog"
+        data-testid="source-confirm-dialog"
+        @update:open="updateSourcePreviewOpen"
+      >
+        <template #title>{{ t('sourcePreviewTitle') }}</template>
+        <template #description>{{ t('sourcePreviewDescription') }}</template>
+        <p v-if="sourcePreview?.verification" class="source-preview-verification" role="status">
+          <Icon name="trusted" />{{ t('sourcePublisherVerifiedDescription', { organization: sourcePreview.verification.organization }) }}
+        </p>
+        <dl v-if="sourcePreview" class="source-preview-details">
+          <div><dt>{{ t('sourceName') }}</dt><dd>{{ sourcePreview.catalog.name }}</dd></div>
+          <div><dt>{{ t('sourceCatalogLocation') }}</dt><dd>{{ sourcePreview.finalCatalogUrl }}</dd></div>
+          <div><dt>{{ t('sourceRegistryLocation') }}</dt><dd>{{ sourcePreview.registry || t('sourceDefaultRegistry') }}</dd></div>
+        </dl>
+        <section v-if="sourcePreview" class="source-preview-plugins">
+          <strong>{{ t('sourcePreviewPlugins', { count: String(sourcePreview.catalog.plugins.length) }) }}</strong>
+          <ul>
+            <li v-for="plugin in sourcePreview.catalog.plugins" :key="`${plugin.package}:${plugin.version}`">
+              <span>{{ pluginDisplayName(plugin, locale) }}</span><code>{{ plugin.package }}@{{ plugin.version }}</code>
+            </li>
+          </ul>
+        </section>
+        <footer>
+          <UiButton :disabled="busy === 'add-source'" @click="updateSourcePreviewOpen(false)">{{ t('cancel') }}</UiButton>
+          <UiButton data-testid="confirm-source-import" variant="primary" :disabled="busy !== ''" @click="addSource">
+            {{ busy === 'add-source' ? t('adding') : t('confirmMarketplaceSourceImport') }}
+          </UiButton>
+        </footer>
+      </DialogShell>
     </WorkbenchViewFrame>
   </section>
 </template>
-
-<style scoped>
-.marketplace-tab-panel { min-width: 0; }
-.marketplace-tab-panel:focus-visible { outline: var(--control-focus-width) solid var(--focus-ring); outline-offset: var(--control-focus-offset); border-radius: var(--panel-radius); }
-.local-plugin-form { border-color: var(--border); background: var(--surface-subtle); border-radius: var(--panel-radius); }
-.source-form { border: 1px solid var(--border); border-radius: var(--panel-radius); padding: var(--space-4); background: var(--surface-subtle); }
-.local-plugin-controls input { height: var(--control-height-default); border-radius: var(--control-radius); font-family: var(--font-mono); }
-.local-plugin-controls input:focus { box-shadow: 0 0 0 var(--control-focus-width) var(--accent-soft); }
-</style>

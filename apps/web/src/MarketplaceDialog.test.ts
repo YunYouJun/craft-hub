@@ -2,6 +2,8 @@
 /// <reference lib="dom" />
 
 import type { CatalogPluginV1, InstalledPlugin, MarketplaceSource, MarketplaceSourcePreview } from 'craft-hub'
+import { readFileSync } from 'node:fs'
+import { URL as NodeURL } from 'node:url'
 import { flushPromises, mount } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createMemoryHistory } from 'vue-router'
@@ -86,6 +88,102 @@ describe('marketplace dialog', () => {
     window.craftHubDesktop = undefined
     vi.restoreAllMocks()
     vi.unstubAllGlobals()
+  })
+
+  it('keeps the status label width reservation off the installed plugin switch', async () => {
+    vi.spyOn(api, 'marketplaceCatalog').mockResolvedValue([catalogPlugin])
+    vi.spyOn(api, 'installedPlugins').mockResolvedValue([installedPlugin])
+    vi.spyOn(api, 'marketplaceSources').mockResolvedValue([])
+    let finishToggle!: (value: InstalledPlugin) => void
+    vi.spyOn(api, 'setPluginEnabled').mockReturnValue(new Promise((resolve) => {
+      finishToggle = resolve
+    }))
+    const style = document.createElement('style')
+    style.textContent = readFileSync(new NodeURL('./styles/marketplace.css', import.meta.url), 'utf8')
+    document.head.append(style)
+    const wrapper = await mountMarketplace({ open: true }, document.body)
+    try {
+      await flushPromises()
+      await wrapper.findAll('[role="tab"]')[1]!.trigger('click')
+      const label = wrapper.get('.plugin-enable-toggle > span')
+      const thumb = wrapper.get('[data-slot="switch-thumb"]')
+      expect(getComputedStyle(label.element).minWidth).not.toBe('')
+      expect(getComputedStyle(thumb.element).minWidth).toBe('')
+
+      await wrapper.get('[role="switch"]').trigger('click')
+      const spinner = wrapper.get('.ui-switch-spinner')
+      expect(getComputedStyle(spinner.element).minWidth).toBe('')
+    }
+    finally {
+      finishToggle({ ...installedPlugin, enabled: false })
+      await flushPromises()
+      wrapper.unmount()
+      style.remove()
+    }
+  })
+
+  it('announces initial loading without flashing empty catalog or installed states', async () => {
+    let finishCatalog!: (value: Array<typeof catalogPlugin>) => void
+    vi.spyOn(api, 'marketplaceCatalog').mockReturnValue(new Promise((resolve) => {
+      finishCatalog = resolve
+    }))
+    vi.spyOn(api, 'installedPlugins').mockResolvedValue([installedPlugin])
+    vi.spyOn(api, 'marketplaceSources').mockResolvedValue([])
+    const wrapper = await mountMarketplace()
+    await flushPromises()
+
+    expect(wrapper.get('[role="status"]').attributes('aria-busy')).toBe('true')
+    expect(wrapper.get('[role="status"]').text()).toBe('Loading plugins…')
+    expect(wrapper.find('.marketplace-empty').exists()).toBe(false)
+    expect(wrapper.findAll('.plugin-row')).toHaveLength(0)
+    await wrapper.findAll('[role="tab"]')[1]!.trigger('click')
+    expect(wrapper.get('[role="status"]').attributes('aria-busy')).toBe('true')
+    expect(wrapper.find('.marketplace-empty').exists()).toBe(false)
+
+    finishCatalog([catalogPlugin])
+    await flushPromises()
+    expect(wrapper.find('[role="status"]').exists()).toBe(false)
+    expect(wrapper.get('.installed-plugin-row').text()).toContain('Acme Suite')
+    await wrapper.findAll('[role="tab"]')[0]!.trigger('click')
+    expect(wrapper.get('.plugin-row').text()).toContain('Acme Suite')
+    wrapper.unmount()
+  })
+
+  it('filters installed plugins and genuine updates while combining search and clear', async () => {
+    const current = { ...catalogPlugin, package: '@acme/current', displayName: 'Current plugin' }
+    const available = { ...catalogPlugin, package: '@acme/available', displayName: 'Available plugin' }
+    const otherSource = { ...catalogPlugin, package: '@acme/other-source', displayName: 'Other source plugin' }
+    vi.spyOn(api, 'marketplaceCatalog').mockResolvedValue([catalogPlugin, current, available, otherSource])
+    vi.spyOn(api, 'installedPlugins').mockResolvedValue([
+      { ...installedPlugin, version: '0.0.9' },
+      { ...installedPlugin, package: current.package },
+      { ...installedPlugin, package: otherSource.package, version: '0.0.9', sourceId: 'other' },
+    ])
+    vi.spyOn(api, 'marketplaceSources').mockResolvedValue([])
+    const wrapper = await mountMarketplace()
+    await flushPromises()
+    const filters = wrapper.get('[role="group"][aria-label="Filter plugins"]').findAll('button')
+    expect(filters.map(filter => filter.text())).toEqual(['All4', 'Installed3', 'Updates1'])
+    expect(wrapper.findAll('.plugin-row')).toHaveLength(4)
+
+    await filters[1]!.trigger('click')
+    expect(filters[1]!.attributes('aria-pressed')).toBe('true')
+    expect(wrapper.findAll('.plugin-row')).toHaveLength(3)
+    expect(wrapper.text()).not.toContain('Available plugin')
+    await filters[2]!.trigger('click')
+    expect(filters[2]!.attributes('aria-pressed')).toBe('true')
+    expect(wrapper.findAll('.plugin-row')).toHaveLength(1)
+    expect(wrapper.get('.plugin-row').text()).toContain('Acme Suite')
+
+    await wrapper.get('.marketplace-search input').setValue('Current plugin')
+    expect(wrapper.findAll('.plugin-row')).toHaveLength(0)
+    expect(wrapper.get('.marketplace-empty').text()).toContain('No plugins match this search.')
+    await filters[0]!.trigger('click')
+    expect(wrapper.findAll('.plugin-row')).toHaveLength(1)
+    expect(wrapper.get('.plugin-row').text()).toContain('Current plugin')
+    await wrapper.get('.marketplace-search-clear').trigger('click')
+    expect(wrapper.findAll('.plugin-row')).toHaveLength(4)
+    wrapper.unmount()
   })
 
   it('refreshes marketplace reads while keeping filters and source drafts', async () => {
