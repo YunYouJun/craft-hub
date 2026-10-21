@@ -266,14 +266,16 @@ async function remove(source: SoftwareSource): Promise<void> {
     <template #header-actions><UiButton size="icon" variant="ghost" :disabled="pending" :aria-label="copy('关闭来源设置', 'Close source settings')" @click="dialogOpen = false"><Icon name="close" /></UiButton></template>
     <form class="software-source-form" @submit.prevent="inspect">
       <UiButton v-if="!draft.id" type="button" size="compact" variant="ghost" :disabled="pending" data-testid="workstation-source-preset" @click="draft.repository = workstationRepository">{{ copy('填入 Workstation 地址', 'Use Workstation URL') }}</UiButton>
-      <label>{{ copy('线上仓库（HTTPS，可选）', 'Online repository (HTTPS, optional)') }}<input v-model="draft.repository" :disabled="pending || !!state?.sources.find(source => source.id === draft.id)?.repository" data-testid="software-source-url" placeholder="https://github.com/owner/repository"></label>
-      <template v-if="localAvailable">
-        <label v-if="store.projects.length">{{ copy('复用已登记的本地项目', 'Use a registered local project') }}<select :disabled="pending" data-testid="software-source-project" @change="chooseProject"><option value="">{{ copy('选择项目…', 'Choose project…') }}</option><option v-for="project in store.projects" :key="project.id" :value="project.path">{{ project.name }} · {{ project.path }}</option></select></label>
-        <label>{{ copy('本地 Git 仓库目录（可选）', 'Local Git repository directory (optional)') }}<span class="repository-folder"><input v-model="draft.localPath" :disabled="pending" data-testid="software-source-path" :placeholder="copy('选择或输入绝对路径', 'Choose or enter an absolute path')"><UiButton v-if="picker" type="button" size="compact" :disabled="pending" @click="chooseDirectory">{{ copy('选择文件夹…', 'Choose folder…') }}</UiButton></span></label>
-      </template>
-      <label>{{ copy('读取位置', 'Read from') }}<select v-model="draft.mode" :disabled="pending" data-testid="software-source-mode"><option value="remote">{{ copy('线上仓库', 'Online repository') }}</option><option v-if="localAvailable" value="local">{{ copy('本地工作目录（包含未提交的目录文件）', 'Local working tree (includes uncommitted catalog files)') }}</option></select></label>
-      <label>{{ copy('线上分支', 'Online branch') }}<input v-model="draft.branch" :disabled="pending" placeholder="HEAD" data-testid="software-source-branch"><small>{{ copy('HEAD 表示线上默认分支。本地模式读取当前工作目录，不切换分支。', 'HEAD uses the remote default branch. Local mode reads the current working tree without switching branches.') }}</small></label>
-      <label>{{ copy('目录文件（相对仓库根目录）', 'Catalog file (relative to repository root)') }}<input v-model="draft.catalogPath" :disabled="pending" data-testid="software-source-catalog-path"></label>
+      <div class="settings-form-group">
+        <label class="settings-form-row"><span class="settings-form-label">{{ copy('线上仓库（HTTPS，可选）', 'Online repository (HTTPS, optional)') }}</span><input v-model="draft.repository" :disabled="pending || !!state?.sources.find(source => source.id === draft.id)?.repository" data-testid="software-source-url" placeholder="https://github.com/owner/repository"></label>
+        <template v-if="localAvailable">
+          <label v-if="store.projects.length" class="settings-form-row"><span class="settings-form-label">{{ copy('复用已登记的本地项目', 'Use a registered local project') }}</span><select :disabled="pending" data-testid="software-source-project" @change="chooseProject"><option value="">{{ copy('选择项目…', 'Choose project…') }}</option><option v-for="project in store.projects" :key="project.id" :value="project.path">{{ project.name }} · {{ project.path }}</option></select></label>
+          <label class="settings-form-row"><span class="settings-form-label">{{ copy('本地 Git 仓库目录（可选）', 'Local Git repository directory (optional)') }}</span><span class="settings-form-control repository-folder"><input v-model="draft.localPath" :disabled="pending" data-testid="software-source-path" :placeholder="copy('选择或输入绝对路径', 'Choose or enter an absolute path')"><UiButton v-if="picker" type="button" size="compact" :disabled="pending" @click="chooseDirectory">{{ copy('选择文件夹…', 'Choose folder…') }}</UiButton></span></label>
+        </template>
+        <label class="settings-form-row"><span class="settings-form-label">{{ copy('读取位置', 'Read from') }}</span><select v-model="draft.mode" :disabled="pending" data-testid="software-source-mode"><option value="remote">{{ copy('线上仓库', 'Online repository') }}</option><option v-if="localAvailable" value="local">{{ copy('本地工作目录（包含未提交的目录文件）', 'Local working tree (includes uncommitted catalog files)') }}</option></select></label>
+        <label class="settings-form-row"><span class="settings-form-label">{{ copy('线上分支', 'Online branch') }}</span><input v-model="draft.branch" :disabled="pending" placeholder="HEAD" data-testid="software-source-branch"><small class="settings-form-caption">{{ copy('HEAD 表示线上默认分支。本地模式读取当前工作目录，不切换分支。', 'HEAD uses the remote default branch. Local mode reads the current working tree without switching branches.') }}</small></label>
+        <label class="settings-form-row"><span class="settings-form-label">{{ copy('目录文件（相对仓库根目录）', 'Catalog file (relative to repository root)') }}</span><input v-model="draft.catalogPath" :disabled="pending" data-testid="software-source-catalog-path"></label>
+      </div>
       <p class="repository-help">{{ copy('直接读取 software.config.ts 中的 softwareGroups 清单，无需构建或导出。安装和配置管理仍由插件提供。', 'Read softwareGroups directly from software.config.ts without building or exporting. Installation and configuration remain plugin operations.') }}</p>
       <Alert v-if="error" variant="danger" role="alert">{{ error }}</Alert>
       <UiButton type="submit" size="compact" :disabled="pending" data-testid="preview-software-source"><Icon :name="busy === 'preview' ? 'loading' : 'search'" />{{ copy('预览目录', 'Preview catalog') }}</UiButton>
@@ -286,17 +288,19 @@ async function remove(source: SoftwareSource): Promise<void> {
     <template #footer><UiButton size="compact" :disabled="pending" @click="dialogOpen = false">{{ copy('取消', 'Cancel') }}</UiButton><UiButton size="compact" variant="primary" :disabled="pending || !preview" data-testid="apply-software-source" @click="apply">{{ copy('确认保存来源', 'Save source') }}</UiButton></template>
   </DialogShell>
 
-  <DialogShell v-model:open="refreshDialogOpen" layout="panel" class="software-source-dialog">
+  <DialogShell v-model:open="refreshDialogOpen" layout="panel" class="software-source-dialog software-refresh-dialog">
     <template #title>{{ copy('软件来源刷新设置', 'Software source refresh settings') }}</template>
     <template #description>{{ refreshTarget?.title }} · {{ copy('保存仅调整刷新计划，不会立即读取远程目录。', 'Saving changes the schedule without reading the remote catalog immediately.') }}</template>
     <template #header-actions><UiButton size="icon" variant="ghost" :disabled="pending" :aria-label="copy('关闭刷新设置', 'Close refresh settings')" @click="refreshDialogOpen = false"><Icon name="close" /></UiButton></template>
     <form class="software-source-form" data-testid="software-refresh-settings" @submit.prevent="saveRefreshSettings">
-      <label>{{ copy('刷新方式', 'Refresh mode') }}<select v-model="refreshDraft.mode" :disabled="pending" data-testid="software-refresh-mode"><option value="manual">{{ copy('仅手动', 'Manual only') }}</option><option value="interval">{{ copy('按间隔', 'At an interval') }}</option><option value="daily">{{ copy('每天指定时间', 'At a daily time') }}</option></select></label>
-      <label v-if="refreshDraft.mode === 'interval'">{{ copy('间隔（分钟）', 'Interval (minutes)') }}<input v-model.number="refreshDraft.intervalMinutes" type="number" min="15" max="10080" step="1" :disabled="pending" data-testid="software-refresh-interval"><small>{{ copy('15–10080 分钟（最多 7 天），默认 1440 分钟（24 小时）。', '15–10080 minutes (up to 7 days). The default is 1440 minutes (24 hours).') }}</small></label>
-      <template v-if="refreshDraft.mode === 'daily'">
-        <label>{{ copy('每天刷新时间', 'Daily refresh time') }}<input v-model="refreshDraft.time" type="time" :disabled="pending" data-testid="software-refresh-time"></label>
-        <label>{{ copy('时区', 'Time zone') }}<input v-model="refreshDraft.timeZone" :disabled="pending" data-testid="software-refresh-time-zone"><small>{{ copy(`本机时区：${localTimeZone}。时间按此处保存的时区解释。`, `Local time zone: ${localTimeZone}. The saved time zone determines the daily schedule.`) }}</small></label>
-      </template>
+      <div class="settings-form-group">
+        <label class="settings-form-row"><span class="settings-form-label">{{ copy('刷新方式', 'Refresh mode') }}</span><select v-model="refreshDraft.mode" :disabled="pending" data-testid="software-refresh-mode"><option value="manual">{{ copy('仅手动', 'Manual only') }}</option><option value="interval">{{ copy('按间隔', 'At an interval') }}</option><option value="daily">{{ copy('每天指定时间', 'At a daily time') }}</option></select></label>
+        <label v-if="refreshDraft.mode === 'interval'" class="settings-form-row"><span class="settings-form-label">{{ copy('间隔（分钟）', 'Interval (minutes)') }}</span><input v-model.number="refreshDraft.intervalMinutes" type="number" min="15" max="10080" step="1" :disabled="pending" data-testid="software-refresh-interval"><small class="settings-form-caption">{{ copy('15–10080 分钟（最多 7 天），默认 1440 分钟（24 小时）。', '15–10080 minutes (up to 7 days). The default is 1440 minutes (24 hours).') }}</small></label>
+        <template v-if="refreshDraft.mode === 'daily'">
+          <label class="settings-form-row"><span class="settings-form-label">{{ copy('每天刷新时间', 'Daily refresh time') }}</span><input v-model="refreshDraft.time" type="time" :disabled="pending" data-testid="software-refresh-time"></label>
+          <label class="settings-form-row"><span class="settings-form-label">{{ copy('时区', 'Time zone') }}</span><input v-model="refreshDraft.timeZone" :disabled="pending" data-testid="software-refresh-time-zone"><small class="settings-form-caption">{{ copy(`本机时区：${localTimeZone}。时间按此处保存的时区解释。`, `Local time zone: ${localTimeZone}. The saved time zone determines the daily schedule.`) }}</small></label>
+        </template>
+      </div>
       <p class="repository-help">{{ copy('客户端运行时自动检查；关闭期间错过的计划会在下次启动时补查。所有模式均可随时使用“立即刷新”。', 'Schedules are checked while the client is running, with missed checks caught up at the next startup. Refresh now remains available in manual mode.') }}</p>
       <p v-if="!refreshPolicy" class="repository-error" role="status" data-testid="software-refresh-validation">{{ copy('请填写有效的分钟整数，或每天的时间与 IANA 时区。', 'Enter a valid whole-minute interval, or a daily time and IANA time zone.') }}</p>
       <p v-if="!refreshSettingsAvailable" role="status">{{ copy('此来源已不可用或不支持自动刷新，请关闭后重新选择线上来源。', 'This source is unavailable or does not support automatic refresh. Close and select an online source again.') }}</p>
@@ -319,12 +323,15 @@ async function remove(source: SoftwareSource): Promise<void> {
 .repository-row > a { font-size: 12px; overflow-wrap: anywhere; }
 .repository-row footer { margin-top: 12px; }
 .repository-error { color: var(--danger); }
+:global(.software-source-dialog) { --dialog-panel-padding: 20px; }
+:global(.software-refresh-dialog) { --dialog-panel-width: 540px; min-height: min(360px, calc(100dvh - 64px)); }
+:global(.software-refresh-dialog .dialog-panel-body) { flex: 1; }
 .software-source-form { display: grid; gap: 14px; }
-.software-source-form > label { display: grid; gap: 6px; font-size: 13px; }
-.software-source-form input, .software-source-form select { width: 100%; min-width: 0; padding: 8px 10px; color: var(--text); background: var(--panel); border: 1px solid var(--border); border-radius: 6px; }
-.software-source-form small, .repository-help { color: var(--muted); font-size: 12px; line-height: 1.6; }
+.software-source-form > .ui-button { justify-self: start; }
+.repository-help { margin: 0; color: var(--muted); font-size: var(--font-size-caption); line-height: var(--line-height-caption); }
 .repository-folder { display: flex; align-items: center; gap: 8px; }
 .repository-folder input { flex: 1; }
+.repository-folder .ui-button { flex: none; }
 .repository-preview { border: 1px solid var(--border); padding: 12px; border-radius: 8px; }
 .repository-preview h3 { margin: 0; font-size: 14px; }
 .repository-preview p { overflow-wrap: anywhere; font-size: 12px; }

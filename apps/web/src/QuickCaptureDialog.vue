@@ -188,8 +188,11 @@ onUnmounted(() => { generation++; clearTimeout(polling) })
       <div class="capture-tools"><span>{{ copy('识别日期、#列表、!重要', 'Dates, #list, !important') }}</span><UiButton variant="ghost" size="compact" :disabled="busy || !aiAvailable || !text.trim() || loading" @click="analyze"><Icon :name="analyzing ? 'loading' : 'skill'" />{{ analyzing ? copy('正在理解…', 'Understanding…') : copy('AI 理解', 'Understand with AI') }}</UiButton></div>
       <div class="capture-preview">
         <h3>{{ copy('保存预览', 'Review before saving') }}</h3>
-        <label class="capture-label capture-title">{{ copy('标题', 'Title') }}<input v-model="draft.title" :disabled="busy" maxlength="500" required></label>
-        <div class="capture-fields"><label class="capture-label"><span><Icon name="list" />{{ copy('微软列表', 'Microsoft list') }}</span><select v-model="draft.listId" :disabled="busy || loading"><option v-for="list in lists" :key="list.id" :value="list.id">{{ list.title }}</option></select></label><label class="capture-label"><span><Icon name="calendar" />{{ copy('日期与时间', 'Date and time') }}</span><input :value="draft.dueLocal ?? ''" type="datetime-local" :disabled="busy" @input="draft.dueLocal = ($event.target as HTMLInputElement).value || null"></label></div>
+        <div class="capture-fields settings-form-group">
+          <label class="capture-title settings-form-row"><span class="settings-form-label">{{ copy('标题', 'Title') }}</span><input v-model="draft.title" :disabled="busy" maxlength="500" required></label>
+          <label class="settings-form-row"><span class="settings-form-label"><Icon name="list" />{{ copy('微软列表', 'Microsoft list') }}</span><select v-model="draft.listId" :disabled="busy || loading"><option v-for="list in lists" :key="list.id" :value="list.id">{{ list.title }}</option></select></label>
+          <label class="settings-form-row"><span class="settings-form-label"><Icon name="calendar" />{{ copy('日期与时间', 'Date and time') }}</span><input :value="draft.dueLocal ?? ''" type="datetime-local" :disabled="busy" @input="draft.dueLocal = ($event.target as HTMLInputElement).value || null"></label>
+        </div>
         <div class="capture-toggles">
           <label class="capture-important" :class="{ selected: draft.important }"><input v-model="draft.important" type="checkbox" :disabled="busy"><Icon :name="draft.important ? 'starFilled' : 'star'" />{{ copy('重要', 'Important') }}</label>
           <label v-if="draft.dueLocal" class="capture-important" :class="{ selected: draft.remind }"><input v-model="draft.remind" type="checkbox" :disabled="busy"><Icon name="calendar" />{{ copy('到时提醒', 'Remind me') }}</label>
@@ -204,36 +207,32 @@ onUnmounted(() => { generation++; clearTimeout(polling) })
       <p v-if="shortcutRegistered === false" class="capture-warning">{{ copy('全局快捷键被其他应用占用，可从首页打开快速记录。', 'The global shortcut is unavailable. Use Quick capture on Home.') }}</p>
 
     </form>
-          <template #footer><div class="capture-actions"><span>{{ copy('⌘ / Ctrl + Enter 保存', '⌘ / Ctrl + Enter to save') }}</span><UiButton variant="primary" type="submit" :form="formId" :disabled="disabled">{{ saving ? copy('正在保存…', 'Saving…') : copy('保存到微软 To Do', 'Save to Microsoft To Do') }}</UiButton></div></template>
+    <template #footer><div class="capture-actions"><span>{{ copy('⌘ / Ctrl + Enter 保存', '⌘ / Ctrl + Enter to save') }}</span><UiButton variant="primary" type="submit" :form="formId" :disabled="disabled">{{ saving ? copy('正在保存…', 'Saving…') : copy('保存到微软 To Do', 'Save to Microsoft To Do') }}</UiButton></div></template>
   </DialogShell>
 </template>
 
 <style>
-.capture-dialog { --dialog-panel-width: 540px; --dialog-panel-padding: 20px; border-radius: 18px; }
-.capture-dialog .dialog-panel-header { align-items: center; padding-bottom: 14px; background: var(--surface-subtle); }
-.capture-dialog .dialog-panel-header h2 { font-size: 18px; letter-spacing: -.3px; }
-.capture-dialog .dialog-panel-header p { font-size: 12px; }
-.capture-dialog .dialog-panel-body { padding-top: 8px; }
+.capture-dialog { --dialog-panel-width: 540px; --dialog-panel-padding: 20px; }
+.capture-dialog .dialog-panel-header { align-items: center; }
 .capture-form { display: grid; gap: 10px; }
-.capture-connection, .capture-tools, .capture-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--muted); font-size: 11px; }
+.capture-connection, .capture-tools, .capture-actions { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 12px; color: var(--muted); font-size: var(--font-size-caption); line-height: var(--line-height-caption); }
 .capture-connection > span { display: inline-flex; gap: 5px; align-items: center; }
 .capture-connection .app-icon { width: 13px; height: 13px; }
-.capture-connection .ui-button--icon { width: 28px; height: 28px; }
+.capture-connection .ui-button--icon { width: var(--control-height-compact); height: var(--control-height-compact); }
 .capture-connection .connected, .capture-success { color: var(--success); }
-.capture-label { display: grid; gap: 5px; font-size: 11px; color: var(--muted); min-width: 0; }
+.capture-label { display: grid; gap: 5px; font-size: var(--font-size-caption); color: var(--muted); min-width: 0; }
 .capture-label > span { display: inline-flex; align-items: center; gap: 5px; }
 .capture-label > span .app-icon { width: 13px; height: 13px; }
-.capture-label input, .capture-label textarea, .capture-label select { width: 100%; min-width: 0; box-sizing: border-box; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); padding: 8px 10px; font: inherit; font-size: 13px; }
+.capture-label input, .capture-label textarea, .capture-label select { width: 100%; min-width: 0; box-sizing: border-box; border: 1px solid var(--border-strong); border-radius: var(--control-radius); background: var(--surface); color: var(--text); padding: 6px 10px; font: inherit; font-size: var(--font-size-body); }
 .capture-label input:focus-visible, .capture-label textarea:focus-visible, .capture-label select:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
 .capture-label textarea { resize: vertical; max-height: 180px; }
 .capture-composer > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
-.capture-composer textarea { background: var(--surface-subtle); font-size: 15px; line-height: 1.6; padding: 12px; min-height: 76px; }
+.capture-composer textarea { background: var(--surface); font-size: var(--font-size-body); line-height: var(--line-height-body); padding: 10px 12px; min-height: 76px; }
 .capture-tools { margin-top: -6px; }
-.capture-preview { display: grid; gap: 12px; border-top: 1px solid var(--border); padding-top: 12px; }
+.capture-preview { display: grid; min-width: 0; gap: 12px; border-top: 1px solid var(--border); padding-top: 12px; }
 .capture-preview h3 { margin: 0; font-size: 12px; font-weight: 600; }
-.capture-fields { display: grid; grid-template-columns: 1fr 1.2fr; gap: 12px; }
 .capture-toggles { display: flex; flex-wrap: wrap; gap: 8px; }
-.capture-important { position: relative; display: inline-flex; align-items: center; gap: 6px; padding: 6px 9px; border: 1px solid var(--border); border-radius: 7px; font-size: 12px; color: var(--text-secondary); cursor: pointer; }
+.capture-important { position: relative; display: inline-flex; min-height: 28px; align-items: center; gap: 6px; padding: 4px 9px; border: 1px solid var(--border); border-radius: var(--control-radius); font-size: var(--font-size-caption); color: var(--text-secondary); cursor: pointer; }
 .capture-important input { position: absolute; opacity: 0; width: 1px; height: 1px; }
 .capture-important:has(:focus-visible) { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 .capture-important:has(:disabled) { cursor: default; opacity: .5; }
@@ -245,12 +244,18 @@ onUnmounted(() => { generation++; clearTimeout(polling) })
 .capture-notes summary .app-icon { width: 14px; height: 14px; }
 .capture-notes summary .app-icon:last-child { margin-left: auto; }
 .capture-notes[open] summary .app-icon:last-child { transform: rotate(180deg); }
-.capture-hint { color: var(--muted); font-size: 11px; margin: -6px 0 0; line-height: 1.5; }
+.capture-hint { color: var(--muted); font-size: var(--font-size-caption); margin: -6px 0 0; line-height: var(--line-height-caption); }
 .capture-warning, .capture-success { font-size: 12px; overflow-wrap: anywhere; margin: 0; line-height: 1.6; }
 .capture-warning { color: var(--warning); }
 .capture-authorization { display: grid; gap: 10px; padding: 12px; background: var(--surface-subtle); border-radius: 8px; font-size: 12px; }
 .capture-authorization p { margin: 0; }
 .capture-actions { width: 100%; }
 .capture-actions > button { flex: none; }
-@media (max-width: 480px) { .capture-dialog { --dialog-panel-padding: 16px; } .capture-fields { grid-template-columns: 1fr; gap: 10px; } .capture-actions > span { display: none; } .capture-actions > button { width: 100%; } }
+@media (max-width: 600px), (pointer: coarse) {
+  .capture-dialog { --dialog-panel-padding: 16px; }
+  .capture-connection .ui-button--icon { width: 44px; height: 44px; }
+  .capture-important, .capture-notes summary, .capture-tools > .ui-button, .capture-actions > .ui-button { min-height: 44px; }
+  .capture-actions > span { display: none; }
+  .capture-actions > button { width: 100%; }
+}
 </style>

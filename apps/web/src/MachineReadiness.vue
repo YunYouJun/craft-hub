@@ -120,20 +120,21 @@ const recheck = () => void machine.refresh({ force: true, refreshKey: props.refr
 <style scoped>
 .machine-readiness { display: grid; gap: 12px; min-width: 0; border: 1px solid var(--border); border-radius: var(--panel-radius); padding: 14px 16px; background: var(--surface); }
 .readiness-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
-.readiness-header h2 { margin: 0; font-size: var(--font-size-body); font-weight: 600; line-height: 22px; }
+.readiness-header h2 { margin: 0; font-size: var(--font-size-subheading); font-weight: 600; line-height: 22px; }
 .readiness-header p { margin: 2px 0 0; color: var(--muted); font-size: var(--font-size-caption); line-height: 16px; }
 .readiness-header :deep(.app-icon) { width: 14px; height: 14px; }
 .readiness-overview { display: grid; gap: 12px; min-width: 0; }
 .readiness-summary { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; }
-.readiness-headline { font-size: 20px; font-weight: 600; line-height: 28px; }
+.readiness-headline { font-size: var(--font-size-emphasis); font-weight: 600; line-height: var(--line-height-emphasis); }
 .readiness-headline.ready { color: var(--success); }
 .readiness-summary > span { color: var(--muted); font-size: var(--font-size-control); }
-.readiness-stages { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; }
-.readiness-stages li { display: inline-flex; align-items: center; gap: 5px; min-height: 26px; border: 1px solid var(--border); border-radius: 999px; padding: 2px 10px 2px 8px; color: var(--text); font-size: var(--font-size-caption); }
-.readiness-stages li small { color: var(--muted); font-size: inherit; font-variant-numeric: tabular-nums; }
+.readiness-stages { display: grid; gap: 0; margin: 0; padding: 0; list-style: none; }
+.readiness-stages li { display: flex; align-items: center; gap: 8px; min-height: 34px; padding: 6px 0; color: var(--text); font-size: var(--font-size-caption); }
+.readiness-stages li + li { border-top: 1px solid var(--border); }
+.readiness-stages li small { margin-left: auto; color: var(--muted); font-size: inherit; font-variant-numeric: tabular-nums; }
 .readiness-stages li :deep(.app-icon) { flex: none; width: 13px; height: 13px; color: var(--muted); }
 .readiness-stages li.done :deep(.app-icon) { color: var(--success); }
-.readiness-next { display: grid; justify-items: start; gap: 4px; border-left: 3px solid var(--accent); border-radius: 4px; padding: 10px 12px; background: var(--surface-subtle); }
+.readiness-next { display: grid; justify-items: start; gap: 4px; border-top: 1px solid var(--border); padding: 12px 0 0; }
 .readiness-label { color: var(--muted); font-size: var(--font-size-caption); font-weight: 500; }
 .readiness-next strong { font-size: var(--font-size-emphasis); font-weight: 600; line-height: 1.4; overflow-wrap: anywhere; }
 .readiness-next p { display: -webkit-box; margin: 0; overflow: hidden; color: var(--muted); font-size: var(--font-size-caption); line-height: 1.6; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }

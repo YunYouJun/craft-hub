@@ -3,7 +3,7 @@
 }
 
 :root[data-desktop-platform='darwin'] {
-  --workbench-toolbar-height: 52px;
+  --workbench-toolbar-height: 48px;
   font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif;
   /* Match AppKit's grayscale text rendering, most visible on light text in dark mode. */
   -webkit-font-smoothing: antialiased;
@@ -66,9 +66,9 @@
   }
 
   :root[data-desktop-platform='darwin'][data-desktop-window-material='sidebar'] .project-rail {
-    --rail: color-mix(in srgb, var(--ylf-admin-bg) var(--desktop-sidebar-tint), transparent);
-    --activity-rail: color-mix(in srgb, var(--ylf-admin-inset) var(--desktop-sidebar-tint), transparent);
-    --workbench-sidebar-background: color-mix(in srgb, var(--ylf-admin-bg) var(--desktop-sidebar-tint), transparent);
+    --rail: color-mix(in srgb, var(--surface-muted) var(--desktop-sidebar-tint), transparent);
+    --activity-rail: color-mix(in srgb, var(--surface-subtle) var(--desktop-sidebar-tint), transparent);
+    --workbench-sidebar-background: color-mix(in srgb, var(--surface-muted) var(--desktop-sidebar-tint), transparent);
   }
 
   /* Zero-specificity fallback: regions beside the sidebar that relied on the body color stay opaque. */

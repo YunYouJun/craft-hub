@@ -166,7 +166,6 @@ async function reloadDraft(): Promise<void> {
 <template>
   <section class="home-tools" :aria-label="copy('常用工具', 'Favorite tools')" :class="{ compact }">
     <div class="home-section-heading"><h2>{{ compact ? copy('常用工具', 'Favorite tools') : copy('已收藏工具', 'Saved tools') }}</h2><button v-if="compact" class="home-text-button" data-testid="view-all-tools" @click="emit('openNavigation')">{{ copy('查看全部工具', 'View all tools') }}<Icon name="arrowRight" /></button><UiButton v-else :disabled="saving" @click="openEditor"><Icon name="edit" />{{ copy('自定义工具', 'Customize tools') }}</UiButton></div>
-    <p v-if="!compact" class="home-hint">{{ copy('快捷启动交给 Raycast，编码会话交给 Orca。这里保留工作上下文和来源。', 'Use Raycast for quick actions and Orca for coding sessions. Keep work context and sources here.') }}</p>
     <label v-if="!compact" class="home-search"><Icon name="search" /><input v-model="query" type="search" :aria-label="copy('搜索工具', 'Search tools')" :placeholder="copy('搜索工具…', 'Search tools…')"></label>
     <SkeletonList v-if="toolsLoading" :label="copy('正在读取工具设置…', 'Loading tool settings…')" :rows="4" icon />
     <p v-if="toolsError" class="home-error" role="alert">{{ toolsError }} <button class="home-text-button" @click="ensureSettings">{{ copy('重试', 'Retry') }}</button></p>
@@ -201,8 +200,8 @@ async function reloadDraft(): Promise<void> {
 </template>
 
 <style scoped>
-.home-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 28px; margin-bottom: 12px; }
-.home-section-heading h2 { margin: 0; font-size: var(--font-size-subheading); font-weight: 600; line-height: 22px; }
+.home-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 40px; border-bottom: 1px solid var(--border); }
+.home-section-heading h2 { margin: 0; font-size: 14px; font-weight: 600; line-height: 20px; }
 .home-text-button { display: inline-flex; align-items: center; justify-content: center; gap: 5px; min-height: 28px; border: 0; border-radius: 4px; padding: 3px 0; background: none; color: var(--accent); font: inherit; font-size: var(--font-size-control); cursor: pointer; }
 .home-text-button:hover { text-decoration: underline; }
 .home-text-button > .app-icon { flex: none; width: 14px; height: 14px; }
@@ -213,26 +212,26 @@ async function reloadDraft(): Promise<void> {
 .home-hint, .home-error { margin: 8px 0; font-size: var(--font-size-caption); line-height: 1.6; color: var(--muted); overflow-wrap: anywhere; }
 .home-error { color: var(--danger); }
 .home-hint .home-text-button, .home-error .home-text-button { margin-left: 6px; }
-.home-tools > .home-hint:first-of-type { margin: -4px 0 16px; }
-.home-tools > .home-search { margin-bottom: 20px; }
+.home-tools > .home-search { margin-block: 10px; }
 .home-search { display: flex; align-items: center; gap: 8px; border: 1px solid var(--border); border-radius: var(--control-radius); padding: 0 10px; height: var(--control-height-default); background: var(--surface-subtle); color: var(--muted); }
 .home-search > .app-icon { flex: none; width: 15px; height: 15px; }
 .home-search input { width: 100%; min-width: 0; border: 0; outline: 0; padding: 0; background: transparent; color: var(--text); font: inherit; font-size: var(--font-size-control); }
 .home-search:focus-within { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
-.home-tool-groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 370px), 1fr)); gap: 20px 24px; }
+.home-tool-groups { display: grid; grid-template-columns: 1fr; gap: 8px; padding-block: 6px; }
 .home-tool-group { min-width: 0; }
-.home-tool-group h3 { display: flex; align-items: center; gap: 10px; margin: 0 0 10px; font-size: var(--font-size-body); font-weight: 600; line-height: 20px; }
-.home-tool-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 170px), 1fr)); gap: 8px; }
-.home-tool { display: flex; align-items: center; gap: 10px; min-width: 0; min-height: 64px; padding: 10px; border: 0; border-radius: var(--control-radius); color: var(--text); background: var(--surface-subtle); text-decoration: none; }
-.home-tool:hover { background: var(--surface-hover); }
-.home-tool-card { display: grid; grid-template-rows: 64px 32px; padding-bottom: 8px; min-width: 0; border: 0; border-radius: var(--control-radius); background: var(--surface-subtle); }
+.home-tool-group h3 { display: flex; align-items: center; gap: 8px; margin: 0; padding-block: 6px 2px; color: var(--text-secondary); font-size: 12px; font-weight: 500; line-height: 18px; }
+.home-tool-grid { display: grid; grid-template-columns: 1fr; }
+.home-tool { display: flex; flex: 1; align-items: center; gap: 8px; min-width: 0; min-height: 48px; padding: 6px 0; border: 0; border-radius: var(--control-radius); color: var(--text); background: transparent; text-decoration: none; }
+.home-tool-card { display: flex; align-items: center; min-width: 0; border: 0; border-radius: 0; }
+.home-tool-card + .home-tool-card { border-top: 1px solid var(--border); }
 .home-tool-card:hover, .home-tool-card:focus-within { background: var(--surface-hover); }
-.home-tool-card > .home-tool { background: transparent; }
-.home-tool-links { padding: 0 10px 0 52px; }
+.home-tool-mark { --software-icon-size: 28px; }
+.home-tool-links { flex: none; padding-left: 8px; }
+.home-tool-links :deep(a) { width: 28px; height: 28px; }
 .home-tool-copy { min-width: 0; flex: 1; }
 .home-tool strong, .home-tool small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.home-tool strong { font-size: var(--font-size-body); font-weight: 500; line-height: 20px; }
-.home-tool small { margin-top: 2px; color: var(--muted); font-size: var(--font-size-caption); line-height: 16px; }
+.home-tool strong { font-size: 14px; font-weight: 500; line-height: 20px; }
+.home-tool small { margin-top: 1px; color: var(--muted); font-size: 12px; line-height: 16px; }
 .home-tool > .app-icon { flex: none; width: 13px; height: 13px; color: var(--muted); }
 .home-tools-form { display: grid; gap: 16px; }
 .home-tool-editor { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 12px; min-width: 0; margin: 0; padding: 16px; border: 1px solid var(--border); border-radius: var(--panel-radius); background: var(--surface); }
@@ -244,21 +243,8 @@ async function reloadDraft(): Promise<void> {
 .home-tool-editor input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .home-url-field { grid-column: 1 / -1; }
 .home-remove-tool { justify-self: start; border: 0; padding: 4px 0; background: none; color: var(--danger); font: inherit; font-size: var(--font-size-control); cursor: pointer; }
-.home-tools { min-width: 0; border: 1px solid var(--border); border-radius: var(--panel-radius); padding: 20px; background: var(--surface); }
-.home-tools.compact { padding: 12px 16px; }
-.compact .home-section-heading { gap: 8px; margin-bottom: 8px; }
-.compact .home-section-heading h2 { font-size: var(--font-size-body); }
-.compact .home-tool-groups { grid-template-columns: 1fr; gap: 12px; }
-.compact .home-tool-group h3 { margin-bottom: 4px; color: var(--text-secondary); font-size: var(--font-size-caption); font-weight: 500; }
-.compact .home-tool-grid { grid-template-columns: 1fr; gap: 0; }
-.compact .home-tool-card { display: flex; align-items: center; padding: 0; background: transparent; border-radius: 0; }
-.compact .home-tool-card + .home-tool-card { border-top: 1px solid var(--border); }
-.compact .home-tool-card:hover, .compact .home-tool-card:focus-within { background: var(--surface-hover); }
-.compact .home-tool { flex: 1; min-height: 50px; padding: 6px 0; gap: 8px; }
-.compact .home-tool-mark { --software-icon-size: 32px; }
-.compact .home-tool strong { font-size: 13px; }
-.compact .home-tool-links { flex: none; padding: 0 0 0 4px; }
-.compact .home-tool-links :deep(a) { width: 26px; height: 30px; }
+.home-tools { min-width: 0; border: 1px solid var(--border); border-radius: var(--panel-radius); padding: 0 12px; background: var(--surface); }
+.compact .home-section-heading { gap: 8px; }
 .compact .home-tool > .app-icon { display: none; }
 .home-icon-button { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border: 0; border-radius: var(--control-radius); color: var(--muted); background: transparent; cursor: pointer; }
 .home-icon-button > .app-icon { width: 15px; height: 15px; }
@@ -266,7 +252,13 @@ async function reloadDraft(): Promise<void> {
 .home-icon-button:disabled { opacity: .55; cursor: default; }
 .home-text-button:focus-visible, .home-icon-button:focus-visible, .home-tool:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 @media (max-width: 767.9px), (pointer: coarse) { .home-tool-editor input, .home-tool-editor select { font-size: 16px; } }
-@media (max-width: 600px) { .home-tools { padding: 16px; } .home-tool-editor { grid-template-columns: 1fr; } .home-tool-grid { grid-template-columns: 1fr; } }
+@media (max-width: 600px) {
+  .home-section-heading { flex-wrap: wrap; gap: 4px 8px; padding-block: 4px; }
+  .home-tool-editor { grid-template-columns: 1fr; }
+  .home-tool-card { flex-wrap: wrap; }
+  .home-tool { flex-basis: 200px; }
+  .home-tool-links { margin-left: auto; }
+}
 </style>
 
 <style>

@@ -706,8 +706,8 @@ async function createWindow(): Promise<void> {
     // Reveal the window after its first styled frame so launch never shows an empty background.
     show: false,
     titleBarStyle: process.platform === 'darwin' ? 'hidden' : 'default',
-    // Center the 14px native controls in the renderer's 52px macOS toolbar.
-    ...(process.platform === 'darwin' ? { trafficLightPosition: { x: 16, y: 19 }, titleBarOverlay: true } : {}),
+    // Center the 14px native controls in the renderer's 48px macOS toolbar.
+    ...(process.platform === 'darwin' ? { trafficLightPosition: { x: 16, y: 17 }, titleBarOverlay: true } : {}),
     ...appearance,
     webPreferences: {
       additionalArguments,

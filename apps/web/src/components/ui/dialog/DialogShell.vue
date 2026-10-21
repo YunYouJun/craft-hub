@@ -63,18 +63,22 @@ const slots = useSlots()
   font-size: var(--font-size-body);
   line-height: var(--line-height-emphasis);
 }
-.dialog-panel-header { display: flex; flex: none; align-items: flex-start; justify-content: space-between; gap: var(--space-3); border-bottom: 1px solid var(--border); padding: var(--dialog-panel-padding); }
+.dialog-panel-header { display: flex; flex: none; align-items: flex-start; justify-content: space-between; gap: var(--space-3); padding: var(--dialog-panel-padding) var(--dialog-panel-padding) var(--space-4); }
 .dialog-panel-header > div { min-width: 0; }
 .dialog-panel-header > button { flex: none; }
 .dialog-panel .dialog-panel-header h2 { font-size: var(--dialog-title-size); font-weight: 600; line-height: var(--line-height-heading-md); }
-.dialog-panel-header p { margin: var(--space-1) 0 0; color: var(--muted); font-size: var(--font-size-body); }
-.dialog-panel-body { min-height: 0; min-width: 0; overflow: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent; padding: var(--dialog-panel-padding); overflow-wrap: anywhere; }
-.dialog-panel-footer { display: flex; flex: none; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: var(--space-2); border-top: 1px solid var(--border); background: var(--surface-subtle); padding: var(--space-3) var(--dialog-panel-padding); }
+.dialog-panel-header p { margin: var(--space-1) 0 0; color: var(--muted); font-size: var(--font-size-caption); line-height: var(--line-height-caption); }
+.dialog-panel-body { min-height: 0; min-width: 0; overflow: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent; padding: 0 var(--dialog-panel-padding) var(--dialog-panel-padding); overflow-wrap: anywhere; }
+.dialog-panel-footer { display: flex; min-height: 52px; flex: none; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: var(--space-2); border-top: 1px solid var(--border); background: var(--surface-subtle); padding: var(--space-3) var(--dialog-panel-padding); }
 .dialog-panel-footer > .ui-button--default { min-width: var(--dialog-action-min-width); }
 .dialog-action-pair { display: grid; grid-template-columns: repeat(2, minmax(var(--dialog-action-pair-min-width), 1fr)); width: fit-content; max-width: 100%; gap: var(--space-2); }
 .dialog-action-pair > .ui-button { width: 100%; min-width: 0; }
 @media (max-width: 760px), (pointer: coarse) {
   .dialog-panel-header > button:not(.ui-button) { min-height: var(--control-height-default); }
   .dialog-action-pair { width: 100%; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 600px), (pointer: coarse) {
+  .dialog-panel-header > .ui-button--icon { width: 44px; height: 44px; }
+  .dialog-panel-footer > .ui-button, .dialog-panel-footer .dialog-action-pair > .ui-button { min-height: 44px; }
 }
 </style>

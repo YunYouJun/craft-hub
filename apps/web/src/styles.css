@@ -4,12 +4,13 @@
 @import './styles/command-palette.css';
 @import './styles/workbench-view.css';
 @import './styles/daily-workbench.css';
+@import './styles/settings-form.css';
 @import './styles/overlay-motion.css';
 @import './styles/content-motion.css';
 @import './styles/marketplace.css';
 
 :root {
-  --workbench-toolbar-height: 44px;
+  --workbench-toolbar-height: 48px;
   color: var(--text);
   background: var(--surface);
   font-family: var(--font-body);

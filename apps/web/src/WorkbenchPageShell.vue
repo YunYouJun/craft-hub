@@ -1,17 +1,21 @@
 <script setup lang="ts">
 import { useMediaQuery } from '@vueuse/core'
 import { SplitterPanel } from 'reka-ui'
-import { inject, ref, watch } from 'vue'
+import { computed, inject, ref, watch } from 'vue'
 import { routeLocationKey } from 'vue-router'
 import Breadcrumb from './components/ui/breadcrumb/Breadcrumb.vue'
 import { useI18n } from './i18n'
 import WorkbenchSplitter from './WorkbenchSplitter.vue'
 
-defineProps<{ breadcrumbs: { label: string, to?: string }[] }>()
+const props = defineProps<{ breadcrumbs: { label: string, to?: string }[] }>()
 const { locale } = useI18n()
 const compactViewport = useMediaQuery('(max-width: 900px)')
 const content = ref<HTMLElement>()
 const scrolled = ref(false)
+// The app destination is already in primary navigation; keep paths only when they offer a useful parent to return to.
+const pagePath = computed(() => props.breadcrumbs
+  .filter((item, index) => index !== 0 || item.to !== '/overview')
+  .filter((item, index, items) => !index || item.label !== items[index - 1]?.label || (item.to && items[index - 1]?.to && item.to !== items[index - 1]?.to)))
 // A new page starts at the top; embedded hosts without a router keep the edge until the next scroll.
 const route = inject(routeLocationKey, undefined)
 watch(() => route?.fullPath, () => scrolled.value = false)
@@ -36,7 +40,7 @@ function updateScrollEdge(event: Event): void {
       <aside class="workbench-page-sidebar"><slot name="sidebar" /></aside>
     </template>
     <component :is="$slots.sidebar && !compactViewport ? SplitterPanel : 'div'" class="workbench-page-main" :order="2" size-unit="px" :min-size="350">
-      <header class="workbench-page-path" :data-scrolled="scrolled || undefined"><Breadcrumb :items="breadcrumbs" :more-label="locale === 'zh-CN' ? '展开上级页面' : 'Show parent pages'" :label="locale === 'zh-CN' ? '当前位置' : 'Breadcrumb'" /></header>
+      <header v-if="pagePath.length > 1" class="workbench-page-path" :data-scrolled="scrolled || undefined"><Breadcrumb :items="pagePath" :more-label="locale === 'zh-CN' ? '展开上级页面' : 'Show parent pages'" :label="locale === 'zh-CN' ? '当前位置' : 'Breadcrumb'" /></header>
       <div ref="content" class="workbench-page-content" @scroll.capture.passive="updateScrollEdge"><slot /></div>
     </component>
   </component>
@@ -46,7 +50,7 @@ function updateScrollEdge(event: Event): void {
 .workbench-page-shell { display: flex; min-width: 0; min-height: 0; overflow: hidden; }
 .workbench-page-main { display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; }
 .workbench-page-sidebar { display: flex; height: 100%; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; background: var(--workbench-sidebar-background); }
-.workbench-page-path { display: flex; min-height: var(--workbench-sidebar-header-height); align-items: center; padding: 8px var(--page-padding-inline); border-bottom: 1px solid transparent; background: var(--workbench-chrome); transition: border-color 160ms ease; }
+.workbench-page-path { display: flex; flex: none; min-height: 32px; align-items: center; padding: 2px var(--page-padding-inline); border-bottom: 1px solid transparent; background: var(--workbench-canvas); transition: border-color 160ms ease; }
 .workbench-page-path[data-scrolled] { border-bottom-color: var(--border); }
 .workbench-page-content { display: flex; flex: 1; min-width: 0; min-height: 0; overflow: auto; }
 .workbench-page-content > :deep(*) { flex: 1; min-width: 0; }
@@ -54,5 +58,5 @@ function updateScrollEdge(event: Event): void {
   .workbench-page-shell { flex-direction: column; }
   .workbench-page-sidebar { border-bottom: 1px solid var(--workbench-sidebar-border); }
 }
-@media (max-width: 720px) { .workbench-page-path { padding: 12px var(--page-padding-inline); } }
+@media (max-width: 760px) { .workbench-page-path { min-height: 40px; padding-block: 4px; } }
 </style>

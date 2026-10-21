@@ -61,24 +61,24 @@ const sidebarLabel = computed(() => props.sidebarCollapsed ? copy('展开侧栏'
 </template>
 
 <style scoped>
-.workbench-toolbar.workbench-titlebar { display: flex; align-items: center; justify-content: flex-start; gap: 16px; min-width: 0; min-height: 44px; padding: 6px 12px; background: var(--workbench-chrome); border-bottom: 1px solid var(--border); }
+.workbench-toolbar.workbench-titlebar { display: flex; align-items: center; justify-content: flex-start; gap: 14px; min-width: 0; min-height: var(--workbench-toolbar-height); padding: 7px 12px; background: var(--workbench-chrome); border-bottom: 1px solid var(--border); }
 .workbench-toolbar.workbench-titlebar.desktop-mac { padding-left: 86px; -webkit-app-region: drag; }
 .toolbar-leading, .toolbar-palette-controls, .toolbar-trailing, .toolbar-history { display: flex; align-items: center; gap: 4px; min-width: 0; }
 .toolbar-leading, .toolbar-trailing { flex: none; }
-.toolbar-palette-controls { flex: 1; justify-content: center; gap: 12px; }
+.toolbar-palette-controls { flex: 1; justify-content: center; gap: 14px; }
 .toolbar-trailing { gap: 8px; margin-left: auto; -webkit-app-region: no-drag; }
-.workbench-toolbar.workbench-titlebar button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-width: 0; height: 32px; padding: 0 8px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--text-secondary); font-size: 12px; font-weight: 400; line-height: 1.4; cursor: pointer; -webkit-app-region: no-drag; }
+.workbench-toolbar.workbench-titlebar button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-width: 0; height: 32px; padding: 0 8px; border: 1px solid transparent; border-radius: var(--control-radius); background: transparent; color: var(--text-secondary); font-size: 13px; font-weight: 400; line-height: 1.4; cursor: pointer; -webkit-app-region: no-drag; }
 .workbench-toolbar.workbench-titlebar button:hover:not(:disabled) { background: var(--surface-hover); color: var(--text); }
 .workbench-toolbar.workbench-titlebar button:disabled { opacity: .4; cursor: default; }
 .workbench-toolbar.workbench-titlebar button:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 .workbench-toolbar.workbench-titlebar .toolbar-icon-button { flex: none; width: 32px; padding: 0; }
-.toolbar-icon, .workbench-toolbar :deep(.app-icon) { flex: none; width: 17px; height: 17px; }
+.toolbar-icon, .workbench-toolbar :deep(.app-icon) { flex: none; width: 16px; height: 16px; }
 .toolbar-section-title { display: block; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-left: 6px; color: var(--text); font-size: 13px; font-weight: 600; }
-.workbench-toolbar.workbench-titlebar .titlebar-project { flex: 0 1 240px; max-width: 240px; justify-content: flex-start; }
+.workbench-toolbar.workbench-titlebar .titlebar-project { flex: 0 1 220px; max-width: 220px; justify-content: flex-start; }
 .workbench-toolbar.workbench-titlebar .titlebar-project > span:not(.app-icon) { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.workbench-toolbar.workbench-titlebar .titlebar-search { position: static; transform: none; flex: 1 1 360px; width: auto; max-width: 420px; border-color: var(--border); background: var(--surface); justify-content: flex-start; }
+.workbench-toolbar.workbench-titlebar .titlebar-search { position: static; transform: none; flex: 1 1 320px; width: auto; max-width: 360px; border-color: var(--border); background: var(--surface-muted); justify-content: flex-start; }
 .titlebar-label { flex: 1; min-width: 0; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.workbench-toolbar kbd { flex: none; color: var(--muted); font-size: 10px; font-weight: 400; }
+.workbench-toolbar kbd { flex: none; border-color: transparent; background: transparent; padding: 0 1px; color: var(--muted); font-size: 11px; font-weight: 400; }
 .workbench-toolbar.workbench-titlebar .mobile-navigation-toggle { display: none; }
 @media (min-width: 761px) and (max-width: 1080px) { .toolbar-section-title { display: none; } .toolbar-palette-controls { gap: 6px; } .workbench-toolbar.workbench-titlebar { gap: 8px; } .workbench-toolbar.workbench-titlebar .titlebar-project { max-width: 200px; } }
 @media (max-width: 760px) {
