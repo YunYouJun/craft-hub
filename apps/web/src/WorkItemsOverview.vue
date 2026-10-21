@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import type { IntegrationConnectionStatus, IntegrationEntity, IntegrationEntityPage } from 'craft-hub'
+import type { IntegrationEntity, IntegrationEntityPage } from 'craft-hub'
 import type { HomeWorkGroup, HomeWorkSource } from './personal-workbench'
 import { personalActiveWork, workItemIdentityKey } from 'craft-hub/work-items'
-import { computed, onUnmounted, ref, watch } from 'vue'
-import { api } from './api'
+import { computed, ref, watch } from 'vue'
+import { connectionKey, useHomeWorkDataStore } from './home-work-data'
 import { Button as UiButton } from './components/ui/button'
 import { SkeletonList } from './components/ui/skeleton'
 import { TabsContent, TabsList, TabsRoot, TabsTrigger } from './components/ui/tabs'
@@ -11,7 +11,6 @@ import { Icon } from './icons'
 import { useI18n } from './i18n'
 import { homeWorkGroups, homeWorkSources } from './personal-workbench'
 import { useWorkbenchStore } from './store'
-import { mergeIntegrationEntityPages } from './work-item-pagination'
 import { formatWorkItemDueDate, formatWorkItemTimestamp, workItemStatusIcon, workItemTypeIcon } from './work-item-presentation'
 import TodayFocus from './TodayFocus.vue'
 import VisualIcon from './VisualIcon.vue'
@@ -25,6 +24,7 @@ const emit = defineEmits<{
   openMarketplace: []
 }>()
 const store = useWorkbenchStore()
+const workData = useHomeWorkDataStore()
 const { locale } = useI18n()
 const copy = (zh: string, en: string) => locale.value === 'zh-CN' ? zh : en
 const sources = computed(() => homeWorkSources(store.integrationContributions, locale.value).filter(source => !props.integrations || props.integrations.includes(source.integrationId)))
@@ -45,37 +45,19 @@ function selectGroup(value: string | number): void {
 function selectSource(groupId: string, value: string | number): void {
   selectedSources.value[groupId] = String(value)
 }
-interface SourceState { page?: IntegrationEntityPage, loading: boolean, error?: string, connection?: IntegrationConnectionStatus, fetchedAt?: string, cursors: string[], expanded?: boolean, retryMore?: boolean }
-const states = ref<Record<string, SourceState>>({})
-const loading = computed(() => Object.values(states.value).some(state => state.loading))
+const states = computed(() => Object.fromEntries(sources.value.map(source => [source.key, workData.stateFor(source)])))
+const loading = computed(() => sources.value.some(source => states.value[source.key]?.loading))
 const focusEntries = computed(() => sources.value.flatMap(source => {
   const state = states.value[source.key]
-  return state?.page && !state.error && state.connection?.connected !== false ? personalActiveWork(state.page).map(item => ({ source, item })) : []
+  return state?.page && state.connection?.connected !== false ? personalActiveWork(state.page).map(item => ({ source, item })) : []
 }))
 const focusCoverage = computed(() => {
-  const loaded = sources.value.filter(source => states.value[source.key]?.page && !states.value[source.key]?.error && states.value[source.key]?.connection?.connected !== false)
+  const loaded = sources.value.filter(source => states.value[source.key]?.page && states.value[source.key]?.connection?.connected !== false)
   const complete = loaded.filter(source => states.value[source.key]?.page?.coverage === 'complete' && !states.value[source.key]?.page?.nextCursor).length
-  return copy(`已读取 ${loaded.length}/${sources.value.length} 个来源 · ${complete} 个完整载入 · 仅分析当前账号的未完成事项`, `${loaded.length}/${sources.value.length} sources read · ${complete} complete · Personal unfinished work only`)
+  const failed = loaded.filter(source => states.value[source.key]?.error).length
+  const coverage = copy(`已读取 ${loaded.length}/${sources.value.length} 个来源 · ${complete} 个完整载入 · 仅分析当前账号的未完成事项`, `${loaded.length}/${sources.value.length} sources read · ${complete} complete · Personal unfinished work only`)
+  return failed ? `${coverage} · ${copy(`${failed} 个来源更新失败，保留上次结果`, `${failed} sources could not update; showing previous results`)}` : coverage
 })
-
-let generation = 0
-const connectionChecks = new Map<string, Promise<IntegrationConnectionStatus | undefined>>()
-
-function connectionKey(source: HomeWorkSource): string {
-  return JSON.stringify([source.integrationId, source.connection?.actionId, Object.entries(source.connection?.input ?? {}).sort(([left], [right]) => left.localeCompare(right))])
-}
-
-function checkConnection(source: HomeWorkSource, requestGeneration: number): Promise<IntegrationConnectionStatus | undefined> {
-  const key = `${requestGeneration}:${connectionKey(source)}`
-  let check = connectionChecks.get(key)
-  if (!check) {
-    check = api.invokeIntegrationAction<IntegrationConnectionStatus>(source.integrationId, source.connection!.actionId, source.connection!.input)
-      .catch(() => undefined)
-      .finally(() => connectionChecks.delete(key))
-    connectionChecks.set(key, check)
-  }
-  return check
-}
 
 function disconnectedSources(group: HomeWorkGroup): HomeWorkSource[] {
   const disconnected = new Map<string, HomeWorkSource>()
@@ -100,80 +82,24 @@ function needsAttention(group: HomeWorkGroup): boolean {
   return group.sources.some(source => states.value[source.key]?.error || states.value[source.key]?.connection?.connected === false)
 }
 
+function groupLoading(group: HomeWorkGroup): boolean {
+  return group.sources.some(source => states.value[source.key]?.loading)
+}
+
 async function refreshGroup(group: HomeWorkGroup): Promise<void> {
   await Promise.allSettled(group.sources.map(source => load(source)))
 }
 
 async function load(source: HomeWorkSource, more = false): Promise<void> {
-  const state = states.value[source.key]
-  if (!state || state.loading)
-    return
-  const requestGeneration = generation
-  const cursor = more ? state.page?.nextCursor : undefined
-  if (more && !cursor)
-    return
-  state.loading = true
-  state.retryMore = more
-  state.error = undefined
-  // The last known connection stays until the new check answers, so a refresh does not flash empty lists.
-  try {
-    if (source.connection) {
-      // A failed optional status check must not prevent an otherwise usable read.
-      const connection = await checkConnection(source, requestGeneration)
-      if (generation !== requestGeneration || states.value[source.key] !== state)
-        return
-      state.connection = connection
-      if (connection?.connected === false) {
-        state.page = undefined
-        state.fetchedAt = undefined
-        state.cursors = []
-        return
-      }
-    }
-    const page = await api.invokeIntegrationAction<IntegrationEntityPage>(source.integrationId, source.actionId, { ...source.input, ...(cursor ? { cursor } : {}) })
-    if (generation !== requestGeneration || states.value[source.key] !== state)
-      return
-    if (cursor && state.page) {
-      const merged = mergeIntegrationEntityPages(state.page, page)
-      state.page = merged.page
-      if (merged.identityChanged) {
-        state.cursors = []
-        state.error = copy('来源账号已变化，已清除旧账号的分页结果。', 'Source account changed; previous account results were cleared.')
-      }
-      else { state.cursors.push(cursor) }
-    }
-    else {
-      state.page = page
-      state.cursors = []
-    }
-    if (state.page.nextCursor && state.cursors.includes(state.page.nextCursor)) {
-      state.page = { ...state.page, nextCursor: undefined, coverage: 'partial' }
-      state.retryMore = false
-      state.error = copy('来源返回了重复的分页游标，请刷新或进入来源查看。', 'The source returned a repeated cursor. Refresh or open the source.')
-    }
-    state.fetchedAt = page.fetchedAt ?? new Date().toISOString()
-    if (more)
-      state.expanded = true
-  }
-  catch {
-    if (generation === requestGeneration && states.value[source.key] === state)
-      state.error = copy('无法读取工作事项，请在集成中检查连接。', 'Could not load work items. Check the connection in this integration.')
-  }
-  finally {
-    if (generation === requestGeneration && states.value[source.key] === state)
-      state.loading = false
-  }
+  await workData.load(source, { force: !more, more })
 }
 
 async function refresh(): Promise<void> {
-  generation++
-  states.value = Object.fromEntries(sources.value.map(source => [source.key, { ...states.value[source.key], loading: false, cursors: [] }]))
   await Promise.allSettled(sources.value.map(source => load(source)))
 }
-watch([sources, () => props.refreshKey], () => {
-  generation++
-  states.value = Object.fromEntries(sources.value.map(source => [source.key, { ...states.value[source.key], loading: false, cursors: [] }]))
-  void Promise.allSettled(sources.value.map(source => load(source)))
+watch([sources, () => props.refreshKey, () => workData.revision], ([value, refreshKey], previous) => {
+  const force = Boolean(previous?.length && previous[1] !== refreshKey)
+  void Promise.allSettled(value.map(source => workData.load(source, { force })))
 }, { immediate: true })
 function visibleItems(source: HomeWorkSource): IntegrationEntity[] {
   const state = states.value[source.key]
@@ -196,7 +122,6 @@ function coverageLabel(source: HomeWorkSource): string {
     return copy('部分预览', 'Partial preview')
   return page?.coverage === 'complete' ? copy('已完整载入', 'Complete') : copy('范围未确认', 'Coverage unconfirmed')
 }
-onUnmounted(() => { generation++ })
 </script>
 
 <template>
@@ -204,7 +129,7 @@ onUnmounted(() => { generation++ })
   <section class="home-work work-items-overview daily-section" :class="{ 'is-tabbed': tabbed }">
     <div v-if="compact && !tabbed" class="home-section-heading daily-section-heading">
       <h2>{{ copy('我的工作', 'My work') }}</h2>
-      <UiButton v-if="sources.length" variant="ghost" size="icon" class="home-icon-button" :disabled="loading" :aria-label="copy('刷新我的工作', 'Refresh my work')" @click="refresh"><Icon :name="loading ? 'loading' : 'refresh'" /></UiButton>
+      <UiButton v-if="sources.length" variant="ghost" size="icon" class="home-icon-button" :aria-label="copy('刷新我的工作', 'Refresh my work')" @click="refresh"><Icon :name="loading ? 'loading' : 'refresh'" /></UiButton>
     </div>
     <div v-if="['idle', 'loading'].includes(store.integrationsLoadState) && !sources.length" class="daily-surface home-loading">
       <SkeletonList :label="copy('正在读取工作来源…', 'Loading work sources…')" icon />
@@ -222,16 +147,17 @@ onUnmounted(() => { generation++ })
     <component :is="tabbed ? TabsRoot : 'div'" class="home-work-tabs" v-bind="tabbed ? { modelValue: selectedGroup } : {}" @update:model-value="selectGroup">
       <div v-if="tabbed && groups.length" class="home-provider-bar">
         <TabsList class="home-provider-tabs" :aria-label="copy('待办来源', 'Work sources')">
-          <TabsTrigger v-for="group in groups" :key="group.integrationId" :value="group.integrationId">
+          <TabsTrigger v-for="group in groups" :key="group.integrationId" :value="group.integrationId" :aria-busy="groupLoading(group)">
             <VisualIcon :icon="group.sources[0]?.icon" fallback="list" />
             <span>{{ group.title }}</span>
+            <Icon v-if="groupLoading(group)" name="loading" class="home-tab-loading" :aria-label="copy('正在更新', 'Updating')" />
             <small v-if="groupCount(group) !== undefined" :title="copy('已载入的未完成事项', 'Loaded unfinished items')">{{ groupCount(group) }}</small>
             <Icon v-if="needsAttention(group)" name="error" class="home-tab-attention" :aria-label="copy('需要处理', 'Needs attention')" />
           </TabsTrigger>
         </TabsList>
-        <UiButton variant="ghost" size="icon" :disabled="loading" :aria-label="copy('刷新我的工作', 'Refresh my work')" @click="refresh"><Icon :name="loading ? 'loading' : 'refresh'" /></UiButton>
+        <UiButton variant="ghost" size="icon" :aria-label="copy('刷新我的工作', 'Refresh my work')" @click="refresh"><Icon :name="loading ? 'loading' : 'refresh'" /></UiButton>
       </div>
-      <component :is="tabbed ? TabsContent : 'section'" v-for="group in groups" :key="group.integrationId" v-bind="tabbed ? { value: group.integrationId, forceMount: true, hidden: selectedGroup !== group.integrationId } : {}" class="home-work-source daily-surface">
+      <component :is="tabbed ? TabsContent : 'section'" v-for="group in groups" :key="group.integrationId" v-bind="tabbed ? { value: group.integrationId, forceMount: true, hidden: selectedGroup !== group.integrationId } : {}" class="home-work-source daily-surface" :aria-busy="groupLoading(group)">
         <div v-if="!tabbed || group.sources.length === 1" class="home-group-heading home-source-heading">
           <div class="home-source-copy">
             <strong v-if="!tabbed" class="home-source-title"><VisualIcon :icon="group.sources[0]?.icon" fallback="list" />{{ group.title }}</strong>
@@ -256,7 +182,7 @@ onUnmounted(() => { generation++ })
             </TabsList>
             <UiButton variant="ghost" size="icon" :disabled="group.sources.some(source => states[source.key]?.loading)" :aria-label="`${copy('刷新', 'Refresh')} ${group.title}`" @click="refreshGroup(group)"><Icon :name="group.sources.some(source => states[source.key]?.loading) ? 'loading' : 'refresh'" /></UiButton>
           </div>
-          <component :is="tabbed && group.sources.length > 1 ? TabsContent : 'section'" v-for="source in group.sources" :key="source.key" v-bind="tabbed && group.sources.length > 1 ? { value: source.key, forceMount: true, hidden: selectedSources[group.integrationId] !== source.key } : {}" class="home-work-list" :class="{ 'home-work-list-grouped': group.sources.length > 1 }">
+          <component :is="tabbed && group.sources.length > 1 ? TabsContent : 'section'" v-for="source in group.sources" :key="source.key" v-bind="tabbed && group.sources.length > 1 ? { value: source.key, forceMount: true, hidden: selectedSources[group.integrationId] !== source.key } : {}" class="home-work-list" :aria-busy="Boolean(states[source.key]?.loading)" :class="{ 'home-work-list-grouped': group.sources.length > 1 }">
             <div v-if="group.sources.length > 1" class="home-list-heading home-source-heading">
               <div class="home-source-copy">
                 <strong v-if="!tabbed">{{ source.sectionTitle }}</strong>
@@ -269,7 +195,7 @@ onUnmounted(() => { generation++ })
               </div>
             </div>
             <SkeletonList v-if="states[source.key]?.loading && !states[source.key]?.page" :label="copy('正在读取…', 'Loading…')" icon />
-            <p v-else-if="states[source.key]?.loading" class="sr-only" role="status">{{ copy('正在读取…', 'Loading…') }}</p>
+            <p v-else-if="states[source.key]?.loading" class="home-source-progress daily-caption" role="status"><Icon name="loading" />{{ copy('后台更新中…', 'Updating…') }}</p>
             <div v-if="states[source.key]?.error" class="home-source-notice home-error" role="alert">
               <div><strong>{{ states[source.key]?.error }}</strong><p v-if="states[source.key]?.page" class="daily-caption">{{ copy('保留上次结果，可能已过期。', 'Previous results may be stale.') }}</p></div>
               <div class="home-source-actions">
@@ -347,6 +273,8 @@ onUnmounted(() => { generation++ })
 .home-provider-tabs { min-width: 0; max-width: 100%; overflow-x: auto; }
 .home-provider-tabs :deep([role='tab']) { min-height: 34px; gap: 8px; padding-inline: 12px; }
 .home-provider-tabs :deep(.visual-icon) { width: 18px; height: 18px; flex-basis: 18px; }
+.home-source-progress { display: flex; align-items: center; gap: var(--space-2); margin: 0; padding: var(--space-2) var(--space-4); }
+.home-source-progress .app-icon, .home-provider-tabs :deep(.home-tab-loading) { flex: none; width: 14px; height: 14px; color: var(--muted); }
 .home-provider-tabs :deep(small) { width: auto; padding: 0 5px; font-variant-numeric: tabular-nums; }
 .home-provider-tabs :deep(.home-tab-attention) { width: 14px; height: 14px; flex-basis: 14px; color: var(--warning); }
 .home-list-switcher { padding: 8px 16px; border-bottom: 1px solid var(--border); }
