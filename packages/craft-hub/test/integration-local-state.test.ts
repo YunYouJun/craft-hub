@@ -2,6 +2,7 @@ import type { IntegrationEntityPage, IntegrationProviderContext } from '../src/i
 import { mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
 import { IntegrationLocalState } from '../src/integration-local-state'
 import { IntegrationConfirmationRequiredError } from '../src/integrations'
@@ -200,7 +201,9 @@ describe('local integration continuity', () => {
     const [directory] = await readdir(join(f.root, 'integration-state'))
     const [name] = await readdir(join(f.root, 'integration-state', directory!))
     const path = join(f.root, 'integration-state', directory!, name!)
-    expect((await stat(path)).mode & 0o777).toBe(0o600)
+    // Windows permissions use ACLs rather than POSIX mode bits.
+    if (process.platform !== 'win32')
+      expect((await stat(path)).mode & 0o777).toBe(0o600)
     expect(JSON.parse(await readFile(path, 'utf8'))).toMatchObject(page)
     await writeFile(path, JSON.stringify({ ...page, fetchedAt: new Date(0).toISOString() }))
     expect(await local.cached('tasks', 'account', ['scope'], 'offline')).toBeUndefined()
