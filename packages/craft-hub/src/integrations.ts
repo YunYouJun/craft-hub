@@ -160,6 +160,8 @@ export interface IntegrationConnectionForm {
 }
 
 export interface IntegrationConnectionStatus {
+  /** Public grant lifetime and a provider-issued opaque cache identity; never credentials. */
+  session?: { cacheKey?: string, expiresAt?: string, renewal?: 'automatic' | 'unavailable' | 'failed', renewalExpiresAt?: string, cacheReads?: boolean }
   connected: boolean
   /** Writes are separately granted by the source account. */
   capabilities?: { create?: boolean }
@@ -223,6 +225,8 @@ export interface IntegrationEntityQuery {
 }
 
 export interface IntegrationEntityPage {
+  /** A local snapshot, with writes and remote detail actions disabled. */
+  cache?: { reason: 'preview' | 'offline' | 'authorization', readOnly: true }
   items: IntegrationEntity[]
   /** Available source containers, including empty lists; IDs match sourceRef.containerId. */
   collections?: Array<{ id: string, title: string }>
@@ -508,6 +512,15 @@ function validateWorkItem(item: IntegrationEntity, providerId: string, instanceI
 }
 
 function validateConnectionStatus(status: IntegrationConnectionStatus): IntegrationConnectionStatus {
+  if (status.session) {
+    z.object({
+      cacheKey: z.string().min(1).max(512).optional(),
+      expiresAt: z.iso.datetime({ offset: true }).optional(),
+      renewal: z.enum(['automatic', 'unavailable', 'failed']).optional(),
+      renewalExpiresAt: z.iso.datetime({ offset: true }).optional(),
+      cacheReads: z.boolean().optional(),
+    }).strict().parse(status.session)
+  }
   if (status.deviceAuthorization) {
     const device = z.object({
       verificationUrl: z.url().refine((value) => {
