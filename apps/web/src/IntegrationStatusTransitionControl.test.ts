@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 /// <reference lib="dom" />
 
-import type { IntegrationEntity } from 'craft-hub'
+import type { IntegrationActionResult, IntegrationEntity } from 'craft-hub'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -37,6 +37,8 @@ describe('integration status transition control', () => {
     const input = { type: 'task', itemId: 'native-task-1', sourceRef, title: entity.title, currentStatus: 'open' }
     expect(invoke).toHaveBeenNthCalledWith(1, 'personal-tasks', 'transitions', input, 'project-1')
     expect(invoke).toHaveBeenCalledOnce()
+    document.body.querySelector<HTMLButtonElement>('[data-transition-id="complete"]')!.click()
+    await flushPromises()
     document.body.querySelector<HTMLButtonElement>('[data-testid="confirm-status-transition"]')!.click()
     await flushPromises()
     expect(invoke).toHaveBeenNthCalledWith(2, 'personal-tasks', 'update', { ...input, transitionId: 'complete', status: 'done', fields: {} }, 'project-1', true)
@@ -81,11 +83,13 @@ describe('integration status transition control', () => {
       title: 'Login bug',
       currentStatus: 'new',
     }, 'project-1')
-    const dialog = document.body.querySelector<HTMLElement>('[data-testid="integration-status-dialog"]')!
-    expect(dialog.textContent).toContain('Accept · in_progress')
+    const dialog = document.body.querySelector<HTMLElement>('[data-testid="integration-status-popover"]')!
+    expect(dialog.textContent).toContain('Accept')
     const confirm = dialog.querySelector<HTMLButtonElement>('[data-testid="confirm-status-transition"]')!
     expect(confirm.disabled).toBe(true)
 
+    dialog.querySelector<HTMLButtonElement>('[data-transition-id="new-in-progress"]')!.click()
+    await flushPromises()
     const field = dialog.querySelector<HTMLInputElement>('input[name="owner"]')!
     field.value = 'Ada'
     field.dispatchEvent(new Event('input', { bubbles: true }))
@@ -105,5 +109,72 @@ describe('integration status transition control', () => {
       fields: { owner: 'Ada' },
     }, 'project-1', true)
     expect(wrapper.emitted('updated')).toEqual([[updated]])
+  })
+  it('opens available states beside the badge without a modal, nested select, or automatic target choice', async () => {
+    const invoke = vi.spyOn(api, 'invokeIntegrationAction').mockResolvedValue({ currentStatus: 'active', transitions: [
+      { id: 'test', title: 'Testing', fromStatus: 'active', toStatus: 'testing', requiredFields: [] },
+      { id: 'review', title: 'Review', fromStatus: 'active', toStatus: 'review', requiredFields: [] },
+    ] })
+    const wrapper = mount(IntegrationStatusTransitionControl, { props: { entity: { id: 'one', title: 'Work item', status: 'active' }, integrationId: 'tasks', transitionsActionId: 'transitions', updateActionId: 'update', trigger: 'status' }, global: { plugins: [pinia] }, attachTo: document.body })
+    await wrapper.get('button').trigger('click')
+    await flushPromises()
+    const panel = document.body.querySelector<HTMLElement>('.integration-status-popover')
+    expect(panel).not.toBeNull()
+    expect(document.body.querySelector('.dialog-overlay')).toBeNull()
+    expect(panel!.querySelector('select')).toBeNull()
+    expect(panel!.querySelectorAll('[data-transition-id]')).toHaveLength(2)
+    const confirm = panel!.querySelector<HTMLButtonElement>('[data-testid="confirm-status-transition"]')!
+    expect(confirm.disabled).toBe(true)
+    panel!.querySelector<HTMLButtonElement>('[data-transition-id="test"]')!.click()
+    await flushPromises()
+    expect(confirm.disabled).toBe(false)
+    expect(invoke).toHaveBeenCalledOnce()
+    expect(document.body.style.overflow).not.toBe('hidden')
+    wrapper.unmount()
+  })
+
+  it('ignores transitions returned after closing and reopening the dropdown', async () => {
+    let finishFirst!: (value: IntegrationActionResult) => void
+    vi.spyOn(api, 'invokeIntegrationAction')
+      .mockImplementationOnce(() => new Promise(resolve => finishFirst = resolve))
+      .mockResolvedValueOnce({ currentStatus: 'active', transitions: [{ id: 'fresh', title: 'Fresh target', fromStatus: 'active', toStatus: 'fresh', requiredFields: [] }] })
+    const wrapper = mount(IntegrationStatusTransitionControl, { props: { entity: { id: 'one', title: 'Work item', status: 'active' }, integrationId: 'tasks', transitionsActionId: 'transitions', updateActionId: 'update', trigger: 'status' }, global: { plugins: [pinia] }, attachTo: document.body })
+    const trigger = wrapper.get('.integration-status-trigger')
+    await trigger.trigger('click')
+    await flushPromises()
+    document.body.querySelector<HTMLButtonElement>('.integration-status-actions button')!.click()
+    await flushPromises()
+    await trigger.trigger('click')
+    await flushPromises()
+    finishFirst({ currentStatus: 'active', transitions: [{ id: 'old', title: 'Old target', fromStatus: 'active', toStatus: 'old', requiredFields: [] }] })
+    await flushPromises()
+    expect(document.body.querySelector('[data-transition-id="fresh"]')).not.toBeNull()
+    expect(document.body.querySelector('[data-transition-id="old"]')).toBeNull()
+    wrapper.unmount()
+  })
+
+  it('keeps the chosen target on write failure and retries only after explicit confirmation', async () => {
+    const invoke = vi.spyOn(api, 'invokeIntegrationAction')
+      .mockResolvedValueOnce({ currentStatus: 'active', transitions: [{ id: 'test', title: 'Testing', fromStatus: 'active', toStatus: 'testing', requiredFields: [] }] })
+      .mockRejectedValueOnce(new Error('Permission denied'))
+      .mockResolvedValueOnce({ id: 'one', title: 'Work item', status: 'testing' })
+    const wrapper = mount(IntegrationStatusTransitionControl, { props: { entity: { id: 'one', title: 'Work item', status: 'active' }, integrationId: 'tasks', transitionsActionId: 'transitions', updateActionId: 'update', trigger: 'status' }, global: { plugins: [pinia] }, attachTo: document.body })
+    await wrapper.get('.integration-status-trigger').trigger('click')
+    await flushPromises()
+    document.body.querySelector<HTMLButtonElement>('[data-transition-id="test"]')!.click()
+    await flushPromises()
+    const confirm = document.body.querySelector<HTMLButtonElement>('[data-testid="confirm-status-transition"]')!
+    confirm.click()
+    confirm.click()
+    await flushPromises()
+    expect(invoke).toHaveBeenCalledTimes(2)
+    expect(document.body.querySelector('[role="alert"]')?.textContent).toContain('Permission denied')
+    expect(document.body.querySelector('[data-transition-id="test"]')?.getAttribute('aria-checked')).toBe('true')
+    confirm.click()
+    await flushPromises()
+    expect(invoke).toHaveBeenCalledTimes(3)
+    expect(invoke).toHaveBeenLastCalledWith('tasks', 'update', expect.objectContaining({ status: 'testing', transitionId: 'test' }), undefined, true)
+    expect(wrapper.emitted('updated')).toHaveLength(1)
+    wrapper.unmount()
   })
 })

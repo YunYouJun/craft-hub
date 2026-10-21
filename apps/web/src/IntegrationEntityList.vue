@@ -367,7 +367,16 @@ function updatedTime(item: IntegrationEntity): { date: string, time: string, raw
             <span v-else-if="!context" class="integration-empty-value">—</span>
           </div>
           <span class="integration-entity-tail">
-            <IntegrationEntityStatus v-if="item.archived || (item.status && !(configurationActionId && item.configurationToggle))" :entity="item" />
+            <IntegrationStatusTransitionControl
+              v-if="!context && !item.archived && statusActions && item.status && item.statusUpdateAvailable !== false"
+              :entity="item" trigger="status"
+              :integration-id="statusActions.integrationId"
+              :project-id="statusActions.projectId"
+              :transitions-action-id="statusActions.transitionsActionId"
+              :update-action-id="statusActions.updateActionId"
+              @updated="emit('updated', $event)"
+            />
+            <IntegrationEntityStatus v-else-if="item.archived || (item.status && !(configurationActionId && item.configurationToggle))" :entity="item" />
           </span>
           <div class="integration-entity-actions">
             <a v-if="item.url" class="integration-original-link" :href="item.url" target="_blank" rel="noopener noreferrer" :aria-label="t('integrationOpenOriginal', { title: item.title })" :title="t('integrationOpenOriginal', { title: item.title })"><Icon name="externalLink" /></a>
@@ -383,15 +392,6 @@ function updatedTime(item: IntegrationEntity): { date: string, time: string, raw
               v-if="!context && workItemActions"
               :entity="item" :integration-id="workItemActions.integrationId"
               :project-id="workItemActions.projectId" :detail-action-id="workItemActions.detailActionId"
-            />
-            <IntegrationStatusTransitionControl
-              v-if="!context && statusActions && item.status && item.statusUpdateAvailable !== false"
-              :entity="item"
-              :integration-id="statusActions.integrationId"
-              :project-id="statusActions.projectId"
-              :transitions-action-id="statusActions.transitionsActionId"
-              :update-action-id="statusActions.updateActionId"
-              @updated="emit('updated', $event)"
             />
           </div>
         </div>
@@ -451,11 +451,13 @@ button.integration-entity-link { border: 0; background: transparent; text-align:
 .integration-child-count { flex: none; min-width: 16px; padding: 0 4px; border-radius: 4px; color: var(--muted); background: var(--surface-muted); font-size: var(--font-size-caption); text-align: center; }
 .integration-entity-priority { min-width: 0; display: flex; align-items: center; }
 .integration-empty-value { color: var(--muted); font-size: var(--font-size-control); }
-.integration-priority-badge { max-width: 100%; padding: 0 5px; line-height: 18px; border-radius: 3px; overflow-wrap: anywhere; background: var(--surface-hover); color: var(--text-secondary); font-size: var(--font-size-caption); font-weight: 500; }
-.integration-priority-badge[data-tone='danger'] { background: var(--danger-fill); color: var(--on-danger); }
-.integration-priority-badge[data-tone='warning'] { background: var(--warning-fill); color: var(--on-warning); }
-.integration-priority-badge[data-tone='success'] { background: var(--success-fill); color: var(--on-success); }
-.integration-priority-badge[data-tone='info'] { background: var(--accent); color: var(--on-accent); }
+.integration-priority-badge { --priority-color: var(--text-secondary); display: inline-flex; align-items: center; max-width: 100%; padding: 1px 7px; border: 1px solid color-mix(in srgb, var(--priority-color) 22%, var(--border)); border-radius: var(--status-badge-radius); overflow-wrap: anywhere; background: color-mix(in srgb, var(--priority-color) 9%, var(--surface)); color: color-mix(in srgb, var(--priority-color) 65%, var(--text)); font-size: var(--font-size-control); font-weight: 600; line-height: 18px; }
+.integration-priority-badge[data-tone='danger'] { --priority-color: var(--danger); }
+.integration-priority-badge[data-tone='warning'] { --priority-color: var(--warning); }
+.integration-priority-badge[data-tone='success'] { --priority-color: var(--success); }
+.integration-priority-badge[data-tone='info'] { --priority-color: var(--accent); }
+@media (prefers-contrast: more) { .integration-priority-badge { border-color: currentColor; background: var(--surface); color: var(--text); } }
+@media (forced-colors: active) { .integration-priority-badge { border-color: CanvasText; background: Canvas; color: CanvasText; } }
 .integration-updated-at { min-width: 0; color: var(--muted); font-size: var(--font-size-control); font-variant-numeric: tabular-nums; }
 .integration-updated-at time { display: grid; gap: 1px; overflow-wrap: anywhere; }
 .integration-entity-tail { display: flex; min-width: 0; align-items: center; color: var(--muted); }
