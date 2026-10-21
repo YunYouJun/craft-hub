@@ -89,6 +89,7 @@ describe('personal workbench', () => {
     store.projectsLoadState = 'ready'
     store.integrationsLoadState = 'ready'
     vi.spyOn(api, 'softwareCatalogMetadata').mockResolvedValue({ version: 1, sources: [] })
+    vi.spyOn(api, 'runtimeHealth').mockResolvedValue({ status: 'ok', projectConfigSchemaRevision: 'a'.repeat(64), distribution: { id: 'community', name: 'Craft Hub' }, hostEnvironment: { kind: 'local', capabilities: { localProjectDirectories: true, localGitSync: true } } })
     vi.spyOn(api, 'navigationPanels').mockResolvedValue([])
     vi.spyOn(api, 'workAssistantStatus').mockResolvedValue({ available: false })
     vi.spyOn(api, 'invokeIntegrationAction').mockResolvedValue({ items: [] })

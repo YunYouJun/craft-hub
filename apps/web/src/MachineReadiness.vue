@@ -17,7 +17,7 @@ const copy = (zh: string, en: string) => locale.value === 'zh-CN' ? zh : en
 const text = (value: ReadinessText) => locale.value === 'zh-CN' ? value.zh ?? value.en : value.en
 const machine = useMachineReadinessStore()
 const { setup, review, setupFailed, reviewFailed, busy } = storeToRefs(machine)
-const hosted = computed(() => store.localEnvironmentAccess === 'hosted')
+const hosted = computed(() => store.hostEnvironment.kind === 'hosted' || store.localEnvironmentAccess === 'hosted')
 const readiness = computed(() => machineReadiness({ setup: setup.value, review: review.value, setupFailed: setupFailed.value, reviewFailed: reviewFailed.value }))
 const unconfirmed = computed(() => setupFailed.value || reviewFailed.value)
 const observed = computed(() => !!setup.value || !!review.value)

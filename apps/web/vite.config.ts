@@ -42,6 +42,7 @@ export default defineConfig({
       '/api/agent-connection': localOnly,
       '/api/software': localOnly,
       '/api/setup-profile': localOnly,
+      '/api/environment/setup': localOnly,
       '/api/environment/sources': localOnly,
       '/api': 'http://127.0.0.1:4318',
     },

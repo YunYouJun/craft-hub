@@ -1647,7 +1647,37 @@ export const useMachineReadinessStore = defineStore('machine-readiness', () => {
   let generation = 0
   let pending: Promise<void> | undefined
 
+  /** Keep the last observation unconfirmed after a profile change and fence any earlier checks. */
+  function invalidate(): void {
+    generation += 1
+    completedAt = undefined
+    pending = undefined
+    busy.value = false
+    setupFailed.value = true
+    reviewFailed.value = true
+  }
+
   async function read(current: number): Promise<void> {
+    if (workbench.localEnvironmentAccess === 'idle') {
+      const health = await api.runtimeHealth().catch(() => undefined)
+      if (current !== generation)
+        return
+      if (!health?.hostEnvironment) {
+        setupFailed.value = true
+        reviewFailed.value = true
+        completedAt = Date.now()
+        busy.value = false
+        pending = undefined
+        return
+      }
+      workbench.hostEnvironment = health.hostEnvironment
+      workbench.localEnvironmentAccess = health.hostEnvironment.kind
+      if (health.hostEnvironment.kind === 'hosted') {
+        busy.value = false
+        pending = undefined
+        return
+      }
+    }
     const [setupResult, reviewResult] = await Promise.allSettled([api.environmentSetup(), api.reviewSetupProfile()])
     if (current !== generation)
       return
@@ -1667,7 +1697,7 @@ export const useMachineReadinessStore = defineStore('machine-readiness', () => {
    * {@link machineReadinessReuseMs} for the same `refreshKey` is reused instead of probing again.
    */
   function refresh(options: { force?: boolean, refreshKey?: number } = {}): Promise<void> {
-    if (workbench.localEnvironmentAccess === 'hosted')
+    if (workbench.hostEnvironment.kind === 'hosted' || workbench.localEnvironmentAccess === 'hosted')
       return Promise.resolve()
     const keyChanged = started && options.refreshKey !== observedRefreshKey
     if (!options.force && !keyChanged) {
@@ -1683,5 +1713,5 @@ export const useMachineReadinessStore = defineStore('machine-readiness', () => {
     return pending
   }
 
-  return { setup, review, setupFailed, reviewFailed, busy, refresh }
+  return { setup, review, setupFailed, reviewFailed, busy, invalidate, refresh }
 })

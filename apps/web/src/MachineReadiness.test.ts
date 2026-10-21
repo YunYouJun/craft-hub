@@ -37,6 +37,7 @@ function render(props: { refreshKey?: number } = {}) {
 beforeEach(() => {
   setActivePinia(createPinia())
   useI18n().setLocale('en')
+  vi.spyOn(api, 'runtimeHealth').mockResolvedValue({ status: 'ok', projectConfigSchemaRevision: revision, distribution: { id: 'community', name: 'Craft Hub' }, hostEnvironment: { kind: 'local', capabilities: { localProjectDirectories: true, localGitSync: true } } })
   vi.spyOn(api, 'environmentSetup').mockResolvedValue(setup(allReadySteps))
   vi.spyOn(api, 'reviewSetupProfile').mockResolvedValue(review({ software: ['ready', 'ready'], configurations: ['ready'] }))
 })
@@ -163,6 +164,44 @@ describe('machine readiness home', () => {
     await flushPromises()
     expect(api.environmentSetup).not.toHaveBeenCalled()
     expect(hosted.find('[data-testid="readiness-hosted"]').exists()).toBe(true)
+  })
+
+  it('uses runtime host facts on the initial hosted home visit before opening machine checks', async () => {
+    const workbench = useWorkbenchStore()
+    workbench.hostEnvironment = { kind: 'hosted', capabilities: { localProjectDirectories: false, localGitSync: false } }
+    expect(workbench.localEnvironmentAccess).toBe('idle')
+
+    const wrapper = render()
+    await flushPromises()
+
+    expect(api.environmentSetup).not.toHaveBeenCalled()
+    expect(api.reviewSetupProfile).not.toHaveBeenCalled()
+    expect(wrapper.find('[data-testid="readiness-hosted"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="refresh-machine-readiness"]').exists()).toBe(false)
+  })
+
+  it('waits for host identity before probing on the first home visit', async () => {
+    let identify!: (value: Awaited<ReturnType<typeof api.runtimeHealth>>) => void
+    vi.mocked(api.runtimeHealth).mockReturnValueOnce(new Promise(resolve => identify = resolve))
+    const wrapper = render()
+    await flushPromises()
+    expect(api.environmentSetup).not.toHaveBeenCalled()
+    expect(api.reviewSetupProfile).not.toHaveBeenCalled()
+
+    identify({ status: 'ok', projectConfigSchemaRevision: revision, distribution: { id: 'community', name: 'Craft Hub' }, hostEnvironment: { kind: 'hosted', capabilities: { localProjectDirectories: false, localGitSync: false } } })
+    await flushPromises()
+    expect(wrapper.find('[data-testid="readiness-hosted"]').exists()).toBe(true)
+    expect(api.environmentSetup).not.toHaveBeenCalled()
+    expect(api.reviewSetupProfile).not.toHaveBeenCalled()
+  })
+
+  it('keeps machine checks unconfirmed if host identity cannot be read', async () => {
+    vi.mocked(api.runtimeHealth).mockRejectedValueOnce(new Error('Host unavailable'))
+    const wrapper = render()
+    await flushPromises()
+    expect(api.environmentSetup).not.toHaveBeenCalled()
+    expect(api.reviewSetupProfile).not.toHaveBeenCalled()
+    expect(wrapper.get('[data-testid="readiness-summary"]').text()).toContain('Current state not confirmed')
   })
 })
 
