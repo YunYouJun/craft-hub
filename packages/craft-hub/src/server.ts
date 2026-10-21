@@ -763,6 +763,16 @@ export async function startCraftHubServer(options: CraftHubServerOptions = {}): 
         return
       }
 
+      if (request.method === 'POST' && parts[0] === 'api' && parts[1] === 'integrations' && parts[2] && parts[3] === 'view-filters' && parts.length === 4) {
+        if (!request.headers['content-type']?.startsWith('application/json') || request.headers['sec-fetch-site'] === 'cross-site')
+          return sendJson(response, 403, { error: 'View state requires a same-site JSON request' })
+        const body = await jsonBody(request)
+        if (typeof body.viewId !== 'string' || typeof body.blockId !== 'string' || (body.projectId !== undefined && typeof body.projectId !== 'string'))
+          return sendJson(response, 400, { error: 'viewId and blockId are required' })
+        const filters = await runtime.integrationViewFilters({ integrationId: parts[2], viewId: body.viewId, blockId: body.blockId, projectId: body.projectId as string | undefined, accountKey: typeof body.accountKey === 'string' ? body.accountKey : undefined, filters: body.filters })
+        return sendJson(response, 200, { filters: filters ?? null })
+      }
+
       if (request.method === 'GET' && url.pathname === '/api/integrations')
         return sendJson(response, 200, await runtime.integrationContributions())
 
