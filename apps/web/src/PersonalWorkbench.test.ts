@@ -89,9 +89,12 @@ describe('personal workbench', () => {
     store.projectsLoadState = 'ready'
     store.integrationsLoadState = 'ready'
     vi.spyOn(api, 'softwareCatalogMetadata').mockResolvedValue({ version: 1, sources: [] })
+    vi.spyOn(api, 'runtimeHealth').mockResolvedValue({ status: 'ok', projectConfigSchemaRevision: 'a'.repeat(64), distribution: { id: 'community', name: 'Craft Hub' }, hostEnvironment: { kind: 'local', capabilities: { localProjectDirectories: true, localGitSync: true } } })
     vi.spyOn(api, 'navigationPanels').mockResolvedValue([])
     vi.spyOn(api, 'workAssistantStatus').mockResolvedValue({ available: false })
     vi.spyOn(api, 'invokeIntegrationAction').mockResolvedValue({ items: [] })
+    vi.spyOn(api, 'environmentSetup').mockResolvedValue({ version: 1, checkedAt: '2026-10-20T00:00:00.000Z', profileRevision: 'a'.repeat(64), platform: 'darwin', prerequisitesReady: false, steps: [] })
+    vi.spyOn(api, 'reviewSetupProfile').mockResolvedValue({ snapshot: { version: 1, revision: 'a'.repeat(64), profile: null }, software: [], configurations: [] })
   })
 
   afterEach(() => {
@@ -102,7 +105,7 @@ describe('personal workbench', () => {
   })
 
   async function openHome(): Promise<VueWrapper> {
-    wrapper = mount(PersonalWorkbench, { attachTo: document.body })
+    wrapper = mount(PersonalWorkbench, { attachTo: document.body, global: { stubs: { RouterLink: { template: '<a><slot /></a>' } } } })
     await flushPromises()
     return wrapper
   }

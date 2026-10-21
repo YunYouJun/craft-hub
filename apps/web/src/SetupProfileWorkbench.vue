@@ -9,9 +9,11 @@ import { Button as UiButton } from './components/ui/button'
 import { Input } from './components/ui/input'
 import EnvironmentSetupGuide from './EnvironmentSetupGuide.vue'
 import { useI18n } from './i18n'
+import { useMachineReadinessStore } from './store'
 import WorkbenchViewFrame from './WorkbenchViewFrame.vue'
 
 const { locale } = useI18n()
+const machineReadiness = useMachineReadinessStore()
 const copy = (zh: string, en: string) => locale.value === 'zh-CN' ? zh : en
 const text = (value: { en: string, zh?: string }) => locale.value === 'zh-CN' ? value.zh ?? value.en : value.en
 const snapshot = ref<SetupProfileSnapshot>()
@@ -80,6 +82,7 @@ async function save(): Promise<void> {
       software: software.value.map(value => { const [sourceId, softwareId] = JSON.parse(value); return { sourceId, softwareId } }),
       configurations: configurations.value.map(value => { const [integrationId, itemId] = JSON.parse(value); return { integrationId, itemId } }),
     })
+    machineReadiness.invalidate()
     if (!mounted) return
     snapshot.value = saved
     review.value = undefined
@@ -92,6 +95,7 @@ async function importProfile(): Promise<void> {
   if (!snapshot.value) return
   await perform(async () => {
     const saved = await api.saveSetupProfile({ operation: 'import', revision: snapshot.value!.revision, profile: JSON.parse(imported.value) as SetupProfile })
+    machineReadiness.invalidate()
     if (!mounted) return
     snapshot.value = saved
     review.value = undefined

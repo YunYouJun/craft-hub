@@ -1,4 +1,4 @@
-import type { AgentActionId, AgentActionSummary, AgentTaskRecord, Capability, CapabilityDiscoveryDiagnostic, CommandInputValues, CommandInvocation, CommandPackage, HostEnvironment, InstalledPluginWorkbench, IntegrationDiagnostic, LocalEnvironmentSnapshot, OwnerScope, ProjectAccentColor, ProjectCatalogDiagnostic, ProjectChangeEvent, ProjectConfigInitializationResult, ProjectDescriptionApplication, ProjectDescriptionChange, ProjectOverview, ProjectRecord, ProjectRunSummary, ResolvedIntegrationContribution, RunRecord, SettingsSnapshot, TeamDeletionResult, TeamGitSyncStatus, UserConfigStatus, WorkbenchCodexSetting, WorkbenchDiagnosticSnapshot, WorkbenchEditorSetting, WorkbenchLocale, WorkbenchSidebarSetting, WorkbenchTheme, WorkspaceGroup, WorkspaceManifest, WorkspaceRecord } from 'craft-hub'
+import type { AgentActionId, AgentActionSummary, AgentTaskRecord, Capability, CapabilityDiscoveryDiagnostic, CommandInputValues, CommandInvocation, CommandPackage, EnvironmentSetupSnapshot, HostEnvironment, InstalledPluginWorkbench, IntegrationDiagnostic, LocalEnvironmentSnapshot, OwnerScope, ProjectAccentColor, ProjectCatalogDiagnostic, ProjectChangeEvent, ProjectConfigInitializationResult, ProjectDescriptionApplication, ProjectDescriptionChange, ProjectOverview, ProjectRecord, ProjectRunSummary, ResolvedIntegrationContribution, RunRecord, SettingsSnapshot, SetupProfileReview, TeamDeletionResult, TeamGitSyncStatus, UserConfigStatus, WorkbenchCodexSetting, WorkbenchDiagnosticSnapshot, WorkbenchEditorSetting, WorkbenchLocale, WorkbenchSidebarSetting, WorkbenchTheme, WorkspaceGroup, WorkspaceManifest, WorkspaceRecord } from 'craft-hub'
 import { projectConfigSchemaRevision } from 'craft-hub/project-config-schema-revision'
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
@@ -1626,3 +1626,92 @@ function workspaceManifest(workspace: WorkspaceRecord): WorkspaceManifest {
     members: workspace.members.map(({ project, label, pinned, discoveryHint }) => ({ project, label, pinned, discoveryHint })),
   }
 }
+
+/** How long a completed home-page machine check is reused before entering the home page probes again. */
+export const machineReadinessReuseMs = 60_000
+
+/**
+ * Keeps the last read-only machine readiness observation across home page visits.
+ * A failed or malformed read keeps the earlier observation and marks it unconfirmed.
+ */
+export const useMachineReadinessStore = defineStore('machine-readiness', () => {
+  const workbench = useWorkbenchStore()
+  const setup = ref<EnvironmentSetupSnapshot>()
+  const review = ref<SetupProfileReview>()
+  const setupFailed = ref(false)
+  const reviewFailed = ref(false)
+  const busy = ref(false)
+  let started = false
+  let completedAt: number | undefined
+  let observedRefreshKey: number | undefined
+  let generation = 0
+  let pending: Promise<void> | undefined
+
+  /** Keep the last observation unconfirmed after a profile change and fence any earlier checks. */
+  function invalidate(): void {
+    generation += 1
+    completedAt = undefined
+    pending = undefined
+    busy.value = false
+    setupFailed.value = true
+    reviewFailed.value = true
+  }
+
+  async function read(current: number): Promise<void> {
+    if (workbench.localEnvironmentAccess === 'idle') {
+      const health = await api.runtimeHealth().catch(() => undefined)
+      if (current !== generation)
+        return
+      if (!health?.hostEnvironment) {
+        setupFailed.value = true
+        reviewFailed.value = true
+        completedAt = Date.now()
+        busy.value = false
+        pending = undefined
+        return
+      }
+      workbench.hostEnvironment = health.hostEnvironment
+      workbench.localEnvironmentAccess = health.hostEnvironment.kind
+      if (health.hostEnvironment.kind === 'hosted') {
+        busy.value = false
+        pending = undefined
+        return
+      }
+    }
+    const [setupResult, reviewResult] = await Promise.allSettled([api.environmentSetup(), api.reviewSetupProfile()])
+    if (current !== generation)
+      return
+    const nextSetup = setupResult.status === 'fulfilled' && Array.isArray(setupResult.value?.steps) ? setupResult.value : undefined
+    const nextReview = reviewResult.status === 'fulfilled' && reviewResult.value?.snapshot && Array.isArray(reviewResult.value.software) && Array.isArray(reviewResult.value.configurations) ? reviewResult.value : undefined
+    setup.value = nextSetup ?? setup.value
+    setupFailed.value = !nextSetup
+    review.value = nextReview ?? review.value
+    reviewFailed.value = !nextReview
+    completedAt = Date.now()
+    busy.value = false
+    pending = undefined
+  }
+
+  /**
+   * Re-reads the setup guide and profile review. Without `force`, a check that is in flight or completed within
+   * {@link machineReadinessReuseMs} for the same `refreshKey` is reused instead of probing again.
+   */
+  function refresh(options: { force?: boolean, refreshKey?: number } = {}): Promise<void> {
+    if (workbench.hostEnvironment.kind === 'hosted' || workbench.localEnvironmentAccess === 'hosted')
+      return Promise.resolve()
+    const keyChanged = started && options.refreshKey !== observedRefreshKey
+    if (!options.force && !keyChanged) {
+      if (pending)
+        return pending
+      if (completedAt !== undefined && Date.now() - completedAt < machineReadinessReuseMs)
+        return Promise.resolve()
+    }
+    started = true
+    observedRefreshKey = options.refreshKey
+    busy.value = true
+    pending = read(++generation)
+    return pending
+  }
+
+  return { setup, review, setupFailed, reviewFailed, busy, invalidate, refresh }
+})

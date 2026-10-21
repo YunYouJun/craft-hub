@@ -44,6 +44,8 @@ describe('target Mac setup guide', () => {
     const wrapper = render()
     await flushPromises()
     expect(wrapper.text()).toContain('Action needed')
+    expect(wrapper.get('[data-testid="setup-stage-workstation.cli"]').get('[data-testid="setup-stage-waiting"]').text()).toBe('Waiting for: Homebrew')
+    expect(wrapper.get('[data-testid="setup-stage-homebrew"]').find('[data-testid="setup-stage-waiting"]').exists()).toBe(false)
     const buttons = wrapper.findAll('details button')
     expect(buttons[1].attributes('disabled')).toBeDefined()
     await buttons[0].trigger('click')
@@ -56,6 +58,7 @@ describe('target Mac setup guide', () => {
     await wrapper.get('[data-testid="refresh-setup-guide"]').trigger('click')
     await flushPromises()
     expect(wrapper.text()).toContain('Prerequisites verified.')
+    expect(wrapper.find('[data-testid="setup-stage-waiting"]').exists()).toBe(false)
   })
 
   it('retains failed observations as unconfirmed and disables stale command copying', async () => {

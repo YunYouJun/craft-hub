@@ -6,6 +6,7 @@ import { api } from './api'
 import { SkeletonList } from './components/ui/skeleton'
 import { Icon } from './icons'
 import { useI18n } from './i18n'
+import MachineReadiness from './MachineReadiness.vue'
 import { useWorkbenchStore } from './store'
 import PersonalTools from './PersonalTools.vue'
 import VisualIcon from './VisualIcon.vue'
@@ -95,6 +96,7 @@ function prepareHandoff(projectId = '', work?: { source: HomeWorkSource, item: I
 <template>
   <WorkbenchViewFrame :title="copy('首页', 'Home')" icon="builtin:hub">
     <div class="personal-home" data-testid="personal-workbench">
+      <MachineReadiness :refresh-key="props.refreshKey" />
       <div class="home-work-column"><WorkItemsOverview compact tabbed @capture="emit('capture')" :refresh-key="props.refreshKey" @prepare-handoff="work => prepareHandoff('', work)" @open-integration="(id, view, scope) => emit('openIntegration', id, view, scope)" @open-marketplace="emit('openMarketplace')" /></div>
 
       <aside class="home-support-column" :aria-label="copy('项目与工具', 'Projects and tools')">
