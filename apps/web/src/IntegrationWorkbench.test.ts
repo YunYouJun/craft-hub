@@ -284,7 +284,7 @@ describe('integration workbench', () => {
     expect(invoke).toHaveBeenCalledTimes(2)
     await vi.waitFor(() => expect(wrapper.text()).toContain('Connected'))
     expect(wrapper.text()).toContain('Review proposal')
-    expect(wrapper.get('.integration-status-trigger').text()).toBe('Change status')
+    expect(wrapper.get('.integration-status-trigger').text()).toBe('Open')
     expect(invoke).toHaveBeenCalledWith('acme-issues', 'list', { mode: 'assigned', limit: 60 }, 'project-1')
 
     wrapper.getComponent(IntegrationStatusTransitionControl).vm.$emit('updated', {
@@ -305,6 +305,61 @@ describe('integration workbench', () => {
     await flushPromises()
     expect(invoke).toHaveBeenLastCalledWith('acme-issues', 'list', { mode: 'assigned', limit: 60 }, undefined)
     expect(wrapper.getComponent(IntegrationStatusTransitionControl).props('projectId')).toBeUndefined()
+    wrapper.unmount()
+  })
+
+  it('changes a global item from its status badge only after selecting a native transition and confirming', async () => {
+    const store = workSource()
+    const source = store.integrationContributions[0]!
+    source.views[0]!.scope = 'global'
+    source.actions.push(
+      { id: 'transitions', title: 'Transitions', operation: 'work-items.transitions', effect: 'remote-read', confirmation: 'never', effectiveConfirmation: 'never' },
+      { id: 'update', title: 'Update', operation: 'work-items.update-status', effect: 'remote-write', confirmation: 'always', effectiveConfirmation: 'always' },
+    )
+    const item = { ...task('one', 'Review proposal'), status: 'developing', statusLabel: 'Developing', statusCategory: 'active' as const, statusUpdateAvailable: true }
+    const other = { ...task('two', 'Other workspace'), status: 'developing', statusLabel: 'Developing', statusCategory: 'active' as const, statusUpdateAvailable: true }
+    const invoke = vi.spyOn(api, 'invokeIntegrationAction').mockImplementation(async (_id, action) => {
+      if (action === 'transitions') {
+        return { currentStatus: 'developing', transitions: [
+          { id: 'develop-review', title: 'Review', fromStatus: 'developing', toStatus: 'review', requiredFields: [] },
+          { id: 'develop-test', title: 'Testing and experience', fromStatus: 'developing', toStatus: 'custom_testing', requiredFields: ['owner'] },
+        ] }
+      }
+      if (action === 'update')
+        return { id: item.id, title: item.title, status: 'custom_testing', statusLabel: 'Testing and experience', statusCategory: 'testing' }
+      return { items: [item, other] }
+    })
+    const wrapper = mount(IntegrationWorkbench, { props: { integrationId: 'tasks', viewId: 'work' }, global: { plugins: [pinia] }, attachTo: document.body })
+    await flushPromises()
+    const trigger = () => wrapper.get('.integration-status-badge-trigger')
+    expect(trigger().text()).toBe('Developing')
+    expect(trigger().attributes('aria-haspopup')).toBe('dialog')
+    await trigger().trigger('click')
+    await flushPromises()
+    expect(invoke).toHaveBeenLastCalledWith('tasks', 'transitions', expect.objectContaining({ itemId: '1', currentStatus: 'developing', sourceRef: item.sourceRef }), undefined)
+    const cancel = Array.from(document.body.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')).find(button => button.textContent === 'Cancel')!
+    cancel.click()
+    await flushPromises()
+    expect(invoke.mock.calls.some(call => call[1] === 'update')).toBe(false)
+
+    await trigger().trigger('click')
+    await flushPromises()
+    document.body.querySelector<HTMLButtonElement>('[data-transition-id="develop-test"]')!.click()
+    await flushPromises()
+    const confirm = document.body.querySelector<HTMLButtonElement>('[data-testid="confirm-status-transition"]')!
+    expect(document.body.querySelector('.integration-status-preview')!.textContent).toContain('Developing')
+    expect(document.body.querySelector('.integration-status-preview')!.textContent).toContain('Testing and experience')
+    expect(confirm.disabled).toBe(true)
+    const owner = document.body.querySelector<HTMLInputElement>('input[name="owner"]')!
+    owner.value = 'alice'
+    owner.dispatchEvent(new Event('input', { bubbles: true }))
+    await flushPromises()
+    expect(confirm.disabled).toBe(false)
+    confirm.click()
+    await flushPromises()
+    expect(invoke).toHaveBeenLastCalledWith('tasks', 'update', expect.objectContaining({ currentStatus: 'developing', transitionId: 'develop-test', status: 'custom_testing', fields: { owner: 'alice' }, sourceRef: item.sourceRef }), undefined, true)
+    expect(wrapper.findAll('.integration-status-badge-trigger').map(button => button.text())).toEqual(['Testing and experience', 'Developing'])
+    expect(wrapper.get('.entity-status.testing').text()).toBe('Testing and experience')
     wrapper.unmount()
   })
 

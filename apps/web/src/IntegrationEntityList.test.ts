@@ -456,6 +456,7 @@ describe('integration entity list', () => {
         items: [
           { id: 'global', title: 'Global item', status: 'Open', statusUpdateAvailable: false, url: 'https://example.com/issues/1' },
           { id: 'bound', title: 'Bound item', status: 'Open', statusUpdateAvailable: true },
+          { id: 'archived', title: 'Archived item', status: 'Open', archived: true, statusUpdateAvailable: true },
         ],
       },
     })
@@ -463,6 +464,9 @@ describe('integration entity list', () => {
     expect(rows[0]!.find('.integration-status-trigger').exists()).toBe(false)
     expect(rows[0]!.find('a').attributes('href')).toBe('https://example.com/issues/1')
     expect(rows[1]!.find('.integration-status-trigger').exists()).toBe(true)
+    expect(rows[1]!.get('.integration-entity-tail button').text()).toBe('Open')
+    expect(rows[1]!.find('.integration-entity-actions .integration-status-trigger').exists()).toBe(false)
+    expect(rows[2]!.find('.integration-status-trigger').exists()).toBe(false)
   })
 
   it('renders rich provider descriptions as safe plain text', () => {
