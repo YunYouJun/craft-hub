@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { PersonalWorkbenchTool, SoftwareCatalogItem, SoftwareCatalogSnapshot, SoftwareInstallationPlan, SoftwareInstallationRun } from 'craft-hub'
 import { personalWorkbenchHomeSchema, personalWorkbenchToolLaunchForUrl } from 'craft-hub/personal-workbench'
-import { computed, inject, onMounted, onUnmounted, ref } from 'vue'
+import { computed, inject, onMounted, onUnmounted, ref, watch } from 'vue'
 import { routeLocationKey, RouterLink } from 'vue-router'
 import { api } from './api'
 import { Alert } from './components/ui/alert'
@@ -164,6 +164,7 @@ function refreshAfterSourceChange(): void {
   else
     void loadCatalog()
 }
+watch(() => store.softwareSourcesRevision, refreshAfterSourceChange)
 onMounted(async () => {
   await loadCatalog()
   if (!mounted || route?.query.setup !== '1') return

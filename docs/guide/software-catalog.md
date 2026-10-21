@@ -34,9 +34,27 @@ branch or catalog path through the same preview flow. When changing a previous
 JSON-based source, set its path to `software.config.ts` and preview again.
 
 Refresh reads only the selected location. Failures retain the last valid cache
-and its original location/commit. Browsing and restarting Craft Hub use saved
-cache without automatically contacting repositories. Removing a source leaves
-checkouts, favorites, plugins and the bundled catalog intact.
+and its original location/commit. Each saved **Online repository** source has
+**Refresh settings** in the local client:
+
+- **Manual only** reads the source only when you choose **Refresh now**.
+- **At an interval** accepts 15–10080 whole minutes (up to seven days). The
+  default is 1440 minutes, or 24 hours, including sources saved before refresh
+  settings were available.
+- **At a daily time** uses an `HH:mm` time and a saved IANA time zone. It defaults
+  to your device's time zone, shown in the form. Changing the device's time zone
+  later does not change the saved schedule.
+
+Saving a policy only updates its schedule; it does not read the remote catalog.
+**Refresh now** remains available with every policy. The running local client
+checks schedules every minute and contacts a repository only when it is due.
+Startup also checks for missed refreshes while the client was closed. Successful
+refreshes update the open software center; failures retain the last valid catalog.
+**Local working tree** sources still refresh manually and never pull Git changes.
+Hosted workbenches can browse cached metadata and manually refresh online sources;
+automatic refresh and its settings require the local client.
+Removing a source leaves checkouts, favorites, plugins and the bundled catalog
+intact.
 
 ## Supported TypeScript
 

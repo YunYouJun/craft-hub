@@ -548,6 +548,7 @@ onBeforeMount(async () => {
       void Promise.all([store.loadOwnerScopes(), store.loadWorkspaces(), store.loadWorkbenchDiagnostics()]).catch(() => {})
     },
     onAgentTaskChange: task => store.applyAgentTask(task),
+    onSoftwareSourcesChange: () => store.notifySoftwareSourcesChanged(),
     onPluginChange: () => {
       navigationRevision.value++
       void Promise.all([store.refreshProjects(), store.loadIntegrations(), store.loadPluginWorkbenches(), store.loadWorkbenchDiagnostics()]).catch(() => {})
@@ -555,6 +556,7 @@ onBeforeMount(async () => {
     onError: () => { eventStreamConnected.value = false },
     onOpen: () => {
       eventStreamConnected.value = true
+      store.notifySoftwareSourcesChanged()
       void store.loadSettings().catch(() => {})
     },
   })

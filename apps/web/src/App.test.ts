@@ -1060,6 +1060,14 @@ describe('app startup', () => {
     expect(store.selectedProjectId).toBe('target')
     expect(FakeEventSource.instances).toHaveLength(1)
     expect(FakeEventSource.instances[0]?.url).toBe('/api/events')
+    FakeEventSource.instances[0]!.listeners.get('software-source-change')!(new MessageEvent('software-source-change', { data: JSON.stringify({ changedAt: '2026-10-21T00:00:00.000Z' }) }))
+    expect(store.softwareSourcesRevision).toBe(1)
+    const events = FakeEventSource.instances[0]!
+    events.listeners.get('open')!(new Event('open'))
+    expect(store.softwareSourcesRevision).toBe(2)
+    events.listeners.get('error')!(new Event('error'))
+    events.listeners.get('open')!(new Event('open'))
+    expect(store.softwareSourcesRevision).toBe(3)
     expect(wrapper.findAll('.workbench-splitter [data-panel]')).toHaveLength(3)
     expect(wrapper.findAll('.workbench-resize-handle')).toHaveLength(2)
     expect(wrapper.findAll('.workbench-resize-handle').map(handle => handle.attributes('aria-label'))).toEqual([

@@ -181,6 +181,11 @@ export async function startCraftHubServer(options: CraftHubServerOptions = {}): 
     void refreshSharedConfiguration().catch(() => {})
   }, 30_000)
   configurationTimer.unref()
+  let softwareSourceTimer: ReturnType<typeof setInterval> | undefined
+  const refreshSoftwareSources = async (): Promise<void> => {
+    if (await runtime.softwareSources.refreshDue())
+      broadcastEvent('software-source-change', { changedAt: new Date().toISOString() })
+  }
   let heartbeat: ReturnType<typeof setInterval> | undefined
   const handleRequest = async (request: IncomingMessage, response: ServerResponse): Promise<void> => {
     try {
@@ -316,6 +321,8 @@ export async function startCraftHubServer(options: CraftHubServerOptions = {}): 
           return sendJson(response, 200, await runtime.softwareSources.apply(input.previewId))
         if (input.operation === 'refresh')
           return sendJson(response, 200, await runtime.softwareSources.refresh(input.id))
+        if (input.operation === 'configure-refresh')
+          return sendJson(response, 200, await runtime.softwareSources.configureRefresh(input.id, input.refreshPolicy, input.revision))
         return sendJson(response, 200, await runtime.softwareSources.remove(input.id, input.revision))
       }
 
@@ -1368,6 +1375,8 @@ export async function startCraftHubServer(options: CraftHubServerOptions = {}): 
   const close = (closeOptions: CraftHubServerCloseOptions = {}): Promise<void> => {
     closing ??= (async () => {
       clearInterval(configurationTimer)
+      if (softwareSourceTimer)
+        clearInterval(softwareSourceTimer)
       if (heartbeat)
         clearInterval(heartbeat)
       stopRunEvents()
@@ -1416,6 +1425,13 @@ export async function startCraftHubServer(options: CraftHubServerOptions = {}): 
       server.once('error', reject)
       server.listen(options.port ?? 4318, options.host ?? '127.0.0.1', resolve)
     })
+    if (runtime.hostEnvironment.kind === 'local') {
+      void refreshSoftwareSources().catch(() => {})
+      softwareSourceTimer = setInterval(() => {
+        void refreshSoftwareSources().catch(() => {})
+      }, 60 * 1000)
+      softwareSourceTimer.unref()
+    }
     void runtime.pluginManager.updateAll({ refreshSources: true })
       .then(result => broadcastEvent('plugin-update', result))
       .catch(error => broadcastEvent('plugin-update', { error: error instanceof Error ? error.message : String(error) }))
