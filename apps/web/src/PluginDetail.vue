@@ -4,9 +4,10 @@ import { maxSatisfying, satisfies } from 'semver'
 import { computed, ref, watch } from 'vue'
 import { api } from './api'
 import { Button as UiButton } from './components/ui/button'
+import { Skeleton } from './components/ui/skeleton'
 import { Icon } from './icons'
 import { useI18n } from './i18n'
-import { marketplaceActionDisabled, marketplaceActionLabels, marketplacePluginAction } from './marketplace-plugin-action'
+import { marketplaceActionDisabled, marketplaceActionIcons, marketplaceActionLabels, marketplaceActionVariant, marketplacePluginAction } from './marketplace-plugin-action'
 import { pluginIconUrl } from './plugin-icon'
 import { pluginDescription, pluginDisplayName } from './plugin-text'
 import MarkdownPreview from './MarkdownPreview.vue'
@@ -64,6 +65,9 @@ const includesPlugins = computed(() => catalogEntry.value?.includesPlugins ?? ma
 const requiresPlugins = computed(() => catalogEntry.value?.requiresPlugins ?? manifest.value?.requiresPlugins ?? [])
 const unavailable = computed(() => !catalogEntry.value && !installedPlugin.value)
 const contributionGroups = computed(() => Object.entries(manifest.value?.contributes ?? {}).filter(([, items]) => items.length))
+const contributionTotal = computed(() => contributionGroups.value.reduce((total, [, items]) => total + items.length, 0))
+const visibleIcon = computed(() => icon.value && icon.value !== failedIcon.value ? icon.value : undefined)
+const installationState = computed(() => !installedPlugin.value ? 'none' : installedPlugin.value.enabled ? 'enabled' : 'disabled')
 
 watch(() => [props.sourceId, props.packageName, resolvedVersion.value] as const, () => {
   documentPreview.value = undefined
@@ -209,34 +213,44 @@ async function refreshLocal(): Promise<void> {
 <template>
   <section class="plugin-detail" data-testid="plugin-detail">
     <header class="plugin-detail-header">
-      <UiButton class="plugin-detail-back" variant="ghost" @click="emit('back')"><Icon name="arrowRight" />{{ parentName ? t('backToPlugin', { name: parentName }) : t('backToMarketplace') }}</UiButton>
+      <div v-if="visibleIcon" class="plugin-detail-backdrop" aria-hidden="true"><img :src="visibleIcon" alt="" referrerpolicy="no-referrer"></div>
+      <UiButton class="plugin-detail-back" variant="ghost" size="compact" @click="emit('back')"><Icon name="arrowRight" />{{ parentName ? t('backToPlugin', { name: parentName }) : t('backToMarketplace') }}</UiButton>
       <div v-if="unavailable" class="plugin-detail-unavailable" role="alert">
-        <h1>{{ packageName }}</h1>
-        <p>{{ t('pluginVersionUnavailable', { version: version || t('unknown') }) }}</p>
+        <span class="plugin-detail-icon"><Icon name="error" /></span>
+        <div>
+          <h1>{{ packageName }}</h1>
+          <p>{{ t('pluginVersionUnavailable', { version: version || t('unknown') }) }}</p>
+        </div>
       </div>
       <template v-else>
         <div class="plugin-detail-identity">
-          <div class="plugin-detail-icon"><img v-if="icon && icon !== failedIcon" :src="icon" alt="" referrerpolicy="no-referrer" @error="failedIcon = icon"><Icon v-else name="plugins" /></div>
-          <div>
+          <div class="plugin-detail-icon"><img v-if="visibleIcon" :src="visibleIcon" alt="" referrerpolicy="no-referrer" @error="failedIcon = icon"><Icon v-else name="plugins" /></div>
+          <div class="plugin-detail-heading">
             <div class="plugin-detail-title"><h1>{{ displayName }}</h1><span v-if="includesPlugins.length" class="plugin-pack-badge">{{ t('pluginPackBadge') }}</span><span v-if="installedPlugin?.origin === 'local'" class="local-plugin-badge">{{ t('localPluginBadge') }}</span></div>
             <code>{{ packageName }}@{{ resolvedVersion }}</code>
             <p v-if="description">{{ description }}</p>
+            <ul class="plugin-detail-facts">
+              <li class="plugin-install-state" :class="installationState"><span class="plugin-state-dot" />{{ installedPlugin ? t(installedPlugin.enabled ? 'pluginEnabled' : 'pluginDisabled') : t('pluginNotInstalled') }}</li>
+              <li v-if="catalogEntry"><Icon name="personal" />{{ catalogEntry.publisher }}</li>
+              <li v-if="catalogEntry?.sourceName ?? installedPlugin?.sourceId"><Icon name="web" />{{ catalogEntry?.sourceName ?? installedPlugin?.sourceId }}</li>
+              <li v-if="manifest && contributionTotal"><Icon name="collection" />{{ t('pluginContributions') }} {{ contributionTotal }}</li>
+            </ul>
           </div>
         </div>
         <div class="plugin-actions">
-          <UiButton v-if="catalogAction" variant="primary" :disabled="Boolean(busy) || marketplaceActionDisabled(catalogAction)" @click="install">{{ busy === 'install' ? t('installingPlugin') : t(marketplaceActionLabels[catalogAction]) }}</UiButton>
-          <UiButton v-if="installedPlugin && !includesPlugins.length" :disabled="Boolean(busy)" @click="toggle">{{ t(installedPlugin.enabled ? 'disablePlugin' : 'enablePlugin') }}</UiButton>
-          <UiButton v-if="installedPlugin?.origin === 'local'" :disabled="Boolean(busy)" @click="refreshLocal">{{ t('refreshLocalPlugin') }}</UiButton>
+          <UiButton v-if="catalogAction" :variant="marketplaceActionVariant(catalogAction)" :disabled="Boolean(busy) || marketplaceActionDisabled(catalogAction)" @click="install"><Icon :name="busy === 'install' ? 'loading' : marketplaceActionIcons[catalogAction]" />{{ busy === 'install' ? t('installingPlugin') : t(marketplaceActionLabels[catalogAction]) }}</UiButton>
+          <UiButton v-if="installedPlugin && !includesPlugins.length" :disabled="Boolean(busy)" @click="toggle"><Icon :name="busy === 'toggle' ? 'loading' : installedPlugin.enabled ? 'stop' : 'play'" />{{ t(installedPlugin.enabled ? 'disablePlugin' : 'enablePlugin') }}</UiButton>
+          <UiButton v-if="installedPlugin?.origin === 'local'" :disabled="Boolean(busy)" @click="refreshLocal"><Icon :name="busy === 'refresh' ? 'loading' : 'refresh'" />{{ t('refreshLocalPlugin') }}</UiButton>
           <UiButton v-else-if="installedPlugin && !includesPlugins.length" :disabled="Boolean(busy) || !installedPlugin.previousVersion" @click="rollback">{{ t('rollbackPlugin') }}</UiButton>
           <UiButton v-if="installedPlugin" variant="danger-secondary" :disabled="Boolean(busy)" @click="remove">{{ t(installedPlugin.origin === 'local' ? 'unlinkLocalPlugin' : includesPlugins.length ? 'removePluginPack' : 'uninstallPlugin') }}</UiButton>
         </div>
-        <p v-if="catalogAction === 'local'">{{ t('localPluginOverridesMarket') }}</p>
+        <p v-if="catalogAction === 'local'" class="plugin-detail-note"><Icon name="folderOpen" />{{ t('localPluginOverridesMarket') }}</p>
       </template>
     </header>
 
     <div v-if="!unavailable" class="plugin-detail-body">
-      <aside class="plugin-detail-sidebar">
-        <p v-if="operationError" class="marketplace-error" role="alert">{{ operationError }}</p>
+      <aside class="plugin-detail-sidebar motion-reveal-list">
+        <p v-if="operationError" class="marketplace-error" role="alert"><Icon name="error" /><span>{{ operationError }}</span></p>
         <section>
           <h2>{{ t('pluginDetails') }}</h2>
           <dl>
@@ -246,43 +260,53 @@ async function refreshLocal(): Promise<void> {
             <div v-if="catalogEntry"><dt>{{ t('pluginStatus') }}</dt><dd>{{ catalogEntry.status }}<span v-if="catalogEntry.statusReason"> · {{ catalogEntry.statusReason }}</span></dd></div>
             <div><dt>{{ t('pluginInstallationStatus') }}</dt><dd>{{ installedPlugin ? t(installedPlugin.enabled ? 'pluginEnabled' : 'pluginDisabled') : t('pluginNotInstalled') }}</dd></div>
             <div v-if="catalogEntry?.requires"><dt>{{ t('pluginCompatibility') }}</dt><dd>Craft Hub {{ catalogEntry.requires }}</dd></div>
-            <div v-if="installedPlugin?.origin === 'local'"><dt>{{ t('localPluginPath') }}</dt><dd>{{ installedPlugin.packagePath }}</dd></div>
-            <div v-if="catalogEntry?.categories.length"><dt>{{ t('pluginCategories') }}</dt><dd>{{ catalogEntry.categories.join(', ') }}</dd></div>
-            <div v-if="manifest"><dt>{{ t('pluginContributions') }}</dt><dd>{{ contributionGroups.reduce((total, [, items]) => total + items.length, 0) }}</dd></div>
+            <div v-if="installedPlugin?.origin === 'local'" class="stacked"><dt>{{ t('localPluginPath') }}</dt><dd><code>{{ installedPlugin.packagePath }}</code></dd></div>
           </dl>
-          <ul v-if="contributionGroups.length" class="plugin-contribution-list"><li v-for="([kind, items]) in contributionGroups" :key="kind"><span>{{ kind }}</span><strong>{{ items.length }}</strong></li></ul>
+          <ul v-if="catalogEntry?.categories.length" class="plugin-category-list" :aria-label="t('pluginCategories')"><li v-for="category in catalogEntry.categories" :key="category">{{ category }}</li></ul>
+        </section>
+
+        <section v-if="manifest">
+          <h2>{{ t('pluginContributions') }} <small>{{ contributionTotal }}</small></h2>
+          <ul v-if="contributionGroups.length" class="plugin-contribution-list">
+            <li v-for="([kind, items]) in contributionGroups" :key="kind" :style="{ '--share': `${Math.round(items.length / contributionTotal * 100)}%` }"><span>{{ kind }}</span><strong>{{ items.length }}</strong></li>
+          </ul>
+          <p v-else class="muted">{{ t('none') }}</p>
         </section>
 
         <section>
-          <h2>{{ t('pluginPermissions') }}</h2>
+          <h2>{{ t('pluginPermissions') }} <small v-if="permissions.length">{{ permissions.length }}</small></h2>
           <p v-if="!permissions.length" class="muted">{{ t('none') }}</p>
-          <ul v-else class="plugin-detail-list"><li v-for="permission in permissions" :key="permission"><strong>{{ permission }}</strong><span v-if="permissionReasons[permission]">{{ permissionReasons[permission] }}</span></li></ul>
+          <ul v-else class="plugin-detail-list plugin-permission-list"><li v-for="permission in permissions" :key="permission"><Icon name="security" /><span><strong>{{ permission }}</strong><span v-if="permissionReasons[permission]">{{ permissionReasons[permission] }}</span></span></li></ul>
         </section>
 
         <section v-if="maintainers.length">
           <h2>{{ t('pluginMaintainers') }}</h2>
-          <ul class="plugin-detail-list"><li v-for="maintainer in maintainers" :key="maintainer.url || maintainer.handle"><a v-if="maintainer.url" :href="maintainer.url" target="_blank" rel="noreferrer noopener">{{ maintainer.name || maintainer.handle || maintainer.url }}</a><span v-else>{{ maintainer.name || maintainer.handle }}</span></li></ul>
+          <ul class="plugin-detail-list plugin-person-list"><li v-for="maintainer in maintainers" :key="maintainer.url || maintainer.handle"><span class="plugin-person-avatar" aria-hidden="true">{{ (maintainer.name || maintainer.handle || '?').slice(0, 1).toUpperCase() }}</span><a v-if="maintainer.url" :href="maintainer.url" target="_blank" rel="noreferrer noopener">{{ maintainer.name || maintainer.handle || maintainer.url }}</a><span v-else>{{ maintainer.name || maintainer.handle }}</span></li></ul>
         </section>
 
         <section v-if="links && Object.keys(links).length">
           <h2>{{ t('pluginLinks') }}</h2>
-          <ul class="plugin-detail-list"><li v-for="(href, label) in links" :key="label"><a :href="href" target="_blank" rel="noreferrer noopener">{{ label }}</a></li></ul>
+          <ul class="plugin-detail-list plugin-link-list"><li v-for="(href, label) in links" :key="label"><a :href="href" target="_blank" rel="noreferrer noopener"><Icon name="link" /><span>{{ label }}</span><Icon name="externalLink" /></a></li></ul>
         </section>
       </aside>
 
       <main class="plugin-detail-main">
-        <section v-if="includesPlugins.length || requiresPlugins.length" class="plugin-relations">
+        <section v-if="includesPlugins.length || requiresPlugins.length" class="plugin-relations motion-reveal">
           <h2>{{ t('pluginRelationships') }}</h2>
-          <div v-if="includesPlugins.length"><h3>{{ t('pluginPackContents') }}</h3><div class="plugin-relation-grid"><button v-for="dependency in includesPlugins" :key="dependency.package" :disabled="!relationTarget(dependency)" @click="navigateRelation(dependency)"><strong>{{ relationName(dependency) }}</strong><code>{{ dependency.package }} · {{ dependency.version }}</code><span v-if="!relationTarget(dependency)">{{ t('pluginUnavailableFromSource') }}</span></button></div></div>
-          <div v-if="requiresPlugins.length"><h3>{{ t('pluginDependencies') }}</h3><div class="plugin-relation-grid"><button v-for="dependency in requiresPlugins" :key="dependency.package" :disabled="!relationTarget(dependency)" @click="navigateRelation(dependency)"><strong>{{ relationName(dependency) }}</strong><code>{{ dependency.package }} · {{ dependency.version }}</code><span v-if="!relationTarget(dependency)">{{ t('pluginUnavailableFromSource') }}</span></button></div></div>
+          <div v-if="includesPlugins.length"><h3>{{ t('pluginPackContents') }}</h3><div class="plugin-relation-grid"><button v-for="dependency in includesPlugins" :key="dependency.package" :disabled="!relationTarget(dependency)" @click="navigateRelation(dependency)"><span class="plugin-relation-mark" aria-hidden="true"><Icon name="plugins" /></span><span class="plugin-relation-copy"><strong>{{ relationName(dependency) }}</strong><code>{{ dependency.package }} · {{ dependency.version }}</code><span v-if="!relationTarget(dependency)">{{ t('pluginUnavailableFromSource') }}</span></span><Icon v-if="relationTarget(dependency)" name="arrowRight" /></button></div></div>
+          <div v-if="requiresPlugins.length"><h3>{{ t('pluginDependencies') }}</h3><div class="plugin-relation-grid"><button v-for="dependency in requiresPlugins" :key="dependency.package" :disabled="!relationTarget(dependency)" @click="navigateRelation(dependency)"><span class="plugin-relation-mark" aria-hidden="true"><Icon name="link" /></span><span class="plugin-relation-copy"><strong>{{ relationName(dependency) }}</strong><code>{{ dependency.package }} · {{ dependency.version }}</code><span v-if="!relationTarget(dependency)">{{ t('pluginUnavailableFromSource') }}</span></span><Icon v-if="relationTarget(dependency)" name="arrowRight" /></button></div></div>
         </section>
 
         <section class="plugin-readme">
-          <header><div><h2>README</h2><span>{{ t('pluginReadmeVersion', { version: resolvedVersion || t('unknown') }) }}</span></div><UiButton v-if="documentError" size="compact" @click="loadDocument()">{{ t('retry') }}</UiButton></header>
+          <header><div><h2><Icon name="docs" />README</h2><span>{{ t('pluginReadmeVersion', { version: resolvedVersion || t('unknown') }) }}</span></div><UiButton v-if="documentError" size="compact" @click="loadDocument()">{{ t('retry') }}</UiButton></header>
           <nav v-if="documentPreview?.document.path && documentPreview.document.path !== 'README.md'" class="plugin-document-path"><button @click="loadReadme">README</button><span>/</span><code>{{ documentPreview.document.path }}</code></nav>
-          <div v-if="documentLoading" class="plugin-readme-state"><Icon name="loading" /><p>{{ t('loadingPluginReadme') }}</p></div>
+          <div v-if="documentLoading" class="plugin-readme-loading" role="status" aria-busy="true">
+            <span class="sr-only">{{ t('loadingPluginReadme') }}</span>
+            <Skeleton width="42%" height="18px" /><Skeleton width="96%" /><Skeleton width="88%" /><Skeleton width="92%" /><Skeleton width="64%" />
+            <Skeleton width="28%" height="14px" /><Skeleton width="90%" /><Skeleton width="76%" />
+          </div>
           <div v-else-if="documentError" class="plugin-readme-state error" role="alert"><Icon name="error" /><p>{{ documentError }}</p></div>
-          <MarkdownPreview v-else-if="documentPreview?.document.status === 'found' && documentPreview.document.content && documentPreview.document.path" :content="documentPreview.document.content" :readme-path="documentPreview.document.path" :asset-url="assetUrl" @navigate-document="loadDocument" />
+          <MarkdownPreview v-else-if="documentPreview?.document.status === 'found' && documentPreview.document.content && documentPreview.document.path" :key="documentPreview.document.path" class="motion-reveal" :content="documentPreview.document.content" :readme-path="documentPreview.document.path" :asset-url="assetUrl" @navigate-document="loadDocument" />
           <div v-else class="plugin-readme-state"><Icon name="docs" /><p>{{ documentPreview?.document.message || t('pluginReadmeMissing') }}</p></div>
         </section>
       </main>

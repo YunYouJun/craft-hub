@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 
-const styles = readFileSync(new URL('./styles.css', import.meta.url), 'utf8')
+const styles = readFileSync(new URL('./styles/marketplace.css', import.meta.url), 'utf8')
 
 describe('marketplace plugin focus style', () => {
   it('keeps keyboard focus visible without outlining the whole summary row', () => {
