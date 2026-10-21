@@ -1,31 +1,17 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
   <defs>
-    <linearGradient id="background" x1="10" y1="8" x2="54" y2="58" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#17256e"/>
-      <stop offset="1" stop-color="#646cff"/>
-    </linearGradient>
-    <linearGradient id="top" x1="20" y1="18" x2="44" y2="31" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#dffbff"/>
-      <stop offset="1" stop-color="#50c8ff"/>
-    </linearGradient>
-    <linearGradient id="left" x1="17" y1="26" x2="34" y2="49" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#7e86ff"/>
-      <stop offset="1" stop-color="#4653d7"/>
-    </linearGradient>
-    <linearGradient id="right" x1="47" y1="25" x2="33" y2="50" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#315de4"/>
-      <stop offset="1" stop-color="#17369f"/>
+    <linearGradient id="background" x1="32" y1="2" x2="32" y2="62" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#3b82f6"/>
+      <stop offset="1" stop-color="#2563eb"/>
     </linearGradient>
   </defs>
 
-  <rect x="3" y="3" width="58" height="58" rx="15" fill="url(#background)"/>
+  <rect x="2" y="2" width="60" height="60" rx="14" fill="url(#background)"/>
 
-  <path d="M10 32h8M46 32h8" stroke="#51ddff" stroke-width="3" stroke-linecap="round"/>
-  <circle cx="9" cy="32" r="3" fill="#dffbff" stroke="#51ddff" stroke-width="2"/>
-  <circle cx="55" cy="32" r="3" fill="#dffbff" stroke="#51ddff" stroke-width="2"/>
-
-  <path d="m32 15 15 9-15 9-15-9 15-9Z" fill="url(#top)"/>
-  <path d="m17 24 15 9v17l-15-9V24Z" fill="url(#left)"/>
-  <path d="m47 24-15 9v17l15-9V24Z" fill="url(#right)"/>
-  <path d="m32 15 15 9-15 9-15-9 15-9Zm0 18v17m-15-26v17l15 9 15-9V24" fill="none" stroke="white" stroke-width="2.5" stroke-linejoin="round"/>
+  <!-- Same facets as apps/desktop/assets/icon.icon, mapped from its 1024pt canvas. -->
+  <g transform="translate(2 2) scale(.05859375)" stroke-width="37" stroke-linejoin="round">
+    <path d="M512 207 757 348 512 490 267 348Z" fill="#f8fcff" stroke="#f8fcff"/>
+    <path d="M245 392 488 532v285L245 678Z" fill="#06b6d4" stroke="#06b6d4"/>
+    <path d="M779 392 536 532v285L779 678Z" fill="#facc15" stroke="#facc15"/>
+  </g>
 </svg>

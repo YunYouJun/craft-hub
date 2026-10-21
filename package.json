@@ -15,6 +15,7 @@
     "dev:web": "node --import tsx scripts/dev-environment.ts web",
     "dev:tauri": "pnpm --filter @craft-hub/tauri-trial dev:trial",
     "check:public-boundary": "node scripts/check-public-boundary.mjs",
+    "icons:desktop": "tsx scripts/generate-desktop-icons.ts",
     "lint": "pnpm check:public-boundary && eslint --cache .",
     "package:mac": "tsx scripts/run-package-macos.ts",
     "reinstall:mac": "tsx scripts/reinstall-macos.ts",

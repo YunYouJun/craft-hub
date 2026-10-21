@@ -36,6 +36,15 @@ describe('desktop package scripts', () => {
 
     expect(iconPng.size).toBeGreaterThan(0)
     expect(iconIcns.size).toBeGreaterThan(0)
+    // @electron/packager compiles the sibling Icon Composer bundle into Assets.car.
+    const iconComposerUrl = new URL('../assets/icon.icon/', import.meta.url)
+    const iconComposer = JSON.parse(await readFile(new URL('icon.json', iconComposerUrl), 'utf8')) as {
+      'groups': Array<{ layers: Array<{ 'image-name': string }> }>
+      'supported-platforms': { squares: string[] }
+    }
+    expect(iconComposer['supported-platforms'].squares).toContain('macOS')
+    for (const layer of iconComposer.groups.flatMap(group => group.layers))
+      expect((await stat(new URL(`Assets/${layer['image-name']}`, iconComposerUrl))).size).toBeGreaterThan(0)
     expect(mainSource).toContain('icon: applicationIcon')
     expect(mainSource).toContain('app.dock?.setIcon(applicationIcon)')
     expect(mainSource).toContain('desktopDistribution.desktop.icons.application')

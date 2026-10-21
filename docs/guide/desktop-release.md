@@ -47,6 +47,12 @@ Ad hoc signatures identify a particular build, so previous keychain approvals ca
 
 Each copied macOS target verifies the `keytar@7.9.0` native credential addon against its architecture. When the installed addon belongs to the build machine's other architecture, packaging obtains the matching pinned N-API v3 prebuild through the locked installer. A missing or incompatible prebuild stops packaging. The addon remains unpacked for application signing, and the shared staging tree stays reusable for both targets. This prevents Intel packages built on Apple silicon from silently falling back to a credential-encryption key stored beside the token cache.
 
+## Application icon
+
+`apps/desktop/assets/icon.icon` is the Icon Composer source. Its three glass facets use the YunLeFun sky blue, cyan, and sun palette, so the system can render default, dark, tinted, and clear appearances. `@electron/packager` finds the `.icon` beside `icon.icns`, compiles it into `Assets.car`, and sets `CFBundleIconName`. That step requires macOS 26 and Xcode 26 or later, so the release job runs on `macos-26`. The `.icns` remains the fallback for earlier macOS releases and the Tauri trial.
+
+After you edit the Icon Composer source, run `pnpm icons:desktop` on macOS. It renders `icon.png` and `icon.icns` on the 824/1024 macOS icon grid. Update the flat favicon in `apps/web/public` and `docs/public` by hand when the facet geometry changes. A downstream distribution that sets `desktop.icons.macos` can add a sibling `.icon` with the same base name.
+
 ## Release gate
 
 Pushing a matching `v*` tag starts the release workflow. It does not create the GitHub Release until all of these checks succeed:
