@@ -36,7 +36,7 @@ const rows = computed(() => analysis.value
 const visibleRows = computed(() => expanded.value ? rows.value : rows.value.slice(0, 3))
 watch(snapshot, () => { expanded.value = false; generation++; analysis.value = undefined; analyzedAt.value = ''; error.value = '' })
 async function analyze(): Promise<void> {
-  if (analyzing.value || props.loading || !candidates.value.length) return
+  if (analyzing.value || !available.value || !candidates.value.length) return
   analyzing.value = true
   error.value = ''
   const version = generation
@@ -64,7 +64,7 @@ onUnmounted(() => { generation++; clearInterval(timer) })
     </header>
     <div class="focus-toolbar">
       <span>{{ analysis ? `${copy('AI 建议', 'AI suggestions')} · ${analyzedAt}` : copy('截止时间与优先级', 'Deadlines & priority') }}</span>
-      <div><UiButton variant="ghost" size="compact" :disabled="loading || analyzing || !ranked.length || !available" @click="analyze"><Icon :name="analyzing ? 'loading' : 'skill'" />{{ analyzing ? copy('分析中…', 'Analyzing…') : copy('AI 分析', 'AI analysis') }}</UiButton><UiButton variant="ghost" size="icon" :disabled="loading" :aria-label="copy('刷新今日重点', 'Refresh today’s focus')" @click="emit('refresh')"><Icon :name="loading ? 'loading' : 'refresh'" /></UiButton></div>
+      <div><UiButton variant="ghost" size="compact" :disabled="analyzing || !ranked.length || !available" @click="analyze"><Icon :name="analyzing ? 'loading' : 'skill'" />{{ analyzing ? copy('分析中…', 'Analyzing…') : copy('AI 分析', 'AI analysis') }}</UiButton><UiButton variant="ghost" size="icon" :aria-label="copy('刷新今日重点', 'Refresh today’s focus')" @click="emit('refresh')"><Icon :name="loading ? 'loading' : 'refresh'" /></UiButton></div>
     </div>
     <ol v-if="rows.length" class="focus-list motion-reveal-list">
       <li v-for="(row, index) in visibleRows" :key="`${snapshot}:${row.key}`">
@@ -80,6 +80,7 @@ onUnmounted(() => { generation++; clearInterval(timer) })
     </ol>
     <SkeletonList v-else-if="loading" class="focus-skeleton" :label="copy('正在汇总…', 'Reading sources…')" />
     <p v-else class="focus-empty motion-reveal" role="status">{{ copy('暂无未完成事项，记录一件事开始吧。', 'No unfinished work. Capture a task to get started.') }}</p>
+    <p v-if="rows.length && loading" class="focus-updating" role="status">{{ copy('正在更新其他来源…', 'Updating sources…') }}</p>
     <UiButton v-if="rows.length > 3" variant="ghost" size="compact" class="focus-more" :aria-expanded="expanded" @click="expanded = !expanded">{{ expanded ? copy('收起', 'Show less') : copy(`另 ${rows.length - 3} 项建议`, `${rows.length - 3} more suggestions`) }}<Icon name="arrowDown" /></UiButton>
     <p v-if="error" class="focus-warning" role="alert">{{ error }}</p>
     <details class="focus-context">
@@ -145,6 +146,7 @@ summary::-webkit-details-marker { display: none; }
 summary:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; border-radius: 4px; }
 .focus-more { width: 100%; color: var(--accent); }
 .focus-warning { font-size: 12px; line-height: 1.5; color: var(--warning); }
+.focus-updating { margin: 0 0 8px; color: var(--muted); font-size: 11px; line-height: 1.5; }
 .focus-empty { padding: 12px 0; color: var(--muted); font-size: 12px; }
 /* Mirror the ranked rows: number column, title and source caption. */
 .focus-skeleton { --skeleton-row-padding: 6px 0 6px 22px; }

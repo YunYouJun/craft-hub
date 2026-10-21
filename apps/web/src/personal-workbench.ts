@@ -50,7 +50,16 @@ export function homeWorkSources(contributions: ResolvedIntegrationContribution[]
         if (block.type !== 'entity-list' || block.requiresProject || action?.operation !== 'work-items.list' || !['local-read', 'remote-read'].includes(action.effect) || action.effectiveConfirmation !== 'never')
           continue
         const input = { ...block.input, ...(contribution.translations ? { locale } : {}) }
-        const key = JSON.stringify([contribution.provider.id, contribution.id, action.id, Object.entries(input).sort(([left], [right]) => left.localeCompare(right))])
+        const connection = connectionBlock ? { actionId: connectionBlock.actionId, input: { ...connectionBlock.input, locale } } : undefined
+        const key = JSON.stringify([
+          contribution.pluginId,
+          contribution.provider.id,
+          contribution.providerVersion,
+          contribution.id,
+          action.id,
+          Object.entries(input).sort(([left], [right]) => left.localeCompare(right)),
+          connection && [connection.actionId, Object.entries(connection.input).sort(([left], [right]) => left.localeCompare(right))],
+        ])
         if (!sources.has(key)) {
           sources.set(key, {
             key,
@@ -61,7 +70,7 @@ export function homeWorkSources(contributions: ResolvedIntegrationContribution[]
             sectionTitle: contribution.translations?.[locale]?.[block.title ?? action.title] ?? block.title ?? action.title,
             actionId: action.id,
             input,
-            ...(connectionBlock ? { connection: { actionId: connectionBlock.actionId, input: { ...connectionBlock.input, locale } } } : {}),
+            ...(connection ? { connection } : {}),
           })
         }
       }

@@ -1,4 +1,5 @@
 import type { AgentActionId, AgentActionSummary, AgentConnectionStatus, AgentTaskRecord, ApplyGitIntegrationRequest, Capability, CapabilityDiscoveryResult, CapabilityPins, CatalogPluginV1, CommandInputValues, CommandInvocation, DotfilesManagerStatus, DotfilesOperation, DotfilesOperationResult, GitIntegrationPlan, GitIntegrationRequest, GitIntegrationResult, InstalledNavigationPanel, InstalledPlugin, InstalledPluginWorkbench, IntegrationActionResult, IntegrationDiagnostic, LocalEnvironmentSnapshot, LocalPlugin, LocalSkillActivationSettings, ManagedPlugin, MarketplaceSource, MarketplaceSourcePreview, OwnerScope, OwnerScopeUiState, PersonalGitSyncResolution, PersonalGitSyncStatus, PluginDocumentPreview, PluginInstallPlan, PluginUpdatePlanItem, PluginUpdateResult, ProjectCatalogSnapshot, ProjectChangeEvent, ProjectConfigInitializationResult, ProjectDescriptionApplication, ProjectDescriptionAudit, ProjectDescriptionChange, ProjectOverview, ProjectRecord, ProjectRunSummary, ProjectSkillsState, ProjectVisualInput, ReleasePlan, ResolvedIntegrationContribution, RunCleanupOptions, RunCleanupResult, RunRecord, RunStreamEvent, RuntimeHealth, SettingsExportEnvelope, SettingsExportMode, SettingsImportPreview, SettingsImportStrategy, SettingsSnapshot, SetupProfileCommand, SetupProfileInventory, SetupProfileReview, SetupProfileSnapshot, SoftwareApplicationOpen, SoftwareCatalogSnapshot, SoftwareInstallationPlan, SoftwareInstallationRun, SoftwareInstallationRuns, SoftwareSourceInput, SoftwareSourcePreview, SoftwareSourceSnapshot, TeamDeletionResult, TeamGitSyncStatus, UserConfigStatus, WorkbenchDiagnosticSnapshot, WorkbenchLocale, WorkItemProjectDeleteRequest, WorkItemProjectSnapshot, WorkItemProjectUpdateRequest, WorkspaceCatalog, WorkspaceGroup, WorkspaceImportPreview, WorkspaceImportResult, WorkspaceManifest, WorkspaceRecord, WorkspaceUiState } from 'craft-hub'
+import { emitIntegrationChange } from './integration-action-events'
 
 export class ApiRequestError extends Error {
   constructor(message: string, readonly status: number) {
@@ -101,6 +102,23 @@ async function runCommand(projectId: string, capabilityId: string, inputs: Comma
   return current
 }
 
+async function invokeIntegrationAction<T extends IntegrationActionResult = IntegrationActionResult>(integrationId: string, actionId: string, input: Record<string, unknown> = {}, projectId?: string, confirmed = false): Promise<T> {
+  if (confirmed)
+    emitIntegrationChange({ integrationId, phase: 'start' })
+  try {
+    return await request<T>(projectId
+      ? `/api/projects/${encodeURIComponent(projectId)}/integrations/${encodeURIComponent(integrationId)}/actions/${encodeURIComponent(actionId)}`
+      : `/api/integrations/${encodeURIComponent(integrationId)}/actions/${encodeURIComponent(actionId)}`, {
+      method: 'POST',
+      body: JSON.stringify({ input, confirmed }),
+    })
+  }
+  finally {
+    if (confirmed)
+      emitIntegrationChange({ integrationId, phase: 'settled' })
+  }
+}
+
 export const api = {
   environmentSetup: () => request<import('craft-hub').EnvironmentSetupSnapshot>('/api/environment/setup'),
   environmentSources: () => request<import('craft-hub').EnvironmentSourceSnapshot>('/api/environment/sources'),
@@ -151,12 +169,7 @@ export const api = {
   pluginWorkbenches: (locale: WorkbenchLocale) => request<InstalledPluginWorkbench[]>(`/api/workbenches?locale=${encodeURIComponent(locale)}`),
   integrations: () => request<{ integrations: ResolvedIntegrationContribution[], diagnostics: IntegrationDiagnostic[] }>('/api/integrations'),
   diagnostics: () => request<WorkbenchDiagnosticSnapshot>('/api/diagnostics'),
-  invokeIntegrationAction: <T extends IntegrationActionResult = IntegrationActionResult>(integrationId: string, actionId: string, input: Record<string, unknown> = {}, projectId?: string, confirmed = false) => request<T>(projectId
-    ? `/api/projects/${encodeURIComponent(projectId)}/integrations/${encodeURIComponent(integrationId)}/actions/${encodeURIComponent(actionId)}`
-    : `/api/integrations/${encodeURIComponent(integrationId)}/actions/${encodeURIComponent(actionId)}`, {
-    method: 'POST',
-    body: JSON.stringify({ input, confirmed }),
-  }),
+  invokeIntegrationAction,
   pluginDocument: (sourceId: string, packageName: string, version?: string, path?: string) => request<PluginDocumentPreview>(`/api/plugins/document?${new URLSearchParams({ sourceId, package: packageName, ...(version ? { version } : {}), ...(path ? { path } : {}) })}`),
   pluginDocumentAssetUrl: (sourceId: string, packageName: string, version: string, path: string) => `/api/plugins/document-asset?${new URLSearchParams({ sourceId, package: packageName, version, path })}`,
   pluginIconUrl: (sourceId: string, packageName: string, version: string) => `/api/plugins/icon?${new URLSearchParams({ sourceId, package: packageName, version })}`,

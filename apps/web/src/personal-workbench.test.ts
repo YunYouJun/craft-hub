@@ -69,6 +69,18 @@ describe('personal workbench data', () => {
       expect(homeWorkSources([source], 'en')[0]!.connection).toBeUndefined()
   })
 
+  it('isolates snapshots when the provider or connection account inputs change', () => {
+    const source = contribution('safe')
+    source.actions.push({ id: 'status', title: 'Connection', operation: 'connection.status', effect: 'local-read', confirmation: 'never', effectiveConfirmation: 'never' })
+    source.views[0]!.blocks.unshift({ id: 'connection', type: 'connection-status', actionId: 'status', input: { account: 'personal' } })
+    const original = homeWorkSources([source], 'en')[0]!.key
+    source.views[0]!.blocks[0]!.input = { account: 'other' }
+    expect(homeWorkSources([source], 'en')[0]!.key).not.toBe(original)
+    const changedAccount = homeWorkSources([source], 'en')[0]!.key
+    source.pluginId = 'replacement-plugin'
+    expect(homeWorkSources([source], 'en')[0]!.key).not.toBe(changedAccount)
+  })
+
   it('uses localized block titles for grouped lists and falls back to the action title', () => {
     const source = contribution()
     source.translations = { 'zh-CN': { 'My work': '我的工作', 'Project todos': '项目待办', 'Work items': '工作项' } }

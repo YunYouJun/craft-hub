@@ -349,11 +349,13 @@ describe('shared work items overview', () => {
   })
 
   it('does not start a work read from a late connection response for a removed source', async () => {
-    useWorkbenchStore().integrationContributions = [connectedWorkSource('source-a')]
+    const store = useWorkbenchStore()
+    store.integrationContributions = [connectedWorkSource('source-a')]
     let finish!: (status: IntegrationConnectionStatus) => void
     vi.mocked(api.invokeIntegrationAction).mockImplementationOnce(() => new Promise(resolve => finish = resolve))
     await open()
-    await wrapper!.setProps({ integrations: [] })
+    store.integrationContributions = []
+    await flushPromises()
     finish({ connected: true })
     await flushPromises()
 
@@ -498,24 +500,24 @@ describe('shared work items overview', () => {
     expect(wrapper!.text()).not.toContain('Last successful task')
   })
 
-  it('ignores late responses after refresh and after the source is removed', async () => {
-    useWorkbenchStore().integrationContributions = [workSource('source-a'), workSource('source-b')]
+  it('coalesces repeated refreshes and ignores late responses after the source is removed', async () => {
+    const store = useWorkbenchStore()
+    store.integrationContributions = [workSource('source-a'), workSource('source-b')]
     let finishOld!: (page: IntegrationEntityPage) => void
     vi.mocked(api.invokeIntegrationAction)
       .mockImplementationOnce(() => new Promise(resolve => finishOld = resolve))
-      .mockResolvedValueOnce({ currentUser: { id: 'me' }, items: [ownedItem('source-a', 'Fresh task')] })
       .mockResolvedValueOnce({ currentUser: { id: 'me' }, items: [ownedItem('source-b', 'Selected source task')] })
     await open({ integrations: ['source-a'] })
     await wrapper!.setProps({ refreshKey: 1 })
     await flushPromises()
-    expect(wrapper!.text()).toContain('Fresh task')
+    expect(api.invokeIntegrationAction).toHaveBeenCalledOnce()
+    store.integrationContributions = [workSource('source-b')]
     await wrapper!.setProps({ integrations: ['source-b'] })
     await flushPromises()
     finishOld({ currentUser: { id: 'me' }, items: [ownedItem('source-a', 'Late old task')] })
     await flushPromises()
 
     expect(wrapper!.text()).toContain('Selected source task')
-    expect(wrapper!.text()).not.toContain('Fresh task')
     expect(wrapper!.text()).not.toContain('Late old task')
     expect(wrapper!.findAll('.home-work-source')).toHaveLength(1)
   })
@@ -579,6 +581,80 @@ describe('shared work items overview', () => {
     expect(source().findAll('.home-work-row')).toHaveLength(6)
     expect(source().text()).toContain('Complete')
     expect(source().text()).not.toContain('Partial preview')
+  })
+
+  it('shows the previous snapshot immediately on re-entry without repeating recent reads or connection checks', async () => {
+    useWorkbenchStore().integrationContributions = [connectedWorkSource('source-a')]
+    vi.mocked(api.invokeIntegrationAction).mockImplementation(async (_id, action) => action === 'status'
+      ? { connected: true }
+      : { currentUser: { id: 'me' }, items: [ownedItem('source-a', 'Remembered task')], coverage: 'complete' })
+    await open({ compact: true })
+    wrapper!.unmount()
+    vi.mocked(api.invokeIntegrationAction).mockClear().mockImplementation(() => new Promise(() => {}))
+
+    wrapper = mount(WorkItemsOverview, { props: { compact: true } })
+    expect(wrapper.text()).toContain('Remembered task')
+    await flushPromises()
+    expect(api.invokeIntegrationAction).not.toHaveBeenCalled()
+    expect(wrapper.getComponent({ name: 'TodayFocus' }).props('entries')).toHaveLength(1)
+  })
+
+  it('retains stale results and shows each provider refresh independently while keeping loaded focus usable', async () => {
+    useWorkbenchStore().integrationContributions = [workSource('source-a'), workSource('source-b')]
+    vi.mocked(api.invokeIntegrationAction).mockImplementation(async id => ({ currentUser: { id: 'me' }, items: [ownedItem(id, `${id} saved`)] }))
+    await open({ compact: true, tabbed: true })
+    let finish!: (page: IntegrationEntityPage) => void
+    vi.mocked(api.invokeIntegrationAction).mockImplementation(id => id === 'source-a'
+      ? new Promise(resolve => finish = resolve)
+      : Promise.resolve({ currentUser: { id: 'me' }, items: [ownedItem(id, `${id} updated`)] }))
+    await wrapper!.get('[aria-label="Refresh my work"]').trigger('click')
+    await flushPromises()
+
+    expect(source().text()).toContain('source-a saved')
+    expect(source().get('.home-source-progress').text()).toContain('Updating')
+    expect(source(1).text()).toContain('source-b updated')
+    expect(source(1).find('.home-source-progress').exists()).toBe(false)
+    expect(wrapper!.get('[aria-label="Work sources"]').findAll('[role="tab"]')[0]!.attributes('aria-busy')).toBe('true')
+    expect(wrapper!.get('[aria-label="Work sources"]').findAll('[role="tab"]')[1]!.attributes('aria-busy')).toBe('false')
+    expect(wrapper!.get('[aria-label="Refresh today’s focus"]').attributes('disabled')).toBeUndefined()
+    finish({ currentUser: { id: 'me' }, items: [ownedItem('source-a', 'source-a updated')] })
+    await flushPromises()
+    expect(source().find('.home-source-progress').exists()).toBe(false)
+  })
+
+  it('shows an expired snapshot before the background read settles after re-entry', async () => {
+    let now = Date.now()
+    vi.spyOn(Date, 'now').mockImplementation(() => now)
+    useWorkbenchStore().integrationContributions = [workSource('source-a')]
+    vi.mocked(api.invokeIntegrationAction).mockResolvedValue({ currentUser: { id: 'me' }, items: [ownedItem('source-a', 'Cached task')] })
+    await open({ compact: true })
+    wrapper!.unmount()
+    now += 61_000
+    let finish!: (page: IntegrationEntityPage) => void
+    vi.mocked(api.invokeIntegrationAction).mockClear().mockImplementation(() => new Promise(resolve => finish = resolve))
+
+    wrapper = mount(WorkItemsOverview, { props: { compact: true } })
+    expect(wrapper.text()).toContain('Cached task')
+    expect(wrapper.find('.ui-skeleton-list').exists()).toBe(false)
+    await flushPromises()
+    expect(source().get('.home-source-progress').text()).toContain('Updating')
+    expect(api.invokeIntegrationAction).toHaveBeenCalledOnce()
+    finish({ currentUser: { id: 'me' }, items: [ownedItem('source-a', 'Updated task')] })
+    await flushPromises()
+    expect(source().text()).toContain('Updated task')
+    expect(source().text()).not.toContain('Cached task')
+  })
+
+  it('keeps the previous focus snapshot visible when a background refresh fails', async () => {
+    useWorkbenchStore().integrationContributions = [workSource('source-a')]
+    vi.mocked(api.invokeIntegrationAction).mockResolvedValue({ currentUser: { id: 'me' }, items: [ownedItem('source-a', 'Saved focus task')] })
+    await open({ compact: true })
+    vi.mocked(api.invokeIntegrationAction).mockRejectedValue(new Error('Offline'))
+    await wrapper!.setProps({ refreshKey: 1 })
+    await flushPromises()
+    expect(wrapper!.getComponent({ name: 'TodayFocus' }).props('entries')).toHaveLength(1)
+    expect(wrapper!.get('.focus-list').text()).toContain('Saved focus task')
+    expect(source().get('[role="alert"]').text()).toContain('Previous results may be stale')
   })
 
   it('refreshes one source from its group header and retains its snapshot if that refresh fails', async () => {
