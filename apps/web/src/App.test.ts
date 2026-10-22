@@ -1065,9 +1065,16 @@ describe('app startup', () => {
     const events = FakeEventSource.instances[0]!
     events.listeners.get('open')!(new Event('open'))
     expect(store.softwareSourcesRevision).toBe(2)
+    await nextTick()
+    expect(wrapper.get('.status-bar').attributes('data-idle')).toBeDefined()
     events.listeners.get('error')!(new Event('error'))
+    await nextTick()
+    // A dropped stream is worth reporting, so the status bar leaves its idle state until the stream reopens.
+    expect(wrapper.get('.status-bar').attributes('data-idle')).toBeUndefined()
     events.listeners.get('open')!(new Event('open'))
     expect(store.softwareSourcesRevision).toBe(3)
+    await nextTick()
+    expect(wrapper.get('.status-bar').attributes('data-idle')).toBeDefined()
     expect(wrapper.findAll('.workbench-splitter [data-panel]')).toHaveLength(3)
     expect(wrapper.findAll('.workbench-resize-handle')).toHaveLength(2)
     expect(wrapper.findAll('.workbench-resize-handle').map(handle => handle.attributes('aria-label'))).toEqual([
@@ -1096,6 +1103,7 @@ describe('app startup', () => {
     expect(wrapper.get('.codex-task-status').attributes('aria-label')).toBe('1 Codex task(s) running · Open Codex')
     expect(wrapper.get('.codex-task-status').attributes('data-tooltip')).toBe('1 Codex task(s) running · Open Codex')
     expect(wrapper.get('.codex-task-status strong').text()).toBe('1')
+    expect(wrapper.get('.status-bar').attributes('data-idle')).toBeUndefined()
     await wrapper.get('.codex-task-status').trigger('click')
     expect(focusCodexApplication).toHaveBeenCalledOnce()
     store.agentTasks = []

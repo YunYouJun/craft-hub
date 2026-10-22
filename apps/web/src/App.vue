@@ -195,6 +195,8 @@ const desktopNavigation = ref<Extract<DesktopNavigation, { kind: 'project' }>>()
 /** Kept separate from the navigation so the dialog keeps its content while it animates closed. */
 const desktopNavigationOpen = ref(false)
 const eventStreamConnected = ref(false)
+/** Set only after an established event stream drops, so launch does not count as a lost connection. */
+const eventStreamLost = ref(false)
 const codexActivityStatus = ref<CodexActivityStatus>()
 const runningCodexTaskCount = computed(() => {
   const sessionIds = new Set(codexActivityStatus.value?.runningSessionIds ?? [])
@@ -553,9 +555,13 @@ onBeforeMount(async () => {
       navigationRevision.value++
       void Promise.all([store.refreshProjects(), store.loadIntegrations(), store.loadPluginWorkbenches(), store.loadWorkbenchDiagnostics()]).catch(() => {})
     },
-    onError: () => { eventStreamConnected.value = false },
+    onError: () => {
+      eventStreamLost.value = eventStreamConnected.value || eventStreamLost.value
+      eventStreamConnected.value = false
+    },
     onOpen: () => {
       eventStreamConnected.value = true
+      eventStreamLost.value = false
       store.notifySoftwareSourcesChanged()
       void store.loadSettings().catch(() => {})
     },
@@ -760,7 +766,7 @@ onBeforeUnmount(() => {
         </section>
       </component>
     </WorkbenchSplitter>
-    <footer class="status-bar">
+    <footer class="status-bar" :data-idle="!runningCodexTaskCount && !eventStreamLost || undefined">
       <span :aria-busy="store.refreshing">
         <Icon v-if="store.refreshing" name="loading" class="refresh-loading-icon" />
         <i v-else :class="{ updated: store.recentlyUpdated }" />
