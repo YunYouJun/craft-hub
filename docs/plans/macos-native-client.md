@@ -48,6 +48,7 @@
 - [ ] 运行时辅助进程崩溃后自动重启，界面显示状态，未保存的快速记录不丢失。
 - [ ] 正常退出和强制退出后都不残留 Node 进程。
 - [ ] 优先使用本机已有的兼容 Node；诊断中心显示当前使用的 Node 路径和版本。用户升级或删除 Node 后，下次启动自动重新选择并提示。
+- [ ] 固定规则找不到兼容 Node 时，引导页提供“从登录 shell 读取 PATH”按钮，照顾只靠 shell 启动文件配置的 nvm、Volta、asdf、mise。只有用户点击才会运行，启动时从不自动运行。运行一次登录 shell，非交互并设超时，只读取 `PATH`。找到的 Node 同样做兼容检查，并保存为用户指定路径，之后不再运行 shell。按钮旁说明这会执行用户的 shell 启动文件。
 - [ ] 没有兼容 Node 时，原生引导页仍能打开并说明原因，满足 [ADR 0011](../adr/0011-focus-on-machine-setup-and-environment.md)。用户确认后才下载 Craft Hub 私有 Node 并校验官方 checksum；不修改用户自己的 Node 或 `PATH`。
 - [ ] 原生端不执行项目命令。新项目仍为 `untrusted`，执行仍走运行时的显式信任和 `shell: false`；快捷指令、通知和菜单栏入口都不能绕过应用内确认。
 
@@ -63,7 +64,7 @@
 - [ ] 把 `window.craftHubDesktop` 的 47 个成员整理成按用途分组、带版本号的桥接合同。
 - [ ] 在运行时包里声明支持的 Node 版本范围，并在每个支持的大版本上跑测试。
 - [ ] 把 Node 查找规则写成共享测试样例，现有的 `guiToolDirectories` 和后续的 Swift 实现都要通过。
-- [ ] 决定 Node 选择细节（ADR 0012 待定问题 2）：优先用默认版本还是最新的兼容版本，是否支持 Volta、asdf、mise 的 shim，私有 Node 从哪里下载、如何升级。
+- [ ] 决定 Node 选择细节（ADR 0012 待定问题 2）：优先用默认版本还是最新的兼容版本，是否支持 Volta、asdf、mise 的 shim，私有 Node 从哪里下载、如何升级；“从登录 shell 读取 PATH”支持哪些 shell、超时多长。
 - [ ] 测出 Electron 版的交互基线：冷启动、⌘K、页面切换、拖动改窗口大小。
 - [ ] 确定原生工程的位置（建议 `apps/macos`）、Swift 格式检查和 macOS CI runner。
 - [ ] ADR 接受后更新 AGENTS.md 的架构说明。

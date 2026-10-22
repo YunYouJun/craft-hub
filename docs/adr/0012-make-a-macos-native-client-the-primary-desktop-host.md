@@ -93,7 +93,7 @@ This decision does not add native code, change the Electron host or remove the T
 ## Open questions
 
 1. **Minimum macOS version:** 14, 15, or 26 only. The proposal is 15.
-2. **Node resolution:** whether to prefer the user's default Node or the newest compatible one, whether shims from Volta, asdf or mise are supported, where the private Node comes from and how it is upgraded, and whether a downstream distribution may still bundle Node.
+2. **Node resolution:** whether to prefer the user's default Node or the newest compatible one, whether shims from Volta, asdf or mise are supported, where the private Node comes from and how it is upgraded, and whether a downstream distribution may still bundle Node. Proposed fallback for Node set up only through shell startup files, such as nvm, Volta, asdf or mise: when the fixed rules find no compatible Node, the bootstrap view offers a **Read PATH from login shell** action. Only a user click triggers it, never a launch. It runs the user's login shell once, non-interactively and with a timeout, and reads only `PATH`. A Node found there passes the same compatibility checks and is saved as the user's explicit path (choice 1), so the shell is not run again. Still open: which shells to support, the timeout, and how to tell the user that their startup files will run.
 3. **Client authentication:** the contract shape, such as a token handed over the parent pipe, and how MCP and agent clients adopt it.
 4. **Data continuity:** the runtime data directory and Electron's Chromium profile currently share `~/Library/Application Support/Craft Hub`. Both hosts must not run against the same runtime state at once. Device vault and personal cloud keys need a migration path.
 5. **App identity:** the same app name and bundle identifier replacing Electron, or a separate app side by side during migration, and which app owns the `craft-hub:` URL scheme meanwhile.
@@ -101,3 +101,13 @@ This decision does not add native code, change the Electron host or remove the T
 7. **Host extensions:** dynamic Node host plugins run in the sidecar. Can they contribute anything beyond declarative blocks to the native UI?
 8. **Codex integration:** keep the SDK in the sidecar, or launch the external CLI from the native host. Where the activity hooks live.
 9. **Tauri trial:** retire it, or keep it as the candidate to replace Electron on Windows and Linux.
+
+## Community references
+
+Checked on 2026-10-22. No project found combines capability discovery, trust-gated execution, environment readiness and a native shell, so these are references, not dependencies.
+
+- [electron-liquid-glass](https://github.com/Meridius-Labs/electron-liquid-glass) inserts `NSGlassEffectView` behind Electron web content on macOS 26. It needs a transparent window without `vibrancy`, relies on a reverse-engineered API, and marks its extra variants private and unfit for production. It suits an Electron-phase experiment, not a replacement for this decision. Qt, Rust and Flutter wrappers use the same approach.
+- [Electrobun](https://github.com/blackboardsh/electrobun) pairs a Bun main process with the system WebKit view. The UI stays web-based, and moving the runtime from Node to Bun would need `node-pty` and the Codex SDK re-verified. Not adopted.
+- [fix-path](https://github.com/sindresorhus/fix-path) and [shell-env](https://github.com/sindresorhus/shell-env) read `PATH` from the login shell, which is how many Electron apps find tools. It is the basis of the opt-in fallback in question 2, not the default, because it runs the user's startup files.
+- [Applite](https://github.com/milanvarady/Applite), a SwiftUI front end for Homebrew Casks, is a reference for a native software center.
+- [Project Launcher](https://github.com/PiotrChr/launcher), a native menu bar app that starts and supervises local projects, is a reference for the menu bar panel and process status.
