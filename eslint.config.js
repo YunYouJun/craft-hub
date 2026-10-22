@@ -7,10 +7,6 @@ export default antfu(
     pnpm: true,
     ignores: [
       'docs/api/**',
-      'apps/tauri/.prepared/**',
-      'apps/tauri/.tools/**',
-      'apps/tauri/src-tauri/target/**',
-      'apps/tauri/src-tauri/gen/**',
       'apps/macos/.build/**',
       'apps/macos/build/**',
     ],

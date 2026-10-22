@@ -1,6 +1,8 @@
 # ADR 0012: Make a macOS native client the primary desktop host
 
-Date: 2026-10-22. Status: proposed. The maintainer set the direction; no native client code exists yet, and Electron remains the shipped host on every platform.
+Date: 2026-10-22. Status: proposed. The maintainer set the direction; Electron remains the shipped host on every platform.
+
+Update, 2026-10-22: the `apps/macos` prototype (M1) runs the shared runtime sidecar from `apps/desktop/src/sidecar.ts`, which Electron and the native host compose through `createDesktopHostRuntime`. The Tauri trial is retired and removed (question 9).
 
 ## Context
 
@@ -16,7 +18,7 @@ The repository already separates what a native client needs:
 
 - `packages/craft-hub` owns the project registry, capability discovery, trust, execution and persistence. It serves them over the local HTTP API and the `/api/events` stream. `startCraftHubServer` accepts `authorizeRequest` and `handleHostRequest` hooks for a host's access gate and adapter routes. AGENTS.md already requires editor and desktop clients to consume public runtime contracts.
 - Marketplace plugins are declarative ([ADR 0006](./0006-separate-marketplace-plugins-from-host-plugins.md)), so their workbench blocks can be rendered by a client other than the web UI.
-- The [Tauri host trial](../../apps/tauri/README.md) bundles its own Node executable and runs the runtime as a separate backend process. That backend guards every route with a one-use bootstrap URL and a session cookie, validates Host and Origin, and shuts down when its parent's pipe closes. A Swift/AppKit helper supplies native folder selection. A native host can reuse the guard and the process lifecycle.
+- The Tauri host trial, since retired, bundled its own Node executable and ran the runtime as a separate backend process. That backend guarded every route with a one-use bootstrap URL and a session cookie, validated Host and Origin, and shut down when its parent's pipe closed. A Swift/AppKit helper supplied native folder selection. A native host can reuse the guard and the process lifecycle.
 - Most users of a developer workbench already have Node. The Electron host finds an external Codex CLI and its Node through fixed GUI search rules (`guiToolDirectories` in `apps/desktop/src/codex-executable.ts`): absolute `PATH` entries, `~/.local/bin`, Homebrew, pnpm, and fnm installations. It does not run shell startup scripts. The runtime's only native module, `node-pty` 1.1.0, is built on node-addon-api with one prebuild per platform, so a single build loads on every supported Node major. The workspace declares `^22.18.0 || ^24.11.0 || >=26.0.0`; the runtime package does not yet declare its own range.
 
 Moving the Electron host is still real work:
@@ -41,7 +43,7 @@ Moving the Electron host is still real work:
    With no compatible Node, the native bootstrap view still opens and explains what is missing. It installs the private Node only after the user confirms, verifies the download against the official checksums, and never adds it to `PATH` or replaces the user's Node. Installing Node globally remains a reviewed software-center action.
 4. **Node-side host services move below the hosts.** The Codex SDK integration, personal cloud, host extensions and host plugin loading leave the Electron main process for a host backend that runs in the sidecar, so both hosts share one implementation. Operating-system integration stays with each host: menus, shortcuts, deep links, updates, secure storage, dialogs and application activation. Launching fixed external applications with `shell: false` may live in either layer, but each launch has one owner.
 5. **Migration is incremental.** The native shell owns the window chrome from its first build: sidebar, toolbar, menus and command palette. Its content area hosts the existing web UI in a `WKWebView` running in an embedded mode until each surface is ported. Surfaces are ported in order of daily use. Declarative plugin blocks get native renderers, and any unported block falls back to the web renderer.
-6. **Electron is the Windows and Linux host, in maintenance mode.** It keeps the same web UI and runtime and receives their changes, but no new desktop-only features. The normal-browser workbench stays supported. Replacing Electron on those platforms, for example with Tauri, needs its own decision.
+6. **Electron is the Windows and Linux host, in maintenance mode.** It keeps the same web UI and runtime and receives their changes, but no new desktop-only features. The normal-browser workbench stays supported. Replacing Electron on those platforms needs its own decision.
 7. **The safety boundary does not change.** Projects start `untrusted`, and execution stays `command` plus `args` with `shell: false` in the project working directory. The native client never executes project commands itself; every execution goes through the runtime.
 
 ## Phased plan
@@ -50,8 +52,8 @@ Each phase ends with a go/no-go review. A phase does not start until the previou
 
 ### Phase 0: Prepare shared seams in TypeScript
 
-- Extract the Node-side services from `apps/desktop/src/main.ts` into a host backend that the Electron host and a sidecar entry can both start. Reuse the lifecycle and guard of `apps/tauri/backend`.
-- Define an authentication contract for clients that are not browsers, so a native client — and the MCP and agent clients the Tauri trial left blocked — can connect without a browser cookie.
+- Extract the Node-side services from `apps/desktop/src/main.ts` into a host backend that the Electron host and a sidecar entry can both start. Reuse the lifecycle and guard of the Tauri trial's backend, now `apps/desktop/src/sidecar-host.ts`.
+- Define an authentication contract for clients that are not browsers, so a native client — and the MCP and agent clients that a session-cookie guard blocks — can connect without a browser cookie.
 - Specify the desktop bridge as a versioned contract grouped by concern: navigation and events, application launching, dialogs, updates, cloud, and Codex. This replaces the implicit set of 47 members.
 - Declare the runtime's supported Node range in the runtime package and run its tests on each supported major.
 - Write the Node search rules down as shared fixtures. Node is resolved before any Node process exists, so the native host needs its own Swift implementation. Both implementations must pass the same fixtures as `guiToolDirectories`.
@@ -64,7 +66,7 @@ Acceptance: Electron ships on the extracted backend without behavior changes. Di
 - A Node sidecar started on the resolved executable, with its lifetime tied to the app through the parent pipe, plus the native bootstrap view for machines without a compatible Node.
 - A `WKWebView` content area showing the web UI in embedded mode. Bridge methods cover folder selection, external links, the clipboard, theme and locale.
 
-Acceptance: the maintainer uses it as the daily host for one week. Cold start, memory, and installed and download sizes are measured against the Electron app with the same functional scope, following the comparison rule in the Tauri trial. Electron's frameworks are about 285 MiB of the current 335 MiB app ([package size](../research/desktop-package-size.md)). The native app ships no Node, so the comparison counts its backend resources and reports the private Node download size separately. Any gap that blocks daily use is recorded.
+Acceptance: the maintainer uses it as the daily host for one week. Cold start, memory, and installed and download sizes are measured against the Electron app with the same functional scope, counting every resource each app needs for it. Electron's frameworks are about 285 MiB of the current 335 MiB app ([package size](../research/desktop-package-size.md)). The native app ships no Node, so the comparison counts its backend resources and reports the private Node download size separately. Any gap that blocks daily use is recorded.
 
 ### Phase 2: Native high-frequency surfaces
 
@@ -88,7 +90,7 @@ Acceptance: these flows no longer touch the web view. Keyboard focus, shortcuts 
 - During migration, the seams between native chrome and web content — focus, shortcuts, drag and drop, scrolling — are visible until the surfaces behind them are ported.
 - Using the user's Node keeps the app small: the Electron frameworks go away without a Node runtime taking their place. In exchange, runtime behavior depends on which supported Node major the user has, which widens the test matrix. A user upgrading or removing Node becomes a new failure mode that the bootstrap view and diagnostics must make visible.
 
-This decision does not add native code, change the Electron host or remove the Tauri trial.
+This decision does not by itself change the Electron host's behavior.
 
 ## Open questions
 
@@ -100,7 +102,7 @@ This decision does not add native code, change the Electron host or remove the T
 6. **Embedded web mode:** which web chrome is hidden, and how the native sidebar and the web router stay in sync — URLs, bridge messages, or both.
 7. **Host extensions:** dynamic Node host plugins run in the sidecar. Can they contribute anything beyond declarative blocks to the native UI?
 8. **Codex integration:** keep the SDK in the sidecar, or launch the external CLI from the native host. Where the activity hooks live.
-9. **Tauri trial:** retire it, or keep it as the candidate to replace Electron on Windows and Linux.
+9. **Tauri trial:** retired and removed on 2026-10-22. The native prototype runs the shared sidecar from `apps/desktop`, so nothing depended on the trial. Windows and Linux stay on Electron.
 
 ## Community references
 

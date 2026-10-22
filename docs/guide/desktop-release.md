@@ -49,7 +49,7 @@ Each copied macOS target verifies the `keytar@7.9.0` native credential addon aga
 
 ## Application icon
 
-`apps/desktop/assets/icon.icon` is the Icon Composer source. Its three glass facets use the YunLeFun sky blue, cyan, and sun palette, so the system can render default, dark, tinted, and clear appearances. `@electron/packager` finds the `.icon` beside `icon.icns`, compiles it into `Assets.car`, and sets `CFBundleIconName`. That step requires macOS 26 and Xcode 26 or later, so the release job runs on `macos-26`. The `.icns` remains the fallback for earlier macOS releases and the Tauri trial.
+`apps/desktop/assets/icon.icon` is the Icon Composer source. Its three glass facets use the YunLeFun sky blue, cyan, and sun palette, so the system can render default, dark, tinted, and clear appearances. `@electron/packager` finds the `.icon` beside `icon.icns`, compiles it into `Assets.car`, and sets `CFBundleIconName`. That step requires macOS 26 and Xcode 26 or later, so the release job runs on `macos-26`. The `.icns` remains the fallback for earlier macOS releases; the native macOS prototype uses both the same way.
 
 After you edit the Icon Composer source, run `pnpm icons:desktop` on macOS. It renders `icon.png` and `icon.icns` on the 824/1024 macOS icon grid. Update the flat favicon in `apps/web/public` and `docs/public` by hand when the facet geometry changes. A downstream distribution that sets `desktop.icons.macos` can add a sibling `.icon` with the same base name.
 

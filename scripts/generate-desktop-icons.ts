@@ -40,7 +40,7 @@ async function renderIcon(outputFile: string, canvasSize: number): Promise<void>
 
 /**
  * Renders the Icon Composer source into the PNG used by the Electron window and
- * the `.icns` fallback for macOS releases before Liquid Glass and Tauri builds.
+ * the `.icns` fallback for macOS releases before Liquid Glass.
  */
 async function generateDesktopIcons(): Promise<void> {
   if (process.platform !== 'darwin')

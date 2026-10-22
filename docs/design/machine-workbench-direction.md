@@ -91,7 +91,7 @@ Workstation 的 `software.config.ts` 继续作为软件清单的唯一来源，�
 
 - [x] 保留共享 Node 后端与 Electron；macOS 默认使用本机 Codex CLI，缺失时可通过软件中心按需安装。工作台启动无需 Codex CLI 或本机 Node，已有 SDK 调用与项目信任保持原合同；显式 `CRAFT_HUB_DESKTOP_CODEX_MODE=bundled` 保留内置 CLI 兼容构建。新桌面包的 Workstation 使用 Electron 运行时，独立外部 CLI 仍需本机 Node。
 - [ ] 将其余内部 Agent 执行调用者迁移到外部工作台，再评估是否移除 SDK。包体积测量见 [桌面包分析](../research/desktop-package-size.md)。
-- [ ] 若继续 Tauri + 本机 Node，先提供独立的启动检查 / 设置页与可验证的引导合同，再谈默认分发；不能先调用依赖 Node 的 Workstation CLI 来查找缺失 Node。
+- [ ] 原生 macOS 宿主（[ADR 0012](../adr/0012-make-a-macos-native-client-the-primary-desktop-host.md)）使用本机 Node：先完善独立的启动检查 / 设置页与可验证的引导合同，再谈默认分发；不能先调用依赖 Node 的 Workstation CLI 来查找缺失 Node。原型已有找不到 Node 时的原生引导页。Tauri 试验已于 2026-10-22 退役并移除。
 - [ ] 将便携方案接入已有 Personal / Team 配置源模型；软件偏好与本机观测、路径绑定保持分离，不创建第二套账号与同步系统。
 - [ ] 在同功能范围测量完整安装包、首次使用步骤、启动和内存，再决定轻量宿主；自动配置所有软件账号、通用终端和内嵌 Agent IDE 不作为本轮目标。
 

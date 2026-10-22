@@ -40,7 +40,7 @@
 - [x] 补齐上述品牌图标，验证 UnoCSS 的真实输出和未知品牌回退。
 - [x] 构建后验证工具总览、环境检测与真实工具配置长列表：系统主题、Portal 继承、键盘焦点、固定头尾、默认/紧凑控件尺寸、320 / 390 / 768 / 1440px 无页面横向溢出；Chromium 完整流程和 WebKit 明暗主题弹层冒烟通过。运行时无相关控制台错误或远程图标/字体请求。
 - [x] 构建并安装 macOS arm64 Electron 到 `/Applications/Craft Hub.app`；安装与 release 的 ASAR 一致，333 个 Web / Desktop 资源与当前 dist 的 SHA256 一致，实际进程和本地 API 均来自安装版。原生窗口侧栏顺序、品牌图标和本机环境检测通过，六项工具均可用。
-- [ ] 补充 Electron 原生明暗主题与键盘交互的完整验收，以及 Tauri 的原生消费端验证；当前原生启动与环境页检查不代替全部宿主验收。
+- [ ] 补充 Electron 原生明暗主题与键盘交互的完整验收，以及原生 macOS 宿主的验收；当前原生启动与环境页检查不代替全部宿主验收。
 - [x] 2026-10-17：`@yunlefun/ui@0.0.7` 发布 `admin.css`，与原暂存副本逐字节一致；改为导入包入口并删除暂存副本，复核明暗主题与密度。
 - [ ] 逐个评估基础控件内部实现替换，继续保留本地调用接口；不单独发布一套新的通用 UI 包。
 
@@ -82,7 +82,7 @@
 - 开关：拇指位移改用软弹簧（480ms），按下时向行程方向拉长 4px。
 - 弹层：所有 Reka 定位弹层（菜单、Select、Combobox、Tooltip、Popover）在 `[data-reka-popper-content-wrapper]` 下统一从触发方向轻移 4px、淡入，收起时淡出，开合对称；菜单使用 160ms，接近原生菜单的即时感。居中 Dialog（含默认 `.dialog-content`）使用 240ms 进入、160ms 离开，命令面板保持 160ms。
 - 减少动态效果：沿用全局 `prefers-reduced-motion` 规则，并将位移、缩放和拇指拉伸归零；状态仍直接反映最终结果。
-- 桌面宿主（Electron / Tauri 注入 `data-desktop-platform`）：按钮、标签页、菜单项、开关等控件使用系统箭头光标且标签不可选中；侧栏、状态栏与面包屑不可选中，控件内图标与链接不可拖拽。链接、输入框、代码和正文保持浏览器行为；普通浏览器继续使用 Web 习惯的手形光标。
+- 桌面宿主（Electron 或原生 macOS 宿主注入 `data-desktop-platform`）：按钮、标签页、菜单项、开关等控件使用系统箭头光标且标签不可选中；侧栏、状态栏与面包屑不可选中，控件内图标与链接不可拖拽。链接、输入框、代码和正文保持浏览器行为；普通浏览器继续使用 Web 习惯的手形光标。
 
 本轮在浏览器中验证：变量解析、弹簧曲线有效、菜单弹层方向与变换原点、退出动画结束后卸载并把焦点交还触发器、桌面模式下所有按钮均为箭头光标。尚未在 Electron 安装版与 Tauri 中做原生验收。
 
@@ -108,10 +108,10 @@
 
 ## macOS 窗口材质
 
-2026-10-15：保留 Web UI，在宿主层让 macOS Electron 窗口更接近原生。主窗口启用 `vibrancy: 'sidebar'`、`visualEffectState: 'followWindow'` 与透明背景；失焦时材质随窗口切到非活跃状态，与系统侧栏一致。Windows、Linux 与 Tauri 不变。
+2026-10-15：保留 Web UI，在宿主层让 macOS Electron 窗口更接近原生。主窗口启用 `vibrancy: 'sidebar'`、`visualEffectState: 'followWindow'` 与透明背景；失焦时材质随窗口切到非活跃状态，与系统侧栏一致。Windows 与 Linux 不变。
 
 - 范围：只有活动栏与主侧栏（`.project-rail` 内的 `.activity-rail`、`.rail-content`）透出材质。顶栏、状态栏、正文、二级分区导航、Dialog 与弹层保持不透明。正文区域旁的容器用零优先级 `:where()` 兜底为 `--surface`，已有背景不受影响。
-- 开关：Electron 主进程通过 `--craft-hub-window-material=sidebar` 告诉 preload，preload 暴露 `craftHubDesktop.windowMaterial`，Web 再写入 `data-desktop-window-material`。CSS 同时要求 `data-desktop-platform='darwin'` 和这个属性。Tauri 同样上报 `darwin`，但没有这个属性，因此不会出现透明而无材质的区域。普通浏览器两个属性都没有，宽度不超过 760px 时也不生效。
+- 开关：Electron 主进程通过 `--craft-hub-window-material=sidebar` 告诉 preload，preload 暴露 `craftHubDesktop.windowMaterial`，Web 再写入 `data-desktop-window-material`。CSS 同时要求 `data-desktop-platform='darwin'` 和这个属性。原生 macOS 宿主同样上报 `darwin`，但没有这个属性，因此不会出现透明而无材质的区域。普通浏览器两个属性都没有，宽度不超过 760px 时也不生效。
 - 着色：侧栏在材质上叠加原有颜色。浅色叠 75%，深色叠 60%；开启「减少透明度」时为 100%。浅色窗口后方是黑色窗口时最暗，实测材质约为 `rgb(200 204 207)`。叠 60% 后侧栏文字对比度为 4.39:1，低于 4.5:1，因此浅色提高到 75%：实测 4.65:1，图标 3.20:1。深色叠 60%：文字 7.80:1，图标 5.46:1。
 - 启动：窗口以 `show: false` 创建，`ready-to-show` 后显示。加载失败时也会显示，以便诊断。非 macOS 的窗口底色改为 Web body 色（深色 `#191c22`，原为 `#1f232b`），首帧前不再出现色差。
 - 右键菜单：Electron 默认没有右键菜单。输入框现在弹出原生编辑菜单：拼写建议、撤销、重做、剪切、复制、粘贴、粘贴并匹配样式、全选，可用状态取自 `editFlags`，文案跟随工作台语言。只读文字有选区时只显示「复制」。Reka 自定义菜单会取消 DOM 事件，原生菜单不会叠加出现。

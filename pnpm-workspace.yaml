@@ -70,7 +70,6 @@ catalog:
   '@pierre/diffs': 1.2.11
   '@shikijs/vitepress-twoslash': ^4.4.3
   '@softeria/ms-365-mcp-server': 0.140.0
-  '@tauri-apps/cli': 2.12.1
   '@types/canvas-confetti': ^1.9.0
   '@types/node': ^26.3.0
   '@types/pacote': ^11.1.8
@@ -97,7 +96,6 @@ catalog:
   devframe: ^1.0.0
   dompurify: 3.4.16
   electron: ^44.0.0
-  esbuild: ^0.28.2
   eslint: ^10.9.1
   floating-vue: ^5.2.2
   happy-dom: ^20.11.6
