@@ -212,6 +212,22 @@ it('shows additional loaded tasks, collapses groups and retains empty native lis
   expect(choice('Empty').attributes('aria-pressed')).toBe('true')
 })
 
+it('shows every match without the compact preview once a smart category or list is chosen', async () => {
+  const page = fixture()
+  const overdue = { dueDate: { dateTime: '2000-01-01T00:00:00Z', timeZone: 'UTC' } }
+  page.items.push(task('5', 'work', overdue), task('6', 'work', overdue), task('7', 'personal', overdue))
+  open(page)
+  expect(wrapper!.findAll('.task')).toHaveLength(4)
+  await wrapper!.get('.smart-filter.overdue').trigger('click')
+  expect(wrapper!.findAll('.task').map(row => row.text())).toEqual(['Task 2', 'Task 5', 'Task 6', 'Task 7'])
+  expect(wrapper!.text()).not.toContain('Show more tasks')
+  await wrapper!.get('.smart-filter.all').trigger('click')
+  await choice('Work').trigger('click')
+  expect(wrapper!.findAll('.task')).toHaveLength(5)
+  await wrapper!.get('.collection-choice').trigger('click')
+  expect(wrapper!.findAll('.task')).toHaveLength(4)
+})
+
 it('keeps selected lists across refresh, clears vanished lists and resets account-specific browsing', async () => {
   open()
   await choice('Personal').trigger('click')

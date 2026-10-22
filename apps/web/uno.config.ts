@@ -45,7 +45,7 @@ export default defineConfig({
     'i-ri-brush-line',
     'i-ri-bug-line',
     'i-ri-bookmark-line',
-    'i-ri-checkbox-line',
+    'i-ri-todo-line',
     'i-ri-checkbox-blank-circle-line',
     'i-ri-progress-4-line',
     'i-ri-git-pull-request-line',

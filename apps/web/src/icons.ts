@@ -11,7 +11,7 @@ export const iconClasses: Record<Exclude<IconName, 'codex' | 'cursor' | 'plugins
   linux: 'i-simple-icons-linux',
   bug: 'i-ri-bug-line',
   story: 'i-ri-bookmark-line',
-  task: 'i-ri-checkbox-line',
+  task: 'i-ri-todo-line',
   pending: 'i-ri-checkbox-blank-circle-line',
   progress: 'i-ri-progress-4-line',
   review: 'i-ri-git-pull-request-line',
