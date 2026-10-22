@@ -19,7 +19,7 @@ async function loadBridges() {
     }),
   })
   const swift = await readFile(new URL('../../macos/Sources/CraftHubMac/DesktopBridge.swift', import.meta.url), 'utf8')
-  const script = swift.match(/static let script = """\n([\s\S]*?)\n {2}"""/)?.[1]
+  const script = swift.match(/static let script = """\r?\n([\s\S]*?)\r?\n {2}"""/)?.[1]
   if (!script)
     throw new Error('The native bridge injection script was not found')
   const window = { webkit: { messageHandlers: { craftHubBridge: { postMessage } } } } as unknown as Window

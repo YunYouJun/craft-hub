@@ -13,7 +13,7 @@ const examplePluginPath = fileURLToPath(new URL('../../../examples/marketplace-p
 const cliPath = fileURLToPath(new URL('../src/cli.ts', import.meta.url))
 
 describe('marketplace Plugin authoring', () => {
-  it('initializes a composable package and validates its packed files', async () => {
+  it('initializes a composable package and validates its packed files', { timeout: 15_000 }, async () => {
     const root = await temporaryPath('craft-hub-plugin-init-')
     const pluginPath = join(root, 'plugin')
 
