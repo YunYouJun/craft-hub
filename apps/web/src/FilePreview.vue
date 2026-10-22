@@ -5,6 +5,7 @@ import { computed, ref, watch } from 'vue'
 import { Button as UiButton } from './components/ui/button'
 import { useI18n } from './i18n'
 import { previewFile } from './preview-file'
+import { hasPreviewGrammar } from './shiki-curated'
 import { resolvedWorkbenchTheme } from './theme'
 
 const props = defineProps<{
@@ -42,9 +43,15 @@ watch([container, () => props.content, () => props.path, () => props.comparison?
     if (cancelled) return
     const file = previewFile(props.content, props.path)
     const oldFile = props.comparison ? previewFile(props.comparison.content, props.comparison.path ?? props.path) : undefined
+    const files = [file, ...(oldFile ? [oldFile] : [])]
+    // The app ships a curated set of grammars; other languages render as plain text instead of failing.
+    for (const item of files) {
+      const lang = item.lang ?? getFiletypeFromFileName(item.name)
+      item.lang = hasPreviewGrammar(lang) ? lang : 'text'
+    }
     await preloadHighlighter({
       themes: ['github-light', 'github-dark'],
-      langs: [file, ...(oldFile ? [oldFile] : [])].map(file => file.lang ?? getFiletypeFromFileName(file.name)),
+      langs: files.map(item => item.lang ?? 'text'),
     })
     if (cancelled) return
     const options = {

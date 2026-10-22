@@ -1,4 +1,5 @@
 import type { ProxyOptions } from 'vite'
+import { fileURLToPath } from 'node:url'
 import vue from '@vitejs/plugin-vue'
 import UnoCSS from 'unocss/vite'
 import { defineConfig } from 'vite'
@@ -23,6 +24,10 @@ const localOnly: ProxyOptions = {
 
 export default defineConfig({
   plugins: [vue(), UnoCSS(unoConfig), craftHubDevtools()],
+  resolve: {
+    // File previews ship a curated set of Shiki grammars; only the bare `shiki` entry is replaced.
+    alias: [{ find: /^shiki$/, replacement: fileURLToPath(new URL('./src/shiki-curated.ts', import.meta.url)) }],
+  },
   devtools: {
     apply: 'serve',
     embeddedVisibility: 'passive',
