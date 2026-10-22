@@ -14,13 +14,16 @@ struct WorkbenchWebView: NSViewRepresentable {
     let configuration = WKWebViewConfiguration()
     let scripts = configuration.userContentController
     scripts.addUserScript(WKUserScript(source: "window.__craftHubNativeHost = 'macos'", injectionTime: .atDocumentStart, forMainFrameOnly: true))
+    scripts.addUserScript(WKUserScript(source: DesktopBridge.script, injectionTime: .atDocumentStart, forMainFrameOnly: true))
     scripts.add(context.coordinator, name: "craftHubNative")
+    scripts.addScriptMessageHandler(context.coordinator.bridge, contentWorld: .page, name: DesktopBridge.handlerName)
     let webView = WKWebView(frame: .zero, configuration: configuration)
     webView.navigationDelegate = context.coordinator
     webView.uiDelegate = context.coordinator
     webView.allowsBackForwardNavigationGestures = true
     webView.isInspectable = true
     context.coordinator.observe(webView)
+    context.coordinator.bridge.webView = webView
     model.webView = webView
     webView.load(URLRequest(url: url))
     return webView
@@ -30,17 +33,20 @@ struct WorkbenchWebView: NSViewRepresentable {
 
   static func dismantleNSView(_ webView: WKWebView, coordinator: Coordinator) {
     webView.configuration.userContentController.removeScriptMessageHandler(forName: "craftHubNative")
+    webView.configuration.userContentController.removeScriptMessageHandler(forName: DesktopBridge.handlerName, contentWorld: .page)
   }
 
   @MainActor
   final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler {
     let model: WorkbenchModel
     let origin: URL
+    let bridge: DesktopBridge
     private var observations: [NSKeyValueObservation] = []
 
     init(model: WorkbenchModel, origin: URL) {
       self.model = model
       self.origin = origin
+      bridge = DesktopBridge(origin: origin)
     }
 
     func observe(_ webView: WKWebView) {

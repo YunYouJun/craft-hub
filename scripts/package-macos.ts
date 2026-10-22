@@ -258,7 +258,8 @@ async function createDistributionArtifacts(appPath: string, architecture: MacArc
   }
 }
 
-async function deployDesktop(targetDirectory: string): Promise<void> {
+/** Deploy the desktop package's production dependencies as a hoisted tree into a staging directory. */
+export async function deployDesktop(targetDirectory: string): Promise<void> {
   const { stderr, stdout } = await execFileAsync('pnpm', [
     '--config.node-linker=hoisted',
     '--filter',

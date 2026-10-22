@@ -134,12 +134,12 @@ final class RuntimeSidecar {
     }
   }
 
-  /// The bundled backend, or a development override pointing at `apps/tauri/.prepared/backend/backend.mjs`.
+  /// The deployed desktop sidecar, or a development override such as `apps/desktop/dist/sidecar.mjs` in a checkout.
   private static func backendScript() -> URL? {
-    if let override = ProcessInfo.processInfo.environment["CRAFT_HUB_BACKEND"] {
+    if let override = ProcessInfo.processInfo.environment["CRAFT_HUB_SIDECAR"] {
       return URL(fileURLWithPath: override)
     }
-    let bundled = Bundle.main.resourceURL?.appendingPathComponent("backend/backend.mjs")
+    let bundled = Bundle.main.resourceURL?.appendingPathComponent("app/apps/desktop/dist/sidecar.mjs")
     return bundled.flatMap { FileManager.default.fileExists(atPath: $0.path) ? $0 : nil }
   }
 
@@ -156,7 +156,7 @@ final class RuntimeSidecar {
     environment["PATH"] = path.joined(separator: ":")
     // The prototype keeps its own runtime state; it never shares the Electron app's data while both may run.
     let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-    environment["CRAFT_HUB_TAURI_TRIAL_DIR"] = support.appendingPathComponent("Craft Hub Prototype").path
+    environment["CRAFT_HUB_SIDECAR_DIR"] = support.appendingPathComponent("Craft Hub Prototype").path
     return environment
   }
 }

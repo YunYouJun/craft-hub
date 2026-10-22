@@ -251,9 +251,11 @@ describe('desktop package scripts', () => {
 
   it('keeps editor and Codex launch requests in the desktop main process', async () => {
     const desktopMainUrl = new URL('../src/main.ts', import.meta.url)
+    const hostRuntimeUrl = new URL('../src/host-runtime.ts', import.meta.url)
     const preloadUrl = new URL('../preload.cjs', import.meta.url)
-    const [desktopMain, preload] = await Promise.all([
+    const [desktopMain, hostRuntime, preload] = await Promise.all([
       readFile(desktopMainUrl, 'utf8'),
+      readFile(hostRuntimeUrl, 'utf8'),
       readFile(preloadUrl, 'utf8'),
     ])
 
@@ -269,7 +271,8 @@ describe('desktop package scripts', () => {
     expect(desktopMain).toContain('openCodexProject((await workspaceLaunchTarget(workspaceId)).primaryProjectPath)')
     expect(desktopMain).toContain('craft-hub:start-workspace-in-codex')
     expect(desktopMain).toContain('runtime.agentTasks.start')
-    expect(desktopMain).toContain('settings[\'workbench.codex\']')
+    // Codex agent tasks read the saved Codex setting in the runtime composition shared with the native host.
+    expect(hostRuntime).toContain('settings[\'workbench.codex\']')
     expect(desktopMain).toContain('waitForAgentTaskThread')
     const workspaceTaskHandler = desktopMain.slice(
       desktopMain.indexOf('ipcMain.handle(\'craft-hub:start-workspace-in-codex\''),
