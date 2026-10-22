@@ -425,9 +425,9 @@ function updatedTime(item: IntegrationEntity): { date: string, time: string, raw
 .integration-entity-toolbar input { width: 100%; min-width: 0; border: 0; outline: 0; color: var(--text); background: transparent; font: inherit; font-size: var(--font-size-body); }
 .integration-entity-toolbar > span { flex: none; color: var(--muted); font-size: var(--font-size-control); font-variant-numeric: tabular-nums; }
 .integration-entities { --compact-columns: minmax(0, 1fr) auto; display: grid; grid-template-columns: minmax(0, 1fr) auto auto; column-gap: 12px; }
-.integration-entities.has-priority-column { grid-template-columns: minmax(0, 1fr) 80px 100px auto; }
-.integration-entities.has-updated-column { grid-template-columns: minmax(0, 1fr) 104px 100px auto; }
-.integration-entities.has-priority-column.has-updated-column { --compact-columns: minmax(0, .7fr) minmax(0, 1fr) minmax(0, 1fr); grid-template-columns: minmax(0, 1fr) 80px 104px 100px auto; }
+.integration-entities.has-priority-column { grid-template-columns: minmax(0, 1fr) 80px minmax(100px, max-content) auto; }
+.integration-entities.has-updated-column { grid-template-columns: minmax(0, 1fr) 104px minmax(100px, max-content) auto; }
+.integration-entities.has-priority-column.has-updated-column { --compact-columns: minmax(0, .7fr) minmax(0, 1fr) minmax(0, 1fr); grid-template-columns: minmax(0, 1fr) 80px 104px minmax(100px, max-content) auto; }
 .integration-entity-rows { display: contents; }
 .integration-entity-columns { display: grid; grid-column: 1 / -1; grid-template-columns: subgrid; align-items: center; gap: var(--space-3); padding: var(--space-2) var(--integration-row-padding-inline); background: var(--integration-disclosure-background); color: var(--muted); font-size: var(--font-size-control); border-bottom: 1px solid var(--border-subtle, var(--border)); }
 .integration-item-column { padding-inline-start: 28px; }
@@ -514,7 +514,8 @@ button.integration-entity-link { border: 0; background: transparent; text-align:
   .integration-entity-main { grid-column: 1 / -1; padding-inline-start: calc(var(--hierarchy-depth) * 10px); }
   .integration-entity-title strong { white-space: normal; overflow-wrap: anywhere; }
   .integration-entity-tail { justify-content: flex-start; }
-  .integration-entity-tail :deep(.entity-status) { white-space: normal; }
+  .integration-entity-tail :deep(.integration-status-badge-trigger) { flex-shrink: 1; min-width: 0; max-width: 100%; }
+  .integration-entity-tail :deep(.entity-status) { flex-shrink: 1; min-width: 0; white-space: normal; overflow-wrap: anywhere; }
   .integration-entity-actions { grid-column: 1 / -1; justify-content: flex-end; }
   .integration-hierarchy-context .integration-updated-at, .integration-hierarchy-context .integration-entity-priority { display: none; }
   .integration-hierarchy-context .integration-entity-tail { grid-column: 1 / -2; padding-inline-start: 28px; }

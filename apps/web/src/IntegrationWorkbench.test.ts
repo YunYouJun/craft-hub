@@ -42,6 +42,24 @@ describe('integration workbench', () => {
     return { id: '1', title, sourceRef: { providerId: 'tasks', instanceId: 'tasks', accountId, containerId, kind: 'task', itemId: '1' }, personalMembership: { accountId, relation: 'owned' } }
   }
 
+  it('adds the native Microsoft shortcut to the standalone toolbar without changing block actions', async () => {
+    const store = workSource()
+    store.integrationContributions[0]!.provider.id = 'microsoft-todo'
+    const invoke = vi.spyOn(api, 'invokeIntegrationAction').mockResolvedValue({ items: [] })
+    const launch = vi.spyOn(api, 'openLocalApplication').mockResolvedValue({ destination: 'website' })
+    const wrapper = mount(IntegrationWorkbench, { props: { integrationId: 'tasks', viewId: 'work' }, global: { plugins: [pinia] } })
+    await flushPromises()
+    invoke.mockClear()
+    await wrapper.get('.workbench-view-actions button[aria-label="Open Microsoft To Do locally"]').trigger('click')
+    await flushPromises()
+    expect(launch).toHaveBeenCalledExactlyOnceWith('microsoft-todo')
+    expect(invoke).not.toHaveBeenCalled()
+    expect(wrapper.get('[data-testid="integration-block-tasks"] button').text()).toContain('Refresh')
+    await wrapper.setProps({ embedded: true })
+    expect(wrapper.find('.workbench-view-actions').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
   it('waits for account connection before loading work, then clears work on disconnect', async () => {
     const store = workSource()
     const source = store.integrationContributions[0]!

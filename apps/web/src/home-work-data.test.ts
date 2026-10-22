@@ -1,12 +1,12 @@
 // @vitest-environment happy-dom
 
-import type { IntegrationEntityPage, ResolvedIntegrationContribution } from 'craft-hub'
+import type { IntegrationEntity, IntegrationEntityPage, ResolvedIntegrationContribution } from 'craft-hub'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, disposePinia, getActivePinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { h, nextTick } from 'vue'
 import { api, ApiRequestError } from './api'
-import { connectionKey, useHomeWorkDataStore } from './home-work-data'
+import { completionActionId, connectionKey, useHomeWorkDataStore } from './home-work-data'
 import { useI18n } from './i18n'
 import { emitIntegrationChange } from './integration-action-events'
 import { homeWorkSources } from './personal-workbench'
@@ -306,7 +306,7 @@ describe('shared home work data', () => {
     expect(data.stateFor(source).error).toContain('Source account changed')
   })
 
-  it('does not cache unidentified or explicitly non-cacheable successful reads as fresh', async () => {
+  it('does not cache explicitly non-cacheable successful reads as fresh', async () => {
     const data = useHomeWorkDataStore()
     const source = sources()[0]!
     vi.mocked(api.invokeIntegrationAction).mockImplementation(async (_id, action) => action === 'status' ? { connected: true, session: { cacheReads: false } } : { items: [] })
@@ -315,12 +315,67 @@ describe('shared home work data', () => {
     expect(vi.mocked(api.invokeIntegrationAction).mock.calls.filter(call => call[1] === 'list')).toHaveLength(2)
   })
 
+  it('reuses an empty unidentified result for 60 seconds after a successful connection check', async () => {
+    const data = useHomeWorkDataStore()
+    const source = sources()[0]!
+    vi.mocked(api.invokeIntegrationAction).mockImplementation(async (_id, action) => action === 'status' ? { connected: true } : { items: [] })
+    await data.load(source)
+    vi.mocked(api.invokeIntegrationAction).mockClear()
+    await data.load(source)
+    expect(api.invokeIntegrationAction).not.toHaveBeenCalled()
+
+    await data.load(source, { force: true })
+    expect(api.invokeIntegrationAction).toHaveBeenCalledTimes(2)
+    vi.mocked(api.invokeIntegrationAction).mockClear()
+    vi.advanceTimersByTime(60_001)
+    await data.load(source)
+    expect(api.invokeIntegrationAction).toHaveBeenCalledTimes(2)
+  })
+
+  it('revalidates unidentified nonempty results even when their connection is fresh', async () => {
+    const data = useHomeWorkDataStore()
+    const source = sources()[0]!
+    vi.mocked(api.invokeIntegrationAction).mockImplementation(async (_id, action) => action === 'status'
+      ? { connected: true }
+      : { items: [{ id: 'unidentified', title: 'Unidentified task' }] })
+    await data.load(source)
+    await data.load(source)
+    expect(vi.mocked(api.invokeIntegrationAction).mock.calls.filter(call => call[1] === 'list')).toHaveLength(2)
+    expect(vi.mocked(api.invokeIntegrationAction).mock.calls.filter(call => call[1] === 'status')).toHaveLength(1)
+  })
+
+  it('revalidates unidentified empty results without a connection action', async () => {
+    const declaration = contribution()
+    declaration.views[0]!.blocks.shift()
+    useWorkbenchStore().integrationContributions = [declaration]
+    const data = useHomeWorkDataStore()
+    const source = sources()[0]!
+    expect(source.connection).toBeUndefined()
+    vi.mocked(api.invokeIntegrationAction).mockResolvedValue({ items: [] })
+    await data.load(source)
+    await data.load(source)
+    expect(api.invokeIntegrationAction).toHaveBeenCalledTimes(2)
+  })
+
+  it('revalidates unidentified empty results when an optional connection check never succeeded', async () => {
+    const data = useHomeWorkDataStore()
+    const source = sources()[0]!
+    vi.mocked(api.invokeIntegrationAction).mockImplementation(async (_id, action) => {
+      if (action === 'status')
+        throw new Error('Status unavailable')
+      return { items: [] }
+    })
+    await data.load(source)
+    await data.load(source)
+    expect(api.invokeIntegrationAction).toHaveBeenCalledTimes(4)
+  })
+
   it('keeps known-account sibling snapshots when another list omits its current-user identity', async () => {
     const data = useHomeWorkDataStore()
     const [first, second] = sources()
     vi.mocked(api.invokeIntegrationAction).mockImplementation(async (_id, action, input) => action === 'status'
       ? { connected: true, session: { cacheKey: 'account' } }
-      : input?.list === 'one' ? page() : { items: [] })
+      : input?.list === 'one' ? page() : { items: [{ id: 'unidentified', title: 'Unidentified task' }] })
     await data.load(first!)
     await data.load(second!, { force: true })
     expect(data.stateFor(first!).page?.items[0]?.title).toBe('Previous task')
@@ -429,5 +484,41 @@ describe('shared home work data', () => {
     emitIntegrationChange({ integrationId: 'tasks', phase: 'settled' })
     await data.load(source)
     expect(api.invokeIntegrationAction).toHaveBeenCalledTimes(2)
+  })
+
+  it('patches every sibling list after a completion and discards a read that started before the write', async () => {
+    const tasks = contribution()
+    tasks.actions.push({ id: 'complete', title: 'Complete', operation: 'work-items.update-status', effect: 'remote-write', confirmation: 'always', effectiveConfirmation: 'always' })
+    useWorkbenchStore().integrationContributions = [tasks]
+    const data = useHomeWorkDataStore()
+    const [first, second] = sources()
+    await Promise.all([data.load(first!), data.load(second!)])
+    vi.mocked(api.invokeIntegrationAction).mockClear()
+    const stale = deferred<IntegrationEntityPage>()
+    const write = deferred<IntegrationEntity>()
+    vi.mocked(api.invokeIntegrationAction).mockImplementation(async (_id, action) => action === 'status' ? { connected: true } : action === 'complete' ? write.promise : stale.promise)
+    const refreshing = data.load(first!, { force: true })
+    await flushPromises()
+    const item = data.stateFor(first!).page!.items[0]!
+    const completing = data.setCompletion(first!, item, true)
+    expect(data.stateFor(first!).loading).toBe(false)
+    expect(await data.load(second!, { force: true })).toBeUndefined()
+    write.resolve({ ...item, status: 'completed', statusCategory: 'done' })
+    await completing
+    stale.resolve(page())
+    await refreshing
+    expect(data.stateFor(first!).page!.items[0]).toMatchObject({ title: 'Previous task', statusCategory: 'done' })
+    expect(data.stateFor(second!).page!.items[0]).toMatchObject({ statusCategory: 'done' })
+    expect(api.invokeIntegrationAction).toHaveBeenCalledWith('tasks', 'complete', expect.objectContaining({ itemId: 'Previous task', statusCategory: 'done' }), undefined, true, { broadcast: false })
+    expect(vi.mocked(api.invokeIntegrationAction).mock.calls.filter(([, action]) => action === 'list')).toHaveLength(1)
+  })
+
+  it('exposes completion only for direct status actions without workflow transitions', () => {
+    const tasks = contribution()
+    expect(completionActionId(tasks)).toBeUndefined()
+    tasks.actions.push({ id: 'complete', title: 'Complete', operation: 'work-items.update-status', effect: 'remote-write', confirmation: 'always', effectiveConfirmation: 'always' })
+    expect(completionActionId(tasks)).toBe('complete')
+    tasks.actions.push({ id: 'transitions', title: 'Transitions', operation: 'work-items.transitions', effect: 'remote-read', confirmation: 'never', effectiveConfirmation: 'never' })
+    expect(completionActionId(tasks)).toBeUndefined()
   })
 })

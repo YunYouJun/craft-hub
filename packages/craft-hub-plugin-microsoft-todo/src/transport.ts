@@ -5,15 +5,19 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 
 const allowedTools = new Set(['list-accounts', 'list-todo-task-lists', 'list-todo-tasks', 'login'])
+const writeTools = new Set(['create-todo-task', 'update-todo-task'])
 
-/** A narrow read/authentication boundary; only explicitly enabled task creation is exposed. */
+/** A narrow read/authentication boundary; only explicitly enabled task creation and status updates are exposed. */
 export interface MicrosoftTodoTransport {
   call: (name: string, input?: Record<string, unknown>) => Promise<Record<string, unknown>>
   close: () => Promise<void>
 }
 
-/** Desktop hosts keep one authorized process alive and close it during host shutdown. */
-export interface MicrosoftTodoTransportOptions { keepAlive?: boolean, writable?: boolean }
+/**
+ * A connector closes after `idleTimeoutMs` without calls (30 seconds by default), or never with `keepAlive`, whose
+ * host then closes it during shutdown. A longer idle period spares repeated keychain prompts and startup latency.
+ */
+export interface MicrosoftTodoTransportOptions { keepAlive?: boolean, idleTimeoutMs?: number, writable?: boolean }
 
 /** Sanitized failure without credential-bearing upstream diagnostics. */
 export class MicrosoftTodoError extends Error {
@@ -48,7 +52,7 @@ export function createMicrosoftTodoTransport(options: MicrosoftTodoTransportOpti
       env.LOG_LEVEL = 'error'
       const transport = new StdioClientTransport({
         command: process.execPath,
-        args: [createRequire(import.meta.url).resolve('@softeria/ms-365-mcp-server'), ...(options.writable ? [] : ['--read-only']), '--enabled-tools', options.writable ? '^(list-todo-(task-lists|tasks)|create-todo-task)$' : '^list-todo-(task-lists|tasks)$', '--allowed-scopes', options.writable ? 'Tasks.ReadWrite' : 'Tasks.Read'],
+        args: [createRequire(import.meta.url).resolve('@softeria/ms-365-mcp-server'), ...(options.writable ? [] : ['--read-only']), '--enabled-tools', options.writable ? '^(list-todo-(task-lists|tasks)|(create|update)-todo-task)$' : '^list-todo-(task-lists|tasks)$', '--allowed-scopes', options.writable ? 'Tasks.ReadWrite' : 'Tasks.Read'],
         cwd: homedir(),
         env,
         stderr: 'pipe',
@@ -82,7 +86,7 @@ export function createMicrosoftTodoTransport(options: MicrosoftTodoTransportOpti
   return {
     close,
     async call(name, input = {}) {
-      if (!allowedTools.has(name) && !(options.writable && name === 'create-todo-task' && input.confirm === true))
+      if (!allowedTools.has(name) && !(options.writable && writeTools.has(name) && input.confirm === true))
         throw new MicrosoftTodoError('response')
       clearTimeout(idleTimer)
       active++
@@ -112,7 +116,7 @@ export function createMicrosoftTodoTransport(options: MicrosoftTodoTransportOpti
         if (!active && !options.keepAlive) {
           idleTimer = setTimeout(() => {
             void close().catch(() => {})
-          }, Math.max(30_000, authorizingUntil - Date.now()))
+          }, Math.max(options.idleTimeoutMs ?? 30_000, authorizingUntil - Date.now()))
           idleTimer.unref()
         }
       }

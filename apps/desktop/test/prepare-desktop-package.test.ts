@@ -117,6 +117,42 @@ it('removes the CLI in explicit lightweight mode while retaining the SDK and nat
   await expect(access(join(root, 'node_modules/node-pty/prebuilds/darwin-arm64/spawn-helper'))).resolves.toBeUndefined()
 })
 
+async function leftoverVirtualStore(root: string, nodeLinker: string): Promise<string> {
+  await writeFile(join(root, 'node_modules/.modules.yaml'), JSON.stringify({ layoutVersion: 5, nodeLinker }))
+  const nativeCopy = join(root, 'node_modules/.pnpm/@openai/codex/1.0.0-darwin-arm64/hash/node_modules/@openai/codex')
+  await mkdir(join(nativeCopy, 'vendor/aarch64-apple-darwin/bin'), { recursive: true })
+  await writeFile(join(nativeCopy, 'vendor/aarch64-apple-darwin/bin/codex'), 'duplicated native binary')
+  return join(root, 'node_modules/.pnpm')
+}
+
+it('drops the unused virtual store a hoisted pnpm deploy leaves beside node_modules', async () => {
+  const root = await fixture()
+  await leftoverVirtualStore(root, 'hoisted')
+  await mkdir(join(root, 'node_modules/.bin'), { recursive: true })
+  await symlink('../craft-hub/dist/index.mjs', join(root, 'node_modules/.bin/craft-hub'))
+  await prepareDesktopPackage(root, 'external')
+  await prepareDesktopArchitecture(root, 'arm64', 'external')
+
+  await expect(access(join(root, 'node_modules/.pnpm'))).rejects.toThrow()
+  expect(await readdir(join(root, 'node_modules/@openai'))).toEqual(['codex-sdk'])
+  expect(await readFile(join(root, 'node_modules/.bin/craft-hub'), 'utf8')).toBe('node_modules/craft-hub/dist/index.mjs')
+})
+
+it('keeps the virtual store while a deployed dependency still resolves into it', async () => {
+  const root = await fixture()
+  const store = await leftoverVirtualStore(root, 'hoisted')
+  await symlink(join(store, '@openai/codex/1.0.0-darwin-arm64/hash/node_modules/@openai/codex'), join(root, 'node_modules/linked-codex'), 'dir')
+  await expect(prepareDesktopPackage(root, 'external')).rejects.toThrow('virtual store')
+  await expect(access(store)).resolves.toBeUndefined()
+})
+
+it('keeps the virtual store of an isolated deploy, where packages resolve through it', async () => {
+  const root = await fixture()
+  const store = await leftoverVirtualStore(root, 'isolated')
+  await prepareDesktopPackage(root)
+  await expect(access(store)).resolves.toBeUndefined()
+})
+
 it.each(['dir', 'junction'] as const)('refuses to prune a dependency linked outside the staging directory with a %s link', async (linkType) => {
   const root = await fixture()
   const external = await mkdtemp(join(tmpdir(), 'craft-hub-external-package-'))

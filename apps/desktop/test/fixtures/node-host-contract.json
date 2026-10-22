@@ -1,0 +1,199 @@
+{
+  "engines": "^22.18.0 || ^24.11.0 || ^26.0.0",
+  "ciMajors": [
+    22,
+    24,
+    26
+  ],
+  "versions": [
+    {
+      "value": "v22.18.0",
+      "supported": true
+    },
+    {
+      "value": "v22.99.1",
+      "supported": true
+    },
+    {
+      "value": "v24.11.0",
+      "supported": true
+    },
+    {
+      "value": "v24.18.0",
+      "supported": true
+    },
+    {
+      "value": "v26.0.0",
+      "supported": true
+    },
+    {
+      "value": "v26.12.1",
+      "supported": true
+    },
+    {
+      "value": "v20.19.0",
+      "supported": false
+    },
+    {
+      "value": "v22.17.9",
+      "supported": false
+    },
+    {
+      "value": "v23.11.0",
+      "supported": false
+    },
+    {
+      "value": "v24.10.9",
+      "supported": false
+    },
+    {
+      "value": "v25.2.1",
+      "supported": false
+    },
+    {
+      "value": "v27.0.0",
+      "supported": false
+    },
+    {
+      "value": "v28.0.0",
+      "supported": false
+    },
+    {
+      "value": "v26.0.0-rc.1",
+      "supported": false
+    },
+    {
+      "value": "v024.11.0",
+      "supported": false
+    },
+    {
+      "value": "v24.+11.0",
+      "supported": false
+    },
+    {
+      "value": "v24..11.0",
+      "supported": false
+    },
+    {
+      "value": "v24.11.-1",
+      "supported": false
+    }
+  ],
+  "searches": [
+    {
+      "name": "empty GUI environment",
+      "home": "/Users/developer",
+      "environment": {},
+      "directories": {},
+      "expected": [
+        "/Users/developer/.local/bin",
+        "/opt/homebrew/bin",
+        "/usr/local/bin",
+        "/usr/bin",
+        "/bin",
+        "/Users/developer/Library/pnpm",
+        "/Users/developer/Library/Application Support/fnm/aliases/default/bin",
+        "/Users/developer/.local/share/fnm/aliases/default/bin",
+        "/Users/developer/.fnm/aliases/default/bin"
+      ]
+    },
+    {
+      "name": "PATH precedes pnpm and duplicates keep their first position",
+      "home": "/Users/developer",
+      "environment": {
+        "PATH": ".:relative:/custom/bin:/usr/bin:/custom/bin:",
+        "PNPM_HOME": "/custom/pnpm"
+      },
+      "directories": {},
+      "expected": [
+        "/custom/bin",
+        "/usr/bin",
+        "/custom/pnpm",
+        "/Users/developer/.local/bin",
+        "/opt/homebrew/bin",
+        "/usr/local/bin",
+        "/bin",
+        "/Users/developer/Library/pnpm",
+        "/Users/developer/Library/Application Support/fnm/aliases/default/bin",
+        "/Users/developer/.local/share/fnm/aliases/default/bin",
+        "/Users/developer/.fnm/aliases/default/bin"
+      ]
+    },
+    {
+      "name": "configured fnm default precedes numerically sorted versions",
+      "home": "/Users/developer",
+      "environment": {
+        "FNM_DIR": "/tools/fnm",
+        "PNPM_HOME": "/Users/developer/Library/pnpm"
+      },
+      "directories": {
+        "/tools/fnm/node-versions": [
+          "v22.9.0",
+          "v24.11.0",
+          "v22.18.0",
+          "notes",
+          "../outside",
+          "v024.11.0",
+          "v24.11.0-rc.1",
+          "v24..11.0"
+        ]
+      },
+      "expected": [
+        "/Users/developer/Library/pnpm",
+        "/Users/developer/.local/bin",
+        "/opt/homebrew/bin",
+        "/usr/local/bin",
+        "/usr/bin",
+        "/bin",
+        "/tools/fnm/aliases/default/bin",
+        "/tools/fnm/node-versions/v24.11.0/installation/bin",
+        "/tools/fnm/node-versions/v22.18.0/installation/bin",
+        "/tools/fnm/node-versions/v22.9.0/installation/bin",
+        "/Users/developer/Library/Application Support/fnm/aliases/default/bin",
+        "/Users/developer/.local/share/fnm/aliases/default/bin",
+        "/Users/developer/.fnm/aliases/default/bin"
+      ]
+    },
+    {
+      "name": "relative manager roots are ignored",
+      "home": "/Users/developer",
+      "environment": {
+        "FNM_DIR": "../fnm",
+        "PNPM_HOME": ".local/pnpm"
+      },
+      "directories": {},
+      "expected": [
+        "/Users/developer/.local/bin",
+        "/opt/homebrew/bin",
+        "/usr/local/bin",
+        "/usr/bin",
+        "/bin",
+        "/Users/developer/Library/pnpm",
+        "/Users/developer/Library/Application Support/fnm/aliases/default/bin",
+        "/Users/developer/.local/share/fnm/aliases/default/bin",
+        "/Users/developer/.fnm/aliases/default/bin"
+      ]
+    },
+    {
+      "name": "duplicate fnm root and paths with spaces",
+      "home": "/Users/developer",
+      "environment": {
+        "PATH": "/Applications/Developer Tools/bin:/usr/local/bin",
+        "FNM_DIR": "/Users/developer/.fnm"
+      },
+      "directories": {},
+      "expected": [
+        "/Applications/Developer Tools/bin",
+        "/usr/local/bin",
+        "/Users/developer/.local/bin",
+        "/opt/homebrew/bin",
+        "/usr/bin",
+        "/bin",
+        "/Users/developer/Library/pnpm",
+        "/Users/developer/.fnm/aliases/default/bin",
+        "/Users/developer/Library/Application Support/fnm/aliases/default/bin",
+        "/Users/developer/.local/share/fnm/aliases/default/bin"
+      ]
+    }
+  ]
+}

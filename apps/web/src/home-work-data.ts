@@ -1,5 +1,6 @@
-import type { IntegrationConnectionStatus, IntegrationEntityPage } from 'craft-hub'
+import type { IntegrationConnectionStatus, IntegrationEntity, IntegrationEntityPage, ResolvedIntegrationContribution } from 'craft-hub'
 import type { HomeWorkSource } from './personal-workbench'
+import { workItemActionInput, workItemIdentityKey } from 'craft-hub/work-items'
 import { defineStore } from 'pinia'
 import { onScopeDispose, reactive, ref, watch } from 'vue'
 import { api, ApiRequestError } from './api'
@@ -35,6 +36,13 @@ const freshnessMs = 60_000
 /** Connection inputs identify account scopes independently of each list's query. */
 export function connectionKey(source: HomeWorkSource): string {
   return JSON.stringify([source.integrationId, source.connection?.actionId, Object.entries(source.connection?.input ?? {}).sort(([left], [right]) => left.localeCompare(right))])
+}
+
+/** A direct status action without workflow transitions supports one-step completion of available items. */
+export function completionActionId(contribution: Pick<ResolvedIntegrationContribution, 'actions'> | undefined): string | undefined {
+  if (!contribution || contribution.actions.some(action => action.operation === 'work-items.transitions'))
+    return undefined
+  return contribution.actions.find(action => action.operation === 'work-items.update-status')?.id
 }
 
 /** Session memory survives page navigation; account snapshots never enter browser persistence. */
@@ -151,8 +159,9 @@ export const useHomeWorkDataStore = defineStore('home-work-data', () => {
     const connection = connections.get(connectionKey(source))
     if (source.connection && !connectionFresh(connection))
       return false
-    // A provider must identify an account before its personal-work result can skip revalidation.
-    return Boolean(state.page.currentUser?.id)
+    // Unidentified nonempty results need revalidation; empty results contain no account's work items.
+    // A recently verified connection may reuse an empty result for the same short TTL.
+    return Boolean(state.page.currentUser?.id || (source.connection && state.page.items.length === 0 && connection?.status?.connected === true))
   }
 
   function load(source: HomeWorkSource, options: { force?: boolean, more?: boolean } = {}): Promise<void> {
@@ -253,6 +262,48 @@ export const useHomeWorkDataStore = defineStore('home-work-data', () => {
     return flight.promise
   }
 
+  function endMutation(integrationId: string): void {
+    if ((mutations.get(integrationId) ?? 0) > 1)
+      mutations.set(integrationId, mutations.get(integrationId)! - 1)
+    else
+      mutations.delete(integrationId)
+  }
+
+  /**
+   * Complete or reopen one loaded item through its confirmed status action, then patch every cached
+   * list of that integration instead of reloading the whole account. `item` is the state to change from.
+   */
+  async function setCompletion(source: HomeWorkSource, item: IntegrationEntity, done: boolean): Promise<IntegrationEntity> {
+    const { integrationId } = source
+    const actionId = completionActionId(workbench.integrationContributions.find(contribution => contribution.id === integrationId))
+    if (!actionId)
+      throw new Error(copy('此来源不支持直接完成待办。', 'This source cannot complete tasks directly.'))
+    mutations.set(integrationId, (mutations.get(integrationId) ?? 0) + 1)
+    // A read that started before the write could otherwise restore the previous status.
+    for (const [key, record] of catalog) {
+      if (record.source.integrationId === integrationId && states[key]?.page)
+        cancelSource(key)
+    }
+    try {
+      const result = await api.invokeIntegrationAction<IntegrationEntity>(integrationId, actionId, {
+        ...workItemActionInput(item),
+        title: item.title,
+        statusCategory: done ? 'done' : 'open',
+        ...(!done && item.status ? { status: item.status } : {}),
+      }, undefined, true, { broadcast: false })
+      const identity = workItemIdentityKey(item)
+      for (const [key, record] of catalog) {
+        const page = states[key]?.page
+        if (record.source.integrationId === integrationId && page)
+          page.items = page.items.map(candidate => workItemIdentityKey(candidate) === identity ? { ...candidate, ...result, metadata: result.metadata ?? candidate.metadata } : candidate)
+      }
+      return result
+    }
+    finally {
+      endMutation(integrationId)
+    }
+  }
+
   function invalidate(integrationId?: string): void {
     for (const [key, record] of catalog) {
       if (integrationId && record.source.integrationId !== integrationId)
@@ -310,13 +361,11 @@ export const useHomeWorkDataStore = defineStore('home-work-data', () => {
   const unsubscribe = subscribeIntegrationChanges(({ integrationId, phase }) => {
     if (phase === 'start')
       mutations.set(integrationId, (mutations.get(integrationId) ?? 0) + 1)
-    else if ((mutations.get(integrationId) ?? 0) > 1)
-      mutations.set(integrationId, mutations.get(integrationId)! - 1)
     else
-      mutations.delete(integrationId)
+      endMutation(integrationId)
     invalidate(integrationId)
   })
   onScopeDispose(unsubscribe)
 
-  return { states, revision, stateFor, load, invalidate }
+  return { states, revision, stateFor, load, invalidate, setCompletion }
 })

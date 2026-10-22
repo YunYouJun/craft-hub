@@ -1,5 +1,6 @@
 import type { IncomingMessage, Server, ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
+import type { LocalApplicationLauncher } from './local-applications'
 import type { PersonalGitSyncResolution } from './personal-git-sync'
 import type { CommandInputValues, ProjectAccentColor, ProjectCatalogSnapshot, ProjectDescriptionChange, WorkspaceManifest } from './types'
 import type { UserConfigStatus } from './user-config'
@@ -9,7 +10,7 @@ import { access } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { extname, join, normalize } from 'node:path'
 import process from 'node:process'
-import { ZodError } from 'zod'
+import { z, ZodError } from 'zod'
 import { handleAccountRequest } from './accounts'
 import { AgentConnectionService } from './agent-connection'
 import { handleAgentConnectionRequest } from './agent-connection-http'
@@ -21,6 +22,8 @@ import { environmentSourceCommandSchema, EnvironmentSourceError } from './enviro
 import { GitIntegrationConflictError, GitIntegrationValidationError } from './git-integration'
 import { isLocalDirectoryMutation } from './host-environment'
 import { IntegrationConfirmationRequiredError } from './integrations'
+import { openMicrosoftTodo } from './local-applications'
+import { captureDueInstant, parseQuickCapture } from './quick-capture'
 import { CraftHubRuntime } from './runtime'
 import { SettingsConflictError, SettingsValidationError } from './settings'
 import { setupProfileCommandSchema, SetupProfileError } from './setup-profile'
@@ -115,10 +118,12 @@ export interface CraftHubServerOptions {
   authorizeRequest?: (request: IncomingMessage) => boolean
   /** Respond to a host adapter route after authorization; return true when the response is handled. */
   handleHostRequest?: (request: IncomingMessage, response: ServerResponse) => boolean | Promise<boolean>
+  /** Override the local process launcher used by fixed, built-in application shortcuts. */
+  applicationLauncher?: LocalApplicationLauncher
 }
 
 export interface CraftHubServerCloseOptions {
-  /** Skip read-only project watcher teardown when the host will terminate immediately. */
+  /** Release remaining HTTP connections and skip project watcher teardown when the host will terminate. */
   processExiting?: boolean
 }
 
@@ -136,6 +141,8 @@ export async function startCraftHubServer(options: CraftHubServerOptions = {}): 
   let stopDeliveryConnection: (() => Promise<void>) | undefined
   await runtime.accountSync.recover()
   const eventClients = new Set<ServerResponse>()
+  const pendingMutations = new Set<Promise<void>>()
+  let shuttingDown = false
   const broadcastEvent = (name: string, event: unknown): void => {
     const message = `event: ${name}\ndata: ${JSON.stringify(event)}\n\n`
     for (const client of eventClients)
@@ -181,14 +188,36 @@ export async function startCraftHubServer(options: CraftHubServerOptions = {}): 
     void refreshSharedConfiguration().catch(() => {})
   }, 30_000)
   configurationTimer.unref()
+  let softwareSourceTimer: ReturnType<typeof setInterval> | undefined
+  const refreshSoftwareSources = async (): Promise<void> => {
+    if (await runtime.softwareSources.refreshDue())
+      broadcastEvent('software-source-change', { changedAt: new Date().toISOString() })
+  }
   let heartbeat: ReturnType<typeof setInterval> | undefined
+  const rejectDuringShutdown = (response: ServerResponse): boolean => {
+    if (!shuttingDown)
+      return false
+    response.setHeader('connection', 'close')
+    sendJson(response, 503, { error: 'Server is shutting down' })
+    return true
+  }
   const handleRequest = async (request: IncomingMessage, response: ServerResponse): Promise<void> => {
     try {
+      if (rejectDuringShutdown(response))
+        return
       if (await options.handleHostRequest?.(request, response))
+        return
+      // Closing can start while an adapter is awaiting work. Do not resume routing
+      // against a closed listener or leave another keep-alive/event-stream socket open.
+      if (rejectDuringShutdown(response))
         return
       if (await handleAgentConnectionRequest(agentConnection, loopbackOrigin(), request, response))
         return
+      if (rejectDuringShutdown(response))
+        return
       if (await handleAccountRequest(runtime.accountProvider, request, response))
+        return
+      if (rejectDuringShutdown(response))
         return
       const url = new URL(request.url ?? '/', 'http://localhost')
       const parts = url.pathname.split('/').filter(Boolean)
@@ -229,6 +258,19 @@ export async function startCraftHubServer(options: CraftHubServerOptions = {}): 
         if (request.method !== 'POST' || request.headers['content-type']?.split(';')[0]?.trim() !== 'application/json')
           return sendJson(response, 405, { error: 'Use a JSON POST request' })
         const input = await jsonBody(request, 192 * 1024)
+        if (parts.length === 3 && parts[2] === 'capture-preview') {
+          const data = z.object({
+            text: z.string().max(10000),
+            localNow: z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/).refine((value) => {
+              try {
+                return Boolean(captureDueInstant(value))
+              }
+              catch { return false }
+            }),
+            lists: z.array(z.object({ id: z.string().max(1024), title: z.string().max(500) }).strict()).max(200),
+          }).strict().parse(input)
+          return sendJson(response, 200, parseQuickCapture(data.text, data.lists, new Date(data.localNow)))
+        }
         if (parts.length === 3 && parts[2] === 'capture')
           return sendJson(response, 200, await runtime.workAssistant.capture(input))
         if (parts.length === 3 && parts[2] === 'focus')
@@ -316,7 +358,33 @@ export async function startCraftHubServer(options: CraftHubServerOptions = {}): 
           return sendJson(response, 200, await runtime.softwareSources.apply(input.previewId))
         if (input.operation === 'refresh')
           return sendJson(response, 200, await runtime.softwareSources.refresh(input.id))
+        if (input.operation === 'configure-refresh')
+          return sendJson(response, 200, await runtime.softwareSources.configureRefresh(input.id, input.refreshPolicy, input.revision))
         return sendJson(response, 200, await runtime.softwareSources.remove(input.id, input.revision))
+      }
+
+      if (parts[0] === 'api' && parts[1] === 'applications') {
+        if (runtime.hostEnvironment.kind !== 'local')
+          return sendJson(response, 403, { error: 'Application shortcuts require a local host', code: 'LOCAL_APPLICATION_UNAVAILABLE' })
+        const localPort = request.socket.localPort
+        const hosts = [`127.0.0.1:${localPort}`, `localhost:${localPort}`, `[::1]:${localPort}`]
+        if (!hosts.includes(request.headers.host ?? '')
+          || request.headers['sec-fetch-site'] === 'cross-site'
+          || (request.headers.origin && request.headers.origin !== `http://${request.headers.host}`)) {
+          return sendJson(response, 403, { error: 'Application shortcuts require a same-origin local request' })
+        }
+        if (url.pathname !== '/api/applications/microsoft-todo/open')
+          return sendJson(response, 404, { error: 'Unknown application shortcut' })
+        if (url.search)
+          return sendJson(response, 400, { error: 'Application shortcuts accept no query parameters' })
+        if (request.method !== 'POST')
+          return sendJson(response, 405, { error: 'Use a JSON POST request' })
+        if (request.headers['content-type']?.split(';')[0]?.trim().toLowerCase() !== 'application/json')
+          return sendJson(response, 403, { error: 'Application shortcuts require a JSON request' })
+        const body = await jsonBody(request, 1024)
+        if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).length)
+          return sendJson(response, 400, { error: 'Application shortcuts accept no body parameters' })
+        return sendJson(response, 200, await openMicrosoftTodo({ launch: options.applicationLauncher }))
       }
 
       if (request.method === 'GET' && url.pathname === '/api/software') {
@@ -1257,8 +1325,12 @@ export async function startCraftHubServer(options: CraftHubServerOptions = {}): 
           streaming = true
           for (const line of pendingOutput)
             response.write(line)
-          const run = await handle.completion
-          response.end(`${JSON.stringify({ type: 'complete', run })}\n`)
+          // Runtime shutdown owns cancellation and persistence of the running command.
+          // Only its startup belongs to this request's write-drain phase.
+          void handle.completion.then((run) => {
+            if (!response.destroyed)
+              response.end(`${JSON.stringify({ type: 'complete', run })}\n`)
+          }).catch(() => response.destroy())
           return
         }
       }
@@ -1302,6 +1374,13 @@ export async function startCraftHubServer(options: CraftHubServerOptions = {}): 
       const path = new URL(request.url ?? '/', 'http://localhost').pathname
       const configurationRoute = /^\/api\/(?:owner-scopes|workspaces|workspace-groups|config-subscriptions|team-subscriptions)(?:\/|$)/.test(path)
       const pending = configurationRoute ? runtime.withConfiguration(() => handleRequest(request, response)) : handleRequest(request, response)
+      if (!['GET', 'HEAD', 'OPTIONS'].includes(request.method ?? 'GET')) {
+        pendingMutations.add(pending)
+        const settled = (): void => {
+          pendingMutations.delete(pending)
+        }
+        void pending.then(settled, settled)
+      }
       void pending.catch(() => {
         if (response.headersSent)
           response.destroy()
@@ -1367,7 +1446,10 @@ export async function startCraftHubServer(options: CraftHubServerOptions = {}): 
   let closing: Promise<void> | undefined
   const close = (closeOptions: CraftHubServerCloseOptions = {}): Promise<void> => {
     closing ??= (async () => {
+      shuttingDown = true
       clearInterval(configurationTimer)
+      if (softwareSourceTimer)
+        clearInterval(softwareSourceTimer)
       if (heartbeat)
         clearInterval(heartbeat)
       stopRunEvents()
@@ -1379,6 +1461,13 @@ export async function startCraftHubServer(options: CraftHubServerOptions = {}): 
         client.end()
       eventClients.clear()
 
+      const httpCleanup = Promise.allSettled(server.listening
+        ? [new Promise<void>((resolve, reject) => {
+            server.close(error => error ? reject(error) : resolve())
+          })]
+        : [])
+      // Let accepted writes finish before disposing their runtime or exiting the process.
+      await Promise.allSettled([...pendingMutations])
       if (stopDeliveryConnection)
         await stopDeliveryConnection()
       const cleanup = [
@@ -1387,12 +1476,12 @@ export async function startCraftHubServer(options: CraftHubServerOptions = {}): 
       ]
       if (!closeOptions.processExiting)
         cleanup.push(watcher.close())
-      if (server.listening) {
-        cleanup.push(new Promise<void>((resolve, reject) => {
-          server.close(error => error ? reject(error) : resolve())
-        }))
-      }
       const results = await Promise.allSettled(cleanup)
+      // Electron's network service can retain connections after its windows close.
+      // Finish stateful cleanup before releasing sockets that would otherwise block exit.
+      if (closeOptions.processExiting)
+        server.closeAllConnections()
+      results.push(...await httpCleanup)
       const errors = results
         .filter((result): result is PromiseRejectedResult => result.status === 'rejected')
         .map(result => result.reason)
@@ -1416,6 +1505,13 @@ export async function startCraftHubServer(options: CraftHubServerOptions = {}): 
       server.once('error', reject)
       server.listen(options.port ?? 4318, options.host ?? '127.0.0.1', resolve)
     })
+    if (runtime.hostEnvironment.kind === 'local') {
+      void refreshSoftwareSources().catch(() => {})
+      softwareSourceTimer = setInterval(() => {
+        void refreshSoftwareSources().catch(() => {})
+      }, 60 * 1000)
+      softwareSourceTimer.unref()
+    }
     void runtime.pluginManager.updateAll({ refreshSources: true })
       .then(result => broadcastEvent('plugin-update', result))
       .catch(error => broadcastEvent('plugin-update', { error: error instanceof Error ? error.message : String(error) }))

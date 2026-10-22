@@ -13,6 +13,7 @@ import { useI18n } from './i18n'
 import IntegrationResourceBrowser from './IntegrationResourceBrowser.vue'
 import IntegrationActionForm from './IntegrationActionForm.vue'
 import IntegrationConnectionSetup from './IntegrationConnectionSetup.vue'
+import MicrosoftTodoOpenButton from './MicrosoftTodoOpenButton.vue'
 import IntegrationEntityList from './IntegrationEntityList.vue'
 import { useWorkbenchStore } from './store'
 import WorkbenchViewFrame from './WorkbenchViewFrame.vue'
@@ -382,6 +383,9 @@ defineExpose({ refresh: refresh })
 
 <template>
   <component :is="embedded || !view ? 'div' : WorkbenchViewFrame" class="integration-workbench workbench-view" :class="{ embedded }" v-bind="!embedded && view ? { title: translate(view.title), icon: view.icon } : {}">
+    <template v-if="!embedded && view && contribution?.provider.id === 'microsoft-todo'" #actions>
+      <MicrosoftTodoOpenButton />
+    </template>
     <section v-if="view" class="integration-content">
       <label v-if="view.scope === 'global-and-project'" class="integration-scope">
         <span>{{ t('integrationScope') }}</span>
@@ -555,10 +559,10 @@ defineExpose({ refresh: refresh })
 .integration-block-collapsible[open] .integration-block-chevron { transform: rotate(90deg); }
 .integration-block h2 { margin: 0; font-size: var(--font-size-emphasis); font-weight: 600; }
 .integration-block-heading p { margin: 2px 0 0; color: var(--muted); font-size: var(--font-size-caption); line-height: var(--line-height-caption); }
-.integration-search { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: var(--space-2); padding: var(--integration-row-padding-block) var(--integration-row-padding-inline); border-bottom: 1px solid var(--integration-card-border); }
+.integration-search { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: var(--space-2); margin: var(--integration-row-padding-block) var(--integration-row-padding-inline); padding: var(--space-1) var(--space-2); border: 1px solid var(--border-strong); border-radius: var(--control-radius); background: var(--surface); transition: border-color var(--motion-duration-fast), box-shadow var(--motion-duration-fast); }
 .integration-search > .app-icon { width: 16px; height: 16px; color: var(--muted); }
 .integration-search input { min-width: 0; min-height: var(--control-height-compact); border: 0; outline: 0; color: var(--text); background: transparent; font: inherit; font-size: var(--font-size-body); }
-.integration-search:focus-within { box-shadow: inset 0 0 0 var(--control-focus-width) var(--focus-ring); }
+.integration-search:focus-within { border-color: var(--focus-ring); box-shadow: 0 0 0 var(--control-focus-width) color-mix(in srgb, var(--focus-ring) 16%, transparent); }
 .integration-cache-notice { display: grid; gap: var(--space-1); margin: 0; padding: var(--space-2) var(--integration-row-padding-inline); color: var(--text-secondary); background: var(--surface-subtle); border-bottom: 1px solid var(--integration-card-border); font-size: var(--font-size-caption); }
 .integration-session { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-4); padding: 0 var(--integration-row-padding-inline) var(--space-3); margin: 0; color: var(--muted); font-size: var(--font-size-caption); }
 .integration-connection { display: flex; align-items: flex-start; gap: var(--integration-row-gap); padding: var(--integration-row-padding-block) var(--integration-row-padding-inline); }

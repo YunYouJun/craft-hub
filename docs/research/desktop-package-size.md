@@ -45,7 +45,7 @@ MACOS_ARCHES=arm64 CRAFT_HUB_DESKTOP_CODEX_MODE=bundled pnpm package:mac
 
 - Electron Frameworks 约占轻量包的 85%，普通依赖与图标裁剪无法把整个应用缩小到几十 MiB。不要为体积删除可能影响渲染、GPU、沙盒或兼容性的框架文件。
 - 现有 SDK 调用者完全迁移至外部工作台后，可进一步移除 SDK，但它的 JS 本体不是当前主要占用。
-- 若目标低于 100 MiB，继续验证 Tauri + 系统 WebView，并完成无本机 Node 时的独立启动检查和引导。系统 WebView 差异、宿主功能与后端引导验证完成后再切换默认分发，不能把试验包体积当作同功能替代结果。
+- 若目标低于 100 MiB，转向原生 macOS 宿主（[ADR 0012](../adr/0012-make-a-macos-native-client-the-primary-desktop-host.md)；Tauri 试验已于 2026-10-22 退役），并完成无本机 Node 时的独立启动检查和引导。系统 WebView 差异、宿主功能与后端引导验证完成后再切换默认分发，不能把试验包体积当作同功能替代结果。
 - DMG / ZIP 压缩降低下载体积，不降低安装后的 `.app`；需用统一功能和口径分别测量。
 
 本轮通过完整 lint、根目录与 Web 类型检查、1006 项测试（另有 2 项平台相关跳过，串行运行）和构建；已安装轻量包签名检查及本地 API 健康检查通过，ASAR 与构建产物一致，元数据为 `codexMode: external`，没有内置 Codex CLI。软件中心读取到 Workstation 的 29 项目录、11 项可安装与 12 项可打开应用，本机 Codex CLI 已检测到。软件中心功能与后续待办见 [产品方向](../design/machine-workbench-direction.md)。

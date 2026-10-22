@@ -1,4 +1,4 @@
-import { access, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
+import { access, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -23,6 +23,31 @@ async function fixture() {
 }
 
 describe('persistent host extensions', () => {
+  it('remembers optional bundled choices beside installations and asks for a restart when they change', async () => {
+    const { manager, extension } = await fixture()
+    expect(await manager.bundledChoice('microsoft-todo')).toBeUndefined()
+    await manager.load()
+    await manager.setBundledEnabled('microsoft-todo', false)
+    await manager.install(extension)
+    expect(await manager.bundledChoice('microsoft-todo')).toBe(false)
+    expect((await manager.status()).restartRequired).toBe(true)
+
+    await manager.load()
+    expect((await manager.status()).restartRequired).toBe(false)
+    await manager.setBundledEnabled('microsoft-todo', true)
+    expect(await manager.bundledChoice('microsoft-todo')).toBe(true)
+    expect((await manager.status()).extensions.map(item => item.id)).toEqual(['acme'])
+    expect((await manager.status()).restartRequired).toBe(true)
+  })
+
+  it('reads state saved before bundled choices existed', async () => {
+    const { root, manager, extension } = await fixture()
+    await mkdir(join(root, 'data'))
+    await writeFile(manager.path, `${JSON.stringify({ schemaVersion: 1, extensions: [extension] })}\n`)
+    expect(await manager.bundledChoice('microsoft-todo')).toBeUndefined()
+    expect((await manager.status()).extensions).toEqual([extension])
+  })
+
   it('only loads explicitly trusted installations and restores providers after an ordinary restart', async () => {
     const { root, manager, marker, extension } = await fixture()
     expect((await manager.load()).plugins).toEqual([])

@@ -1,0 +1,58 @@
+.settings-form-group {
+  --form-control-height: var(--control-height-compact);
+
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--panel-radius);
+  background: var(--surface);
+}
+
+.settings-form-row {
+  display: grid;
+  min-width: 0;
+  min-height: 48px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 220px);
+  align-items: center;
+  gap: 4px 16px;
+  margin: 0;
+  padding: 10px 14px;
+  color: var(--text);
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-control);
+}
+
+.settings-form-row + .settings-form-row { border-top: 1px solid var(--border); }
+.settings-form-label { display: flex; min-width: 0; align-items: center; gap: 6px; }
+.settings-form-label .app-icon { width: 14px; height: 14px; color: var(--muted); }
+.settings-form-control { display: flex; min-width: 0; align-items: center; gap: 8px; }
+.settings-form-row :is(input:not([type='checkbox'], [type='radio']), select, textarea) {
+  width: 100%;
+  min-width: 0;
+  min-height: var(--form-control-height);
+  box-sizing: border-box;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--control-radius);
+  background-color: var(--surface);
+  padding-block: 3px;
+  padding-inline: var(--form-control-padding-inline);
+  color: var(--text);
+  font-family: var(--font-body);
+  font-size: var(--form-control-font-size);
+  line-height: var(--line-height-control);
+}
+.settings-form-row select:not([multiple]) { padding-inline: var(--select-padding-start) var(--select-padding-end); }
+.settings-form-row textarea { resize: vertical; }
+.settings-form-row :is(input, select, textarea):focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+.settings-form-row :is(input, select, textarea):disabled { opacity: var(--control-disabled-opacity); }
+.settings-form-caption { grid-column: 2; margin: 0; color: var(--muted); font-size: var(--font-size-caption); line-height: var(--line-height-caption); overflow-wrap: anywhere; }
+
+@media (max-width: 600px), (pointer: coarse) {
+  .settings-form-group { --form-control-height: 44px; }
+  .settings-form-row { grid-template-columns: minmax(0, 1fr); gap: 6px; padding: 12px; }
+  .settings-form-caption { grid-column: 1; }
+  .settings-form-row :is(input:not([type='checkbox'], [type='radio']), select, textarea),
+  .settings-form-row .ui-button { min-height: 44px; }
+  .settings-form-control { flex-wrap: wrap; }
+  .settings-form-control > :is(input, select, textarea) { flex-basis: 100%; }
+}

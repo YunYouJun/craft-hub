@@ -245,6 +245,11 @@ export interface WorkItemIntegrationAdapter {
   search: (context: IntegrationProviderContext, query: IntegrationEntityQuery) => Promise<IntegrationEntityPage>
   list: (context: IntegrationProviderContext, query: IntegrationEntityQuery) => Promise<IntegrationEntityPage>
   transitions?: (context: IntegrationProviderContext, input: Record<string, unknown>) => Promise<IntegrationStatusTransitionPage>
+  /**
+   * Apply a confirmed status change. Workflow providers receive a selected transition; providers
+   * without `transitions` accept a one-step `statusCategory` of `done` or `open`, plus an optional
+   * native `status` to restore when reopening.
+   */
   updateStatus?: (context: IntegrationProviderContext, input: Record<string, unknown>) => Promise<IntegrationEntity>
 }
 

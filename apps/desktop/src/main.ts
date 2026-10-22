@@ -6,41 +6,34 @@ import type { WorkspaceLaunchTarget } from './workspace-launch-target.ts'
 import { execFile } from 'node:child_process'
 import { appendFileSync, existsSync } from 'node:fs'
 import { realpath } from 'node:fs/promises'
-import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
+import { isAbsolute, join, relative, resolve } from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
-import codexConfigurationPlugin from '@craft-hub/craft-hub-plugin-codex'
-import { createMicrosoftTodoPlugin, createMicrosoftTodoTransport } from '@craft-hub/craft-hub-plugin-microsoft-todo'
 import { PersonalCloudController } from '@craft-hub/personal-cloud'
-import { communityDistribution, CraftHubRuntime, HostExtensionManager, loadCraftHubPlugins, startCraftHubServer } from 'craft-hub'
+import { communityDistribution, HostExtensionManager, startCraftHubServer } from 'craft-hub'
 import { app, BrowserWindow, clipboard, dialog, globalShortcut, ipcMain, Menu, nativeImage, nativeTheme, safeStorage, screen, shell } from 'electron'
 import { aboutDocument, aboutPanelOptions } from './about.ts'
 import { createApplicationMenu, createEditContextMenu, createWorkbenchMenuShortcutMatcher, isDesktopMenuLocale } from './application-menu.ts'
 import { loadDesktopBuildInfo } from './build-info.ts'
 import { CodexActivityMonitor } from './codex-activity.ts'
-import { CodexAgentTaskProvider } from './codex-agent-task-provider.ts'
 import { openCodexThreadAfterTaskRelease, waitForAgentTaskThread } from './codex-agent-task-thread.ts'
-import { CodexWorkAssistant } from './codex-work-assistant.ts'
 import { resolveDesktopDataDirectories } from './data-directories.ts'
 import { DesktopLinkCoordinator, DesktopLinkError, findDesktopLinkArgument } from './deep-links.ts'
 import { DeviceVault } from './device-vault.ts'
 import { communityDesktopAboutBranding, communityDesktopDevelopmentProtocol, communityDesktopProtocol, communityDesktopUpdateBaseUrl, loadDesktopDistributionManifest, resolveDesktopDistributionAsset } from './distribution.ts'
+import { installExternalNavigationHandlers } from './external-navigation.ts'
 import { selectedDirectoryPath, selectedDirectoryPaths } from './folder-picker.ts'
 import { registerHostExtensionHandlers } from './host-extensions.ts'
+import { createBuiltinHostPlugins, createDesktopHostRuntime, optionalHostPluginStatus } from './host-runtime.ts'
 import { codexThreadUrl, editorTargetPaths, externalHttpUrl, focusCodexApplication, gitRemoteHttpUrl, macTerminalApplications, openCodexProject, openCursorEditor, openCustomEditor, openMacTerminalProject, openPersonalWorkbenchTool, projectContainsPath, vscodeUrl } from './open-targets.ts'
 import { createDeferredOnceTask } from './shutdown-task.ts'
 import { DesktopUpdater } from './updater.ts'
 import { mainWindowAppearance, windowBackgroundColor } from './window-appearance.ts'
 import { readWindowState, restoreWindowState, writeWindowState } from './window-state.ts'
 import { resolveWorkspaceLaunchTarget } from './workspace-launch-target.ts'
-import { desktopWorkstation } from './workstation-runtime.ts'
 
 const execFileAsync = promisify(execFile)
-const microsoftTodoTransport = createMicrosoftTodoTransport({ keepAlive: true })
-const microsoftTodoWriteTransport = createMicrosoftTodoTransport({ keepAlive: true, writable: true })
-const microsoftTodoPlugin = createMicrosoftTodoPlugin({ transport: microsoftTodoTransport, writeTransport: microsoftTodoWriteTransport })
-const workstation = desktopWorkstation({ directory: fileURLToPath(new URL('../workstation-runtime', import.meta.url)).replace(/\.asar(?=\/)/, '.asar.unpacked') })
 let quickCaptureRegistered = false
 let pendingQuickCapture = false
 
@@ -66,6 +59,7 @@ let desktopMenuLocale: DesktopMenuLocale = 'zh-CN'
 let aboutWindow: BrowserWindowType | undefined
 let craftHubServer: CraftHubServer | undefined
 let readyToQuit = false
+let shuttingDown = false
 let personalCloud: PersonalCloudController | undefined
 let desktopUpdater: DesktopUpdater | undefined
 let codexActivityMonitor: CodexActivityMonitor | undefined
@@ -226,10 +220,16 @@ function directoryDialogDefaultPath(value: unknown): string | undefined {
   return typeof value === 'string' && isAbsolute(value) && !value.includes('\0') ? value : undefined
 }
 
+const builtinHostPlugins = createBuiltinHostPlugins({
+  workstationDirectory: fileURLToPath(new URL('../workstation-runtime', import.meta.url)).replace(/\.asar(?=\/)/, '.asar.unpacked'),
+  dataDir: desktopDataDirectories.runtimeDataDir,
+})
+const workstation = builtinHostPlugins.workstation
 const hostExtensionManager = new HostExtensionManager(desktopDataDirectories.runtimeDataDir)
 registerHostExtensionHandlers({
   manager: hostExtensionManager,
   bundledExtensions: workstation.bundled ? [{ id: 'workstation', name: 'Workstation', version: workstation.bundled.version }] : [],
+  optionalBundledExtensions: () => optionalHostPluginStatus(hostExtensionManager, builtinHostPlugins.optionalPlugins),
   window: () => mainWindow,
   localPluginPath: async (packageName) => {
     const plugin = (await craftHubServer?.runtime.pluginManager.listInstalled())?.find(item => item.package === packageName)
@@ -649,37 +649,22 @@ async function loadUrlWithRetry(window: BrowserWindowType, url: string): Promise
 }
 
 async function createWindow(): Promise<void> {
+  if (shuttingDown)
+    return
   const staticDir = developmentUrl
     ? undefined
     : resolve(fileURLToPath(new URL('.', import.meta.url)), '../../web/dist')
   if (!craftHubServer) {
-    let runtime!: CraftHubRuntime
-    const agentTaskProvider = new CodexAgentTaskProvider(async () => (await runtime.settings.get()).settings['workbench.codex'])
-    const configuredPlugins = desktopDistribution?.hostPlugins?.length
-      ? await loadCraftHubPlugins(desktopDistribution.hostPlugins, { baseDir: dirname(desktopDistributionManifestPath) })
-      : { plugins: [], diagnostics: [] }
-    const preloadedModules = desktopDistribution?.hostPlugins?.length && !configuredPlugins.diagnostics.length
-      ? hostExtensionManager.prepare({
-        id: desktopDistribution.distribution.id,
-        name: desktopDistribution.distribution.name,
-        manifestPath: desktopDistributionManifestPath,
-        modules: desktopDistribution.hostPlugins,
-      }).modules
-      : []
-    const hostPlugins = await hostExtensionManager.load([
-      ...configuredPlugins.plugins,
-      ...[codexConfigurationPlugin, microsoftTodoPlugin, workstation.plugin].filter(builtin => !configuredPlugins.plugins.some(plugin => plugin.id === builtin.id)),
-    ], preloadedModules)
-    hostPlugins.diagnostics.unshift(...configuredPlugins.diagnostics)
-    for (const diagnostic of hostPlugins.diagnostics)
-      writeApplicationLog('error', `Host Plugin ${diagnostic.pluginId} failed to load: ${diagnostic.message}`)
-    runtime = new CraftHubRuntime({
-      agentTaskProvider,
-      workAssistantProvider: new CodexWorkAssistant(async () => (await runtime.settings.get()).settings['workbench.codex']),
+    const runtime = await createDesktopHostRuntime({
+      builtinPlugins: builtinHostPlugins.plugins,
+      optionalPlugins: builtinHostPlugins.optionalPlugins,
       dataDir: desktopDataDirectories.runtimeDataDir,
       distribution: runtimeDistribution,
-      pluginDiagnostics: hostPlugins.diagnostics,
-      plugins: hostPlugins.plugins,
+      distributionPlugins: desktopDistribution?.hostPlugins?.length
+        ? { id: desktopDistribution.distribution.id, name: desktopDistribution.distribution.name, manifestPath: desktopDistributionManifestPath, modules: desktopDistribution.hostPlugins }
+        : undefined,
+      hostExtensions: hostExtensionManager,
+      logError: message => writeApplicationLog('error', message),
     })
     craftHubServer = await startCraftHubServer({ port: developmentUrl ? 4318 : 0, runtime, staticDir })
     runtime.settings.onChanged(snapshot => applyDesktopMenuLocale(snapshot.settings['workbench.locale']))
@@ -687,6 +672,8 @@ async function createWindow(): Promise<void> {
     await initializePersonalCloud()
   }
   const { settings } = await craftHubServer.runtime.settings.get()
+  if (shuttingDown)
+    return
   applyDesktopTheme(settings['workbench.theme'])
   applyDesktopMenuLocale(settings['workbench.locale'])
 
@@ -706,8 +693,8 @@ async function createWindow(): Promise<void> {
     // Reveal the window after its first styled frame so launch never shows an empty background.
     show: false,
     titleBarStyle: process.platform === 'darwin' ? 'hidden' : 'default',
-    // Center the 14px native controls in the renderer's 52px macOS toolbar.
-    ...(process.platform === 'darwin' ? { trafficLightPosition: { x: 16, y: 19 }, titleBarOverlay: true } : {}),
+    // Center the 14px native controls in the renderer's 48px macOS toolbar.
+    ...(process.platform === 'darwin' ? { trafficLightPosition: { x: 16, y: 17 }, titleBarOverlay: true } : {}),
     ...appearance,
     webPreferences: {
       additionalArguments,
@@ -722,6 +709,12 @@ async function createWindow(): Promise<void> {
   createdWindow.once('ready-to-show', () => createdWindow.show())
   createdWindow.on('close', () => writeWindowState(windowStateFile, createdWindow.getNormalBounds(), createdWindow.isMaximized()))
   const windowContents = mainWindow.webContents
+  installExternalNavigationHandlers(
+    windowContents,
+    developmentUrl ?? craftHubServer.url,
+    url => shell.openExternal(url),
+    error => writeApplicationLog('error', `External link failed to open: ${error instanceof Error ? error.message : String(error)}`),
+  )
   windowContents.on('context-menu', (_event, params) => {
     // Renderer menus cancel the DOM event, so this only covers text fields and plain selections.
     const template = createEditContextMenu(params, word => windowContents.replaceMisspelling(word), desktopMenuLocale)
@@ -774,6 +767,8 @@ function focusMainWindow(): void {
 }
 
 async function showMainWindow(): Promise<void> {
+  if (shuttingDown)
+    return
   if (!mainWindow || mainWindow.isDestroyed())
     await createWindow()
   else
@@ -852,8 +847,7 @@ const requestShutdown = createDeferredOnceTask(async () => {
     desktopUpdater?.dispose()
     const connectionCleanup = await Promise.allSettled([
       codexActivityMonitor?.close(),
-      microsoftTodoTransport.close(),
-      microsoftTodoWriteTransport.close(),
+      ...builtinHostPlugins.closeConnections(),
     ])
     for (const result of connectionCleanup) {
       if (result.status === 'rejected')
@@ -891,6 +885,7 @@ app.on('before-quit', (event) => {
   if (readyToQuit)
     return
   event.preventDefault()
+  shuttingDown = true
   void requestShutdown()
 })
 

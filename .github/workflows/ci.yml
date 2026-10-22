@@ -65,6 +65,49 @@ jobs:
       - name: Run Vite process integration test
         run: pnpm test --run scripts/dev-vite.test.ts
 
+  node-compatibility:
+    name: Runtime on Node ${{ matrix.node }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [22, 24, 26]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+        with:
+          run_install: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - run: pnpm test --run packages/craft-hub/test apps/desktop/test
+
+  native-macos:
+    name: Native macOS build and tests
+    runs-on: macos-26
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+        with:
+          run_install: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: xcodebuild -version
+      - run: pnpm install --frozen-lockfile
+      - run: swift test --package-path apps/macos
+      - run: pnpm build:macos
+      - name: Verify the local app signature
+        run: codesign --verify --deep --strict 'apps/macos/build/Craft Hub Prototype.app'
+      - name: Verify Sparkle framework and signed update artifacts
+        run: pnpm test:macos-updates
+
   docs:
     name: Build docs
     runs-on: ubuntu-latest

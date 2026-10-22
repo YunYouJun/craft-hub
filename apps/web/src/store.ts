@@ -98,6 +98,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
   const settings = ref<SettingsSnapshot>()
   const settingsLoadState = ref<'idle' | 'loading' | 'ready' | 'error'>('idle')
   const userConfigStatus = ref<UserConfigStatus>()
+  const softwareSourcesRevision = ref(0)
   let snapshot = ''
   let refreshTail: Promise<void> = Promise.resolve()
   let projectsRefresh: Promise<boolean> | undefined
@@ -168,6 +169,10 @@ export const useWorkbenchStore = defineStore('workbench', () => {
   function rememberProject(projectId: string): void {
     recentProjectIds.value = [projectId, ...recentProjectIds.value.filter(id => id !== projectId)].slice(0, 8)
     window.localStorage.setItem(recentProjectsStorageKey, JSON.stringify(recentProjectIds.value))
+  }
+
+  function notifySoftwareSourcesChanged(): void {
+    softwareSourcesRevision.value++
   }
 
   let settingsApplyGeneration = 0
@@ -1511,6 +1516,8 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     settings,
     settingsLoadState,
     userConfigStatus,
+    softwareSourcesRevision,
+    notifySoftwareSourcesChanged,
     repositoriesRoot,
     applySettings,
     loadSettings,

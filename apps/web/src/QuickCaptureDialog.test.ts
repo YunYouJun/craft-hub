@@ -2,6 +2,7 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { api } from './api'
+import { DialogShell } from './components/ui/dialog'
 import QuickCaptureDialog from './QuickCaptureDialog.vue'
 
 beforeEach(() => {
@@ -25,6 +26,7 @@ it('previews a natural-language draft and never writes until the reviewed form i
   await flushPromises()
   await wrapper.find('textarea').setValue('明天下午三点跟进发布 #任务 !重要')
   expect(wrapper.find<HTMLInputElement>('input[maxlength="500"]').element.value).toBe('跟进发布')
+  expect(wrapper.findAll('.settings-form-group .settings-form-row')).toHaveLength(3)
   expect(invoke.mock.calls.filter(call => call[1] === 'create')).toHaveLength(0)
   const save = wrapper.find<HTMLButtonElement>('button[type="submit"]')
   expect(save.element.form).toBe(wrapper.find('form').element)
@@ -120,5 +122,36 @@ it('keeps a manually reviewed title and list when a later list refresh resolves 
   await wrapper.find('form').trigger('submit')
   await flushPromises()
   expect(invoke.mock.calls.find(call => call[1] === 'create')?.[2]).toMatchObject({ listId: 'personal', title: 'Reviewed title' })
+  wrapper.unmount()
+})
+
+it('preserves keyboard submission, the edited draft and the open dialog while a save is in flight', async () => {
+  let finishSave!: (item: { id: string, title: string }) => void
+  const invoke = vi.spyOn(api, 'invokeIntegrationAction').mockImplementation(async (_integration, action) => {
+    if (action === 'connection')
+      return { connected: true, accountLabel: 'owner@example.com', capabilities: { create: true } }
+    if (action === 'tasks')
+      return { items: [], collections: [{ id: 'tasks', title: 'Tasks' }] }
+    return new Promise<{ id: string, title: string }>((resolve) => {
+      finishSave = resolve
+    })
+  })
+  const wrapper = mount(QuickCaptureDialog, { attachTo: document.body, props: { open: true } })
+  await flushPromises()
+  const composer = document.body.querySelector<HTMLTextAreaElement>('.capture-composer textarea')!
+  composer.value = 'Keep this thought'
+  composer.dispatchEvent(new Event('input', { bubbles: true }))
+  await flushPromises()
+  composer.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, bubbles: true }))
+  await flushPromises()
+  expect(invoke.mock.calls.filter(call => call[1] === 'create')).toHaveLength(1)
+  expect(document.body.querySelector<HTMLInputElement>('input[maxlength="500"]')?.value).toBe('Keep this thought')
+  expect(composer.disabled).toBe(true)
+  wrapper.findComponent(DialogShell).vm.$emit('update:open', false)
+  expect(wrapper.emitted('update:open')).toBeUndefined()
+  finishSave({ id: 'saved', title: 'Keep this thought' })
+  await flushPromises()
+  expect(wrapper.emitted('saved')).toHaveLength(1)
+  expect(composer.value).toBe('')
   wrapper.unmount()
 })

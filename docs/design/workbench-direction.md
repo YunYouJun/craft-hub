@@ -1,6 +1,6 @@
 # 工作台差异化与交接路线
 
-> 更新：2026-10-09。用户进一步将工作台定位为软件准备、工具入口与开发环境管理，当前优先路线见[个人环境工作台](./machine-workbench-direction.md)。本文件保留此前交接方向及宿主实验的记录；交接 P0 / P1 不再是默认开发顺序。已有总览决策见 [ADR 0010](../adr/0010-personalize-the-persistent-workbench-overview.md)，接口证据见[工作台调研](../research/agent-workbench-selection.md)。下列复选项区分已经落盘的基础能力与尚未完成的流程；未勾选项不构成已交付承诺。
+> 更新：2026-10-09。用户进一步将工作台定位为软件准备、工具入口与开发环境管理，当前优先路线见[个人环境工作台](./machine-workbench-direction.md)。本文件保留此前交接方向及宿主实验的记录；交接 P0 / P1 不再是默认开发顺序。已有总览决策见 [ADR 0010](../adr/0010-personalize-the-persistent-workbench-overview.md)，接口证据见[工作台调研](../research/agent-workbench-selection.md)。下列复选项区分已经落盘的基础能力与尚未完成的流程；未勾选项不构成已交付承诺。 2026-10-22：Tauri 试验已退役并移除，下文 Tauri 相关待办不再推进；桌面方向见 [ADR 0012](../adr/0012-make-a-macos-native-client-the-primary-desktop-host.md)。
 
 ## 核心工作流
 
@@ -108,6 +108,8 @@ Electron 分发包含 Chromium 与 Node.js。[官方介绍](https://www.electron
 验收：比较覆盖同一条真实工作流的产物，包含所需 sidecar 和运行时；证明常用操作无需回退到旧 Electron 后，再决定默认分发。用户数据和已授权集成保持可迁移、可回滚；包体下降不以隐藏依赖或损坏旧执行调用者为代价。
 
 ## 2026-10-09：瘦身与 Tauri 验证实现
+
+> 2026-10-22：本节为历史记录。`apps/tauri` 与 `pnpm build:tauri` / `pnpm dev:tauri` 已移除；其后端的会话保护与进程生命周期已并入 `apps/desktop/src/sidecar-host.ts`。
 
 本轮 Electron 对照使用同一源码快照、依赖和 macOS arm64 架构，测量 `.app` 内普通文件逻辑字节总数（包括 `app.asar.unpacked`）与 `ditto` ZIP；不是旧版本的下载包，也不是仅 ASAR 的大小。
 

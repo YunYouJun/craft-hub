@@ -115,7 +115,7 @@ Set `CRAFT_HUB_DESKTOP_INSTALL_DIR` to install into a different application dire
 
 The lower-level `package:mac` script packages existing build output and is used by the release workflow.
 
-An optional macOS Tauri trial reuses the Web UI and ships its own Node backend. Run `pnpm build:tauri` to build it or `pnpm dev:tauri` after building the Web UI. It uses separate trial data and excludes the embedded Codex SDK/CLI; it does not yet replace the Electron distribution's extensions, cloud, updates, or agent connections. See the [trial guide](./apps/tauri/README.md) and [distribution measurements](./docs/design/workbench-direction.md#2026-10-09瘦身与-tauri-验证实现).
+A native SwiftUI host for macOS is in prototype ([ADR 0012](./docs/adr/0012-make-a-macos-native-client-the-primary-desktop-host.md)). It wraps the Web UI in native window chrome and runs the same runtime as a sidecar on your own Node. Run `pnpm build:macos` to build it; it uses separate prototype data and does not yet replace the Electron distribution. See the [prototype guide](./apps/macos/README.md).
 
 ## CLI
 
@@ -186,8 +186,8 @@ without invoking a shell.
 ## Repository layout
 
 - `apps/web` — Vue workbench UI
-- `apps/desktop` — thin Electron host
-- `apps/tauri` — optional macOS host and self-contained Node backend trial
+- `apps/desktop` — thin Electron host, and the runtime sidecar shared with the native host
+- `apps/macos` — native SwiftUI host prototype for macOS
 - `packages/craft-hub` — runtime, local API, and CLI
 - `examples/sample-project` — discovery and execution fixture
 - `docs/design` — accepted visual concepts

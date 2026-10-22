@@ -1,4 +1,4 @@
-import type { AgentActionId, AgentActionSummary, AgentConnectionStatus, AgentTaskRecord, ApplyGitIntegrationRequest, Capability, CapabilityDiscoveryResult, CapabilityPins, CatalogPluginV1, CommandInputValues, CommandInvocation, DotfilesManagerStatus, DotfilesOperation, DotfilesOperationResult, GitIntegrationPlan, GitIntegrationRequest, GitIntegrationResult, InstalledNavigationPanel, InstalledPlugin, InstalledPluginWorkbench, IntegrationActionResult, IntegrationDiagnostic, LocalEnvironmentSnapshot, LocalPlugin, LocalSkillActivationSettings, ManagedPlugin, MarketplaceSource, MarketplaceSourcePreview, OwnerScope, OwnerScopeUiState, PersonalGitSyncResolution, PersonalGitSyncStatus, PluginDocumentPreview, PluginInstallPlan, PluginUpdatePlanItem, PluginUpdateResult, ProjectCatalogSnapshot, ProjectChangeEvent, ProjectConfigInitializationResult, ProjectDescriptionApplication, ProjectDescriptionAudit, ProjectDescriptionChange, ProjectOverview, ProjectRecord, ProjectRunSummary, ProjectSkillsState, ProjectVisualInput, ReleasePlan, ResolvedIntegrationContribution, RunCleanupOptions, RunCleanupResult, RunRecord, RunStreamEvent, RuntimeHealth, SettingsExportEnvelope, SettingsExportMode, SettingsImportPreview, SettingsImportStrategy, SettingsSnapshot, SetupProfileCommand, SetupProfileInventory, SetupProfileReview, SetupProfileSnapshot, SoftwareApplicationOpen, SoftwareCatalogSnapshot, SoftwareInstallationPlan, SoftwareInstallationRun, SoftwareInstallationRuns, SoftwareSourceInput, SoftwareSourcePreview, SoftwareSourceSnapshot, TeamDeletionResult, TeamGitSyncStatus, UserConfigStatus, WorkbenchDiagnosticSnapshot, WorkbenchLocale, WorkItemProjectDeleteRequest, WorkItemProjectSnapshot, WorkItemProjectUpdateRequest, WorkspaceCatalog, WorkspaceGroup, WorkspaceImportPreview, WorkspaceImportResult, WorkspaceManifest, WorkspaceRecord, WorkspaceUiState } from 'craft-hub'
+import type { AgentActionId, AgentActionSummary, AgentConnectionStatus, AgentTaskRecord, ApplyGitIntegrationRequest, Capability, CapabilityDiscoveryResult, CapabilityPins, CatalogPluginV1, CommandInputValues, CommandInvocation, DotfilesManagerStatus, DotfilesOperation, DotfilesOperationResult, GitIntegrationPlan, GitIntegrationRequest, GitIntegrationResult, InstalledNavigationPanel, InstalledPlugin, InstalledPluginWorkbench, IntegrationActionResult, IntegrationDiagnostic, LocalEnvironmentSnapshot, LocalPlugin, LocalSkillActivationSettings, ManagedPlugin, MarketplaceSource, MarketplaceSourcePreview, OwnerScope, OwnerScopeUiState, PersonalGitSyncResolution, PersonalGitSyncStatus, PluginDocumentPreview, PluginInstallPlan, PluginUpdatePlanItem, PluginUpdateResult, ProjectCatalogSnapshot, ProjectChangeEvent, ProjectConfigInitializationResult, ProjectDescriptionApplication, ProjectDescriptionAudit, ProjectDescriptionChange, ProjectOverview, ProjectRecord, ProjectRunSummary, ProjectSkillsState, ProjectVisualInput, ReleasePlan, ResolvedIntegrationContribution, RunCleanupOptions, RunCleanupResult, RunRecord, RunStreamEvent, RuntimeHealth, SettingsExportEnvelope, SettingsExportMode, SettingsImportPreview, SettingsImportStrategy, SettingsSnapshot, SetupProfileCommand, SetupProfileInventory, SetupProfileReview, SetupProfileSnapshot, SoftwareApplicationOpen, SoftwareCatalogSnapshot, SoftwareInstallationPlan, SoftwareInstallationRun, SoftwareInstallationRuns, SoftwareSourceInput, SoftwareSourcePreview, SoftwareSourceRefreshPolicy, SoftwareSourceSnapshot, TeamDeletionResult, TeamGitSyncStatus, UserConfigStatus, WorkbenchDiagnosticSnapshot, WorkbenchLocale, WorkItemProjectDeleteRequest, WorkItemProjectSnapshot, WorkItemProjectUpdateRequest, WorkspaceCatalog, WorkspaceGroup, WorkspaceImportPreview, WorkspaceImportResult, WorkspaceManifest, WorkspaceRecord, WorkspaceUiState } from 'craft-hub'
 import { emitIntegrationChange } from './integration-action-events'
 
 export class ApiRequestError extends Error {
@@ -102,8 +102,10 @@ async function runCommand(projectId: string, capabilityId: string, inputs: Comma
   return current
 }
 
-async function invokeIntegrationAction<T extends IntegrationActionResult = IntegrationActionResult>(integrationId: string, actionId: string, input: Record<string, unknown> = {}, projectId?: string, confirmed = false): Promise<T> {
-  if (confirmed)
+/** Confirmed writes invalidate cached reads unless the caller applies the returned entity itself (`broadcast: false`). */
+async function invokeIntegrationAction<T extends IntegrationActionResult = IntegrationActionResult>(integrationId: string, actionId: string, input: Record<string, unknown> = {}, projectId?: string, confirmed = false, options: { broadcast?: boolean } = {}): Promise<T> {
+  const broadcast = confirmed && options.broadcast !== false
+  if (broadcast)
     emitIntegrationChange({ integrationId, phase: 'start' })
   try {
     return await request<T>(projectId
@@ -114,7 +116,7 @@ async function invokeIntegrationAction<T extends IntegrationActionResult = Integ
     })
   }
   finally {
-    if (confirmed)
+    if (broadcast)
       emitIntegrationChange({ integrationId, phase: 'settled' })
   }
 }
@@ -140,12 +142,14 @@ export const api = {
   previewSoftwareSource: (input: SoftwareSourceInput) => request<SoftwareSourcePreview>('/api/software-sources', { method: 'POST', body: JSON.stringify({ operation: 'preview', input }) }),
   applySoftwareSource: (previewId: string) => request<SoftwareSourceSnapshot>('/api/software-sources', { method: 'POST', body: JSON.stringify({ operation: 'apply', previewId }) }),
   refreshSoftwareSource: (id: string) => request<SoftwareSourceSnapshot>('/api/software-sources', { method: 'POST', body: JSON.stringify({ operation: 'refresh', id }) }),
+  configureSoftwareSourceRefresh: (id: string, revision: string, refreshPolicy: SoftwareSourceRefreshPolicy) => request<SoftwareSourceSnapshot>('/api/software-sources', { method: 'POST', body: JSON.stringify({ operation: 'configure-refresh', id, revision, refreshPolicy }) }),
   removeSoftwareSource: (id: string, revision: string) => request<SoftwareSourceSnapshot>('/api/software-sources', { method: 'POST', body: JSON.stringify({ operation: 'remove', id, revision }) }),
   softwareInstallationPlan: (sourceId: string, softwareIds: string[]) => request<SoftwareInstallationPlan>(`/api/software/${encodeURIComponent(sourceId)}/plan`, { method: 'POST', body: JSON.stringify({ softwareIds }) }),
   installSoftware: (sourceId: string, planId: string, confirmed: true) => request<SoftwareInstallationRun>(`/api/software/${encodeURIComponent(sourceId)}/install`, { method: 'POST', body: JSON.stringify({ planId, confirmed }) }),
   softwareInstallationRuns: (sourceId: string) => request<SoftwareInstallationRuns>(`/api/software/${encodeURIComponent(sourceId)}/runs`),
   cancelSoftwareInstallation: (sourceId: string, runId: string) => request<SoftwareInstallationRun>(`/api/software/${encodeURIComponent(sourceId)}/runs/${encodeURIComponent(runId)}/cancel`, { method: 'POST', body: JSON.stringify({}) }),
   openSoftwareApplication: (sourceId: string, softwareId: string) => request<SoftwareApplicationOpen>(`/api/software/${encodeURIComponent(sourceId)}/open`, { method: 'POST', body: JSON.stringify({ softwareId }) }),
+  openLocalApplication: (applicationId: 'microsoft-todo') => request<import('craft-hub').LocalApplicationOpenResult>(`/api/applications/${applicationId}/open`, { method: 'POST', body: '{}' }),
   localEnvironment: () => request<LocalEnvironmentSnapshot>('/api/environment'),
   ownerScopes: () => request<OwnerScope[]>('/api/owner-scopes'),
   ownerScopeState: () => request<OwnerScopeUiState>('/api/owner-scopes/state'),
@@ -320,6 +324,7 @@ export interface ProjectChangeSubscription {
   onAgentTaskChange?: (task: AgentTaskRecord) => void
   onConfigurationSync?: () => void
   onPluginChange?: () => void
+  onSoftwareSourcesChange?: () => void
   onError?: () => void
   onOpen?: () => void
 }
@@ -372,5 +377,6 @@ export function subscribeToProjectChanges(subscription: ProjectChangeSubscriptio
     }
   })
   events.addEventListener('plugin-change', () => subscription.onPluginChange?.())
+  events.addEventListener('software-source-change', () => subscription.onSoftwareSourcesChange?.())
   return () => events.close()
 }

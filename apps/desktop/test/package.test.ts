@@ -36,6 +36,15 @@ describe('desktop package scripts', () => {
 
     expect(iconPng.size).toBeGreaterThan(0)
     expect(iconIcns.size).toBeGreaterThan(0)
+    // @electron/packager compiles the sibling Icon Composer bundle into Assets.car.
+    const iconComposerUrl = new URL('../assets/icon.icon/', import.meta.url)
+    const iconComposer = JSON.parse(await readFile(new URL('icon.json', iconComposerUrl), 'utf8')) as {
+      'groups': Array<{ layers: Array<{ 'image-name': string }> }>
+      'supported-platforms': { squares: string[] }
+    }
+    expect(iconComposer['supported-platforms'].squares).toContain('macOS')
+    for (const layer of iconComposer.groups.flatMap(group => group.layers))
+      expect((await stat(new URL(`Assets/${layer['image-name']}`, iconComposerUrl))).size).toBeGreaterThan(0)
     expect(mainSource).toContain('icon: applicationIcon')
     expect(mainSource).toContain('app.dock?.setIcon(applicationIcon)')
     expect(mainSource).toContain('desktopDistribution.desktop.icons.application')
@@ -155,12 +164,12 @@ describe('desktop package scripts', () => {
     expect(desktopMain).toContain('title: windowTitle')
     expect(desktopMain).toContain('titleBarOverlay: true')
     expect(desktopMain).toContain('titleBarStyle: process.platform === \'darwin\' ? \'hidden\' : \'default\'')
-    expect(desktopMain).toContain('trafficLightPosition: { x: 16, y: 19 }')
+    expect(desktopMain).toContain('trafficLightPosition: { x: 16, y: 17 }')
     expect(desktopMain).toContain('mainWindow.on(\'page-title-updated\', event => event.preventDefault())')
     expect(webIndex).toContain('<title>Craft Hub</title>')
     expect(webMain).toContain('import \'./desktop.css\'')
     expect(webMain).toContain('document.documentElement.dataset.desktopPlatform')
-    expect(desktopStyles).toContain('--workbench-toolbar-height: 52px')
+    expect(desktopStyles).toContain('--workbench-toolbar-height: 48px')
     expect(desktopStyles).toContain(':root[data-desktop-platform=\'darwin\'] .workbench-titlebar')
     expect(toolbar).toContain('padding-left: 86px')
     expect(desktopStyles).not.toContain('body::before')
@@ -242,9 +251,11 @@ describe('desktop package scripts', () => {
 
   it('keeps editor and Codex launch requests in the desktop main process', async () => {
     const desktopMainUrl = new URL('../src/main.ts', import.meta.url)
+    const hostRuntimeUrl = new URL('../src/host-runtime.ts', import.meta.url)
     const preloadUrl = new URL('../preload.cjs', import.meta.url)
-    const [desktopMain, preload] = await Promise.all([
+    const [desktopMain, hostRuntime, preload] = await Promise.all([
       readFile(desktopMainUrl, 'utf8'),
+      readFile(hostRuntimeUrl, 'utf8'),
       readFile(preloadUrl, 'utf8'),
     ])
 
@@ -260,7 +271,8 @@ describe('desktop package scripts', () => {
     expect(desktopMain).toContain('openCodexProject((await workspaceLaunchTarget(workspaceId)).primaryProjectPath)')
     expect(desktopMain).toContain('craft-hub:start-workspace-in-codex')
     expect(desktopMain).toContain('runtime.agentTasks.start')
-    expect(desktopMain).toContain('settings[\'workbench.codex\']')
+    // Codex agent tasks read the saved Codex setting in the runtime composition shared with the native host.
+    expect(hostRuntime).toContain('settings[\'workbench.codex\']')
     expect(desktopMain).toContain('waitForAgentTaskThread')
     const workspaceTaskHandler = desktopMain.slice(
       desktopMain.indexOf('ipcMain.handle(\'craft-hub:start-workspace-in-codex\''),

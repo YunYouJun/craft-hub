@@ -2,8 +2,8 @@
 import type { IntegrationEntity, IntegrationEntityPage } from 'craft-hub'
 import type { HomeWorkGroup, HomeWorkSource } from './personal-workbench'
 import { personalActiveWork, workItemIdentityKey } from 'craft-hub/work-items'
-import { computed, ref, watch } from 'vue'
-import { connectionKey, useHomeWorkDataStore } from './home-work-data'
+import { computed, onUnmounted, ref, watch } from 'vue'
+import { completionActionId, connectionKey, useHomeWorkDataStore } from './home-work-data'
 import { Button as UiButton } from './components/ui/button'
 import { SkeletonList } from './components/ui/skeleton'
 import { TabsContent, TabsList, TabsRoot, TabsTrigger } from './components/ui/tabs'
@@ -11,6 +11,7 @@ import { Icon } from './icons'
 import { useI18n } from './i18n'
 import { homeWorkGroups, homeWorkSources } from './personal-workbench'
 import { useWorkbenchStore } from './store'
+import MicrosoftTodoOpenButton from './MicrosoftTodoOpenButton.vue'
 import { formatWorkItemDueDate, formatWorkItemTimestamp, workItemStatusIcon, workItemTypeIcon } from './work-item-presentation'
 import TodayFocus from './TodayFocus.vue'
 import VisualIcon from './VisualIcon.vue'
@@ -86,6 +87,10 @@ function groupLoading(group: HomeWorkGroup): boolean {
   return group.sources.some(source => states.value[source.key]?.loading)
 }
 
+function canOpenMicrosoftTodo(group: HomeWorkGroup): boolean {
+  return store.integrationContributions.some(contribution => contribution.id === group.integrationId && contribution.provider.id === 'microsoft-todo')
+}
+
 async function refreshGroup(group: HomeWorkGroup): Promise<void> {
   await Promise.allSettled(group.sources.map(source => load(source)))
 }
@@ -112,6 +117,51 @@ function filteredItems(source: HomeWorkSource): IntegrationEntity[] {
 }
 function classifiedPage(page: IntegrationEntityPage | undefined): boolean {
   return Boolean(page?.collections?.length || page?.items.some(item => item.project))
+}
+const completing = ref(new Set<string>())
+const completion = ref<{ sourceKey: string, previous: IntegrationEntity, undoing?: boolean }>()
+const completionError = ref<{ sourceKey: string, message: string }>()
+let completionTimer: ReturnType<typeof setTimeout> | undefined
+onUnmounted(() => clearTimeout(completionTimer))
+function canComplete(source: HomeWorkSource, item: IntegrationEntity): boolean {
+  return item.statusUpdateAvailable === true && !states.value[source.key]?.page?.cache && Boolean(completionActionId(store.integrationContributions.find(contribution => contribution.id === source.integrationId)))
+}
+function completionFailure(source: HomeWorkSource, title: string, caught: unknown): void {
+  const reason = caught instanceof Error ? caught.message : String(caught)
+  completionError.value = { sourceKey: source.key, message: `${copy(`未能更新「${title}」`, `Could not update “${title}”`)}: ${reason}` }
+}
+/** Clicking the circle is the explicit confirmation for this single, reversible task write. */
+async function complete(source: HomeWorkSource, item: IntegrationEntity): Promise<void> {
+  const key = workItemIdentityKey(item)
+  if (completing.value.has(key))
+    return
+  completing.value.add(key)
+  completionError.value = undefined
+  try {
+    await workData.setCompletion(source, item, true)
+    clearTimeout(completionTimer)
+    completion.value = { sourceKey: source.key, previous: item }
+    completionTimer = setTimeout(() => { completion.value = undefined }, 8000)
+  }
+  catch (caught) { completionFailure(source, item.title, caught) }
+  finally { completing.value.delete(key) }
+}
+async function undoCompletion(): Promise<void> {
+  const current = completion.value
+  const source = sources.value.find(candidate => candidate.key === current?.sourceKey)
+  if (!current || !source || current.undoing)
+    return
+  clearTimeout(completionTimer)
+  completion.value = { ...current, undoing: true }
+  completionError.value = undefined
+  try {
+    await workData.setCompletion(source, current.previous, false)
+    completion.value = undefined
+  }
+  catch (caught) {
+    completion.value = current
+    completionFailure(source, current.previous.title, caught)
+  }
 }
 function coverageLabel(source: HomeWorkSource): string {
   const state = states.value[source.key]
@@ -148,9 +198,13 @@ function coverageLabel(source: HomeWorkSource): string {
       <div v-if="tabbed && groups.length" class="home-provider-bar">
         <TabsList class="home-provider-tabs" :aria-label="copy('待办来源', 'Work sources')">
           <TabsTrigger v-for="group in groups" :key="group.integrationId" :value="group.integrationId" :aria-busy="groupLoading(group)">
-            <VisualIcon :icon="group.sources[0]?.icon" fallback="list" />
+            <template #icon>
+              <span class="home-provider-icon" :class="{ 'is-loading': groupLoading(group) }">
+                <VisualIcon :icon="group.sources[0]?.icon" fallback="list" />
+                <Icon v-if="groupLoading(group)" name="loading" class="home-tab-loading" />
+              </span>
+            </template>
             <span>{{ group.title }}</span>
-            <Icon v-if="groupLoading(group)" name="loading" class="home-tab-loading" :aria-label="copy('正在更新', 'Updating')" />
             <small v-if="groupCount(group) !== undefined" :title="copy('已载入的未完成事项', 'Loaded unfinished items')">{{ groupCount(group) }}</small>
             <Icon v-if="needsAttention(group)" name="error" class="home-tab-attention" :aria-label="copy('需要处理', 'Needs attention')" />
           </TabsTrigger>
@@ -158,7 +212,7 @@ function coverageLabel(source: HomeWorkSource): string {
         <UiButton variant="ghost" size="icon" :aria-label="copy('刷新我的工作', 'Refresh my work')" @click="refresh"><Icon :name="loading ? 'loading' : 'refresh'" /></UiButton>
       </div>
       <component :is="tabbed ? TabsContent : 'section'" v-for="group in groups" :key="group.integrationId" v-bind="tabbed ? { value: group.integrationId, forceMount: true, hidden: selectedGroup !== group.integrationId } : {}" class="home-work-source daily-surface" :aria-busy="groupLoading(group)">
-        <div v-if="!tabbed || group.sources.length === 1" class="home-group-heading home-source-heading">
+        <div v-if="!tabbed || group.sources.length === 1" class="home-group-heading home-source-heading" :class="{ 'has-application-shortcut': canOpenMicrosoftTodo(group) }">
           <div class="home-source-copy">
             <strong v-if="!tabbed" class="home-source-title"><VisualIcon :icon="group.sources[0]?.icon" fallback="list" />{{ group.title }}</strong>
             <template v-if="group.sources.length === 1">
@@ -168,6 +222,7 @@ function coverageLabel(source: HomeWorkSource): string {
           </div>
           <div class="home-source-actions">
             <UiButton v-if="group.sources.length === 1 && !awaitingConnection(group)" variant="ghost" size="compact" class="home-text-button" @click="emit('openIntegration', group.integrationId, group.sources[0]!.viewId, 'global')">{{ copy('查看全部', 'View all') }}<Icon name="arrowRight" /></UiButton>
+            <MicrosoftTodoOpenButton v-if="canOpenMicrosoftTodo(group)" icon-only />
             <UiButton variant="ghost" size="icon" class="home-icon-button" :disabled="group.sources.some(source => states[source.key]?.loading)" :aria-label="`${copy('刷新', 'Refresh')} ${group.title}`" @click="refreshGroup(group)"><Icon :name="group.sources.some(source => states[source.key]?.loading) ? 'loading' : 'refresh'" /></UiButton>
           </div>
         </div>
@@ -195,7 +250,7 @@ function coverageLabel(source: HomeWorkSource): string {
               </div>
             </div>
             <SkeletonList v-if="states[source.key]?.loading && !states[source.key]?.page" :label="copy('正在读取…', 'Loading…')" icon />
-            <p v-else-if="states[source.key]?.loading" class="home-source-progress daily-caption" role="status"><Icon name="loading" />{{ copy('后台更新中…', 'Updating…') }}</p>
+            <p v-else-if="states[source.key]?.loading" class="home-source-progress sr-only" role="status">{{ copy('后台更新中…', 'Updating…') }}</p>
             <div v-if="states[source.key]?.error" class="home-source-notice home-error" role="alert">
               <div><strong>{{ states[source.key]?.error }}</strong><p v-if="states[source.key]?.page" class="daily-caption">{{ copy('保留上次结果，可能已过期。', 'Previous results may be stale.') }}</p></div>
               <div class="home-source-actions">
@@ -203,14 +258,20 @@ function coverageLabel(source: HomeWorkSource): string {
                 <UiButton variant="secondary" size="compact" class="home-text-button" :disabled="states[source.key]?.loading" @click="load(source, states[source.key]?.retryMore)">{{ copy('重试', 'Retry') }}</UiButton>
               </div>
             </div>
+            <div v-if="completion?.sourceKey === source.key" class="home-source-notice home-completion" role="status">
+              <span><Icon name="check" />{{ copy(`已完成「${completion.previous.title}」`, `Completed “${completion.previous.title}”`) }}</span>
+              <UiButton variant="ghost" size="compact" class="home-text-button" :disabled="completion.undoing" @click="undoCompletion">{{ completion.undoing ? copy('正在撤销…', 'Undoing…') : copy('撤销', 'Undo') }}</UiButton>
+            </div>
+            <p v-if="completionError?.sourceKey === source.key" class="home-source-notice home-error" role="alert">{{ completionError.message }}</p>
             <template v-if="states[source.key]?.page">
               <div v-if="!states[source.key]?.page?.currentUser?.id" class="daily-empty home-hint"><strong>{{ copy('账号身份待确认', 'Account identity unavailable') }}</strong><p class="daily-caption">{{ copy('此来源尚未提供当前账号身份，请进入列表查看。', 'This source has not provided your account identity. Open its list to view items.') }}</p></div>
               <template v-else>
                 <WorkCollectionBrowser v-if="classifiedPage(states[source.key]?.page)" :page="states[source.key]!.page!" :compact="compact" :wide="tabbed">
                   <template #item="{ item, showCollection }">
-                    <div class="home-work-row daily-row">
+                    <div class="home-work-row daily-row" :class="{ 'is-completing': completing.has(workItemIdentityKey(item)) }">
+                      <button v-if="canComplete(source, item)" type="button" role="checkbox" class="home-complete" :aria-checked="completing.has(workItemIdentityKey(item))" :aria-label="`${copy('完成', 'Complete')} ${item.title}`" :title="copy('标记为已完成', 'Mark as completed')" :disabled="completing.has(workItemIdentityKey(item))" @click="complete(source, item)"><Icon :name="completing.has(workItemIdentityKey(item)) ? 'check' : 'pending'" /></button>
                       <button class="home-work-item daily-row-main" :title="`${item.title} · ${item.id}`" @click="emit('openIntegration', source.integrationId, source.viewId, 'global')">
-                        <VisualIcon :icon="item.icon" :fallback="workItemTypeIcon(item)" class="home-item-symbol" />
+                        <VisualIcon v-if="!canComplete(source, item)" :icon="item.icon" :fallback="workItemTypeIcon(item)" class="home-item-symbol" />
                         <span class="home-work-copy daily-row-copy">
                           <strong class="daily-row-title">{{ item.title }}<Icon v-if="item.important" name="starFilled" class="home-important" /></strong>
                           <span v-if="item.archived || item.status || item.dueDate || item.sourceRef" class="daily-row-meta">
@@ -229,9 +290,10 @@ function coverageLabel(source: HomeWorkSource): string {
                   </template>
                 </WorkCollectionBrowser>
                 <div v-else class="daily-list motion-reveal-list">
-                  <div v-for="item in visibleItems(source)" :key="workItemIdentityKey(item)" class="home-work-row daily-row">
+                  <div v-for="item in visibleItems(source)" :key="workItemIdentityKey(item)" class="home-work-row daily-row" :class="{ 'is-completing': completing.has(workItemIdentityKey(item)) }">
+                    <button v-if="canComplete(source, item)" type="button" role="checkbox" class="home-complete" :aria-checked="completing.has(workItemIdentityKey(item))" :aria-label="`${copy('完成', 'Complete')} ${item.title}`" :title="copy('标记为已完成', 'Mark as completed')" :disabled="completing.has(workItemIdentityKey(item))" @click="complete(source, item)"><Icon :name="completing.has(workItemIdentityKey(item)) ? 'check' : 'pending'" /></button>
                     <button class="home-work-item daily-row-main" :title="`${item.title} · ${item.id}`" @click="emit('openIntegration', source.integrationId, source.viewId, 'global')">
-                      <VisualIcon :icon="item.icon" :fallback="workItemTypeIcon(item)" class="home-item-symbol" />
+                      <VisualIcon v-if="!canComplete(source, item)" :icon="item.icon" :fallback="workItemTypeIcon(item)" class="home-item-symbol" />
                       <span class="home-work-copy daily-row-copy">
                         <strong class="daily-row-title">{{ item.title }}</strong>
                         <span v-if="item.archived || item.status || item.dueDate || item.sourceRef" class="daily-row-meta">
@@ -246,7 +308,7 @@ function coverageLabel(source: HomeWorkSource): string {
                     <UiButton variant="ghost" size="icon" class="home-icon-button" :aria-label="`${copy('准备交接', 'Prepare handoff')} ${item.title}`" @click="emit('prepareHandoff', { source, item })"><Icon name="copy" /></UiButton>
                   </div>
                 </div>
-                <div v-if="!classifiedPage(states[source.key]?.page) && !visibleItems(source).length && !states[source.key]?.loading" class="daily-empty home-hint"><strong>{{ copy('本次暂无待处理事项', 'No pending work in these results') }}</strong><p class="daily-caption">{{ copy('本次返回的事项中，没有你的未完成事项。', 'No unfinished personal work in these results.') }}</p></div>
+                <div v-if="!classifiedPage(states[source.key]?.page) && !visibleItems(source).length" class="daily-empty home-hint"><strong>{{ copy('本次暂无待处理事项', 'No pending work in these results') }}</strong><p class="daily-caption">{{ copy('本次返回的事项中，没有你的未完成事项。', 'No unfinished personal work in these results.') }}</p></div>
               </template>
               <div class="daily-list-footer">
                 <div class="home-preview-note daily-caption">
@@ -272,9 +334,17 @@ function coverageLabel(source: HomeWorkSource): string {
 .home-provider-bar > button, .home-list-switcher > button { margin-left: auto; flex: none; }
 .home-provider-tabs { min-width: 0; max-width: 100%; overflow-x: auto; }
 .home-provider-tabs :deep([role='tab']) { min-height: 34px; gap: 8px; padding-inline: 12px; }
+.home-provider-tabs :deep([data-slot='navigation-icon']) { flex: 0 0 18px; width: 18px; height: 18px; }
+.home-provider-icon { display: grid; place-items: center; width: 18px; height: 18px; }
+.home-provider-icon > :deep(.visual-icon), .home-provider-icon > :deep(.home-tab-loading) { grid-area: 1 / 1; }
 .home-provider-tabs :deep(.visual-icon) { width: 18px; height: 18px; flex-basis: 18px; }
-.home-source-progress { display: flex; align-items: center; gap: var(--space-2); margin: 0; padding: var(--space-2) var(--space-4); }
-.home-source-progress .app-icon, .home-provider-tabs :deep(.home-tab-loading) { flex: none; width: 14px; height: 14px; color: var(--muted); }
+.home-provider-icon.is-loading > :deep(.visual-icon) { animation: home-provider-icon-out 120ms ease 200ms both; }
+.home-provider-icon > :deep(.home-tab-loading) { flex: none; width: 14px; height: 14px; color: var(--muted); animation: home-provider-loading-in 120ms ease 200ms both; }
+@keyframes home-provider-icon-out { from { opacity: 1; } to { opacity: 0; } }
+@keyframes home-provider-loading-in { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .home-provider-icon.is-loading > :deep(.visual-icon), .home-provider-icon > :deep(.home-tab-loading) { animation-duration: 0s; }
+}
 .home-provider-tabs :deep(small) { width: auto; padding: 0 5px; font-variant-numeric: tabular-nums; }
 .home-provider-tabs :deep(.home-tab-attention) { width: 14px; height: 14px; flex-basis: 14px; color: var(--warning); }
 .home-list-switcher { padding: 8px 16px; border-bottom: 1px solid var(--border); }
@@ -283,6 +353,8 @@ function coverageLabel(source: HomeWorkSource): string {
 .is-tabbed .home-list-heading { background: transparent; }
 .is-tabbed .home-source-copy p { flex-basis: auto; }
 .is-tabbed .home-source-copy { column-gap: 12px; }
+.is-tabbed .has-application-shortcut .home-source-copy { flex: 1; flex-wrap: nowrap; }
+.is-tabbed .has-application-shortcut .home-source-copy p { flex: 1 1 0; }
 @media (max-width: 760px), (pointer: coarse) {
   .home-provider-tabs :deep([role='tab']), .home-list-switcher :deep([role='tab']) { min-height: 44px; }
   .home-provider-bar { gap: 4px; }
@@ -299,6 +371,18 @@ function coverageLabel(source: HomeWorkSource): string {
 .home-source-title { display: flex; align-items: center; gap: 8px; }
 .home-source-title > .visual-icon { flex: none; width: 20px; height: 20px; }
 .home-item-symbol { flex: none; width: 18px; height: 18px; color: var(--accent); }
+.home-complete { display: grid; flex: none; place-items: center; width: 28px; height: 28px; margin-left: -5px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--text-secondary); cursor: pointer; }
+.home-complete > .app-icon { width: 18px; height: 18px; }
+.home-complete:hover, .home-complete[aria-checked='true'] { color: var(--accent); }
+.home-complete:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+.home-complete:disabled { cursor: progress; }
+.is-completing .daily-row-title { color: var(--text-secondary); text-decoration: line-through; }
+.home-completion { background: var(--surface-subtle); font-size: var(--font-size-control); }
+.home-completion > span { display: inline-flex; align-items: center; gap: var(--space-2); min-width: 0; overflow-wrap: anywhere; }
+.home-completion .app-icon { flex: none; width: 16px; height: 16px; color: var(--success); }
+@media (max-width: 760px), (pointer: coarse) {
+  .home-complete { width: 44px; height: 44px; margin-left: -13px; }
+}
 .home-important { display: inline-block; width: 14px; height: 14px; margin-left: var(--space-2); color: var(--warning); vertical-align: middle; }
 .home-source-heading { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); padding: var(--space-3) var(--space-4); }
 .home-group-heading strong { font-weight: 600; }

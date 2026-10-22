@@ -1,6 +1,6 @@
 # Microsoft To Do host plugin
 
-The Electron distribution includes this plugin with read access by default and separately authorized task creation. It starts the pinned `@softeria/ms-365-mcp-server` connector using the bundled runtime; no global Node installation or agent session is required. Other local hosts can register `createMicrosoftTodoPlugin()` through the standard Host Plugin API.
+The Electron distribution includes this plugin with read access by default and separately authorized task creation and completion. It starts the pinned `@softeria/ms-365-mcp-server` connector using the bundled runtime; no global Node installation or agent session is required. Other local hosts can register `createMicrosoftTodoPlugin()` through the standard Host Plugin API.
 
 ## Connect and read
 
@@ -19,19 +19,27 @@ The adapter follows all list and task pages supported by the pinned connector, w
 
 The read connector exposes only task-list reads and authentication, requests `Tasks.Read`, and owns its local encrypted token cache. Craft Hub stores its enabled flag, selected account and task-creation preference in its operating-system data directory at `integrations/microsoft-todo/connection.json`. Device codes remain in memory. **Disconnect Craft Hub** disables this integration without logging other local connector clients out.
 
-The desktop host keeps one connector alive across idle periods and refreshes, and closes it on disconnect or application shutdown. Other hosts retain the short idle timeout unless they explicitly use `createMicrosoftTodoTransport({ keepAlive: true })` and own its shutdown. An unexpectedly stopped connector is recreated on the next read.
+Desktop hosts ship this plugin but load it only when **Microsoft To Do** is enabled under host extensions in plugin management; a host that already has an enabled connection turns it on automatically. Connectors start on the first call and stop after an idle period: 10 minutes for reads, 2 minutes for writes. The host also closes them on disconnect or application shutdown. A restarted connector can show the keychain prompt again unless you chose **Always Allow**. Other hosts keep the 30-second default unless they pass `idleTimeoutMs`, or use `keepAlive: true` and own its shutdown. An unexpectedly stopped connector is recreated on the next read.
 
 macOS remembers keychain approval against the application's code signing identity. Local packaging pins an available application signing certificate; see [local signing](../../docs/guide/desktop-release.md#local-builds-and-keychain-approval). Moving from an ad hoc build to the pinned certificate can require one fresh **Always Allow** approval. Certificate changes, a locked or reset keychain, or revoked access can still require system confirmation. No keychain ACL is broadened and credentials are never exported to bypass the prompt.
 
 Personal Microsoft accounts use the `consumers` tenant by default. A local host may set `CRAFT_HUB_MICROSOFT_TODO_TENANT_ID` for another supported tenant; organizational accounts and their consent policies require separate validation. Hosted workbenches cannot access this local connection. Neither native application databases nor agent configuration files are read.
 
-Opening a task uses the official Microsoft To Do website; this version does not fabricate per-task deep links or modify existing tasks.
+Opening a task uses the official Microsoft To Do website; this version does not fabricate per-task deep links. Apart from completion (below), it does not edit existing tasks.
+
+The integration toolbar also offers **Open locally**, with a compact shortcut beside the home task list actions. Local macOS hosts launch the installed Microsoft To Do app and fall back to the official website when it is unavailable. Other platforms and hosted workbenches use the website. Opening the app does not select or modify a task.
 
 ## Quick capture and today’s focus
 
 Press **Command/Control + Shift + Space** while the desktop app is running, or choose **Quick capture** on Home. Enter a thought such as `明天下午三点跟进发布 #任务 !重要`, review the title, target list, due date and reminder, then save. **AI understanding** handles richer wording through the host’s configured text-assistance adapter. Ambiguous deadlines remain reviewable. The first version creates one task per capture; Microsoft due dates retain the calendar day; explicit times enable a separately reviewable reminder. Date-only captures do not enable reminders, and recurrence is not created.
 
-Use **Authorize task creation** once to consent to `Tasks.ReadWrite`. A separate narrow connector permits only list reads and `create-todo-task`; the normal reading connection continues to work if write consent is unavailable. The adapter only writes to the reviewed account’s owned, non-shared list and requires the explicit confirmed action. It does not expose deletion or editing tools. The desktop closes both connections on shutdown.
+Use **Authorize task writes** once to consent to `Tasks.ReadWrite`. A separate narrow connector permits only list reads, `create-todo-task` and `update-todo-task`; the normal reading connection continues to work if write consent is unavailable. The adapter only writes to the reviewed account’s owned, non-shared list and requires the explicit confirmed action. It does not expose deletion or general editing tools. The desktop closes both connections on shutdown.
+
+## Complete tasks
+
+Once write access is authorized, each home task row starts with a circle. Click it to mark that task completed in Microsoft To Do. The click is the confirmation for this single task; nothing else about the task changes. The task leaves the unfinished list without reloading other lists, and **Undo** reopens it with its previous status, such as In progress. A failed write keeps the task in place and explains why. Cached read-only snapshots and accounts without write access show the plain task icon instead.
+
+The adapter implements the runtime's `work-items.update-status` operation with the one-step contract for providers without workflow transitions: `statusCategory` is `done` or `open`, and reopening may name a native open status to restore. It sends only `{ status }` to Graph, after re-checking the account and that the list is owned and private.
 
 Drafts and preferred lists remain in the local browser/desktop profile. Creation receipts live in `integrations/microsoft-todo/captures` under the Craft Hub data directory. A receipt records the request fingerprint and created task identity so retries after a lost response or restart cannot silently duplicate tasks. An uncertain result requires checking the source before a new capture intent. Credentials remain in the connector’s encrypted cache.
 

@@ -145,7 +145,9 @@ const groups = computed(() => {
     ...(unknown.length ? [{ key: 'unlisted', title: copy('其他事项', 'Other items'), items: unknown }] : []),
   ]
 })
-const preview = computed(() => props.compact && !expanded.value)
+// The compact preview only samples the unfiltered overview; a chosen category, list or search shows every match.
+const narrowed = computed(() => Boolean(search.value || collectionId.value || (projectMode.value ? typeId.value !== 'all' || statusId.value !== 'all' : filter.value !== 'all')))
+const preview = computed(() => props.compact && !expanded.value && !narrowed.value)
 const visibleGroups = computed(() => (preview.value ? groups.value.slice(0, 3) : groups.value).map(group => ({
   ...group,
   visibleItems: preview.value ? group.items.slice(0, preferences.value.groupByList ? 2 : 5) : group.items,

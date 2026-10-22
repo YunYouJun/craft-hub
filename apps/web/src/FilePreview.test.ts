@@ -26,6 +26,14 @@ it('renders serialized configuration as JSON with line numbers and escaped marku
   expect(shadow.querySelector('[data-line] span[style]')).not.toBeNull()
 })
 
+it('previews a language without a shipped grammar as plain text', async () => {
+  const wrapper = mount(FilePreview, { props: { content: 'main :: IO ()\nmain = putStrLn "hi"\n', path: 'Main.hs' } })
+  await vi.waitFor(() => expect(wrapper.get('.file-preview-scroll').attributes('aria-busy')).toBe('false'))
+  const shadow = wrapper.get('diffs-container').element.shadowRoot!
+  expect(shadow.textContent).toContain('putStrLn')
+  expect(wrapper.find('[role="alert"]').exists()).toBe(false)
+})
+
 it('updates diff layout, wrapping, theme and the selected content', async () => {
   const wrapper = mount(FilePreview, { props: { content: 'enabled = true\n', path: 'config.toml', comparison: { content: 'enabled = false\n' } } })
   const ready = () => vi.waitFor(() => expect(wrapper.get('.file-preview-scroll').attributes('aria-busy')).toBe('false'))

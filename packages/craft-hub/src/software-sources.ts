@@ -1,4 +1,5 @@
 import type { SoftwareCatalogManifest } from './software-catalog'
+import type { SoftwareSourceRefreshPolicy } from './software-source-refresh'
 import { createHash, randomUUID } from 'node:crypto'
 import { mkdir, open, readFile, rename, rm } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
@@ -8,11 +9,15 @@ import { normalizeRepositoryUrl } from './project-reference'
 import { softwareCatalogManifestSchema } from './software-catalog'
 import { parseSoftwareCatalogManifest } from './software-catalog-manifest'
 import { parseSoftwareConfig, workstationCatalogSource } from './software-config'
+import { softwareSourceRefreshDue, softwareSourceRefreshPolicySchema } from './software-source-refresh'
 import { readLocalRepositoryCatalogFile, readRepositoryCatalogFile, validateRepositoryCatalogPath } from './workspace-repository'
 
 const idSchema = z.string().regex(/^[a-f0-9]{24}$/)
 const modeSchema = z.enum(['remote', 'local'])
 const defaultCatalogPath = 'software.config.ts'
+
+export { softwareSourceRefreshPolicySchema } from './software-source-refresh'
+export type { SoftwareSourceRefreshPolicy } from './software-source-refresh'
 
 /** A repository identity can have both an online location and one host-local checkout binding. */
 export const softwareSourceInputSchema = z.object({
@@ -22,6 +27,7 @@ export const softwareSourceInputSchema = z.object({
   branch: z.string().trim().min(1).max(200).default('HEAD'),
   catalogPath: z.string().trim().min(1).max(256).default(defaultCatalogPath),
   mode: modeSchema,
+  refreshPolicy: softwareSourceRefreshPolicySchema.optional(),
 }).strict()
 
 /** User-selected source locations, never executable recipes. */
@@ -32,6 +38,7 @@ export const softwareSourceCommandSchema = z.discriminatedUnion('operation', [
   z.object({ operation: z.literal('preview'), input: softwareSourceInputSchema }).strict(),
   z.object({ operation: z.literal('apply'), previewId: z.uuid() }).strict(),
   z.object({ operation: z.literal('refresh'), id: idSchema }).strict(),
+  z.object({ operation: z.literal('configure-refresh'), id: idSchema, revision: z.string().min(1).max(128), refreshPolicy: softwareSourceRefreshPolicySchema }).strict(),
   z.object({ operation: z.literal('remove'), id: idSchema, revision: z.string().min(1).max(128) }).strict(),
 ])
 
@@ -90,6 +97,7 @@ export class SoftwareSourceService {
   private readonly path: string
   private readonly previews = new Map<string, { source: SavedSource, revision: string, expiresAt: number }>()
   private queue: Promise<unknown> = Promise.resolve()
+  private automaticRefresh?: Promise<boolean>
 
   constructor(dataDir: string, private readonly localAvailable = true, private readonly reader: SoftwareRepositoryReader = { remote: readRepositoryCatalogFile, local: readLocalRepositoryCatalogFile }) {
     this.path = join(dataDir, 'software-sources.v1.json')
@@ -155,10 +163,59 @@ export class SoftwareSourceService {
 
   /** Refresh the selected binding; failures retain the last known catalog and its provenance. */
   async refresh(id: string): Promise<SoftwareSourceSnapshot> {
+    await this.refreshSource(id)
+    return this.snapshot()
+  }
+
+  /** Save a refresh preference independently of repository reads and cached metadata. */
+  async configureRefresh(id: string, refreshPolicy: SoftwareSourceRefreshPolicy, revision: string): Promise<SoftwareSourceSnapshot> {
+    const policy = softwareSourceRefreshPolicySchema.parse(refreshPolicy)
+    await this.serialize(async () => {
+      const state = await this.read()
+      this.assertRevision(state, revision)
+      if (!state.sources.some(source => source.id === id))
+        throw new SoftwareSourceError(404, 'Source not found')
+      state.sources = state.sources.map(source => source.id === id ? { ...source, refreshPolicy: policy } : source)
+      await this.write(state)
+    })
+    return this.snapshot()
+  }
+
+  /** Refresh subscribed online catalogs when their saved schedule is due on a local host. */
+  refreshDue(): Promise<boolean> {
+    if (!this.localAvailable)
+      return Promise.resolve(false)
+    this.automaticRefresh ??= this.refreshDueSources().finally(() => {
+      this.automaticRefresh = undefined
+    })
+    return this.automaticRefresh
+  }
+
+  private async refreshDueSources(): Promise<boolean> {
+    const state = await this.read()
+    let refreshed = false
+    for (const source of state.sources) {
+      if (source.mode !== 'remote')
+        continue
+      try {
+        refreshed = await this.refreshSource(source.id, true) || refreshed
+      }
+      catch (error) {
+        // A user's concurrent edit or removal takes precedence over background metadata updates.
+        if (!(error instanceof SoftwareSourceError) || ![404, 409].includes(error.status))
+          throw error
+      }
+    }
+    return refreshed
+  }
+
+  private async refreshSource(id: string, onlyIfDue = false): Promise<boolean> {
     const state = await this.read()
     const existing = state.sources.find(source => source.id === id)
     if (!existing)
       throw new SoftwareSourceError(404, 'Source not found')
+    if (onlyIfDue && (existing.mode !== 'remote' || !softwareSourceRefreshDue(existing)))
+      return false
     if (!this.localAvailable && existing.mode === 'local')
       throw new SoftwareSourceError(403, 'Local repository access requires a local host')
     let next: SavedSource
@@ -172,7 +229,7 @@ export class SoftwareSourceService {
       current.sources = current.sources.map(source => source.id === id ? next : source)
       await this.write(current)
     })
-    return this.snapshot()
+    return true
   }
 
   /** Unsubscribe without touching checkouts, favorites, plugins or the bundled catalog. */
@@ -232,7 +289,7 @@ export class SoftwareSourceService {
         throw new SoftwareSourceError(409, 'This repository is already linked to another source')
       localPath ??= matched?.localPath
       const now = new Date().toISOString()
-      return { id: existing?.id ?? matched?.id ?? digest([repository ?? localPath, input.catalogPath]), repository, localPath, branch: input.branch, catalogPath: input.catalogPath, mode: input.mode, title: catalog.source.title, cache: { catalog, readFrom: input.mode, commit, savedAt: now }, checkedAt: now }
+      return { id: existing?.id ?? matched?.id ?? digest([repository ?? localPath, input.catalogPath]), repository, localPath, branch: input.branch, catalogPath: input.catalogPath, mode: input.mode, refreshPolicy: input.refreshPolicy ?? existing?.refreshPolicy ?? matched?.refreshPolicy, title: catalog.source.title, cache: { catalog, readFrom: input.mode, commit, savedAt: now }, checkedAt: now }
     }
     catch (error) {
       if (error instanceof SoftwareSourceError)

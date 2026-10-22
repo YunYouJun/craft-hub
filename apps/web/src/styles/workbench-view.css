@@ -18,6 +18,7 @@
 .workbench-frame-layout { display: flex; flex: 1; min-height: 0; min-width: 0; border-top: 1px solid transparent; transition: border-color 160ms ease; }
 .workbench-view-frame[data-scrolled] > .workbench-frame-layout { border-top-color: var(--border); }
 .workbench-frame-scroll { flex: 1; min-width: 0; min-height: 0; overflow: auto; }
+.workbench-view-frame--without-heading .workbench-frame-content { padding-top: var(--page-padding-block); }
 .workbench-frame-content { padding-bottom: var(--page-content-bottom); }
 .workbench-frame-sidebar { flex: 0 0 var(--workbench-sidebar-width); min-width: 0; overflow: auto; border-right: 1px solid var(--workbench-sidebar-border); background: var(--workbench-sidebar-background); scrollbar-width: thin; }
 .workbench-frame-layout:has(> .workbench-frame-sidebar) { border-top: 1px solid var(--border); }

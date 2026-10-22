@@ -27,8 +27,8 @@ defineProps<{ items: { label: string, to?: string }[], label: string, moreLabel:
         </li>
         <li :class="{ 'middle-parent': items.length > 3 && index > 0 && index < items.length - 1 }">
           <Icon v-if="index" name="arrowRight" class="separator" />
-          <RouterLink v-if="item.to && index < items.length - 1" v-slot="{ href, navigate }" :to="item.to" custom><Primitive as="a" :href="href" @click="navigate"><Icon v-if="item.to === '/'" name="home" /><span>{{ item.label }}</span></Primitive></RouterLink>
-          <span v-else :aria-current="index === items.length - 1 ? 'page' : undefined">{{ item.label }}</span>
+          <RouterLink v-if="item.to && index < items.length - 1" v-slot="{ href, navigate }" :to="item.to" custom><Primitive as="a" :href="href" :title="item.label" @click="navigate"><Icon v-if="item.to === '/'" name="home" /><span>{{ item.label }}</span></Primitive></RouterLink>
+          <span v-else :aria-current="index === items.length - 1 ? 'page' : undefined" :title="item.label">{{ item.label }}</span>
         </li>
       </template>
     </ol>
@@ -36,13 +36,14 @@ defineProps<{ items: { label: string, to?: string }[], label: string, moreLabel:
 </template>
 
 <style scoped>
-.ui-breadcrumb { min-width: 0; color: var(--muted); font-size: 12px; }
-ol { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; list-style: none; margin: 0; padding: 0; }
+.ui-breadcrumb { width: 100%; min-width: 0; color: var(--muted); font-size: 12px; line-height: 18px; }
+ol { display: flex; align-items: center; gap: 4px; list-style: none; margin: 0; padding: 0; }
 li { display: flex; align-items: center; gap: 6px; min-width: 0; }
-a, span[aria-current] { overflow-wrap: anywhere; }
-a { display: inline-flex; min-width: 0; align-items: center; gap: 6px; padding: 3px 6px; border-radius: 4px; color: inherit; text-decoration: none; } a:hover { color: var(--text); background: var(--surface-hover); }
+li:last-child { flex: 1; }
+a > span, span[aria-current] { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+a { display: inline-flex; min-width: 0; min-height: 28px; align-items: center; gap: 6px; padding: 3px 6px; border-radius: var(--control-radius); color: inherit; text-decoration: none; } a:hover { color: var(--text); background: var(--surface-hover); }
 a:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 3px; }
-span[aria-current] { color: var(--text); font-weight: 500; padding: 3px 0; }
+span[aria-current] { color: var(--text-secondary); font-weight: 400; padding: 3px 0; }
  :global(.breadcrumb-parent-menu) { z-index: 100; display: flex; flex-direction: column; min-width: 160px; max-width: min(320px, calc(100vw - 32px)); padding: 6px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); box-shadow: 0 8px 24px #0002; }
 :global(.breadcrumb-parent-menu [role=menuitem]) { display: block; padding: 9px 10px; border-radius: 4px; color: var(--text); font-size: 13px; text-decoration: none; overflow-wrap: anywhere; outline: none; }
 :global(.breadcrumb-parent-menu [role=menuitem][data-highlighted]) { background: var(--surface-hover); color: var(--accent); }

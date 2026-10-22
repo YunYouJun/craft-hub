@@ -8,74 +8,87 @@ type DesktopNavigation
     | { kind: 'project', reference: import('craft-hub').ProjectReference, matches: import('craft-hub').ProjectRecord[], capabilityId?: string }
 
 interface Window {
-  craftHubDesktop?: {
-    consumeQuickCapture?: () => Promise<boolean>
-    quickCaptureStatus?: () => Promise<{ registered: boolean, accelerator: string }>
-    onQuickCapture?: (callback: () => void) => () => void
-    platform?: string
-    hostKind?: string
-    copyText?: (text: string) => Promise<void>
-    hostExtensions?: () => Promise<import('craft-hub').HostExtensionStatus>
-    installHostExtension?: () => Promise<import('craft-hub').HostExtensionStatus>
-    configureLocalPluginHost?: (packageName: string) => Promise<import('craft-hub').HostExtensionStatus>
-    setHostExtensionEnabled?: (id: string, enabled: boolean) => Promise<import('craft-hub').HostExtensionStatus>
-    removeHostExtension?: (id: string) => Promise<import('craft-hub').HostExtensionStatus>
-    restartForHostExtensions?: () => Promise<void>
-    selectProjectDirectory?: (defaultPath?: string) => Promise<string | undefined>
-    selectProjectDirectories?: (defaultPath?: string) => Promise<string[] | undefined>
-    openProjectDirectory?: (projectId: string) => Promise<void>
-    openProjectInVSCode?: (projectId: string) => Promise<void>
-    openProjectInEditor?: (projectId: string) => Promise<void>
-    openIntegrationSource?: (integrationId: string, actionId: string, entityId: string, detailIndex: number, projectId?: string) => Promise<void>
-    openProjectEvidenceInEditor?: (projectId: string, path: string, line?: number, column?: number) => Promise<void>
-    openProjectGitRemote?: (projectId: string) => Promise<void>
-    openCapabilitySourceInEditor?: (projectId: string, capabilityId: string) => Promise<void>
-    openCapabilityWorkingDirectory?: (projectId: string, capabilityId: string) => Promise<void>
-    openProjectInCodex?: (projectId: string) => Promise<void>
-    openWorkspaceInCodex?: (workspaceId: string) => Promise<void>
-    openWorkspaceInEditor?: (workspaceId: string) => Promise<void>
-    startProjectInCodex?: (projectId: string, prompt: string, packageRelativePath?: string) => Promise<void>
-    startWorkspaceInCodex?: (workspaceId: string, projectIds: string[], primaryProjectId: string, prompt: string) => Promise<{ taskId: string, threadId: string }>
-    openCodexThread?: (threadId: string) => Promise<void>
-    focusCodexApplication?: () => Promise<void>
-    codexActivityStatus?: () => Promise<CodexActivityStatus | undefined>
-    installCodexActivityHooks?: () => Promise<CodexActivityStatus | undefined>
-    uninstallCodexActivityHooks?: () => Promise<CodexActivityStatus | undefined>
-    onCodexActivityStatus?: (callback: (status: CodexActivityStatus) => void) => () => void
-    consumeCelebration?: () => Promise<boolean>
-    onCelebrationRequested?: (callback: () => void) => () => void
-    listTerminalApplications?: () => Promise<string[]>
-    openProjectInTerminal?: (projectId: string, application?: string) => Promise<void>
-    openDotfilesInTerminal?: () => Promise<void>
-    openExternalUrl?: (url: string) => Promise<void>
-    openWorkbenchTool?: (toolId: string) => Promise<import('craft-hub').WorkbenchToolOpenResult>
-    openSettingsFile?: () => Promise<void>
-    setTheme?: (theme: 'system' | 'light' | 'dark') => Promise<void>
-    setLocale?: (locale: 'en' | 'zh-CN') => Promise<void>
-    updateStatus?: () => Promise<DesktopUpdateStatus | undefined>
-    setAutomaticUpdates?: (enabled: boolean) => Promise<DesktopUpdateStatus>
-    checkForUpdates?: () => Promise<DesktopUpdateStatus>
-    installUpdate?: () => Promise<DesktopUpdateStatus>
-    onUpdateStatus?: (callback: (status: DesktopUpdateStatus) => void) => () => void
-    onReplayOnboarding?: (callback: () => void) => () => void
-    onOpenHelp?: (callback: () => void) => () => void
-    onOpenSettings?: (callback: () => void) => () => void
-    onMenuAction?: (callback: (action: import('./shortcuts').DesktopMenuAction) => void) => () => void
-    cloudStatus?: () => Promise<{
-      state: 'disabled' | 'disconnected' | 'connecting' | 'connected' | 'error'
-      deviceId?: string
-      lastSyncAt?: string
-      diagnostic?: string
-    }>
-    cloudConnect?: () => Promise<void>
-    cloudDisconnect?: () => Promise<void>
-    cloudSynchronize?: () => Promise<void>
-    consumeDesktopNavigation?: () => Promise<DesktopNavigation | undefined>
-    onDesktopNavigation?: (callback: (navigation: DesktopNavigation) => void) => () => void
-    verifyProjectReference?: (reference: import('craft-hub').ProjectReference, path: string) => Promise<boolean>
-    consumeMarketplaceSourceImport?: () => Promise<string | undefined>
-    onMarketplaceSourceImport?: (callback: (catalogUrl: string) => void) => () => void
-  }
+  craftHubDesktop?: DesktopBridgeV1
+}
+
+/** Host bridge v1. Missing methods mean unsupported; legacy hosts may omit version metadata. */
+interface DesktopBridgeV1 {
+  bridgeVersion?: 1
+  hostKind?: 'electron' | 'macos'
+  platform?: string
+  windowMaterial?: string
+  // Quick capture and native panel events.
+  consumeQuickCapture?: () => Promise<boolean>
+  quickCaptureStatus?: () => Promise<{ registered: boolean, accelerator: string }>
+  onQuickCapture?: (callback: () => void) => () => void
+  // Native dialogs and clipboard.
+  copyText?: (text: string) => Promise<void>
+  // Optional host code and bundled connectors.
+  hostExtensions?: () => Promise<import('craft-hub').HostExtensionStatus>
+  installHostExtension?: () => Promise<import('craft-hub').HostExtensionStatus>
+  configureLocalPluginHost?: (packageName: string) => Promise<import('craft-hub').HostExtensionStatus>
+  setHostExtensionEnabled?: (id: string, enabled: boolean) => Promise<import('craft-hub').HostExtensionStatus>
+  removeHostExtension?: (id: string) => Promise<import('craft-hub').HostExtensionStatus>
+  restartForHostExtensions?: () => Promise<void>
+  selectProjectDirectory?: (defaultPath?: string) => Promise<string | undefined>
+  selectProjectDirectories?: (defaultPath?: string) => Promise<string[] | undefined>
+  // Fixed application launching and source navigation.
+  openProjectDirectory?: (projectId: string) => Promise<void>
+  openProjectInVSCode?: (projectId: string) => Promise<void>
+  openProjectInEditor?: (projectId: string) => Promise<void>
+  openIntegrationSource?: (integrationId: string, actionId: string, entityId: string, detailIndex: number, projectId?: string) => Promise<void>
+  openProjectEvidenceInEditor?: (projectId: string, path: string, line?: number, column?: number) => Promise<void>
+  openProjectGitRemote?: (projectId: string) => Promise<void>
+  openCapabilitySourceInEditor?: (projectId: string, capabilityId: string) => Promise<void>
+  openCapabilityWorkingDirectory?: (projectId: string, capabilityId: string) => Promise<void>
+  // Codex application and activity adapter.
+  openProjectInCodex?: (projectId: string) => Promise<void>
+  openWorkspaceInCodex?: (workspaceId: string) => Promise<void>
+  openWorkspaceInEditor?: (workspaceId: string) => Promise<void>
+  startProjectInCodex?: (projectId: string, prompt: string, packageRelativePath?: string) => Promise<void>
+  startWorkspaceInCodex?: (workspaceId: string, projectIds: string[], primaryProjectId: string, prompt: string) => Promise<{ taskId: string, threadId: string }>
+  openCodexThread?: (threadId: string) => Promise<void>
+  focusCodexApplication?: () => Promise<void>
+  codexActivityStatus?: () => Promise<CodexActivityStatus | undefined>
+  installCodexActivityHooks?: () => Promise<CodexActivityStatus | undefined>
+  uninstallCodexActivityHooks?: () => Promise<CodexActivityStatus | undefined>
+  onCodexActivityStatus?: (callback: (status: CodexActivityStatus) => void) => () => void
+  consumeCelebration?: () => Promise<boolean>
+  onCelebrationRequested?: (callback: () => void) => () => void
+  listTerminalApplications?: () => Promise<string[]>
+  openProjectInTerminal?: (projectId: string, application?: string) => Promise<void>
+  openDotfilesInTerminal?: () => Promise<void>
+  openExternalUrl?: (url: string) => Promise<void>
+  openWorkbenchTool?: (toolId: string) => Promise<import('craft-hub').WorkbenchToolOpenResult>
+  openSettingsFile?: () => Promise<void>
+  setTheme?: (theme: 'system' | 'light' | 'dark') => Promise<void>
+  setLocale?: (locale: 'en' | 'zh-CN') => Promise<void>
+  // Host-owned update transport.
+  updateStatus?: () => Promise<DesktopUpdateStatus | undefined>
+  setAutomaticUpdates?: (enabled: boolean) => Promise<DesktopUpdateStatus>
+  checkForUpdates?: () => Promise<DesktopUpdateStatus>
+  installUpdate?: () => Promise<DesktopUpdateStatus>
+  onUpdateStatus?: (callback: (status: DesktopUpdateStatus) => void) => () => void
+  // Native menus and navigation events.
+  onReplayOnboarding?: (callback: () => void) => () => void
+  onOpenHelp?: (callback: () => void) => () => void
+  onOpenSettings?: (callback: () => void) => () => void
+  onMenuAction?: (callback: (action: import('./shortcuts').DesktopMenuAction) => void) => () => void
+  // Personal cloud and secure device identity.
+  cloudStatus?: () => Promise<{
+    state: 'disabled' | 'disconnected' | 'connecting' | 'connected' | 'error'
+    deviceId?: string
+    lastSyncAt?: string
+    diagnostic?: string
+  }>
+  cloudConnect?: () => Promise<void>
+  cloudDisconnect?: () => Promise<void>
+  cloudSynchronize?: () => Promise<void>
+  consumeDesktopNavigation?: () => Promise<DesktopNavigation | undefined>
+  onDesktopNavigation?: (callback: (navigation: DesktopNavigation) => void) => () => void
+  verifyProjectReference?: (reference: import('craft-hub').ProjectReference, path: string) => Promise<boolean>
+  consumeMarketplaceSourceImport?: () => Promise<string | undefined>
+  onMarketplaceSourceImport?: (callback: (catalogUrl: string) => void) => () => void
 }
 
 interface CodexActivityStatus {

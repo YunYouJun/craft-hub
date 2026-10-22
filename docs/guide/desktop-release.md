@@ -29,6 +29,8 @@ Local packages do not enable automatic updates. `package:mac` writes packaged bu
 
 ## Automatic updates
 
+This section describes the Electron host. The SwiftUI host uses a separate [native Sparkle release pipeline](./native-macos-release.md).
+
 Signed release builds check on startup and once per hour when **Automatically check for and download updates** is enabled in Settings. **Check now** also works when automatic checks are disabled; **Check for Updates…** in the native application menu opens Settings and starts a manual check. Each architecture reads its own static Squirrel.Mac manifest and downloads the matching ZIP in the background. The native Electron updater reports checking, availability, and download completion; it does not expose byte counts or a percentage, so the download indicator remains indeterminate. See the [Electron autoUpdater API](https://www.electronjs.org/docs/latest/api/auto-updater) and [Squirrel.Mac static manifest format](https://github.com/Squirrel/Squirrel.Mac#update-file-json-format).
 
 After download, the native dialog offers **Restart** and **Later**. Choosing **Later** retains the downloaded update; Settings then offers **Restart and install**. Installation closes the local runtime before restarting the application. A repeated manual check while a check or download is active does not start another download.
@@ -46,6 +48,12 @@ If multiple eligible certificates exist, choose one with `MACOS_LOCAL_SIGNING_ID
 Ad hoc signatures identify a particular build, so previous keychain approvals can stop matching after an update. The first certificate-signed build may need one new **Always Allow** approval. Subsequent local rebuilds retain the application's designated requirement. Keychain resets, revoked permissions, certificate changes, or switching between local development and distribution channels may still require approval. Local certificate signing does not enable notarization or turn on release updates; release signing remains controlled by `MACOS_SIGNING_ENABLED`.
 
 Each copied macOS target verifies the `keytar@7.9.0` native credential addon against its architecture. When the installed addon belongs to the build machine's other architecture, packaging obtains the matching pinned N-API v3 prebuild through the locked installer. A missing or incompatible prebuild stops packaging. The addon remains unpacked for application signing, and the shared staging tree stays reusable for both targets. This prevents Intel packages built on Apple silicon from silently falling back to a credential-encryption key stored beside the token cache.
+
+## Application icon
+
+`apps/desktop/assets/icon.icon` is the Icon Composer source. Its three glass facets use the YunLeFun sky blue, cyan, and sun palette, so the system can render default, dark, tinted, and clear appearances. `@electron/packager` finds the `.icon` beside `icon.icns`, compiles it into `Assets.car`, and sets `CFBundleIconName`. That step requires macOS 26 and Xcode 26 or later, so the release job runs on `macos-26`. The `.icns` remains the fallback for earlier macOS releases; the native macOS prototype uses both the same way.
+
+After you edit the Icon Composer source, run `pnpm icons:desktop` on macOS. It renders `icon.png` and `icon.icns` on the 824/1024 macOS icon grid. Update the flat favicon in `apps/web/public` and `docs/public` by hand when the facet geometry changes. A downstream distribution that sets `desktop.icons.macos` can add a sibling `.icon` with the same base name.
 
 ## Release gate
 

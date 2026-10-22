@@ -13,7 +13,14 @@ const registrationSchema = z.object({
   modules: z.array(z.string().refine(isAbsolute, 'An absolute module path is required')).min(1),
   enabled: z.boolean(),
 })
-const stateSchema = z.object({ schemaVersion: z.literal(1), extensions: z.array(registrationSchema) })
+const stateSchema = z.object({
+  schemaVersion: z.literal(1),
+  extensions: z.array(registrationSchema),
+  /** Explicit choices for optional extensions bundled with the application; absent until the user chooses. */
+  bundled: z.record(z.string(), z.boolean()).optional(),
+})
+
+interface HostExtensionState { extensions: HostExtension[], bundled: Record<string, boolean> }
 
 /** Machine-local installation of explicitly trusted executable host modules. */
 export type HostExtension = z.infer<typeof registrationSchema>
@@ -21,7 +28,15 @@ export type HostExtension = z.infer<typeof registrationSchema>
 /** Installation state and the result of the last application startup. */
 export interface HostExtensionStatus {
   /** Executable components shipped and updated by the application, independently of Marketplace packages. */
-  bundledExtensions?: Array<{ id: string, name: string, version: string }>
+  bundledExtensions?: Array<{
+    id: string
+    name: string
+    version: string
+    /** Whether the user can turn this bundled extension on or off; a change applies after a restart. */
+    optional?: boolean
+    /** For an optional extension, whether it loads on the next startup. */
+    enabled?: boolean
+  }>
   extensions: HostExtension[]
   diagnostics: LoadCraftHubPluginsResult['diagnostics']
   restartRequired: boolean
@@ -44,12 +59,22 @@ export class HostExtensionManager {
 
   /** Inspect saved extensions without executing their code. */
   async status(): Promise<HostExtensionStatus> {
-    const extensions = await this.read()
+    const state = await this.readState()
     return {
-      extensions,
+      extensions: state.extensions,
       diagnostics: structuredClone(this.diagnostics),
-      restartRequired: this.startupState !== undefined && this.startupState !== JSON.stringify(extensions),
+      restartRequired: this.startupState !== undefined && this.startupState !== JSON.stringify(state),
     }
+  }
+
+  /** The saved choice for an optional bundled extension, or undefined when the user has not chosen yet. */
+  async bundledChoice(id: string): Promise<boolean | undefined> {
+    return (await this.readState()).bundled[id]
+  }
+
+  /** Save whether an optional bundled extension loads on the next startup. */
+  async setBundledEnabled(id: string, enabled: boolean): Promise<void> {
+    await this.mutate(state => ({ ...state, bundled: { ...state.bundled, [id]: enabled } }))
   }
 
   /** Prepare a reviewable installation from a host-supplied module list, without importing it. */
@@ -65,23 +90,23 @@ export class HostExtensionManager {
   /** Persist an installation after the host has obtained explicit trust for its exact modules. */
   async install(extension: HostExtension): Promise<void> {
     const parsed = registrationSchema.parse(extension)
-    await this.mutate(items => [...items.filter(item => item.id !== parsed.id), parsed])
+    await this.mutate(state => ({ ...state, extensions: [...state.extensions.filter(item => item.id !== parsed.id), parsed] }))
   }
 
   /** Save whether an installed extension should load on the next startup. */
   async setEnabled(id: string, enabled: boolean): Promise<void> {
-    await this.mutate((items) => {
-      const item = items.find(item => item.id === id)
+    await this.mutate((state) => {
+      const item = state.extensions.find(item => item.id === id)
       if (!item)
         throw new Error(`Host extension is not installed: ${id}`)
       item.enabled = enabled
-      return items
+      return state
     })
   }
 
   /** Remove registration only; local source files and Marketplace plugins are retained. */
   async remove(id: string): Promise<void> {
-    await this.mutate(items => items.filter(item => item.id !== id))
+    await this.mutate(state => ({ ...state, extensions: state.extensions.filter(item => item.id !== id) }))
   }
 
   /** Load saved extensions on startup, isolating failures and preserving host-owned providers. */
@@ -90,8 +115,9 @@ export class HostExtensionManager {
     this.diagnostics = []
     let extensions: HostExtension[]
     try {
-      extensions = await this.read()
-      this.startupState = JSON.stringify(extensions)
+      const state = await this.readState()
+      extensions = state.extensions
+      this.startupState = JSON.stringify(state)
     }
     catch (error) {
       this.diagnostics.push({ pluginId: this.path, phase: 'load', message: errorMessage(error) })
@@ -116,24 +142,24 @@ export class HostExtensionManager {
     return { plugins, diagnostics: structuredClone(this.diagnostics) }
   }
 
-  private async read(): Promise<HostExtension[]> {
+  private async readState(): Promise<HostExtensionState> {
     try {
-      const { extensions } = stateSchema.parse(JSON.parse(await readFile(this.path, 'utf8')))
+      const { extensions, bundled } = stateSchema.parse(JSON.parse(await readFile(this.path, 'utf8')))
       if (new Set(extensions.map(item => item.id)).size !== extensions.length)
         throw new Error('Duplicate host extension id')
-      return extensions
+      return { extensions, bundled: bundled ?? {} }
     }
     catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT')
-        return []
+        return { extensions: [], bundled: {} }
       throw error
     }
   }
 
-  private async mutate(update: (items: HostExtension[]) => HostExtension[]): Promise<void> {
+  private async mutate(update: (state: HostExtensionState) => HostExtensionState): Promise<void> {
     const operation = this.writeTail.then(async () => {
-      const extensions = update(await this.read())
-      const value = stateSchema.parse({ schemaVersion: 1, extensions })
+      const { extensions, bundled } = update(await this.readState())
+      const value = stateSchema.parse({ schemaVersion: 1, extensions, ...(Object.keys(bundled).length ? { bundled } : {}) })
       await mkdir(dirname(this.path), { recursive: true })
       const temporary = `${this.path}.${randomUUID()}.tmp`
       try {

@@ -45,7 +45,8 @@ jobs:
   package-macos:
     name: Package macOS (${{ matrix.arch }})
     needs: validate
-    runs-on: macos-latest
+    # Compiling the Icon Composer app icon requires macOS 26 and Xcode 26 or later.
+    runs-on: macos-26
     timeout-minutes: 45
     strategy:
       fail-fast: false

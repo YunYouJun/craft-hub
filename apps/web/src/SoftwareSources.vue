@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { SoftwareSource, SoftwareSourceInput, SoftwareSourcePreview, SoftwareSourceSnapshot } from 'craft-hub'
+import type { SoftwareSource, SoftwareSourceInput, SoftwareSourcePreview, SoftwareSourceRefreshPolicy, SoftwareSourceSnapshot } from 'craft-hub'
 import { computed, onMounted, ref, watch } from 'vue'
 import { api } from './api'
 import { Alert } from './components/ui/alert'
@@ -20,6 +20,11 @@ const busy = ref('')
 const pending = computed(() => loading.value || !!busy.value)
 const error = ref('')
 const dialogOpen = ref(false)
+const refreshDialogOpen = ref(false)
+const refreshSourceId = ref('')
+const refreshError = ref('')
+const localTimeZone = new Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
+const refreshDraft = ref<{ mode: SoftwareSourceRefreshPolicy['mode'], intervalMinutes: number | string, time: string, timeZone: string }>({ mode: 'interval', intervalMinutes: 1440, time: '09:00', timeZone: localTimeZone })
 const preview = ref<SoftwareSourcePreview>()
 const removingId = ref('')
 const draft = ref<SoftwareSourceInput>({ mode: 'remote' })
@@ -30,12 +35,62 @@ const workstationUnavailable = computed(() => !state.value || pending.value || (
 const picker = window.craftHubDesktop?.selectProjectDirectory
 const modeLabel = (mode: 'remote' | 'local') => mode === 'local' ? copy('本地工作目录', 'Local working tree') : copy('线上仓库', 'Online repository')
 const dateLabel = (value: string) => new Date(value).toLocaleString(locale.value)
+const refreshTarget = computed(() => state.value?.sources.find(source => source.id === refreshSourceId.value))
+const refreshSettingsAvailable = computed(() => localAvailable.value && refreshTarget.value?.mode === 'remote')
+const refreshPolicy = computed<SoftwareSourceRefreshPolicy | undefined>(() => {
+  const draft = refreshDraft.value
+  if (draft.mode === 'manual')
+    return { mode: 'manual' }
+  if (draft.mode === 'interval') {
+    const intervalMinutes = Number(draft.intervalMinutes)
+    return Number.isInteger(intervalMinutes) && intervalMinutes >= 15 && intervalMinutes <= 10080 ? { mode: 'interval', intervalMinutes } : undefined
+  }
+  if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(draft.time))
+    return undefined
+  const timeZone = draft.timeZone.trim()
+  try { new Intl.DateTimeFormat('en', { timeZone }) }
+  catch { return undefined }
+  return { mode: 'daily', time: draft.time, timeZone }
+})
+let sourcesNeedReload = false
+
+function refreshUnavailableReason(source: SoftwareSource): string | undefined {
+  if (!localAvailable.value)
+    return copy('自动刷新仅在本地客户端运行。', 'Automatic refresh runs only in the local client.')
+  if (source.mode === 'local')
+    return copy('本地工作目录仅手动刷新，不会拉取 Git 改动。', 'Local working trees refresh manually without pulling Git changes.')
+}
+
+function refreshPolicyLabel(source: SoftwareSource): string {
+  const unavailable = refreshUnavailableReason(source)
+  if (unavailable)
+    return unavailable
+  const policy = source.refreshPolicy ?? { mode: 'interval', intervalMinutes: 1440 }
+  if (policy.mode === 'manual')
+    return copy('仅手动刷新', 'Manual refresh only')
+  if (policy.mode === 'daily')
+    return copy(`每天 ${policy.time}（${policy.timeZone}）`, `Daily at ${policy.time} (${policy.timeZone})`)
+  return policy.intervalMinutes === 1440 ? copy('每 24 小时自动刷新', 'Refresh automatically every 24 hours') : copy(`每 ${policy.intervalMinutes} 分钟自动刷新`, `Refresh automatically every ${policy.intervalMinutes} minutes`)
+}
 
 watch(draft, () => { preview.value = undefined }, { deep: true, flush: 'sync' })
+watch(() => store.softwareSourcesRevision, () => {
+  sourcesNeedReload = true
+  reloadAfterSourceChange()
+})
+watch([pending, dialogOpen, refreshDialogOpen], reloadAfterSourceChange)
+
+function reloadAfterSourceChange(): void {
+  if (!sourcesNeedReload || pending.value || dialogOpen.value || refreshDialogOpen.value)
+    return
+  sourcesNeedReload = false
+  void reload()
+}
 
 async function reload(): Promise<void> {
   if (pending.value)
     return
+  sourcesNeedReload = false
   loading.value = true
   error.value = ''
   try { state.value = await api.softwareSources() }
@@ -43,6 +98,39 @@ async function reload(): Promise<void> {
   finally { loading.value = false }
 }
 onMounted(reload)
+
+function editRefreshSettings(source: SoftwareSource): void {
+  if (pending.value || refreshUnavailableReason(source))
+    return
+  const policy = source.refreshPolicy ?? { mode: 'interval', intervalMinutes: 1440 }
+  refreshSourceId.value = source.id
+  refreshDraft.value = {
+    mode: policy.mode,
+    intervalMinutes: policy.mode === 'interval' ? policy.intervalMinutes : 1440,
+    time: policy.mode === 'daily' ? policy.time : '09:00',
+    timeZone: policy.mode === 'daily' ? policy.timeZone : localTimeZone,
+  }
+  refreshError.value = ''
+  refreshDialogOpen.value = true
+}
+
+async function saveRefreshSettings(): Promise<void> {
+  if (pending.value || !state.value || !refreshPolicy.value || !refreshSettingsAvailable.value)
+    return
+  busy.value = 'refresh-policy'
+  refreshError.value = ''
+  try {
+    state.value = await api.configureSoftwareSourceRefresh(refreshSourceId.value, state.value.revision, refreshPolicy.value)
+    refreshDialogOpen.value = false
+  }
+  catch { refreshError.value = copy('刷新设置未保存。请重新载入来源状态后重试，当前设置草稿会保留。', 'Refresh settings were not saved. Reload the source state and retry; your draft is preserved.') }
+  finally { busy.value = '' }
+}
+
+async function reloadRefreshSettings(): Promise<void> {
+  await reload()
+  refreshError.value = error.value
+}
 
 async function loadWorkstation(): Promise<void> {
   if (workstationUnavailable.value)
@@ -159,14 +247,16 @@ async function remove(source: SoftwareSource): Promise<void> {
 <template>
   <section class="software-repositories" data-testid="software-repositories" :aria-label="copy('仓库来源', 'Repository sources')">
     <header><div><h2>{{ copy('仓库来源', 'Repository sources') }}</h2><p>{{ copy('可将线上仓库与本机目录关联为同一来源。默认内置目录始终保留。', 'Link an online repository and a local checkout as one source. The bundled catalog remains available.') }}</p></div><div class="repository-header-actions"><UiButton size="compact" :disabled="workstationUnavailable" data-testid="load-workstation-source" @click="loadWorkstation"><Icon :name="busy === 'workstation' || (workstationSource && busy === workstationSource.id) ? 'loading' : 'refresh'" />{{ workstationSource ? copy('刷新 Workstation 目录', 'Refresh Workstation catalog') : copy('加载 Workstation 目录', 'Load Workstation catalog') }}</UiButton><UiButton size="compact" :disabled="pending" data-testid="add-software-source" @click="edit()"><Icon name="plus" />{{ copy('添加来源', 'Add source') }}</UiButton></div></header>
+    <p data-testid="software-source-auto-refresh">{{ localAvailable ? copy('线上来源默认每 24 小时自动刷新，可按来源调整。客户端运行时按设置检查，启动时补查；离线保留缓存。', 'Online sources refresh every 24 hours by default, with settings per source. The running client checks the schedule and catches up at startup; offline caches stay available.') : copy('自动刷新仅在本地客户端运行，此处可查看缓存或立即刷新线上来源。', 'Automatic refresh runs only in the local client. Browse cached catalogs or refresh online sources now.') }}</p>
     <Alert v-if="error && !dialogOpen" variant="danger" role="alert">{{ error }}<UiButton size="compact" :disabled="pending" data-testid="reload-software-sources" @click="reload">{{ copy('重新载入', 'Reload') }}</UiButton></Alert>
     <article v-for="source in state?.sources" :key="source.id" class="repository-row" :data-repository-source="source.id">
       <div class="repository-title"><strong>{{ source.title }}</strong><Badge>{{ modeLabel(source.cache.readFrom) }}</Badge><Badge v-if="source.repository && source.localPath">{{ copy('已关联本地与线上', 'Local and online linked') }}</Badge></div>
       <a v-if="source.repository" :href="source.repository" target="_blank" rel="noopener noreferrer">{{ source.repository }}</a>
       <p v-if="source.localPath" class="repository-path">{{ source.localPath }}</p>
       <p>{{ source.branch === 'HEAD' ? copy('默认分支', 'Default branch') : source.branch }} · {{ source.cache.itemCount }} {{ copy('款软件', 'applications') }} · {{ copy('缓存于', 'Cached') }} {{ dateLabel(source.cache.savedAt) }}<span v-if="source.cache.commit"> · {{ source.cache.commit.slice(0, 8) }}</span></p>
+      <p data-testid="software-source-refresh-summary">{{ refreshPolicyLabel(source) }}</p>
       <p v-if="source.error" class="repository-error" role="status">{{ copy('上次刷新失败，继续使用以上缓存。请检查仓库连接和目录文件。', 'Last refresh failed; the cache above remains in use. Check the repository connection and catalog file.') }}</p>
-      <footer><UiButton size="compact" :disabled="pending" data-testid="edit-software-source" @click="edit(source)">{{ copy('预览 / 关联目录', 'Preview / link checkout') }}</UiButton><UiButton size="compact" :disabled="pending || (!localAvailable && source.mode === 'local')" data-testid="refresh-software-source" @click="refresh(source)"><Icon :name="busy === source.id ? 'loading' : 'refresh'" />{{ copy('刷新来源', 'Refresh source') }}</UiButton><template v-if="removingId === source.id"><UiButton size="compact" variant="danger-secondary" :disabled="pending" data-testid="confirm-remove-software-source" @click="remove(source)">{{ copy('确认移除来源', 'Confirm removal') }}</UiButton><UiButton size="compact" variant="ghost" :disabled="pending" @click="removingId = ''">{{ copy('取消', 'Cancel') }}</UiButton></template><UiButton v-else size="compact" variant="ghost" :disabled="pending" data-testid="remove-software-source" @click="removingId = source.id">{{ copy('移除', 'Remove') }}</UiButton></footer>
+      <footer><UiButton size="compact" :disabled="pending" data-testid="edit-software-source" @click="edit(source)">{{ copy('预览 / 关联目录', 'Preview / link checkout') }}</UiButton><UiButton size="compact" :disabled="pending || (!localAvailable && source.mode === 'local')" data-testid="refresh-software-source" @click="refresh(source)"><Icon :name="busy === source.id ? 'loading' : 'refresh'" />{{ copy('立即刷新', 'Refresh now') }}</UiButton><UiButton size="compact" :disabled="pending || !!refreshUnavailableReason(source)" :title="refreshUnavailableReason(source)" data-testid="configure-software-refresh" @click="editRefreshSettings(source)">{{ copy('刷新设置', 'Refresh settings') }}</UiButton><template v-if="removingId === source.id"><UiButton size="compact" variant="danger-secondary" :disabled="pending" data-testid="confirm-remove-software-source" @click="remove(source)">{{ copy('确认移除来源', 'Confirm removal') }}</UiButton><UiButton size="compact" variant="ghost" :disabled="pending" @click="removingId = ''">{{ copy('取消', 'Cancel') }}</UiButton></template><UiButton v-else size="compact" variant="ghost" :disabled="pending" data-testid="remove-software-source" @click="removingId = source.id">{{ copy('移除', 'Remove') }}</UiButton></footer>
     </article>
   </section>
 
@@ -176,14 +266,16 @@ async function remove(source: SoftwareSource): Promise<void> {
     <template #header-actions><UiButton size="icon" variant="ghost" :disabled="pending" :aria-label="copy('关闭来源设置', 'Close source settings')" @click="dialogOpen = false"><Icon name="close" /></UiButton></template>
     <form class="software-source-form" @submit.prevent="inspect">
       <UiButton v-if="!draft.id" type="button" size="compact" variant="ghost" :disabled="pending" data-testid="workstation-source-preset" @click="draft.repository = workstationRepository">{{ copy('填入 Workstation 地址', 'Use Workstation URL') }}</UiButton>
-      <label>{{ copy('线上仓库（HTTPS，可选）', 'Online repository (HTTPS, optional)') }}<input v-model="draft.repository" :disabled="pending || !!state?.sources.find(source => source.id === draft.id)?.repository" data-testid="software-source-url" placeholder="https://github.com/owner/repository"></label>
-      <template v-if="localAvailable">
-        <label v-if="store.projects.length">{{ copy('复用已登记的本地项目', 'Use a registered local project') }}<select :disabled="pending" data-testid="software-source-project" @change="chooseProject"><option value="">{{ copy('选择项目…', 'Choose project…') }}</option><option v-for="project in store.projects" :key="project.id" :value="project.path">{{ project.name }} · {{ project.path }}</option></select></label>
-        <label>{{ copy('本地 Git 仓库目录（可选）', 'Local Git repository directory (optional)') }}<span class="repository-folder"><input v-model="draft.localPath" :disabled="pending" data-testid="software-source-path" :placeholder="copy('选择或输入绝对路径', 'Choose or enter an absolute path')"><UiButton v-if="picker" type="button" size="compact" :disabled="pending" @click="chooseDirectory">{{ copy('选择文件夹…', 'Choose folder…') }}</UiButton></span></label>
-      </template>
-      <label>{{ copy('读取位置', 'Read from') }}<select v-model="draft.mode" :disabled="pending" data-testid="software-source-mode"><option value="remote">{{ copy('线上仓库', 'Online repository') }}</option><option v-if="localAvailable" value="local">{{ copy('本地工作目录（包含未提交的目录文件）', 'Local working tree (includes uncommitted catalog files)') }}</option></select></label>
-      <label>{{ copy('线上分支', 'Online branch') }}<input v-model="draft.branch" :disabled="pending" placeholder="HEAD" data-testid="software-source-branch"><small>{{ copy('HEAD 表示线上默认分支。本地模式读取当前工作目录，不切换分支。', 'HEAD uses the remote default branch. Local mode reads the current working tree without switching branches.') }}</small></label>
-      <label>{{ copy('目录文件（相对仓库根目录）', 'Catalog file (relative to repository root)') }}<input v-model="draft.catalogPath" :disabled="pending" data-testid="software-source-catalog-path"></label>
+      <div class="settings-form-group">
+        <label class="settings-form-row"><span class="settings-form-label">{{ copy('线上仓库（HTTPS，可选）', 'Online repository (HTTPS, optional)') }}</span><input v-model="draft.repository" :disabled="pending || !!state?.sources.find(source => source.id === draft.id)?.repository" data-testid="software-source-url" placeholder="https://github.com/owner/repository"></label>
+        <template v-if="localAvailable">
+          <label v-if="store.projects.length" class="settings-form-row"><span class="settings-form-label">{{ copy('复用已登记的本地项目', 'Use a registered local project') }}</span><select :disabled="pending" data-testid="software-source-project" @change="chooseProject"><option value="">{{ copy('选择项目…', 'Choose project…') }}</option><option v-for="project in store.projects" :key="project.id" :value="project.path">{{ project.name }} · {{ project.path }}</option></select></label>
+          <label class="settings-form-row"><span class="settings-form-label">{{ copy('本地 Git 仓库目录（可选）', 'Local Git repository directory (optional)') }}</span><span class="settings-form-control repository-folder"><input v-model="draft.localPath" :disabled="pending" data-testid="software-source-path" :placeholder="copy('选择或输入绝对路径', 'Choose or enter an absolute path')"><UiButton v-if="picker" type="button" size="compact" :disabled="pending" @click="chooseDirectory">{{ copy('选择文件夹…', 'Choose folder…') }}</UiButton></span></label>
+        </template>
+        <label class="settings-form-row"><span class="settings-form-label">{{ copy('读取位置', 'Read from') }}</span><select v-model="draft.mode" :disabled="pending" data-testid="software-source-mode"><option value="remote">{{ copy('线上仓库', 'Online repository') }}</option><option v-if="localAvailable" value="local">{{ copy('本地工作目录（包含未提交的目录文件）', 'Local working tree (includes uncommitted catalog files)') }}</option></select></label>
+        <label class="settings-form-row"><span class="settings-form-label">{{ copy('线上分支', 'Online branch') }}</span><input v-model="draft.branch" :disabled="pending" placeholder="HEAD" data-testid="software-source-branch"><small class="settings-form-caption">{{ copy('HEAD 表示线上默认分支。本地模式读取当前工作目录，不切换分支。', 'HEAD uses the remote default branch. Local mode reads the current working tree without switching branches.') }}</small></label>
+        <label class="settings-form-row"><span class="settings-form-label">{{ copy('目录文件（相对仓库根目录）', 'Catalog file (relative to repository root)') }}</span><input v-model="draft.catalogPath" :disabled="pending" data-testid="software-source-catalog-path"></label>
+      </div>
       <p class="repository-help">{{ copy('直接读取 software.config.ts 中的 softwareGroups 清单，无需构建或导出。安装和配置管理仍由插件提供。', 'Read softwareGroups directly from software.config.ts without building or exporting. Installation and configuration remain plugin operations.') }}</p>
       <Alert v-if="error" variant="danger" role="alert">{{ error }}</Alert>
       <UiButton type="submit" size="compact" :disabled="pending" data-testid="preview-software-source"><Icon :name="busy === 'preview' ? 'loading' : 'search'" />{{ copy('预览目录', 'Preview catalog') }}</UiButton>
@@ -194,6 +286,27 @@ async function remove(source: SoftwareSource): Promise<void> {
       </section>
     </form>
     <template #footer><UiButton size="compact" :disabled="pending" @click="dialogOpen = false">{{ copy('取消', 'Cancel') }}</UiButton><UiButton size="compact" variant="primary" :disabled="pending || !preview" data-testid="apply-software-source" @click="apply">{{ copy('确认保存来源', 'Save source') }}</UiButton></template>
+  </DialogShell>
+
+  <DialogShell v-model:open="refreshDialogOpen" layout="panel" class="software-source-dialog software-refresh-dialog">
+    <template #title>{{ copy('软件来源刷新设置', 'Software source refresh settings') }}</template>
+    <template #description>{{ refreshTarget?.title }} · {{ copy('保存仅调整刷新计划，不会立即读取远程目录。', 'Saving changes the schedule without reading the remote catalog immediately.') }}</template>
+    <template #header-actions><UiButton size="icon" variant="ghost" :disabled="pending" :aria-label="copy('关闭刷新设置', 'Close refresh settings')" @click="refreshDialogOpen = false"><Icon name="close" /></UiButton></template>
+    <form class="software-source-form" data-testid="software-refresh-settings" @submit.prevent="saveRefreshSettings">
+      <div class="settings-form-group">
+        <label class="settings-form-row"><span class="settings-form-label">{{ copy('刷新方式', 'Refresh mode') }}</span><select v-model="refreshDraft.mode" :disabled="pending" data-testid="software-refresh-mode"><option value="manual">{{ copy('仅手动', 'Manual only') }}</option><option value="interval">{{ copy('按间隔', 'At an interval') }}</option><option value="daily">{{ copy('每天指定时间', 'At a daily time') }}</option></select></label>
+        <label v-if="refreshDraft.mode === 'interval'" class="settings-form-row"><span class="settings-form-label">{{ copy('间隔（分钟）', 'Interval (minutes)') }}</span><input v-model.number="refreshDraft.intervalMinutes" type="number" min="15" max="10080" step="1" :disabled="pending" data-testid="software-refresh-interval"><small class="settings-form-caption">{{ copy('15–10080 分钟（最多 7 天），默认 1440 分钟（24 小时）。', '15–10080 minutes (up to 7 days). The default is 1440 minutes (24 hours).') }}</small></label>
+        <template v-if="refreshDraft.mode === 'daily'">
+          <label class="settings-form-row"><span class="settings-form-label">{{ copy('每天刷新时间', 'Daily refresh time') }}</span><input v-model="refreshDraft.time" type="time" :disabled="pending" data-testid="software-refresh-time"></label>
+          <label class="settings-form-row"><span class="settings-form-label">{{ copy('时区', 'Time zone') }}</span><input v-model="refreshDraft.timeZone" :disabled="pending" data-testid="software-refresh-time-zone"><small class="settings-form-caption">{{ copy(`本机时区：${localTimeZone}。时间按此处保存的时区解释。`, `Local time zone: ${localTimeZone}. The saved time zone determines the daily schedule.`) }}</small></label>
+        </template>
+      </div>
+      <p class="repository-help">{{ copy('客户端运行时自动检查；关闭期间错过的计划会在下次启动时补查。所有模式均可随时使用“立即刷新”。', 'Schedules are checked while the client is running, with missed checks caught up at the next startup. Refresh now remains available in manual mode.') }}</p>
+      <p v-if="!refreshPolicy" class="repository-error" role="status" data-testid="software-refresh-validation">{{ copy('请填写有效的分钟整数，或每天的时间与 IANA 时区。', 'Enter a valid whole-minute interval, or a daily time and IANA time zone.') }}</p>
+      <p v-if="!refreshSettingsAvailable" role="status">{{ copy('此来源已不可用或不支持自动刷新，请关闭后重新选择线上来源。', 'This source is unavailable or does not support automatic refresh. Close and select an online source again.') }}</p>
+      <Alert v-if="refreshError" variant="danger" role="alert" data-testid="software-refresh-error">{{ refreshError }}<UiButton type="button" size="compact" :disabled="pending" data-testid="reload-software-refresh-settings" @click="reloadRefreshSettings">{{ copy('重新载入来源状态', 'Reload source state') }}</UiButton></Alert>
+    </form>
+    <template #footer><UiButton size="compact" :disabled="pending" data-testid="cancel-software-refresh" @click="refreshDialogOpen = false">{{ copy('取消', 'Cancel') }}</UiButton><UiButton size="compact" variant="primary" :disabled="pending || !refreshPolicy || !refreshSettingsAvailable" data-testid="save-software-refresh" @click="saveRefreshSettings">{{ copy('保存刷新设置', 'Save refresh settings') }}</UiButton></template>
   </DialogShell>
 </template>
 
@@ -209,13 +322,16 @@ async function remove(source: SoftwareSource): Promise<void> {
 .repository-title { margin-bottom: 8px; }
 .repository-row > a { font-size: 12px; overflow-wrap: anywhere; }
 .repository-row footer { margin-top: 12px; }
-.repository-row .repository-error { color: var(--danger); }
+.repository-error { color: var(--danger); }
+:global(.software-source-dialog) { --dialog-panel-padding: 20px; }
+:global(.software-refresh-dialog) { --dialog-panel-width: 540px; min-height: min(360px, calc(100dvh - 64px)); }
+:global(.software-refresh-dialog .dialog-panel-body) { flex: 1; }
 .software-source-form { display: grid; gap: 14px; }
-.software-source-form > label { display: grid; gap: 6px; font-size: 13px; }
-.software-source-form input, .software-source-form select { width: 100%; min-width: 0; padding: 8px 10px; color: var(--text); background: var(--panel); border: 1px solid var(--border); border-radius: 6px; }
-.software-source-form small, .repository-help { color: var(--muted); font-size: 12px; line-height: 1.6; }
+.software-source-form > .ui-button { justify-self: start; }
+.repository-help { margin: 0; color: var(--muted); font-size: var(--font-size-caption); line-height: var(--line-height-caption); }
 .repository-folder { display: flex; align-items: center; gap: 8px; }
 .repository-folder input { flex: 1; }
+.repository-folder .ui-button { flex: none; }
 .repository-preview { border: 1px solid var(--border); padding: 12px; border-radius: 8px; }
 .repository-preview h3 { margin: 0; font-size: 14px; }
 .repository-preview p { overflow-wrap: anywhere; font-size: 12px; }

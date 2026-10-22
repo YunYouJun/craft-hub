@@ -293,7 +293,8 @@ function dragClasses(id: string): Record<string, boolean> {
 .sidebar-primary { min-height: 0; overflow-y: auto; scrollbar-width: none; }
 .sidebar-utilities { flex: none; margin-top: auto; padding-top: 8px; }
 .sidebar-navigation .activity-button { display: flex; align-items: center; gap: 9px; width: 100%; height: 32px; min-width: 0; padding: 0 10px; border-radius: 6px; text-align: start; transition: background-color 160ms ease, color 160ms ease, padding 220ms var(--motion-ease-standard); }
-.sidebar-navigation .activity-button > .app-icon, .sidebar-navigation .activity-button > .visual-icon { width: 18px; height: 18px; flex: none; }
+.sidebar-navigation .activity-button.active { background: var(--workbench-sidebar-active-background); color: var(--workbench-sidebar-active-color); font-weight: var(--workbench-sidebar-active-weight); }
+.sidebar-navigation .activity-button > .app-icon, .sidebar-navigation .activity-button > .visual-icon { width: 16px; height: 16px; flex: none; }
 .activity-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; line-height: 1.3; transition: opacity 120ms ease 100ms; }
 .sidebar-navigation .activity-badge { position: static; flex: none; height: 18px; min-width: 18px; border: 0; border-radius: 9px; padding: 0 4px; font-size: 10px; }
 /*
@@ -316,7 +317,7 @@ function dragClasses(id: string): Record<string, boolean> {
 .sidebar-menu-navigation { display: flex; align-items: center; gap: 11px; flex: 1; min-width: 0; min-height: 38px; border-radius: 7px; background: transparent; padding: 7px 9px; color: var(--text); text-align: start; font-size: 13px; }
 .sidebar-menu-navigation > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sidebar-menu-navigation > .app-icon, .sidebar-menu-navigation > .visual-icon { flex: none; width: 20px; height: 20px; }
-.sidebar-menu-navigation.active { color: var(--accent); background: var(--accent-soft); }
+.sidebar-menu-navigation.active { color: var(--workbench-sidebar-active-color); background: var(--workbench-sidebar-active-background); font-weight: var(--workbench-sidebar-active-weight); }
 .sidebar-pin { display: grid; place-items: center; flex: none; width: 32px; height: 32px; border-radius: 6px; background: transparent; color: var(--muted); opacity: .45; }
 .sidebar-pin.pinned { opacity: 1; }
 .sidebar-pin .app-icon { width: 16px; height: 16px; }

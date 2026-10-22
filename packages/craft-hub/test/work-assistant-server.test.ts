@@ -29,3 +29,31 @@ it('requires same-origin JSON, does not run during discovery, and leaves project
     await rm(root, { recursive: true, force: true })
   }
 })
+
+it('previews capture offline through the shared parser without trusting projects or invoking AI', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'capture-preview-server-'))
+  const generate = vi.fn()
+  const runtime = new CraftHubRuntime({ dataDir: join(root, 'data'), configDir: join(root, 'config'), workAssistantProvider: { id: 'test', generate } })
+  const project = await runtime.projects.add(root)
+  const server = await startCraftHubServer({ runtime, port: 0 })
+  try {
+    const endpoint = `${server.url}/api/work-assistant/capture-preview`
+    const input = { text: '明天下午三点提交设计稿 #Tasks !重要', localNow: '2026-10-22T10:00', lists: [{ id: 'tasks', title: 'Tasks' }] }
+    const post = (body: unknown, origin = server.url) => fetch(endpoint, { method: 'POST', headers: { 'content-type': 'application/json', origin }, body: JSON.stringify(body) })
+    expect((await post(input, 'https://example.com')).status).toBe(403)
+    const response = await post(input)
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({ title: '提交设计稿', dueLocal: '2026-10-23T15:00', listId: 'tasks', important: true, remind: true })
+    expect((await post({ ...input, localNow: '2026-02-30T10:00' })).status).toBe(400)
+    expect((await post({ ...input, text: 'x'.repeat(10001) })).status).toBe(400)
+    expect((await post({ ...input, confirmed: true })).status).toBe(400)
+    expect(generate).not.toHaveBeenCalled()
+    expect((await runtime.projects.get(project.id)).trust).toBe('untrusted')
+    expect(await runtime.store.listRuns()).toEqual([])
+    expect(await runtime.store.listAgentTasks()).toEqual([])
+  }
+  finally {
+    await server.close()
+    await rm(root, { recursive: true, force: true })
+  }
+})

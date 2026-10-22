@@ -322,6 +322,29 @@ describe('app startup', () => {
     reopened.wrapper.unmount()
   })
 
+  it('opens the native palette when its shortcut is pressed inside embedded web content', async () => {
+    stubStartupData()
+    const postMessage = vi.fn()
+    vi.stubGlobal('__craftHubNativeHost', 'macos')
+    vi.stubGlobal('webkit', { messageHandlers: { craftHubNative: { postMessage } } })
+    window.craftHubDesktop = { platform: 'darwin' }
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    const { wrapper } = await mountApp(pinia, '/overview')
+    await flushPromises()
+    const input = document.createElement('input')
+    document.body.append(input)
+    input.focus()
+    const event = new KeyboardEvent('keydown', { key: 'k', metaKey: true, bubbles: true, cancelable: true })
+    input.dispatchEvent(event)
+    await flushPromises()
+    expect(event.defaultPrevented).toBe(true)
+    expect(postMessage).toHaveBeenCalledWith({ type: 'palette', mode: 'all' })
+    expect(document.body.querySelector('.command-palette')).toBeNull()
+    input.remove()
+    wrapper.unmount()
+  })
+
   it('routes desktop shortcuts and protects editing and open dialogs from navigation commands', async () => {
     stubStartupData()
     let menuAction: Parameters<NonNullable<NonNullable<Window['craftHubDesktop']>['onMenuAction']>>[0] | undefined
@@ -1060,6 +1083,21 @@ describe('app startup', () => {
     expect(store.selectedProjectId).toBe('target')
     expect(FakeEventSource.instances).toHaveLength(1)
     expect(FakeEventSource.instances[0]?.url).toBe('/api/events')
+    FakeEventSource.instances[0]!.listeners.get('software-source-change')!(new MessageEvent('software-source-change', { data: JSON.stringify({ changedAt: '2026-10-21T00:00:00.000Z' }) }))
+    expect(store.softwareSourcesRevision).toBe(1)
+    const events = FakeEventSource.instances[0]!
+    events.listeners.get('open')!(new Event('open'))
+    expect(store.softwareSourcesRevision).toBe(2)
+    await nextTick()
+    expect(wrapper.get('.status-bar').attributes('data-idle')).toBeDefined()
+    events.listeners.get('error')!(new Event('error'))
+    await nextTick()
+    // A dropped stream is worth reporting, so the status bar leaves its idle state until the stream reopens.
+    expect(wrapper.get('.status-bar').attributes('data-idle')).toBeUndefined()
+    events.listeners.get('open')!(new Event('open'))
+    expect(store.softwareSourcesRevision).toBe(3)
+    await nextTick()
+    expect(wrapper.get('.status-bar').attributes('data-idle')).toBeDefined()
     expect(wrapper.findAll('.workbench-splitter [data-panel]')).toHaveLength(3)
     expect(wrapper.findAll('.workbench-resize-handle')).toHaveLength(2)
     expect(wrapper.findAll('.workbench-resize-handle').map(handle => handle.attributes('aria-label'))).toEqual([
@@ -1088,6 +1126,7 @@ describe('app startup', () => {
     expect(wrapper.get('.codex-task-status').attributes('aria-label')).toBe('1 Codex task(s) running · Open Codex')
     expect(wrapper.get('.codex-task-status').attributes('data-tooltip')).toBe('1 Codex task(s) running · Open Codex')
     expect(wrapper.get('.codex-task-status strong').text()).toBe('1')
+    expect(wrapper.get('.status-bar').attributes('data-idle')).toBeUndefined()
     await wrapper.get('.codex-task-status').trigger('click')
     expect(focusCodexApplication).toHaveBeenCalledOnce()
     store.agentTasks = []

@@ -3,7 +3,7 @@
 }
 
 :root[data-desktop-platform='darwin'] {
-  --workbench-toolbar-height: 52px;
+  --workbench-toolbar-height: 48px;
   font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif;
   /* Match AppKit's grayscale text rendering, most visible on light text in dark mode. */
   -webkit-font-smoothing: antialiased;
@@ -55,38 +55,118 @@
 }
 
 /*
- * The macOS Electron host draws the native sidebar material behind a transparent window. Only the activity rail
- * and primary sidebar let it through; the compact drawer, content, dialogs and popovers stay opaque.
+ * The macOS Electron host draws the native sidebar material behind a transparent window. As in macOS 26 apps, the
+ * primary sidebar floats as an inset panel from the window top, under the traffic lights, to the bottom; the
+ * titlebar is a clear overlay; and content, the compact drawer, dialogs and popovers share one opaque surface.
  */
 @media (min-width: 761px) {
+  :root[data-desktop-platform='darwin'][data-desktop-window-material='sidebar'] {
+    --desktop-sidebar-inset: 8px;
+    --desktop-sidebar-radius: 12px;
+    --desktop-sidebar-edge: rgb(0 0 0 / 9%);
+    --desktop-sidebar-lift: rgb(0 0 0 / 6%);
+    /* Content is one plain surface; grouped blocks keep their own borders instead of sitting on a gray canvas. */
+    --workbench-canvas: var(--surface);
+  }
+
+  :root[data-desktop-platform='darwin'][data-desktop-window-material='sidebar'][data-theme='dark'] {
+    --desktop-sidebar-edge: rgb(255 255 255 / 11%);
+    --desktop-sidebar-lift: rgb(0 0 0 / 30%);
+  }
+
   :root[data-desktop-platform='darwin'][data-desktop-window-material='sidebar'],
-  :root[data-desktop-platform='darwin'][data-desktop-window-material='sidebar'] body,
-  :root[data-desktop-platform='darwin'][data-desktop-window-material='sidebar'] .project-rail {
+  :root[data-desktop-platform='darwin'][data-desktop-window-material='sidebar'] body {
     background: transparent;
   }
 
+  /* The titlebar overlays the window so the sidebar can reach the top edge; content columns reserve its height. */
+  :root[data-desktop-platform='darwin'][data-desktop-window-material='sidebar'] .app-shell {
+    position: relative;
+    grid-template-rows: minmax(0, 1fr) auto;
+  }
+
+  :root[data-desktop-platform='darwin'][data-desktop-window-material='sidebar'] .app-shell.has-app-notices {
+    grid-template-rows: auto minmax(0, 1fr) auto;
+  }
+
+  :root[data-desktop-platform='darwin'][data-desktop-window-material='sidebar'] .workbench-titlebar {
+    position: absolute;
+    z-index: 5;
+    inset: 0 0 auto;
+    border-bottom-color: transparent;
+    background: transparent;
+  }
+
+  :root[data-desktop-platform='darwin'][data-desktop-window-material='sidebar'] .app-notices {
+    padding-top: var(--workbench-toolbar-height);
+    background: var(--surface);
+  }
+
+  :root[data-desktop-platform='darwin'][data-desktop-window-material='sidebar'] :is(.navigation-view-shell > :not(.project-rail), .workbench-splitter > :is(#capabilities-panel, #detail-panel)) {
+    padding-top: var(--workbench-toolbar-height);
+  }
+
+  :root[data-desktop-platform='darwin'][data-desktop-window-material='sidebar'] .workbench-splitter > .workbench-resize-handle {
+    margin-top: var(--workbench-toolbar-height);
+  }
+
+  :root[data-desktop-platform='darwin'][data-desktop-window-material='sidebar'] .navigation-view-shell {
+    grid-template-columns: calc(var(--workbench-activity-width) + var(--desktop-sidebar-inset)) minmax(0, 1fr);
+  }
+
+  /*
+   * Only the panel itself is tinted, once. Its children stay clear so tints do not stack, and an opaque spread
+   * shadow, clipped by the surrounding column, paints the gutter without covering the material inside the panel.
+   */
   :root[data-desktop-platform='darwin'][data-desktop-window-material='sidebar'] .project-rail {
-    --rail: color-mix(in srgb, var(--ylf-admin-bg) var(--desktop-sidebar-tint), transparent);
-    --activity-rail: color-mix(in srgb, var(--ylf-admin-inset) var(--desktop-sidebar-tint), transparent);
-    --workbench-sidebar-background: color-mix(in srgb, var(--ylf-admin-bg) var(--desktop-sidebar-tint), transparent);
+    --rail: color-mix(in srgb, var(--surface-muted) var(--desktop-sidebar-tint), transparent);
+    --activity-rail: transparent;
+    --workbench-sidebar-background: transparent;
+    --workbench-sidebar-active-background: color-mix(in srgb, var(--accent) 14%, transparent);
+
+    height: calc(100% - 2 * var(--desktop-sidebar-inset));
+    margin: var(--desktop-sidebar-inset) 0 var(--desktop-sidebar-inset) var(--desktop-sidebar-inset);
+    padding-top: calc(var(--workbench-toolbar-height) - var(--desktop-sidebar-inset));
+    overflow: hidden;
+    border-radius: var(--desktop-sidebar-radius);
+    box-shadow: inset 0 0 0 0.5px var(--desktop-sidebar-edge), 0 1px 4px var(--desktop-sidebar-lift), 0 0 0 48px var(--surface);
+  }
+
+  :root[data-desktop-platform='darwin'][data-desktop-window-material='sidebar'][data-window-inactive] .project-rail {
+    --workbench-sidebar-active-background: color-mix(in srgb, var(--text) 8%, transparent);
+  }
+
+  :root[data-desktop-platform='darwin'][data-desktop-window-material='sidebar'] .navigation-view-shell .activity-rail {
+    border-right-color: transparent;
+  }
+
+  /* Secondary navigation is part of the content, not a second glass column. */
+  :root[data-desktop-platform='darwin'][data-desktop-window-material='sidebar'] :is(.workbench-page-sidebar, .workbench-frame-sidebar) {
+    --workbench-sidebar-background: var(--surface);
+    --workbench-sidebar-active-background: color-mix(in srgb, var(--accent) 11%, var(--surface));
+  }
+
+  /* Native windows report activity only while there is something to say. */
+  :root[data-desktop-platform='darwin'][data-desktop-window-material='sidebar'] .status-bar[data-idle] {
+    display: none;
   }
 
   /* Zero-specificity fallback: regions beside the sidebar that relied on the body color stay opaque. */
-  :where(:root[data-desktop-platform='darwin'][data-desktop-window-material='sidebar']) :where(.app-shell > :not(.navigation-view-shell, .workbench-splitter), .navigation-view-shell > :not(.project-rail), .workbench-splitter > :not(#projects-panel, .workbench-resize-handle)) {
+  :where(:root[data-desktop-platform='darwin'][data-desktop-window-material='sidebar']) :where(.app-shell > :not(.navigation-view-shell, .workbench-splitter, .workbench-titlebar), .navigation-view-shell > :not(.project-rail), .workbench-splitter > :not(#projects-panel, .workbench-resize-handle)) {
     background-color: var(--surface);
   }
 }
 
 /*
- * Tint strength keeps sidebar labels at 4.5:1 even when a black window sits behind the light material; the dark
- * material stays above 7:1 with more of it showing.
+ * The panel shows the material through a light tint, like native sidebars; labels keep 4.5:1 over the material.
+ * Reduced transparency restores an opaque panel.
  */
 :root[data-desktop-window-material='sidebar'] {
-  --desktop-sidebar-tint: 75%;
+  --desktop-sidebar-tint: 40%;
 }
 
 :root[data-desktop-window-material='sidebar'][data-theme='dark'] {
-  --desktop-sidebar-tint: 60%;
+  --desktop-sidebar-tint: 30%;
 }
 
 @media (prefers-reduced-transparency: reduce) {
@@ -94,4 +174,34 @@
   :root[data-desktop-window-material='sidebar'][data-theme='dark'] {
     --desktop-sidebar-tint: 100%;
   }
+}
+
+/*
+ * A native host draws the window chrome itself: its sidebar replaces the activity rail and its toolbar replaces the
+ * titlebar and status bar, so the web UI is only the content. Secondary navigation such as the project list stays.
+ */
+:root[data-native-host] {
+  /* Content is one plain surface beside the native sidebar, as in the Electron window refinement. */
+  --workbench-canvas: var(--surface);
+}
+
+:root[data-native-host] .app-shell {
+  grid-template-rows: minmax(0, 1fr);
+}
+
+:root[data-native-host] .app-shell.has-app-notices {
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+:root[data-native-host] :is(.workbench-titlebar, .status-bar, .activity-rail, .navigation-view-shell > .project-rail) {
+  display: none;
+}
+
+:root[data-native-host] :is(.navigation-view-shell, .project-rail) {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+:root[data-native-host] :is(.workbench-page-sidebar, .workbench-frame-sidebar) {
+  --workbench-sidebar-background: var(--surface);
+  --workbench-sidebar-active-background: color-mix(in srgb, var(--accent) 11%, var(--surface));
 }

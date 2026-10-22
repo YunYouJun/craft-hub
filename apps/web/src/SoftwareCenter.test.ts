@@ -166,6 +166,44 @@ describe('software center', () => {
     return wrapper
   }
 
+  it('updates mounted catalog cards on a background source change and retains filters and cache on failure', async () => {
+    await open()
+    await wrapper!.get('.software-filters input').setValue('assistant')
+    const updated = structuredClone(catalog)
+    updated.sources[0]!.items[1]!.description = 'Updated online metadata'
+    vi.mocked(api.softwareCatalog).mockResolvedValueOnce(updated)
+    useWorkbenchStore().notifySoftwareSourcesChanged()
+    await flushPromises()
+    expect(wrapper!.findAll('.software-card')).toHaveLength(1)
+    expect(wrapper!.get('[data-software-id="assistant"]').text()).toContain('Updated online metadata')
+    vi.mocked(api.softwareCatalog).mockRejectedValueOnce(new Error('Offline'))
+    useWorkbenchStore().notifySoftwareSourcesChanged()
+    await flushPromises()
+    expect(wrapper!.get('[data-software-id="assistant"]').text()).toContain('Updated online metadata')
+    expect(wrapper!.get('[data-testid="software-load-error"]').text()).toContain('may be out of date')
+    expect(api.softwareSources).toHaveBeenCalledTimes(3)
+  })
+
+  it('coalesces background source changes received during the initial catalog read', async () => {
+    let finishRead!: (value: SoftwareCatalogSnapshot) => void
+    vi.mocked(api.softwareCatalog).mockReturnValueOnce(new Promise((resolve) => {
+      finishRead = resolve
+    }))
+    await open()
+    useWorkbenchStore().notifySoftwareSourcesChanged()
+    await flushPromises()
+    useWorkbenchStore().notifySoftwareSourcesChanged()
+    await flushPromises()
+    expect(api.softwareCatalog).toHaveBeenCalledOnce()
+    const updated = structuredClone(catalog)
+    updated.sources[0]!.items[1]!.description = 'Updated online metadata'
+    vi.mocked(api.softwareCatalog).mockResolvedValueOnce(updated)
+    finishRead(catalog)
+    await flushPromises()
+    expect(api.softwareCatalog).toHaveBeenCalledTimes(2)
+    expect(wrapper!.get('[data-software-id="assistant"]').text()).toContain('Updated online metadata')
+  })
+
   it.each(['linux', 'win32'])('intersects %s capabilities with local item flags and retains manual links', async (platform) => {
     const result = managedCatalog()
     result.sources[0]!.operationSupport = operationSupport({ platform, operations: { catalog: { supported: true }, runs: { supported: true }, preview: { supported: false, reason: 'unsupported-platform' }, install: { supported: false, reason: 'unsupported-platform' }, open: { supported: false, reason: 'unsupported-platform' } } })

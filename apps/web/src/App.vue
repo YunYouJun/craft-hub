@@ -26,6 +26,7 @@ const DesktopNavigationDialog = lazyComponent(() => import('./DesktopNavigationD
 <script setup lang="ts">
 import type { WorkbenchDiagnosticTarget } from 'craft-hub'
 import type { WorkbenchNavigationGroup } from './workbench-navigation'
+import type { NativeCommand } from './native-host'
 import type { DesktopMenuAction } from './shortcuts'
 import { TransitionPresets, useLocalStorage, useMediaQuery, useTransition } from '@vueuse/core'
 import { computed, onBeforeMount, onBeforeUnmount, onMounted, ref, watch } from 'vue'
@@ -51,6 +52,7 @@ import WorkbenchSplitter from './WorkbenchSplitter.vue'
 import WorkspaceProjectList from './WorkspaceProjectList.vue'
 import { useWorkbenchStore } from './store'
 import { prefetchLazyComponents, useOpenedOnce } from './lazy-components'
+import { nativeCommandEvent, nativeSelectionEvent, nativeWorkbenchReady, requestNativePanel } from './native-host'
 
 const quickCaptureOpen = ref(false)
 let stopQuickCapture: (() => void) | undefined
@@ -94,8 +96,30 @@ const paletteOpen = ref(false)
 const paletteMode = ref<'all' | 'projects' | 'commands'>('all')
 const paletteShortcutLabel = computed(() => formatShortcut(store.settings?.settings['workbench.shortcuts']?.[commandPaletteShortcutId] ?? defaultCommandPaletteShortcut, shortcutPlatform))
 function showPalette(mode: 'all' | 'projects' | 'commands'): void {
+  if (requestNativePanel('palette', mode)) return
   paletteMode.value = mode
   paletteOpen.value = true
+}
+function showQuickCapture(): void {
+  if (!requestNativePanel('capture')) quickCaptureOpen.value = true
+}
+async function selectFromNative(event: Event): Promise<void> {
+  const { projectId, capabilityId } = (event as CustomEvent<import('./native-host').NativeSelection>).detail
+  if (!store.projects.some(project => project.id === projectId)) return
+  await store.selectProject(projectId)
+  if (capabilityId) store.selectCapability(capabilityId)
+  await openWorkbench()
+}
+function runNativeSelection(event: Event): void {
+  void selectFromNative(event).catch(() => {})
+}
+/** A native host's toolbar and menus reach the same palette and settings as the web chrome they replace. */
+function runNativeCommand(event: Event): void {
+  const command = (event as CustomEvent<NativeCommand>).detail
+  if (command === 'palette' && !hasOpenOverlay(true))
+    showPalette('all')
+  else if (command === 'settings')
+    openSettings()
 }
 const settingsOpen = ref(false)
 const settingsInitialTab = ref<'general' | 'help'>('general')
@@ -195,6 +219,8 @@ const desktopNavigation = ref<Extract<DesktopNavigation, { kind: 'project' }>>()
 /** Kept separate from the navigation so the dialog keeps its content while it animates closed. */
 const desktopNavigationOpen = ref(false)
 const eventStreamConnected = ref(false)
+/** Set only after an established event stream drops, so launch does not count as a lost connection. */
+const eventStreamLost = ref(false)
 const codexActivityStatus = ref<CodexActivityStatus>()
 const runningCodexTaskCount = computed(() => {
   const sessionIds = new Set(codexActivityStatus.value?.runningSessionIds ?? [])
@@ -414,7 +440,7 @@ function onKeydown(event: KeyboardEvent) {
     return
   if (matchesShortcut(event, 'Mod+Shift+Space', shortcutPlatform)) {
     event.preventDefault()
-    quickCaptureOpen.value = true
+    showQuickCapture()
     return
   }
   const shortcuts = store.settings?.settings['workbench.shortcuts'] ?? { [commandPaletteShortcutId]: defaultCommandPaletteShortcut }
@@ -423,6 +449,8 @@ function onKeydown(event: KeyboardEvent) {
     if (hasOpenOverlay(true))
       return
     event.preventDefault()
+    if (requestNativePanel('palette', 'all'))
+      return
     paletteMode.value = 'all'
     paletteOpen.value = !paletteOpen.value
     return
@@ -515,6 +543,8 @@ async function focusCodexApplication(): Promise<void> {
 
 onBeforeMount(async () => {
   window.addEventListener('keydown', onKeydown)
+  window.addEventListener(nativeCommandEvent, runNativeCommand)
+  window.addEventListener(nativeSelectionEvent, runNativeSelection)
   window.addEventListener('focus', refreshWhenVisible)
   document.addEventListener('visibilitychange', refreshWhenVisible)
   const initialProjectId = typeof route.query.project === 'string' ? route.query.project : undefined
@@ -548,13 +578,19 @@ onBeforeMount(async () => {
       void Promise.all([store.loadOwnerScopes(), store.loadWorkspaces(), store.loadWorkbenchDiagnostics()]).catch(() => {})
     },
     onAgentTaskChange: task => store.applyAgentTask(task),
+    onSoftwareSourcesChange: () => store.notifySoftwareSourcesChanged(),
     onPluginChange: () => {
       navigationRevision.value++
       void Promise.all([store.refreshProjects(), store.loadIntegrations(), store.loadPluginWorkbenches(), store.loadWorkbenchDiagnostics()]).catch(() => {})
     },
-    onError: () => { eventStreamConnected.value = false },
+    onError: () => {
+      eventStreamLost.value = eventStreamConnected.value || eventStreamLost.value
+      eventStreamConnected.value = false
+    },
     onOpen: () => {
       eventStreamConnected.value = true
+      eventStreamLost.value = false
+      store.notifySoftwareSourcesChanged()
       void store.loadSettings().catch(() => {})
     },
   })
@@ -569,8 +605,8 @@ onBeforeMount(async () => {
     if (!hasOpenOverlay() || settingsOpen.value)
       openSettings()
   })
-  stopQuickCapture = window.craftHubDesktop?.onQuickCapture?.(() => { quickCaptureOpen.value = true })
-  if (await window.craftHubDesktop?.consumeQuickCapture?.()) quickCaptureOpen.value = true
+  stopQuickCapture = window.craftHubDesktop?.onQuickCapture?.(showQuickCapture)
+  if (await window.craftHubDesktop?.consumeQuickCapture?.()) showQuickCapture()
   stopMenuActionEvents = window.craftHubDesktop?.onMenuAction?.(action => { void performWorkbenchAction(action) })
   let marketplaceImportHandled = false
   let desktopNavigationHandled = false
@@ -592,11 +628,14 @@ onBeforeMount(async () => {
   const navigation = latestDesktopNavigation ?? (desktopNavigationHandled ? undefined : pendingDesktopNavigation)
   if (navigation)
     await openDesktopNavigation(navigation)
+  nativeWorkbenchReady()
 })
 onBeforeUnmount(() => {
   if (visibilityRefreshTimer)
     clearTimeout(visibilityRefreshTimer)
   window.removeEventListener('keydown', onKeydown)
+  window.removeEventListener(nativeCommandEvent, runNativeCommand)
+  window.removeEventListener(nativeSelectionEvent, runNativeSelection)
   window.removeEventListener('focus', refreshWhenVisible)
   document.removeEventListener('visibilitychange', refreshWhenVisible)
   stopProjectEvents?.()
@@ -677,7 +716,7 @@ onBeforeUnmount(() => {
       <WorkbenchPageShell v-else :breadcrumbs="pageBreadcrumbs">
         <template v-if="sectionGroups.length" #sidebar><WorkbenchSectionNavigation :title="sectionTitle" :icon="sectionIcon" :groups="sectionGroups" /></template>
         <PersonalWorkbench
-          @capture="quickCaptureOpen = true"
+          @capture="showQuickCapture"
           :refresh-key="navigationRevision"
           v-if="overviewOpen"
           @open-project="openProject"
@@ -758,7 +797,7 @@ onBeforeUnmount(() => {
         </section>
       </component>
     </WorkbenchSplitter>
-    <footer class="status-bar">
+    <footer class="status-bar" :data-idle="!runningCodexTaskCount && !eventStreamLost || undefined">
       <span :aria-busy="store.refreshing">
         <Icon v-if="store.refreshing" name="loading" class="refresh-loading-icon" />
         <i v-else :class="{ updated: store.recentlyUpdated }" />

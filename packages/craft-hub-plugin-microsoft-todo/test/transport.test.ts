@@ -55,6 +55,18 @@ it('releases an idle command-line connector and reconnects after explicit discon
   await transport.close()
 })
 
+it('keeps an on-demand connector for its idle period, then releases it', async () => {
+  const transport = createMicrosoftTodoTransport({ idleTimeoutMs: 10 * 60_000 })
+  await transport.call('list-accounts')
+  await vi.advanceTimersByTimeAsync(9 * 60_000)
+  await transport.call('list-accounts')
+  await vi.advanceTimersByTimeAsync(9 * 60_000)
+  expect(mocks.clients).toHaveLength(1)
+  expect(mocks.clients[0]!.close).not.toHaveBeenCalled()
+  await vi.advanceTimersByTimeAsync(60_001)
+  expect(mocks.clients[0]!.close).toHaveBeenCalledOnce()
+})
+
 it('recovers a stopped desktop connector on the next read without retrying writes', async () => {
   const transport = createMicrosoftTodoTransport({ keepAlive: true })
   await transport.call('list-accounts')
@@ -66,14 +78,17 @@ it('recovers a stopped desktop connector on the next read without retrying write
   await transport.close()
 })
 
-it('requires the write transport and explicit confirmation for the sole creation tool', async () => {
+it('requires the write transport and explicit confirmation for task creation and status updates', async () => {
   const reader = createMicrosoftTodoTransport()
   await expect(reader.call('create-todo-task', { confirm: true })).rejects.toThrow('invalid response')
+  await expect(reader.call('update-todo-task', { confirm: true })).rejects.toThrow('invalid response')
   const writer = createMicrosoftTodoTransport({ writable: true, keepAlive: true })
   await expect(writer.call('create-todo-task')).rejects.toThrow('invalid response')
+  await expect(writer.call('update-todo-task')).rejects.toThrow('invalid response')
   await expect(writer.call('delete-todo-task', { confirm: true })).rejects.toThrow('invalid response')
   await writer.call('create-todo-task', { confirm: true, body: { title: 'Reviewed task' } })
+  await writer.call('update-todo-task', { confirm: true, body: { status: 'completed' } })
   expect(mocks.clients).toHaveLength(1)
-  expect(mocks.clients[0]!.callTool).toHaveBeenCalledOnce()
+  expect(mocks.clients[0]!.callTool).toHaveBeenCalledTimes(2)
   await writer.close()
 })

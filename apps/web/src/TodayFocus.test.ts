@@ -38,6 +38,8 @@ it('summarizes all sources in three focus rows and refreshes the ranked preview'
   expect(wrapper.get('.focus-context').text()).toContain('5 tasks')
   expect(wrapper.get('.focus-context').text()).toContain('2/2 sources')
   expect(wrapper.get('.focus-item').attributes('open')).toBeUndefined()
+  await wrapper.findAll('.focus-heading button').find(button => button.text() === 'Quick capture')!.trigger('click')
+  expect(wrapper.emitted('capture')).toHaveLength(1)
   await wrapper.get('.focus-detail button').trigger('click')
   expect(wrapper.emitted('handoff')![0]![0]).toMatchObject({ item: { title: 'Task 0' } })
   await wrapper.get('[aria-label="Refresh today’s focus"]').trigger('click')
