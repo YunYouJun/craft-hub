@@ -131,7 +131,7 @@ catalog:
   vue-tsc: ^3.3.11
   wrangler: ^4.127.1
   yaml: ^2.9.0
-  zod: ^4.4.3
+  zod: ^4.6.5
 
 # The vanilla diffs API does not use its React adapter.
 packageExtensions:

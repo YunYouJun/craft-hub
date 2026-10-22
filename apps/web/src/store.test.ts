@@ -2,7 +2,7 @@
 /// <reference lib="dom" />
 
 import type { AgentTaskRecord, Capability, CommandCapability, ProjectRecord, RunRecord, SettingsSnapshot, WorkspaceManifest } from 'craft-hub'
-import { projectConfigSchemaRevision } from 'craft-hub'
+import { projectConfigSchemaRevision } from 'craft-hub/project-config-schema-revision'
 import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useWorkbenchStore } from './store'

@@ -425,8 +425,8 @@ catalogs:
       specifier: ^2.9.0
       version: 2.9.0
     zod:
-      specifier: ^4.4.3
-      version: 4.4.3
+      specifier: ^4.6.5
+      version: 4.6.5
 
 overrides:
   '@modelcontextprotocol/client@>=2.0.0 <2.2.0': 2.2.0
@@ -619,7 +619,7 @@ importers:
         version: 1.9.4
       craft-hub:
         specifier: workspace:*
-        version: file:packages/craft-hub(supports-color@10.2.2)
+        version: link:../../packages/craft-hub
       dompurify:
         specifier: 'catalog:'
         version: 3.4.16
@@ -698,7 +698,7 @@ importers:
         version: 3.3.11(typescript@6.0.3)
       zod:
         specifier: 'catalog:'
-        version: 4.4.3
+        version: 4.6.5
 
   cloudfunctions/personal-cloud:
     dependencies:
@@ -768,7 +768,7 @@ importers:
         version: 7.29.8
       '@modelcontextprotocol/sdk':
         specifier: 'catalog:'
-        version: 1.32.0(supports-color@10.2.2)(zod@4.4.3)
+        version: 1.32.0(supports-color@10.2.2)(zod@4.6.5)
       cac:
         specifier: 'catalog:'
         version: 7.0.0
@@ -798,7 +798,7 @@ importers:
         version: 2.9.0
       zod:
         specifier: 'catalog:'
-        version: 4.4.3
+        version: 4.6.5
     devDependencies:
       '@types/pacote':
         specifier: 'catalog:'
@@ -811,13 +811,13 @@ importers:
     dependencies:
       '@modelcontextprotocol/sdk':
         specifier: 'catalog:'
-        version: 1.32.0(supports-color@10.2.2)(zod@4.4.3)
+        version: 1.32.0(supports-color@10.2.2)(zod@4.6.5)
       craft-hub:
         specifier: workspace:*
         version: link:../craft-hub
       zod:
         specifier: 'catalog:'
-        version: 4.4.3
+        version: 4.6.5
     devDependencies:
       tsdown:
         specifier: 'catalog:'
@@ -862,7 +862,7 @@ importers:
     devDependencies:
       craft-hub:
         specifier: workspace:*
-        version: file:packages/craft-hub(supports-color@10.2.2)
+        version: link:../craft-hub
       tsdown:
         specifier: 'catalog:'
         version: 0.22.14(@vitejs/devtools@0.7.5)(@volar/typescript@2.4.28(typescript@6.0.3))(publint@0.3.24)(tsx@4.23.12)(typescript@6.0.3)(vue-tsc@3.3.11(typescript@6.0.3))
@@ -3684,10 +3684,6 @@ packages:
   cors@2.8.6:
     resolution: {integrity: sha512-tJtZBBHA6vjIAaF6EnIaq6laBBP9aq/Y3ouVJjEfoHbRBcHBAHYcMh/w8LDrk2PvIMMq8gmopa5D4V8RmbrxGw==}
     engines: {node: '>= 0.10'}
-
-  craft-hub@file:packages/craft-hub:
-    resolution: {directory: packages/craft-hub, type: directory}
-    hasBin: true
 
   cross-spawn@7.0.6:
     resolution: {integrity: sha512-uV2QOWP2nWzsy2aMp8aRibhi9dlzF5Hgh5SHaB9OiTGEyDTiJJyx0uy51QXdyWbtAHNua4XJzUKca3OzKUd3vA==}
@@ -6571,9 +6567,6 @@ packages:
   zod@3.25.76:
     resolution: {integrity: sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ==}
 
-  zod@4.4.3:
-    resolution: {integrity: sha512-ytENFjIJFl2UwYglde2jchW2Hwm4GJFLDiSXWdTrJQBIN9Fcyp7n4DhxJEiWNAJMV1/BqWfW/kkg71UDcHJyTQ==}
-
   zod@4.6.5:
     resolution: {integrity: sha512-v5l/aFXZQeai4awLbOpSoHecE9UiMrnfx75tEXLjNonXVARxQ5mOeipTjROUchszUNCqnE+hqAMujRsRHsut2Q==}
 
@@ -7829,28 +7822,6 @@ snapshots:
       raw-body: 3.0.2
       zod: 3.25.76
       zod-to-json-schema: 3.25.2(zod@3.25.76)
-    transitivePeerDependencies:
-      - supports-color
-
-  '@modelcontextprotocol/sdk@1.32.0(supports-color@10.2.2)(zod@4.4.3)':
-    dependencies:
-      '@hono/node-server': 2.1.1(hono@4.13.8)
-      ajv: 8.20.0
-      ajv-formats: 3.0.1
-      content-type: 1.0.5
-      cors: 2.8.6
-      cross-spawn: 7.0.6
-      eventsource: 3.0.7
-      eventsource-parser: 3.1.1
-      express: 5.2.1(supports-color@10.2.2)
-      express-rate-limit: 8.6.2(express@5.2.1(supports-color@10.2.2))(supports-color@10.2.2)
-      hono: 4.13.8
-      jose: 6.2.10
-      json-schema-typed: 8.0.2
-      pkce-challenge: 5.0.1
-      raw-body: 3.0.2
-      zod: 4.4.3
-      zod-to-json-schema: 3.25.2(zod@4.4.3)
     transitivePeerDependencies:
       - supports-color
 
@@ -9464,24 +9435,6 @@ snapshots:
     dependencies:
       object-assign: 4.1.1
       vary: 1.1.2
-
-  craft-hub@file:packages/craft-hub(supports-color@10.2.2):
-    dependencies:
-      '@babel/parser': 7.29.8
-      '@modelcontextprotocol/sdk': 1.32.0(supports-color@10.2.2)(zod@4.6.5)
-      cac: 7.0.0
-      chokidar: 5.0.0
-      cross-spawn: 7.0.6
-      jsonc-parser: 3.3.1
-      node-pty: 1.1.0(patch_hash=a721540bbb1a14a83cb07e580c5da291d9dc69413fcb8baacdd58a84780b3376)
-      pacote: 21.5.1(supports-color@10.2.2)
-      semver: 7.8.5
-      tinyglobby: 0.2.17
-      yaml: 2.9.0
-      zod: 4.6.5
-    transitivePeerDependencies:
-      - '@cfworker/json-schema'
-      - supports-color
 
   cross-spawn@7.0.6:
     dependencies:
@@ -12800,17 +12753,11 @@ snapshots:
     dependencies:
       zod: 3.25.76
 
-  zod-to-json-schema@3.25.2(zod@4.4.3):
-    dependencies:
-      zod: 4.4.3
-
   zod-to-json-schema@3.25.2(zod@4.6.5):
     dependencies:
       zod: 4.6.5
 
   zod@3.25.76: {}
-
-  zod@4.4.3: {}
 
   zod@4.6.5: {}
 
