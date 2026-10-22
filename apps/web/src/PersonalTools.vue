@@ -11,7 +11,7 @@ import { useI18n } from './i18n'
 import { useWorkbenchStore } from './store'
 import SoftwareIcon from './SoftwareIcon.vue'
 import type { SoftwareArtwork } from './tool-icons'
-import { softwareArtwork, softwareWebsiteIdentity } from './tool-icons'
+import { softwareWebsiteIdentity, toolArtwork as resolveToolArtwork } from './tool-icons'
 import SoftwareLinks from './SoftwareLinks.vue'
 
 const props = withDefaults(defineProps<{ compact?: boolean }>(), { compact: false })
@@ -22,7 +22,7 @@ const zh = computed(() => locale.value === 'zh-CN')
 const copy = (chinese: string, english: string) => zh.value ? chinese : english
 const query = ref('')
 const catalogIcons = ref(new Map<string, SoftwareArtwork>())
-const toolArtwork = (tool: PersonalWorkbenchTool) => softwareArtwork(tool, catalogIcons.value.get(softwareWebsiteIdentity(tool.url)))
+const toolArtwork = (tool: PersonalWorkbenchTool) => resolveToolArtwork(tool, catalogIcons.value.get(softwareWebsiteIdentity(tool.url)))
 onMounted(async () => {
   try {
     // Read cached display metadata only; visiting favorites must not invoke local plugins.

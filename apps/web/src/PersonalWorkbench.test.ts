@@ -144,7 +144,7 @@ describe('personal workbench', () => {
     expect(icons[6]!.classes()).toContain('i-ri-global-line')
     expect(icons.every(icon => icon.attributes('aria-hidden') === 'true')).toBe(true)
     expect(wrapper!.findAll('.home-tool strong').map(name => name.text())).toEqual(['My chat', 'Claude', 'Gemini', 'Perplexity', 'Raycast', 'Orca', 'Claude'])
-    expect(wrapper!.find('.home-tool-mark img').exists()).toBe(false)
+    expect(wrapper!.findAll('.home-tool-mark img').map(image => image.attributes('src'))).toEqual(['https://docs.example.com/favicon.ico'])
   })
 
   it('uses cached catalog artwork for older favorites and preserves explicit overrides', async () => {
@@ -160,9 +160,8 @@ describe('personal workbench', () => {
     ] })
     await openToolsPage()
     expect(api.softwareCatalogMetadata).toHaveBeenCalledOnce()
-    expect(wrapper!.findAll('.home-tool-mark img').map(image => image.attributes('src'))).toEqual([nativeIcon, 'https://example.com/custom.svg'])
-    expect(wrapper!.findAll('.home-tool-mark img').map(image => (image.element as HTMLImageElement).style.getPropertyValue('--artwork-scale'))).toEqual(['1.25', '1'])
-    expect(wrapper!.findAll('.home-tool-mark')[2]!.find('img').exists()).toBe(false)
+    expect(wrapper!.findAll('.home-tool-mark img').map(image => image.attributes('src'))).toEqual([nativeIcon, 'https://example.com/custom.svg', 'https://example.com/favicon.ico'])
+    expect(wrapper!.findAll('.home-tool-mark img').map(image => (image.element as HTMLImageElement).style.getPropertyValue('--artwork-scale'))).toEqual(['1.25', '1', '1'])
     expect(useWorkbenchStore().settings!.settings['workbench.home'].tools[0]!.iconUrl).toBe(catalogIcon)
     expect(wrapper!.findAll('.home-tool-mark').every(icon => icon.attributes('data-shape') === 'original')).toBe(true)
   })
