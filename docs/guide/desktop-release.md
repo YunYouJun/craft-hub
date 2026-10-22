@@ -29,6 +29,8 @@ Local packages do not enable automatic updates. `package:mac` writes packaged bu
 
 ## Automatic updates
 
+This section describes the Electron host. The SwiftUI host uses a separate [native Sparkle release pipeline](./native-macos-release.md).
+
 Signed release builds check on startup and once per hour when **Automatically check for and download updates** is enabled in Settings. **Check now** also works when automatic checks are disabled; **Check for Updates…** in the native application menu opens Settings and starts a manual check. Each architecture reads its own static Squirrel.Mac manifest and downloads the matching ZIP in the background. The native Electron updater reports checking, availability, and download completion; it does not expose byte counts or a percentage, so the download indicator remains indeterminate. See the [Electron autoUpdater API](https://www.electronjs.org/docs/latest/api/auto-updater) and [Squirrel.Mac static manifest format](https://github.com/Squirrel/Squirrel.Mac#update-file-json-format).
 
 After download, the native dialog offers **Restart** and **Later**. Choosing **Later** retains the downloaded update; Settings then offers **Restart and install**. Installation closes the local runtime before restarting the application. A repeated manual check while a check or download is active does not start another download.

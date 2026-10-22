@@ -16,14 +16,16 @@ public struct NodeVersion: Comparable, CustomStringConvertible, Sendable {
   public init?(_ text: String) {
     let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
     guard trimmed.hasPrefix("v") else { return nil }
-    let parts = trimmed.dropFirst().split(separator: ".").map { Int($0) }
+    let components = trimmed.dropFirst().split(separator: ".", omittingEmptySubsequences: false)
+    guard components.allSatisfy({ !$0.isEmpty && $0.utf8.allSatisfy({ $0 >= 48 && $0 <= 57 }) && ($0.count == 1 || $0.first != "0") }) else { return nil }
+    let parts = components.map { Int($0) }
     guard parts.count == 3, let major = parts[0], let minor = parts[1], let patch = parts[2] else { return nil }
     self.init(major: major, minor: minor, patch: patch)
   }
 
-  /// Matches the workspace engines range `^22.18.0 || ^24.11.0 || >=26.0.0`.
+  /// Matches the runtime engines range `^22.18.0 || ^24.11.0 || ^26.0.0`.
   public var isSupportedByRuntime: Bool {
-    (major == 22 && minor >= 18) || (major == 24 && minor >= 11) || major >= 26
+    major >= 0 && minor >= 0 && patch >= 0 && ((major == 22 && minor >= 18) || (major == 24 && minor >= 11) || major == 26)
   }
 
   public var description: String { "v\(major).\(minor).\(patch)" }
@@ -72,7 +74,8 @@ public struct NodeLocator {
   public func candidateDirectories() -> [String] {
     func join(_ base: String, _ path: String) -> String { (base as NSString).appendingPathComponent(path) }
     let pathEntries = (environment["PATH"] ?? "").split(separator: ":").map(String.init).filter { $0.hasPrefix("/") }
-    let common = [join(home, ".local/bin"), "/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"]
+    let common = [join(home, ".local/bin"), "/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin", join(home, "Library/pnpm")]
+    let pnpmHome = environment["PNPM_HOME"].flatMap { $0.hasPrefix("/") ? [$0] : nil } ?? []
     var fnmRoots: [String] = []
     if let configured = environment["FNM_DIR"], configured.hasPrefix("/") {
       fnmRoots.append(configured)
@@ -87,7 +90,7 @@ public struct NodeLocator {
       fnmDirectories += versions.map { join(root, "node-versions/\($0.0)/installation/bin") }
     }
     var seen = Set<String>()
-    return (pathEntries + common + fnmDirectories).filter { seen.insert($0).inserted }
+    return (pathEntries + pnpmHome + common + fnmDirectories).filter { seen.insert($0).inserted }
   }
 
   /// Returns the explicit path when it is compatible, otherwise the first compatible Node found on the machine.

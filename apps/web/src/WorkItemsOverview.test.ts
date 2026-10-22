@@ -92,6 +92,23 @@ describe('shared work items overview', () => {
     return candidate
   }
 
+  it('offers a compact native shortcut for Microsoft providers with custom integration identifiers', async () => {
+    const contribution = workSource('personal-todos')
+    contribution.provider.id = 'microsoft-todo'
+    useWorkbenchStore().integrationContributions = [contribution, workSource('other-todos')]
+    vi.mocked(api.invokeIntegrationAction).mockResolvedValue({ currentUser: { id: 'me' }, items: [ownedItem('personal-todos', 'Saved task')] })
+    const launch = vi.spyOn(api, 'openLocalApplication').mockResolvedValue({ destination: 'application' })
+    await open({ compact: true, tabbed: true })
+    expect(wrapper!.get('[role="tablist"]').find('button[aria-label="Open Microsoft To Do locally"]').exists()).toBe(false)
+    expect(source(1).find('button[aria-label="Open Microsoft To Do locally"]').exists()).toBe(false)
+    vi.mocked(api.invokeIntegrationAction).mockClear()
+    await source().get('button[aria-label="Open Microsoft To Do locally"]').trigger('click')
+    await flushPromises()
+    expect(launch).toHaveBeenCalledExactlyOnceWith('microsoft-todo')
+    expect(api.invokeIntegrationAction).not.toHaveBeenCalled()
+    expect(wrapper!.emitted('openIntegration')).toBeUndefined()
+  })
+
   it('switches provider tabs with the keyboard, retains filters and keeps focus aggregated across providers', async () => {
     useWorkbenchStore().integrationContributions = [connectedWorkSource('source-a'), connectedWorkSource('source-b')]
     vi.mocked(api.invokeIntegrationAction).mockImplementation(async (id, action) => action === 'status'

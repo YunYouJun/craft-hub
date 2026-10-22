@@ -159,8 +159,9 @@ export const useHomeWorkDataStore = defineStore('home-work-data', () => {
     const connection = connections.get(connectionKey(source))
     if (source.connection && !connectionFresh(connection))
       return false
-    // A provider must identify an account before its personal-work result can skip revalidation.
-    return Boolean(state.page.currentUser?.id)
+    // Unidentified nonempty results need revalidation; empty results contain no account's work items.
+    // A recently verified connection may reuse an empty result for the same short TTL.
+    return Boolean(state.page.currentUser?.id || (source.connection && state.page.items.length === 0 && connection?.status?.connected === true))
   }
 
   function load(source: HomeWorkSource, options: { force?: boolean, more?: boolean } = {}): Promise<void> {

@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { communityDistribution, HostExtensionManager } from 'craft-hub'
 import { afterEach, expect, it, vi } from 'vitest'
-import { createDesktopHostRuntime, hasMicrosoftTodoConnection, optionalHostPluginStatus } from '../src/host-runtime'
+import { bundledHostExtensionControls, createBuiltinHostPlugins, createDesktopHostRuntime, hasMicrosoftTodoConnection, optionalHostPluginStatus } from '../src/host-runtime'
 
 const directories: string[] = []
 
@@ -94,4 +94,27 @@ it('treats an enabled To Do connection as existing use', async () => {
   expect(await hasMicrosoftTodoConnection(dataDir)).toBe(true)
   await writeFile(join(dataDir, 'integrations', 'microsoft-todo', 'connection.json'), '{ not json')
   expect(await hasMicrosoftTodoConnection(dataDir)).toBe(false)
+})
+
+it('native bundled controls cannot enable arbitrary modules or grant project trust', async () => {
+  const { root, hostExtensions } = await fixture()
+  const builtin = createBuiltinHostPlugins({ workstationDirectory: root, dataDir: join(root, 'data') })
+  const runtime = await createDesktopHostRuntime({ builtinPlugins: builtins, configDir: join(root, 'config'), dataDir: join(root, 'data'), distribution: communityDistribution, hostExtensions, logError: vi.fn() })
+  const project = await runtime.projects.add(root)
+  try {
+    const controls = bundledHostExtensionControls(hostExtensions, builtin)
+    expect((await controls.status()).bundledExtensions).toContainEqual(expect.objectContaining({ id: 'microsoft-todo', enabled: false }))
+    await expect(controls.setEnabled('/tmp/unreviewed.mjs', true)).rejects.toThrow('Only optional plugins')
+    await expect(controls.setEnabled('workstation', false)).rejects.toThrow('Only optional plugins')
+    const enabled = await controls.setEnabled('microsoft-todo', true)
+    expect(enabled.restartRequired).toBe(true)
+    expect(enabled.bundledExtensions).toContainEqual(expect.objectContaining({ id: 'microsoft-todo', enabled: true }))
+    expect((await runtime.projects.get(project.id)).trust).toBe('untrusted')
+    expect(await runtime.store.listRuns()).toEqual([])
+    expect(await runtime.store.listAgentTasks()).toEqual([])
+  }
+  finally {
+    await Promise.allSettled(builtin.closeConnections())
+    await runtime.close()
+  }
 })

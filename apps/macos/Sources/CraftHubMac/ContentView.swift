@@ -32,9 +32,27 @@ struct ContentView: View {
 
   @ViewBuilder private var detail: some View {
     switch sidecar.state {
-    case .ready(let url, _):
-      WorkbenchWebView(url: url, model: model)
-        .ignoresSafeArea(.container, edges: .top)
+    case .ready(let connection, _):
+      VStack(spacing: 0) {
+        if let message = sidecar.recoveryMessage {
+          Text(message).font(.caption).foregroundStyle(.secondary).padding(8)
+        }
+        ZStack {
+          // Keep one bootstrapped web view alive while native pages are visible, preserving web drafts and history.
+          WorkbenchWebView(url: connection.bootstrapURL, model: model)
+            .id(connection.origin)
+            .opacity(model.presentsNativeContent ? 0 : 1)
+            .allowsHitTesting(!model.presentsNativeContent)
+            .accessibilityHidden(model.presentsNativeContent)
+          if model.presentsNativeContent, let machine = model.machine {
+            if model.selection == .environment {
+              EnvironmentView(machine: machine, showWorkbench: model.showWebWorkbench)
+            } else {
+              SoftwareView(machine: machine, showWorkbench: model.showWebWorkbench)
+            }
+          }
+        }
+      }
     case .resolving:
       StatusView(symbol: "magnifyingglass", title: text.findingNode, showsProgress: true)
     case .starting(let node):
@@ -54,11 +72,18 @@ struct ContentView: View {
   @ToolbarContentBuilder private var toolbar: some ToolbarContent {
     ToolbarItemGroup(placement: .navigation) {
       Button(action: model.goBack) { Label(text.back, systemImage: "chevron.left") }
-        .disabled(!model.canGoBack)
+        .disabled(model.presentsNativeContent || !model.canGoBack)
       Button(action: model.goForward) { Label(text.forward, systemImage: "chevron.right") }
-        .disabled(!model.canGoForward)
+        .disabled(model.presentsNativeContent || !model.canGoForward)
     }
     ToolbarItemGroup(placement: .primaryAction) {
+      if model.selection?.isNative == true && model.showsWebContent {
+        Button {
+          model.select(model.selection)
+        } label: {
+          Label(text.copy("返回列表", "Back to List"), systemImage: "list.bullet")
+        }
+      }
       Button { model.run("palette") } label: { Label(text.search, systemImage: "magnifyingglass") }
         .help(text.search)
       Button(action: model.reload) { Label(text.reload, systemImage: "arrow.clockwise") }

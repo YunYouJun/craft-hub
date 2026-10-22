@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { Readable } from 'node:stream'
-import { expect, it } from 'vitest'
+import { expect, it, vi } from 'vitest'
 import { createSessionGuard, createSidecarRequestHandler, externalUrl } from '../src/sidecar-host'
 
 const origin = 'http://127.0.0.1:49218'
@@ -52,6 +52,25 @@ it('refuses to serve anything but IPv4 loopback', () => {
   expect(() => createSessionGuard(secret).setOrigin('http://localhost:49218')).toThrow('loopback')
 })
 
+it('authenticates native API requests without granting browser or host access', () => {
+  const nativeToken = 'b'.repeat(64)
+  const guard = createSessionGuard(secret, nativeToken)
+  guard.setOrigin(origin)
+  const headers = { authorization: `Bearer ${nativeToken}` }
+  expect(guard.authorize(request('/api/environment', headers))).toBe(true)
+  expect(guard.authorize(request('/api/software/source/open', headers, 'POST'))).toBe(true)
+  expect(guard.authorize(request('/api/environment', { ...headers, host: 'evil.example' }))).toBe(false)
+  expect(guard.authorize(request('/api/environment', { ...headers, origin: 'https://evil.example' }))).toBe(false)
+  for (const path of ['/', '/overview', '/__craft_hub_host/open-workbench-tool', '/__craft_hub_host/host-extensions', '/__craft_hub_host/set-host-extension-enabled', `/__craft_hub_host/bootstrap?token=${secret}`])
+    expect(guard.authorize(request(path, headers))).toBe(false)
+  for (const authorization of ['Bearer bad', `Bearer ${secret}`, nativeToken])
+    expect(guard.authorize(request('/api/environment', { authorization }))).toBe(false)
+  expect(guard.authorize(request('/api/environment', { cookie: `craft-hub-host-session=${nativeToken}` }))).toBe(false)
+  const restarted = createSessionGuard(secret, 'c'.repeat(64))
+  restarted.setOrigin(origin)
+  expect(restarted.authorize(request('/api/environment', headers))).toBe(false)
+})
+
 it('accepts only credential-free HTTPS destinations for the browser', () => {
   expect(externalUrl('https://example.com/tools')).toBe('https://example.com/tools')
   for (const value of ['javascript:alert(1)', 'http://example.com', 'https://user:pass@example.com', 'https://example.com/\n'])
@@ -92,4 +111,26 @@ it('leaves ordinary runtime routes to the shared server', async () => {
     throw new Error('must not dispatch')
   })
   expect(await handler(request('/api/projects'), response().value)).toBe(false)
+})
+
+it('requires a guarded JSON request and typed inputs to change a bundled extension', async () => {
+  const status = { extensions: [], diagnostics: [], restartRequired: false }
+  const controls = { status: vi.fn(async () => status), setEnabled: vi.fn(async () => status) }
+  const handler = createSidecarRequestHandler(createSessionGuard(secret), () => {
+    throw new Error('must not dispatch')
+  }, undefined, undefined, controls)
+  const headers = { 'content-type': 'application/json', 'x-craft-hub-host': '1' }
+  const endpoint = '/__craft_hub_host/set-host-extension-enabled'
+  const invalid = response()
+  await handler(request(endpoint, headers, 'POST', JSON.stringify({ id: 'microsoft-todo', enabled: 'true' })), invalid.value)
+  expect(invalid.result().status).toBe(400)
+  expect(controls.setEnabled).not.toHaveBeenCalled()
+  const denied = response()
+  await handler(request(endpoint, {}, 'POST', JSON.stringify({ id: 'microsoft-todo', enabled: true })), denied.value)
+  expect(denied.result().status).toBe(403)
+  expect(controls.setEnabled).not.toHaveBeenCalled()
+  const allowed = response()
+  await handler(request(endpoint, headers, 'POST', JSON.stringify({ id: 'microsoft-todo', enabled: true })), allowed.value)
+  expect(allowed.result().status).toBe(200)
+  expect(controls.setEnabled).toHaveBeenCalledWith('microsoft-todo', true)
 })

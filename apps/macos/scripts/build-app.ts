@@ -9,6 +9,7 @@ import { deployDesktop } from '../../../scripts/package-macos.ts'
 import { packageWorkstationRuntime } from '../../../scripts/package-workstation-runtime.ts'
 import { prepareDesktopArchitecture, prepareDesktopPackage } from '../../../scripts/prepare-desktop-package.ts'
 import { bundleMicrosoftTodoConnector, bundleSidecar, sidecarExternals } from './bundle-sidecar.ts'
+import { nativeReleaseConfiguration, nativeUpdatePlist, signNativeBundle, xmlText } from './native-release.ts'
 
 // Builds the native macOS prototype from ADR 0012 into apps/macos/build/Craft Hub Prototype.app. The app ships no
 // Node: its runtime sidecar and the runtime CLI are single-file bundles that run on the user's own compatible Node.
@@ -23,6 +24,8 @@ const contents = resolve(bundle, 'Contents')
 const architecture = process.arch === 'arm64' ? 'arm64' : 'x64'
 if (process.platform !== 'darwin')
   throw new Error('The native prototype builds on macOS only')
+const { version } = JSON.parse(await readFile(resolve(repositoryDir, 'package.json'), 'utf8')) as { version: string }
+const releaseConfig = nativeReleaseConfiguration(version, process.arch, process.env)
 
 async function step(label: string, command: string, args: string[]): Promise<string> {
   process.stdout.write(`${label}\n`)
@@ -74,17 +77,43 @@ async function verifySidecar(appDirectory: string): Promise<void> {
     await new Promise<void>((resolvePromise, reject) => {
       const child = spawn(process.execPath, [join(appDirectory, 'apps/desktop/dist/sidecar.mjs')], { env: { HOME: process.env.HOME, PATH: process.env.PATH, CRAFT_HUB_SIDECAR_DIR: dataDirectory }, stdio: ['pipe', 'pipe', 'pipe'] })
       let errors = ''
+      let handshake = ''
+      let handshook = false
       const timer = setTimeout(() => child.kill(), 20_000)
       child.stderr.on('data', chunk => errors += chunk)
-      child.stdout.once('data', (line) => {
-        if (String(line).includes('/__craft_hub_host/bootstrap?token='))
-          child.stdin.end()
-        else
+      child.stdout.on('data', (chunk) => {
+        if (handshook)
+          return
+        handshake += String(chunk)
+        if (handshake.length > 16 * 1024) {
           child.kill()
+          return
+        }
+        const newline = handshake.indexOf('\n')
+        if (newline < 0)
+          return
+        try {
+          const value = JSON.parse(handshake.slice(0, newline)) as { version?: number, nativeApiToken?: string, url?: string }
+          const url = new URL(value.url ?? '')
+          if (value.version !== 1 || !/^[a-f0-9]{64}$/.test(value.nativeApiToken ?? '')
+            || url.protocol !== 'http:' || url.hostname !== '127.0.0.1' || !url.port
+            || url.pathname !== '/__craft_hub_host/bootstrap' || !/^[a-f0-9]{64}$/.test(url.searchParams.get('token') ?? '')) {
+            throw new Error('Invalid sidecar handshake')
+          }
+          handshook = true
+          child.stdin.end()
+        }
+        catch {
+          child.kill()
+        }
+      })
+      child.once('error', (error) => {
+        clearTimeout(timer)
+        reject(error)
       })
       child.once('exit', (code) => {
         clearTimeout(timer)
-        if (code === 0)
+        if (code === 0 && handshook)
           resolvePromise()
         else
           reject(new Error(`The bundled sidecar did not start:\n${errors}`))
@@ -151,6 +180,9 @@ finally {
 const binDirectory = await step('Locating the build products', 'swift', ['build', '-c', 'release', '--package-path', appDir, '--show-bin-path'])
 const executable = resolve(contents, 'MacOS/CraftHubMac')
 await cp(join(binDirectory, 'CraftHubMac'), executable)
+// ditto preserves the framework's version symlinks and helper executable permissions.
+await mkdir(resolve(contents, 'Frameworks'), { recursive: true })
+await step('Embedding Sparkle', 'ditto', [resolve(appDir, '.build/artifacts/sparkle/Sparkle/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework'), resolve(contents, 'Frameworks/Sparkle.framework')])
 // SwiftPM records the deployment target as the SDK version, which keeps AppKit and SwiftUI in their pre-26
 // compatibility appearance. Record the SDK actually used so system controls adopt Liquid Glass on macOS 26+.
 const sdkVersion = await step('Recording the SDK version', 'xcrun', ['--show-sdk-version'])
@@ -167,7 +199,6 @@ catch {
   process.stdout.write('actool could not compile icon.icon; using the .icns icon only\n')
 }
 
-const { version } = JSON.parse(await readFile(resolve(repositoryDir, 'package.json'), 'utf8')) as { version: string }
 await writeFile(resolve(contents, 'Info.plist'), `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
@@ -176,15 +207,19 @@ await writeFile(resolve(contents, 'Info.plist'), `<?xml version="1.0" encoding="
 <key>CFBundleDisplayName</key><string>${productName}</string>
 <key>CFBundleExecutable</key><string>CraftHubMac</string>
 <key>CFBundlePackageType</key><string>APPL</string>
+<key>NSPrincipalClass</key><string>NSApplication</string>
 <key>CFBundleShortVersionString</key><string>${version.replace(/-.*$/, '')}</string>
-<key>CFBundleVersion</key><string>${version}</string>
+<key>CFBundleVersion</key><string>${releaseConfig.bundleVersion}</string>
+<key>CraftHubReleaseVersion</key><string>${xmlText(version)}</string>
 <key>CFBundleIconFile</key><string>AppIcon</string>
 ${iconName}
 <key>LSMinimumSystemVersion</key><string>15.0</string>
 <key>LSApplicationCategoryType</key><string>public.app-category.developer-tools</string>
 <key>NSHighResolutionCapable</key><true/>
 <key>NSAppTransportSecurity</key><dict><key>NSAllowsLocalNetworking</key><true/></dict>
+${nativeUpdatePlist(releaseConfig)}
 </dict></plist>
 `)
-await step('Signing ad hoc for local use', 'codesign', ['--force', '--deep', '--sign', '-', bundle])
+process.stdout.write(releaseConfig.enabled ? 'Signing the release with Developer ID\n' : 'Signing ad hoc for local use\n')
+await signNativeBundle(bundle, releaseConfig.enabled ? process.env.MACOS_KEYCHAIN_PATH : undefined)
 process.stdout.write(`Built ${bundle}\n`)

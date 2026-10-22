@@ -142,3 +142,26 @@ export async function createDesktopHostRuntime(options: DesktopHostRuntimeOption
   })
   return runtime
 }
+
+/** Allow the native host to toggle only shipped optional plugins, never arbitrary executable modules. */
+export function bundledHostExtensionControls(manager: HostExtensionManager, builtins: BuiltinHostPlugins): {
+  status: () => Promise<HostExtensionStatus>
+  setEnabled: (id: string, enabled: boolean) => Promise<HostExtensionStatus>
+} {
+  const status = async (): Promise<HostExtensionStatus> => ({
+    ...await manager.status(),
+    bundledExtensions: [
+      ...(builtins.workstation.bundled ? [{ id: 'workstation', name: 'Workstation', version: builtins.workstation.bundled.version }] : []),
+      ...await optionalHostPluginStatus(manager, builtins.optionalPlugins),
+    ],
+  })
+  return {
+    status,
+    async setEnabled(id, enabled) {
+      if (!builtins.optionalPlugins.some(plugin => plugin.id === id))
+        throw new Error('Only optional plugins shipped with this app can be changed')
+      await manager.setBundledEnabled(id, enabled)
+      return status()
+    },
+  }
+}

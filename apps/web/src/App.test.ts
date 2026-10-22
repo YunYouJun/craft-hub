@@ -322,6 +322,29 @@ describe('app startup', () => {
     reopened.wrapper.unmount()
   })
 
+  it('opens the native palette when its shortcut is pressed inside embedded web content', async () => {
+    stubStartupData()
+    const postMessage = vi.fn()
+    vi.stubGlobal('__craftHubNativeHost', 'macos')
+    vi.stubGlobal('webkit', { messageHandlers: { craftHubNative: { postMessage } } })
+    window.craftHubDesktop = { platform: 'darwin' }
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    const { wrapper } = await mountApp(pinia, '/overview')
+    await flushPromises()
+    const input = document.createElement('input')
+    document.body.append(input)
+    input.focus()
+    const event = new KeyboardEvent('keydown', { key: 'k', metaKey: true, bubbles: true, cancelable: true })
+    input.dispatchEvent(event)
+    await flushPromises()
+    expect(event.defaultPrevented).toBe(true)
+    expect(postMessage).toHaveBeenCalledWith({ type: 'palette', mode: 'all' })
+    expect(document.body.querySelector('.command-palette')).toBeNull()
+    input.remove()
+    wrapper.unmount()
+  })
+
   it('routes desktop shortcuts and protects editing and open dialogs from navigation commands', async () => {
     stubStartupData()
     let menuAction: Parameters<NonNullable<NonNullable<Window['craftHubDesktop']>['onMenuAction']>>[0] | undefined

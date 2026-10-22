@@ -2,14 +2,14 @@
 /// <reference lib="dom" />
 import { afterEach, expect, it, vi } from 'vitest'
 import { createMemoryHistory } from 'vue-router'
-import { installNativeHost, nativeCommandEvent } from './native-host'
+import { installNativeHost, nativeCommandEvent, nativeSelectionEvent, nativeWorkbenchReady, requestNativePanel } from './native-host'
 import { createWorkbenchRouter } from './router'
 
 type TestWindow = Window & Record<string, unknown>
 
 afterEach(() => {
   const host = window as unknown as TestWindow
-  for (const key of ['__craftHubNativeHost', '__craftHubNavigate', '__craftHubCommand', 'webkit'])
+  for (const key of ['__craftHubNativeHost', '__craftHubNavigate', '__craftHubCommand', '__craftHubSelect', 'webkit'])
     delete host[key]
   delete document.documentElement.dataset.nativeHost
 })
@@ -58,4 +58,39 @@ it('ignores a host marker that is not a plain identifier', () => {
   host.__craftHubNativeHost = 'macos"><script>'
   expect(installNativeHost(createWorkbenchRouter(createMemoryHistory()))).toBe(false)
   expect(document.documentElement.dataset.nativeHost).toBeUndefined()
+})
+
+it('opens native panels only with a macOS bridge and reports application readiness', () => {
+  expect(requestNativePanel('capture')).toBe(false)
+  const host = window as unknown as TestWindow
+  host.__craftHubNativeHost = 'macos'
+  expect(requestNativePanel('palette')).toBe(false)
+  const postMessage = vi.fn()
+  host.webkit = { messageHandlers: { craftHubNative: { postMessage } } }
+  expect(requestNativePanel('palette', 'commands')).toBe(true)
+  expect(postMessage).toHaveBeenLastCalledWith({ type: 'palette', mode: 'commands' })
+  expect(requestNativePanel('capture')).toBe(true)
+  expect(postMessage).toHaveBeenLastCalledWith({ type: 'capture' })
+  nativeWorkbenchReady()
+  expect(postMessage).toHaveBeenLastCalledWith({ type: 'ready' })
+})
+
+it('accepts project and capability selection but rejects execution and trust fields', () => {
+  const host = window as unknown as TestWindow
+  host.__craftHubNativeHost = 'macos'
+  installNativeHost(createWorkbenchRouter(createMemoryHistory()))
+  const events: unknown[] = []
+  const listener = (event: Event): void => {
+    events.push((event as CustomEvent).detail)
+  }
+  window.addEventListener(nativeSelectionEvent, listener)
+  const select = host.__craftHubSelect as (input: unknown) => void
+  select({ projectId: 'project', capabilityId: 'build' })
+  select({ projectId: 'project', execute: true })
+  select({ projectId: 'project', trust: 'trusted' })
+  select({ projectId: 'project', capabilityId: 42 })
+  select(null)
+  select([])
+  window.removeEventListener(nativeSelectionEvent, listener)
+  expect(events).toEqual([{ projectId: 'project', capabilityId: 'build' }])
 })

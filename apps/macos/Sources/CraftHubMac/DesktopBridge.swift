@@ -23,12 +23,16 @@ final class DesktopBridge: NSObject, WKScriptMessageHandlerWithReply {
       return result.value
     }
     Object.defineProperty(window, 'craftHubDesktop', { value: Object.freeze({
+      bridgeVersion: 1,
       platform: 'darwin',
       hostKind: 'macos',
       selectProjectDirectory: defaultPath => native('select-project-directory', { defaultPath }),
       selectProjectDirectories: defaultPath => native('select-project-directories', { defaultPath }),
       openExternalUrl: url => native('open-external-url', { url }),
       copyText: text => native('copy-text', { text }),
+      hostExtensions: () => sidecar('host-extensions'),
+      setHostExtensionEnabled: (id, enabled) => sidecar('set-host-extension-enabled', { id, enabled }),
+      restartForHostExtensions: () => native('restart-runtime'),
       openWorkbenchTool: toolId => sidecar('open-workbench-tool', { toolId }),
     }) })
   })()
@@ -36,6 +40,7 @@ final class DesktopBridge: NSObject, WKScriptMessageHandlerWithReply {
 
   private let origin: URL
   weak var webView: WKWebView?
+  var restartRuntime: (() async throws -> Void)?
 
   init(origin: URL) {
     self.origin = origin
@@ -58,6 +63,12 @@ final class DesktopBridge: NSObject, WKScriptMessageHandlerWithReply {
       guard let url = Self.externalURL(input["url"]) else { return replyHandler(nil, "An HTTPS URL without credentials is required") }
       NSWorkspace.shared.open(url)
       replyHandler(nil, nil)
+    case "restart-runtime":
+      guard let restartRuntime else { return replyHandler(nil, "Runtime restart is unavailable") }
+      Task {
+        do { try await restartRuntime(); replyHandler(nil, nil) }
+        catch { replyHandler(nil, error.localizedDescription) }
+      }
     case "copy-text":
       guard let text = input["text"] as? String else { return replyHandler(nil, "Clipboard text must be a string") }
       NSPasteboard.general.clearContents()

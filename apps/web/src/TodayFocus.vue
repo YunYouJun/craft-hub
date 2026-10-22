@@ -80,7 +80,7 @@ onUnmounted(() => { generation++; clearInterval(timer) })
     </ol>
     <SkeletonList v-else-if="loading" class="focus-skeleton" :label="copy('正在汇总…', 'Reading sources…')" />
     <p v-else class="focus-empty motion-reveal" role="status">{{ copy('暂无未完成事项，记录一件事开始吧。', 'No unfinished work. Capture a task to get started.') }}</p>
-    <p v-if="rows.length && loading" class="focus-updating" role="status">{{ copy('正在更新其他来源…', 'Updating sources…') }}</p>
+    <p v-if="rows.length && loading" class="sr-only" role="status">{{ copy('正在更新其他来源…', 'Updating sources…') }}</p>
     <UiButton v-if="rows.length > 3" variant="ghost" size="compact" class="focus-more" :aria-expanded="expanded" @click="expanded = !expanded">{{ expanded ? copy('收起', 'Show less') : copy(`另 ${rows.length - 3} 项建议`, `${rows.length - 3} more suggestions`) }}<Icon name="arrowDown" /></UiButton>
     <p v-if="error" class="focus-warning" role="alert">{{ error }}</p>
     <details class="focus-context">
@@ -134,7 +134,6 @@ summary::-webkit-details-marker { display: none; }
 summary:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; border-radius: 4px; }
 .focus-more { width: 100%; color: var(--accent); }
 .focus-warning { font-size: 12px; line-height: 1.5; color: var(--warning); }
-.focus-updating { margin: 0 0 8px; color: var(--muted); font-size: 12px; line-height: 1.5; }
 .focus-empty { padding: 12px 0; color: var(--muted); font-size: 12px; }
 /* Mirror the ranked rows: number column, title and source caption. */
 .focus-skeleton { --skeleton-row-height: 48px; --skeleton-row-padding: 6px 0 6px 34px; }

@@ -306,7 +306,7 @@ describe('shared home work data', () => {
     expect(data.stateFor(source).error).toContain('Source account changed')
   })
 
-  it('does not cache unidentified or explicitly non-cacheable successful reads as fresh', async () => {
+  it('does not cache explicitly non-cacheable successful reads as fresh', async () => {
     const data = useHomeWorkDataStore()
     const source = sources()[0]!
     vi.mocked(api.invokeIntegrationAction).mockImplementation(async (_id, action) => action === 'status' ? { connected: true, session: { cacheReads: false } } : { items: [] })
@@ -315,12 +315,67 @@ describe('shared home work data', () => {
     expect(vi.mocked(api.invokeIntegrationAction).mock.calls.filter(call => call[1] === 'list')).toHaveLength(2)
   })
 
+  it('reuses an empty unidentified result for 60 seconds after a successful connection check', async () => {
+    const data = useHomeWorkDataStore()
+    const source = sources()[0]!
+    vi.mocked(api.invokeIntegrationAction).mockImplementation(async (_id, action) => action === 'status' ? { connected: true } : { items: [] })
+    await data.load(source)
+    vi.mocked(api.invokeIntegrationAction).mockClear()
+    await data.load(source)
+    expect(api.invokeIntegrationAction).not.toHaveBeenCalled()
+
+    await data.load(source, { force: true })
+    expect(api.invokeIntegrationAction).toHaveBeenCalledTimes(2)
+    vi.mocked(api.invokeIntegrationAction).mockClear()
+    vi.advanceTimersByTime(60_001)
+    await data.load(source)
+    expect(api.invokeIntegrationAction).toHaveBeenCalledTimes(2)
+  })
+
+  it('revalidates unidentified nonempty results even when their connection is fresh', async () => {
+    const data = useHomeWorkDataStore()
+    const source = sources()[0]!
+    vi.mocked(api.invokeIntegrationAction).mockImplementation(async (_id, action) => action === 'status'
+      ? { connected: true }
+      : { items: [{ id: 'unidentified', title: 'Unidentified task' }] })
+    await data.load(source)
+    await data.load(source)
+    expect(vi.mocked(api.invokeIntegrationAction).mock.calls.filter(call => call[1] === 'list')).toHaveLength(2)
+    expect(vi.mocked(api.invokeIntegrationAction).mock.calls.filter(call => call[1] === 'status')).toHaveLength(1)
+  })
+
+  it('revalidates unidentified empty results without a connection action', async () => {
+    const declaration = contribution()
+    declaration.views[0]!.blocks.shift()
+    useWorkbenchStore().integrationContributions = [declaration]
+    const data = useHomeWorkDataStore()
+    const source = sources()[0]!
+    expect(source.connection).toBeUndefined()
+    vi.mocked(api.invokeIntegrationAction).mockResolvedValue({ items: [] })
+    await data.load(source)
+    await data.load(source)
+    expect(api.invokeIntegrationAction).toHaveBeenCalledTimes(2)
+  })
+
+  it('revalidates unidentified empty results when an optional connection check never succeeded', async () => {
+    const data = useHomeWorkDataStore()
+    const source = sources()[0]!
+    vi.mocked(api.invokeIntegrationAction).mockImplementation(async (_id, action) => {
+      if (action === 'status')
+        throw new Error('Status unavailable')
+      return { items: [] }
+    })
+    await data.load(source)
+    await data.load(source)
+    expect(api.invokeIntegrationAction).toHaveBeenCalledTimes(4)
+  })
+
   it('keeps known-account sibling snapshots when another list omits its current-user identity', async () => {
     const data = useHomeWorkDataStore()
     const [first, second] = sources()
     vi.mocked(api.invokeIntegrationAction).mockImplementation(async (_id, action, input) => action === 'status'
       ? { connected: true, session: { cacheKey: 'account' } }
-      : input?.list === 'one' ? page() : { items: [] })
+      : input?.list === 'one' ? page() : { items: [{ id: 'unidentified', title: 'Unidentified task' }] })
     await data.load(first!)
     await data.load(second!, { force: true })
     expect(data.stateFor(first!).page?.items[0]?.title).toBe('Previous task')

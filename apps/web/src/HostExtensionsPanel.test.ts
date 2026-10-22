@@ -76,3 +76,12 @@ it('installs, disables and removes extensions with a persistent restart prompt',
   expect(restartForHostExtensions).toHaveBeenCalledOnce()
   wrapper.unmount()
 })
+
+it('does not offer external extension installation on a bundled-only host', async () => {
+  useI18n().setLocale('zh-CN')
+  window.craftHubDesktop = { hostExtensions: vi.fn(async () => ({ extensions: [], diagnostics: [], restartRequired: false })) }
+  const wrapper = mount(HostExtensionsPanel)
+  await flushPromises()
+  expect(wrapper.findAll('button').some(button => button.text() === '添加宿主扩展…')).toBe(false)
+  wrapper.unmount()
+})

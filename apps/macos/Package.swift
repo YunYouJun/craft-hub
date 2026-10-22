@@ -9,9 +9,15 @@ let package = Package(
   products: [
     .executable(name: "CraftHubMac", targets: ["CraftHubMac"]),
   ],
+  dependencies: [
+    .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.10.0"),
+  ],
   targets: [
     .target(name: "CraftHubMacCore", swiftSettings: [.swiftLanguageMode(.v5)]),
-    .executableTarget(name: "CraftHubMac", dependencies: ["CraftHubMacCore"], swiftSettings: [.swiftLanguageMode(.v5)]),
+    .executableTarget(name: "CraftHubMac", dependencies: ["CraftHubMacCore", .product(name: "Sparkle", package: "Sparkle")],
+      swiftSettings: [.swiftLanguageMode(.v5)],
+      linkerSettings: [.unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "@executable_path/../Frameworks"])]),
     .testTarget(name: "CraftHubMacCoreTests", dependencies: ["CraftHubMacCore"], swiftSettings: [.swiftLanguageMode(.v5)]),
+    .testTarget(name: "CraftHubMacTests", dependencies: ["CraftHubMac", "CraftHubMacCore"], swiftSettings: [.swiftLanguageMode(.v5)]),
   ]
 )

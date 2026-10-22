@@ -11,6 +11,7 @@ import { Icon } from './icons'
 import { useI18n } from './i18n'
 import { homeWorkGroups, homeWorkSources } from './personal-workbench'
 import { useWorkbenchStore } from './store'
+import MicrosoftTodoOpenButton from './MicrosoftTodoOpenButton.vue'
 import { formatWorkItemDueDate, formatWorkItemTimestamp, workItemStatusIcon, workItemTypeIcon } from './work-item-presentation'
 import TodayFocus from './TodayFocus.vue'
 import VisualIcon from './VisualIcon.vue'
@@ -84,6 +85,10 @@ function needsAttention(group: HomeWorkGroup): boolean {
 
 function groupLoading(group: HomeWorkGroup): boolean {
   return group.sources.some(source => states.value[source.key]?.loading)
+}
+
+function canOpenMicrosoftTodo(group: HomeWorkGroup): boolean {
+  return store.integrationContributions.some(contribution => contribution.id === group.integrationId && contribution.provider.id === 'microsoft-todo')
 }
 
 async function refreshGroup(group: HomeWorkGroup): Promise<void> {
@@ -193,9 +198,13 @@ function coverageLabel(source: HomeWorkSource): string {
       <div v-if="tabbed && groups.length" class="home-provider-bar">
         <TabsList class="home-provider-tabs" :aria-label="copy('待办来源', 'Work sources')">
           <TabsTrigger v-for="group in groups" :key="group.integrationId" :value="group.integrationId" :aria-busy="groupLoading(group)">
-            <VisualIcon :icon="group.sources[0]?.icon" fallback="list" />
+            <template #icon>
+              <span class="home-provider-icon" :class="{ 'is-loading': groupLoading(group) }">
+                <VisualIcon :icon="group.sources[0]?.icon" fallback="list" />
+                <Icon v-if="groupLoading(group)" name="loading" class="home-tab-loading" />
+              </span>
+            </template>
             <span>{{ group.title }}</span>
-            <Icon v-if="groupLoading(group)" name="loading" class="home-tab-loading" :aria-label="copy('正在更新', 'Updating')" />
             <small v-if="groupCount(group) !== undefined" :title="copy('已载入的未完成事项', 'Loaded unfinished items')">{{ groupCount(group) }}</small>
             <Icon v-if="needsAttention(group)" name="error" class="home-tab-attention" :aria-label="copy('需要处理', 'Needs attention')" />
           </TabsTrigger>
@@ -203,7 +212,7 @@ function coverageLabel(source: HomeWorkSource): string {
         <UiButton variant="ghost" size="icon" :aria-label="copy('刷新我的工作', 'Refresh my work')" @click="refresh"><Icon :name="loading ? 'loading' : 'refresh'" /></UiButton>
       </div>
       <component :is="tabbed ? TabsContent : 'section'" v-for="group in groups" :key="group.integrationId" v-bind="tabbed ? { value: group.integrationId, forceMount: true, hidden: selectedGroup !== group.integrationId } : {}" class="home-work-source daily-surface" :aria-busy="groupLoading(group)">
-        <div v-if="!tabbed || group.sources.length === 1" class="home-group-heading home-source-heading">
+        <div v-if="!tabbed || group.sources.length === 1" class="home-group-heading home-source-heading" :class="{ 'has-application-shortcut': canOpenMicrosoftTodo(group) }">
           <div class="home-source-copy">
             <strong v-if="!tabbed" class="home-source-title"><VisualIcon :icon="group.sources[0]?.icon" fallback="list" />{{ group.title }}</strong>
             <template v-if="group.sources.length === 1">
@@ -213,6 +222,7 @@ function coverageLabel(source: HomeWorkSource): string {
           </div>
           <div class="home-source-actions">
             <UiButton v-if="group.sources.length === 1 && !awaitingConnection(group)" variant="ghost" size="compact" class="home-text-button" @click="emit('openIntegration', group.integrationId, group.sources[0]!.viewId, 'global')">{{ copy('查看全部', 'View all') }}<Icon name="arrowRight" /></UiButton>
+            <MicrosoftTodoOpenButton v-if="canOpenMicrosoftTodo(group)" icon-only />
             <UiButton variant="ghost" size="icon" class="home-icon-button" :disabled="group.sources.some(source => states[source.key]?.loading)" :aria-label="`${copy('刷新', 'Refresh')} ${group.title}`" @click="refreshGroup(group)"><Icon :name="group.sources.some(source => states[source.key]?.loading) ? 'loading' : 'refresh'" /></UiButton>
           </div>
         </div>
@@ -240,7 +250,7 @@ function coverageLabel(source: HomeWorkSource): string {
               </div>
             </div>
             <SkeletonList v-if="states[source.key]?.loading && !states[source.key]?.page" :label="copy('正在读取…', 'Loading…')" icon />
-            <p v-else-if="states[source.key]?.loading" class="home-source-progress daily-caption" role="status"><Icon name="loading" />{{ copy('后台更新中…', 'Updating…') }}</p>
+            <p v-else-if="states[source.key]?.loading" class="home-source-progress sr-only" role="status">{{ copy('后台更新中…', 'Updating…') }}</p>
             <div v-if="states[source.key]?.error" class="home-source-notice home-error" role="alert">
               <div><strong>{{ states[source.key]?.error }}</strong><p v-if="states[source.key]?.page" class="daily-caption">{{ copy('保留上次结果，可能已过期。', 'Previous results may be stale.') }}</p></div>
               <div class="home-source-actions">
@@ -298,7 +308,7 @@ function coverageLabel(source: HomeWorkSource): string {
                     <UiButton variant="ghost" size="icon" class="home-icon-button" :aria-label="`${copy('准备交接', 'Prepare handoff')} ${item.title}`" @click="emit('prepareHandoff', { source, item })"><Icon name="copy" /></UiButton>
                   </div>
                 </div>
-                <div v-if="!classifiedPage(states[source.key]?.page) && !visibleItems(source).length && !states[source.key]?.loading" class="daily-empty home-hint"><strong>{{ copy('本次暂无待处理事项', 'No pending work in these results') }}</strong><p class="daily-caption">{{ copy('本次返回的事项中，没有你的未完成事项。', 'No unfinished personal work in these results.') }}</p></div>
+                <div v-if="!classifiedPage(states[source.key]?.page) && !visibleItems(source).length" class="daily-empty home-hint"><strong>{{ copy('本次暂无待处理事项', 'No pending work in these results') }}</strong><p class="daily-caption">{{ copy('本次返回的事项中，没有你的未完成事项。', 'No unfinished personal work in these results.') }}</p></div>
               </template>
               <div class="daily-list-footer">
                 <div class="home-preview-note daily-caption">
@@ -324,9 +334,17 @@ function coverageLabel(source: HomeWorkSource): string {
 .home-provider-bar > button, .home-list-switcher > button { margin-left: auto; flex: none; }
 .home-provider-tabs { min-width: 0; max-width: 100%; overflow-x: auto; }
 .home-provider-tabs :deep([role='tab']) { min-height: 34px; gap: 8px; padding-inline: 12px; }
+.home-provider-tabs :deep([data-slot='navigation-icon']) { flex: 0 0 18px; width: 18px; height: 18px; }
+.home-provider-icon { display: grid; place-items: center; width: 18px; height: 18px; }
+.home-provider-icon > :deep(.visual-icon), .home-provider-icon > :deep(.home-tab-loading) { grid-area: 1 / 1; }
 .home-provider-tabs :deep(.visual-icon) { width: 18px; height: 18px; flex-basis: 18px; }
-.home-source-progress { display: flex; align-items: center; gap: var(--space-2); margin: 0; padding: var(--space-2) var(--space-4); }
-.home-source-progress .app-icon, .home-provider-tabs :deep(.home-tab-loading) { flex: none; width: 14px; height: 14px; color: var(--muted); }
+.home-provider-icon.is-loading > :deep(.visual-icon) { animation: home-provider-icon-out 120ms ease 200ms both; }
+.home-provider-icon > :deep(.home-tab-loading) { flex: none; width: 14px; height: 14px; color: var(--muted); animation: home-provider-loading-in 120ms ease 200ms both; }
+@keyframes home-provider-icon-out { from { opacity: 1; } to { opacity: 0; } }
+@keyframes home-provider-loading-in { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .home-provider-icon.is-loading > :deep(.visual-icon), .home-provider-icon > :deep(.home-tab-loading) { animation-duration: 0s; }
+}
 .home-provider-tabs :deep(small) { width: auto; padding: 0 5px; font-variant-numeric: tabular-nums; }
 .home-provider-tabs :deep(.home-tab-attention) { width: 14px; height: 14px; flex-basis: 14px; color: var(--warning); }
 .home-list-switcher { padding: 8px 16px; border-bottom: 1px solid var(--border); }
@@ -335,6 +353,8 @@ function coverageLabel(source: HomeWorkSource): string {
 .is-tabbed .home-list-heading { background: transparent; }
 .is-tabbed .home-source-copy p { flex-basis: auto; }
 .is-tabbed .home-source-copy { column-gap: 12px; }
+.is-tabbed .has-application-shortcut .home-source-copy { flex: 1; flex-wrap: nowrap; }
+.is-tabbed .has-application-shortcut .home-source-copy p { flex: 1 1 0; }
 @media (max-width: 760px), (pointer: coarse) {
   .home-provider-tabs :deep([role='tab']), .home-list-switcher :deep([role='tab']) { min-height: 44px; }
   .home-provider-bar { gap: 4px; }

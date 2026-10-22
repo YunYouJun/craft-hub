@@ -22,6 +22,7 @@ import { resolveDesktopDataDirectories } from './data-directories.ts'
 import { DesktopLinkCoordinator, DesktopLinkError, findDesktopLinkArgument } from './deep-links.ts'
 import { DeviceVault } from './device-vault.ts'
 import { communityDesktopAboutBranding, communityDesktopDevelopmentProtocol, communityDesktopProtocol, communityDesktopUpdateBaseUrl, loadDesktopDistributionManifest, resolveDesktopDistributionAsset } from './distribution.ts'
+import { installExternalNavigationHandlers } from './external-navigation.ts'
 import { selectedDirectoryPath, selectedDirectoryPaths } from './folder-picker.ts'
 import { registerHostExtensionHandlers } from './host-extensions.ts'
 import { createBuiltinHostPlugins, createDesktopHostRuntime, optionalHostPluginStatus } from './host-runtime.ts'
@@ -58,6 +59,7 @@ let desktopMenuLocale: DesktopMenuLocale = 'zh-CN'
 let aboutWindow: BrowserWindowType | undefined
 let craftHubServer: CraftHubServer | undefined
 let readyToQuit = false
+let shuttingDown = false
 let personalCloud: PersonalCloudController | undefined
 let desktopUpdater: DesktopUpdater | undefined
 let codexActivityMonitor: CodexActivityMonitor | undefined
@@ -647,6 +649,8 @@ async function loadUrlWithRetry(window: BrowserWindowType, url: string): Promise
 }
 
 async function createWindow(): Promise<void> {
+  if (shuttingDown)
+    return
   const staticDir = developmentUrl
     ? undefined
     : resolve(fileURLToPath(new URL('.', import.meta.url)), '../../web/dist')
@@ -668,6 +672,8 @@ async function createWindow(): Promise<void> {
     await initializePersonalCloud()
   }
   const { settings } = await craftHubServer.runtime.settings.get()
+  if (shuttingDown)
+    return
   applyDesktopTheme(settings['workbench.theme'])
   applyDesktopMenuLocale(settings['workbench.locale'])
 
@@ -703,6 +709,12 @@ async function createWindow(): Promise<void> {
   createdWindow.once('ready-to-show', () => createdWindow.show())
   createdWindow.on('close', () => writeWindowState(windowStateFile, createdWindow.getNormalBounds(), createdWindow.isMaximized()))
   const windowContents = mainWindow.webContents
+  installExternalNavigationHandlers(
+    windowContents,
+    developmentUrl ?? craftHubServer.url,
+    url => shell.openExternal(url),
+    error => writeApplicationLog('error', `External link failed to open: ${error instanceof Error ? error.message : String(error)}`),
+  )
   windowContents.on('context-menu', (_event, params) => {
     // Renderer menus cancel the DOM event, so this only covers text fields and plain selections.
     const template = createEditContextMenu(params, word => windowContents.replaceMisspelling(word), desktopMenuLocale)
@@ -755,6 +767,8 @@ function focusMainWindow(): void {
 }
 
 async function showMainWindow(): Promise<void> {
+  if (shuttingDown)
+    return
   if (!mainWindow || mainWindow.isDestroyed())
     await createWindow()
   else
@@ -871,6 +885,7 @@ app.on('before-quit', (event) => {
   if (readyToQuit)
     return
   event.preventDefault()
+  shuttingDown = true
   void requestShutdown()
 })
 

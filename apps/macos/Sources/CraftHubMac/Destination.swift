@@ -37,6 +37,8 @@ enum Destination: String, CaseIterable, Identifiable {
 
   var title: String { L10n.text.destination(self) }
 
+  var isNative: Bool { self == .environment || self == .software }
+
   /// The destination a web route belongs to, so the sidebar follows in-page navigation.
   static func matching(path: String) -> Destination? {
     if path == "/" { return .projects }
@@ -51,6 +53,26 @@ struct L10n {
   static let text = L10n(chinese: Locale.preferredLanguages.first?.hasPrefix("zh") ?? false)
 
   let chinese: Bool
+
+  func copy(_ zh: String, _ en: String) -> String { chinese ? zh : en }
+
+  func toolStatus(_ status: String) -> String {
+    switch status {
+    case "available": copy("可用", "Available")
+    case "missing": copy("未检测到", "Not Detected")
+    case "error": copy("检查失败", "Check Failed")
+    case "unsupported": copy("不支持", "Unsupported")
+    default: copy("未知", "Unknown")
+    }
+  }
+
+  func softwareStatus(_ status: String) -> String {
+    switch status {
+    case "detected": copy("已检测到", "Detected")
+    case "not-detected": copy("未检测到", "Not Detected")
+    default: copy("未知", "Unknown")
+    }
+  }
 
   func destination(_ destination: Destination) -> String {
     switch destination {
@@ -81,8 +103,8 @@ struct L10n {
   var missingNodeTitle: String { chinese ? "没有找到兼容的 Node" : "No compatible Node found" }
   var missingNodeMessage: String {
     chinese
-      ? "Craft Hub 需要 Node 22.18、24.11 或 26 以上版本来运行项目能力。已检查 PATH、Homebrew、~/.local/bin 和 fnm。"
-      : "Craft Hub needs Node 22.18, 24.11, or 26 and later to run project capabilities. It checked PATH, Homebrew, ~/.local/bin, and fnm."
+      ? "Craft Hub 需要 Node 22（≥22.18）、24（≥24.11）或 26来运行项目能力。已检查 PATH、Homebrew、~/.local/bin、pnpm 和 fnm。"
+      : "Craft Hub needs Node 22 (≥22.18), 24 (≥24.11), or 26 to run project capabilities. It checked PATH, Homebrew, ~/.local/bin, pnpm, and fnm."
   }
 
   var chooseNode: String { chinese ? "选择 Node…" : "Choose Node…" }

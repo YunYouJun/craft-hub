@@ -12,6 +12,7 @@ struct WorkbenchWebView: NSViewRepresentable {
 
   func makeNSView(context: Context) -> WKWebView {
     let configuration = WKWebViewConfiguration()
+    configuration.websiteDataStore = model.webSessionDataStore()
     let scripts = configuration.userContentController
     scripts.addUserScript(WKUserScript(source: "window.__craftHubNativeHost = 'macos'", injectionTime: .atDocumentStart, forMainFrameOnly: true))
     scripts.addUserScript(WKUserScript(source: DesktopBridge.script, injectionTime: .atDocumentStart, forMainFrameOnly: true))
@@ -24,6 +25,7 @@ struct WorkbenchWebView: NSViewRepresentable {
     webView.isInspectable = true
     context.coordinator.observe(webView)
     context.coordinator.bridge.webView = webView
+    model.webWillLoad()
     model.webView = webView
     webView.load(URLRequest(url: url))
     return webView
@@ -32,6 +34,7 @@ struct WorkbenchWebView: NSViewRepresentable {
   func updateNSView(_ webView: WKWebView, context: Context) {}
 
   static func dismantleNSView(_ webView: WKWebView, coordinator: Coordinator) {
+    if coordinator.model.webView === webView { coordinator.model.webWillLoad(); coordinator.model.webView = nil }
     webView.configuration.userContentController.removeScriptMessageHandler(forName: "craftHubNative")
     webView.configuration.userContentController.removeScriptMessageHandler(forName: DesktopBridge.handlerName, contentWorld: .page)
   }
@@ -47,6 +50,7 @@ struct WorkbenchWebView: NSViewRepresentable {
       self.model = model
       self.origin = origin
       bridge = DesktopBridge(origin: origin)
+      bridge.restartRuntime = { [weak model] in try await model?.restartRuntime?() }
     }
 
     func observe(_ webView: WKWebView) {
@@ -62,8 +66,17 @@ struct WorkbenchWebView: NSViewRepresentable {
     }
 
     func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
-      guard let body = message.body as? [String: Any], body["type"] as? String == "route", let path = body["path"] as? String else { return }
-      model.routeChanged(path)
+      let source = message.frameInfo.securityOrigin
+      guard message.frameInfo.isMainFrame, source.protocol == origin.scheme, source.host == origin.host,
+            source.port == origin.port ?? 0 else { return }
+      guard let body = message.body as? [String: Any] else { return }
+      switch body["type"] as? String {
+      case "route": if let path = body["path"] as? String { model.routeChanged(path) }
+      case "ready": model.webBecameReady()
+      case "palette": model.presentPanel?("palette", body["mode"] as? String)
+      case "capture": model.presentPanel?("capture", nil)
+      default: break
+      }
     }
 
     /// The workbench stays on its local origin; HTTPS links open in the default browser.

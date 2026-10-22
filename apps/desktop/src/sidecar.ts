@@ -5,7 +5,7 @@ import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { communityDistribution, HostExtensionManager, startCraftHubServer } from 'craft-hub'
 import { loadDesktopDistributionManifest } from './distribution.ts'
-import { createBuiltinHostPlugins, createDesktopHostRuntime } from './host-runtime.ts'
+import { bundledHostExtensionControls, createBuiltinHostPlugins, createDesktopHostRuntime } from './host-runtime.ts'
 import { createSessionGuard, createSidecarRequestHandler } from './sidecar-host.ts'
 
 /**
@@ -26,6 +26,7 @@ async function main(): Promise<void> {
   const manifestPath = fileURLToPath(new URL('../distribution.json', import.meta.url))
   const distribution = loadDesktopDistributionManifest(manifestPath)
   const builtinPlugins = createBuiltinHostPlugins({ workstationDirectory: fileURLToPath(new URL('../workstation-runtime', import.meta.url)), dataDir })
+  const hostExtensions = new HostExtensionManager(dataDir)
   const runtime = await createDesktopHostRuntime({
     builtinPlugins: builtinPlugins.plugins,
     optionalPlugins: builtinPlugins.optionalPlugins,
@@ -35,18 +36,19 @@ async function main(): Promise<void> {
     distributionPlugins: distribution?.hostPlugins?.length
       ? { id: distribution.distribution.id, name: distribution.distribution.name, manifestPath, modules: distribution.hostPlugins }
       : undefined,
-    hostExtensions: new HostExtensionManager(dataDir),
+    hostExtensions,
     logError: message => process.stderr.write(`${message}\n`),
   })
   const secret = randomBytes(32).toString('hex')
-  const guard = createSessionGuard(secret)
+  const nativeApiToken = randomBytes(32).toString('hex')
+  const guard = createSessionGuard(secret, nativeApiToken)
   const server = await startCraftHubServer({
     host: '127.0.0.1',
     port: 0,
     runtime,
     staticDir: fileURLToPath(new URL('../../web/dist', import.meta.url)),
     authorizeRequest: request => guard.authorize(request),
-    handleHostRequest: createSidecarRequestHandler(guard, () => runtime),
+    handleHostRequest: createSidecarRequestHandler(guard, () => runtime, undefined, undefined, bundledHostExtensionControls(hostExtensions, builtinPlugins)),
   })
   guard.setOrigin(server.url)
 
@@ -65,7 +67,7 @@ async function main(): Promise<void> {
   process.once('SIGTERM', () => void shutdown())
   process.stdin.resume()
   process.stdin.once('end', () => void shutdown())
-  process.stdout.write(`${JSON.stringify({ url: `${server.url}/__craft_hub_host/bootstrap?token=${secret}`, pid: process.pid })}\n`)
+  process.stdout.write(`${JSON.stringify({ version: 1, url: `${server.url}/__craft_hub_host/bootstrap?token=${secret}`, nativeApiToken, pid: process.pid })}\n`)
 }
 
 void main().catch((error) => {

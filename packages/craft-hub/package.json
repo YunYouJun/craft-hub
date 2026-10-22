@@ -25,6 +25,7 @@
     "./command-inputs": "./dist/command-inputs.mjs",
     "./personal-workbench": "./dist/personal-workbench.mjs",
     "./project-config-schema-revision": "./dist/project-config-schema-revision.mjs",
+    "./quick-capture": "./dist/quick-capture.mjs",
     "./skill-inputs": "./dist/skill-inputs.mjs",
     "./skill-prompts": "./dist/skill-prompts.mjs",
     "./work-items": "./dist/work-items.mjs",
@@ -40,6 +41,9 @@
     "schema",
     "web"
   ],
+  "engines": {
+    "node": "^22.18.0 || ^24.11.0 || ^26.0.0"
+  },
   "scripts": {
     "build": "tsdown",
     "dev": "tsdown --watch --no-clean",

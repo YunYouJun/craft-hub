@@ -5,8 +5,8 @@ import Testing
   #expect(NodeVersion("v24.11.0\n") == NodeVersion(major: 24, minor: 11, patch: 0))
   #expect(NodeVersion("24.11.0") == nil)
   #expect(NodeVersion("v24.11") == nil)
-  let supported = ["v22.18.0", "v24.11.0", "v24.18.0", "v26.0.0", "v27.1.0"]
-  let unsupported = ["v20.19.0", "v22.17.9", "v23.11.0", "v24.10.0", "v25.2.1"]
+  let supported = ["v22.18.0", "v24.11.0", "v24.18.0", "v26.0.0"]
+  let unsupported = ["v20.19.0", "v22.17.9", "v23.11.0", "v24.10.0", "v25.2.1", "v27.1.0"]
   #expect(supported.allSatisfy { NodeVersion($0)!.isSupportedByRuntime })
   #expect(unsupported.allSatisfy { !NodeVersion($0)!.isSupportedByRuntime })
 }
@@ -26,6 +26,7 @@ import Testing
     "/opt/homebrew/bin",
     "/usr/local/bin",
     "/bin",
+    "/Users/me/Library/pnpm",
     "/opt/fnm/aliases/default/bin",
     "/opt/fnm/node-versions/v24.11.0/installation/bin",
     "/opt/fnm/node-versions/v22.18.0/installation/bin",

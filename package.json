@@ -1,11 +1,11 @@
 {
   "name": "craft-hub-workspace",
   "type": "module",
-  "version": "0.0.1-alpha.5",
+  "version": "0.0.1-alpha.6",
   "private": true,
   "packageManager": "pnpm@12.11.2",
   "engines": {
-    "node": "^22.18.0 || ^24.11.0 || >=26.0.0"
+    "node": "^22.18.0 || ^24.11.0 || ^26.0.0"
   },
   "scripts": {
     "build": "pnpm software-catalog:check && nr -r build && node packages/craft-hub/scripts/prepare-package.mjs",
@@ -17,6 +17,7 @@
     "icons:desktop": "tsx scripts/generate-desktop-icons.ts",
     "lint": "pnpm check:public-boundary && eslint --cache .",
     "package:mac": "tsx scripts/run-package-macos.ts",
+    "package:macos": "tsx apps/macos/scripts/package-release.ts",
     "reinstall:mac": "tsx scripts/reinstall-macos.ts",
     "prepublishOnly": "nr build",
     "predocs": "typedoc",
@@ -32,6 +33,7 @@
     "software-catalog:sync": "tsx scripts/sync-software-catalog.ts",
     "software-catalog:check": "tsx scripts/sync-software-catalog.ts --check",
     "test": "vitest",
+    "test:macos-updates": "tsx apps/macos/scripts/verify-updates.ts",
     "typecheck": "tsc --noEmit",
     "prepare": "simple-git-hooks"
   },

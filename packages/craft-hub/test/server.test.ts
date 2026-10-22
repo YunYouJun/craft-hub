@@ -1,8 +1,9 @@
+import type { IncomingMessage } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { Buffer } from 'node:buffer'
 import { execFile } from 'node:child_process'
 import { mkdir, mkdtemp, readFile, realpath, writeFile } from 'node:fs/promises'
-import { createServer } from 'node:http'
+import { createServer, get as httpGet, request as httpRequest } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import process from 'node:process'
@@ -15,6 +16,19 @@ import { startCraftHubServer } from '../src/server'
 import { ProjectWatcher } from '../src/watcher'
 
 const execFileAsync = promisify(execFile)
+
+async function completesWithin(pending: Promise<unknown>): Promise<boolean> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      pending.then(() => true),
+      new Promise<false>(resolve => timer = setTimeout(resolve, 500, false)),
+    ])
+  }
+  finally {
+    clearTimeout(timer)
+  }
+}
 
 describe('craft hub server lifecycle', () => {
   it('exposes installed integrations and dispatches their actions through host plugins', async () => {
@@ -120,6 +134,198 @@ describe('craft hub server lifecycle', () => {
     }
     finally {
       closeWatcher.mockRestore()
+    }
+  })
+
+  it('closes an in-flight event request that resumes routing after shutdown starts', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'craft-hub-server-late-events-'))
+    const runtime = new CraftHubRuntime({ dataDir: join(root, 'data'), configDir: join(root, 'config') })
+    // Isolate HTTP shutdown from native filesystem watcher teardown.
+    const settingsWatch = vi.spyOn(runtime.settings, 'startWatching').mockResolvedValue()
+    const configWatch = vi.spyOn(runtime.userConfig, 'startWatching').mockResolvedValue()
+    const entered = Promise.withResolvers<void>()
+    const release = Promise.withResolvers<void>()
+    const finished = Promise.withResolvers<void>()
+    const app = await startCraftHubServer({
+      port: 0,
+      runtime,
+      handleHostRequest: async (request) => {
+        if (request.url === '/api/events') {
+          entered.resolve()
+          await release.promise
+        }
+        return false
+      },
+    })
+    let response: IncomingMessage | undefined
+    let closing: Promise<void> | undefined
+    const request = httpGet(`${app.url}/api/events`, (incoming) => {
+      response = incoming
+      incoming.once('end', () => finished.resolve())
+      incoming.once('close', () => finished.resolve())
+      incoming.resume()
+    })
+    request.once('error', () => finished.resolve())
+    try {
+      expect(await completesWithin(entered.promise), 'The HTTP request must enter before shutdown').toBe(true)
+      closing = app.close({ processExiting: true })
+      release.resolve()
+      expect(await completesWithin(Promise.all([closing, finished.promise])), 'Shutdown must not leave a late event stream open').toBe(true)
+      expect(app.server.listening).toBe(false)
+      expect(response?.statusCode).toBe(503)
+      expect(response?.headers.connection).toBe('close')
+      expect(response?.complete ?? request.destroyed).toBe(true)
+    }
+    finally {
+      release.resolve()
+      request.destroy()
+      response?.destroy()
+      app.server.closeAllConnections()
+      await (closing ?? app.close())
+      settingsWatch.mockRestore()
+      configWatch.mockRestore()
+    }
+  })
+
+  it('ends unfinished HTTP responses after stateful cleanup when the host process is exiting', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'craft-hub-server-exiting-response-'))
+    const runtime = new CraftHubRuntime({ dataDir: join(root, 'data'), configDir: join(root, 'config') })
+    const settingsWatch = vi.spyOn(runtime.settings, 'startWatching').mockResolvedValue()
+    const configWatch = vi.spyOn(runtime.userConfig, 'startWatching').mockResolvedValue()
+    const cleanupStarted = Promise.withResolvers<void>()
+    const releaseCleanup = Promise.withResolvers<void>()
+    const finishRuntimeClose = runtime.close.bind(runtime)
+    const closeRuntime = vi.spyOn(runtime, 'close').mockImplementation(async () => {
+      cleanupStarted.resolve()
+      await releaseCleanup.promise
+      await finishRuntimeClose()
+    })
+    const responseStarted = Promise.withResolvers<void>()
+    const connectionEnded = Promise.withResolvers<void>()
+    const app = await startCraftHubServer({
+      port: 0,
+      runtime,
+      handleHostRequest: (request, response) => {
+        if (request.url !== '/unfinished-response')
+          return false
+        response.writeHead(200, { 'content-type': 'text/plain' })
+        response.write('in progress')
+        return true
+      },
+    })
+    let response: IncomingMessage | undefined
+    let closing: Promise<void> | undefined
+    let closed = false
+    let disconnected = false
+    const request = httpGet(`${app.url}/unfinished-response`, (incoming) => {
+      response = incoming
+      incoming.once('close', () => {
+        disconnected = true
+        connectionEnded.resolve()
+      })
+      incoming.once('error', () => {})
+      incoming.resume()
+      responseStarted.resolve()
+    })
+    request.once('error', () => connectionEnded.resolve())
+    try {
+      expect(await completesWithin(responseStarted.promise), 'The partial HTTP response must begin before shutdown').toBe(true)
+      expect(response?.statusCode).toBe(200)
+      expect(response?.complete).toBe(false)
+      closing = app.close({ processExiting: true }).then(() => {
+        closed = true
+      })
+      expect(await completesWithin(cleanupStarted.promise)).toBe(true)
+      await new Promise(resolve => setTimeout(resolve, 25))
+      expect(closed, 'Stateful cleanup must finish before process shutdown').toBe(false)
+      expect(disconnected, 'The HTTP connection must remain open while stateful cleanup is pending').toBe(false)
+      expect(response?.destroyed).toBe(false)
+
+      releaseCleanup.resolve()
+      expect(await completesWithin(Promise.all([closing, connectionEnded.promise])), 'Process shutdown must close unfinished HTTP connections after stateful cleanup').toBe(true)
+      expect(app.server.listening).toBe(false)
+      expect(disconnected).toBe(true)
+      expect(response?.destroyed).toBe(true)
+    }
+    finally {
+      releaseCleanup.resolve()
+      request.destroy()
+      response?.destroy()
+      app.server.closeAllConnections()
+      await (closing ?? app.close({ processExiting: true }))
+      closeRuntime.mockRestore()
+      settingsWatch.mockRestore()
+      configWatch.mockRestore()
+    }
+  })
+
+  it('finishes an in-flight POST adapter before runtime cleanup and process-exit connection teardown', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'craft-hub-server-pending-write-'))
+    const runtime = new CraftHubRuntime({ dataDir: join(root, 'data'), configDir: join(root, 'config') })
+    const settingsWatch = vi.spyOn(runtime.settings, 'startWatching').mockResolvedValue()
+    const configWatch = vi.spyOn(runtime.userConfig, 'startWatching').mockResolvedValue()
+    const closeRuntime = vi.spyOn(runtime, 'close').mockResolvedValue()
+    const releaseWrite = Promise.withResolvers<void>()
+    const responseStarted = Promise.withResolvers<void>()
+    const connectionEnded = Promise.withResolvers<void>()
+    const app = await startCraftHubServer({
+      port: 0,
+      runtime,
+      handleHostRequest: async (request, response) => {
+        if (request.method !== 'POST' || request.url !== '/pending-mutation')
+          return false
+        request.resume()
+        response.writeHead(200, { 'content-type': 'text/plain' })
+        response.write('saving')
+        await releaseWrite.promise
+        return true
+      },
+    })
+    let response: IncomingMessage | undefined
+    let closing: Promise<void> | undefined
+    let closed = false
+    let disconnected = false
+    const request = httpRequest(`${app.url}/pending-mutation`, { method: 'POST', headers: { 'content-type': 'application/json' } }, (incoming) => {
+      response = incoming
+      incoming.once('close', () => {
+        disconnected = true
+        connectionEnded.resolve()
+      })
+      incoming.once('error', () => {})
+      incoming.resume()
+      responseStarted.resolve()
+    })
+    request.once('error', () => connectionEnded.resolve())
+    request.end('{}')
+    try {
+      expect(await completesWithin(responseStarted.promise), 'The POST response must begin while the adapter write is pending').toBe(true)
+      expect(response?.statusCode).toBe(200)
+      expect(response?.complete).toBe(false)
+      closing = app.close({ processExiting: true }).then(() => {
+        closed = true
+      })
+      await new Promise(resolve => setTimeout(resolve, 25))
+      expect(closeRuntime, 'Runtime cleanup must wait for the in-flight POST adapter write').not.toHaveBeenCalled()
+      expect(closed).toBe(false)
+      expect(disconnected, 'The POST connection must stay open until its write finishes').toBe(false)
+      expect(response?.destroyed).toBe(false)
+
+      releaseWrite.resolve()
+      expect(await completesWithin(Promise.all([closing, connectionEnded.promise])), 'Process exit must finish after the write and close the unfinished response').toBe(true)
+      expect(closeRuntime).toHaveBeenCalledOnce()
+      expect(app.server.listening).toBe(false)
+      expect(disconnected).toBe(true)
+      expect(response?.destroyed).toBe(true)
+    }
+    finally {
+      releaseWrite.resolve()
+      request.destroy()
+      response?.destroy()
+      app.server.closeAllConnections()
+      await (closing ?? app.close({ processExiting: true }))
+      closeRuntime.mockRestore()
+      settingsWatch.mockRestore()
+      configWatch.mockRestore()
     }
   })
 

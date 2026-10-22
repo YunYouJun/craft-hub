@@ -36,9 +36,9 @@ onMounted(() => operate(() => desktop?.hostExtensions?.()))
   <section class="host-extensions" :aria-label="t('hostExtensions')">
     <header>
       <p>{{ t('hostExtensionsDescription') }}</p>
-      <UiButton :disabled="busy" @click="operate(() => desktop?.installHostExtension?.())">{{ t('addHostExtension') }}</UiButton>
+      <UiButton v-if="desktop?.installHostExtension" :disabled="busy" @click="operate(() => desktop?.installHostExtension?.())">{{ t('addHostExtension') }}</UiButton>
     </header>
-    <p class="host-extension-help">{{ t('hostExtensionInstallHelp') }}</p>
+    <p v-if="desktop?.installHostExtension" class="host-extension-help">{{ t('hostExtensionInstallHelp') }}</p>
     <p v-if="error" role="alert" class="marketplace-error">{{ error }}</p>
     <div v-if="state.restartRequired" class="host-extension-restart" role="status">
       <span>{{ t('hostExtensionsRestartRequired') }}</span>
@@ -63,7 +63,7 @@ onMounted(() => operate(() => desktop?.hostExtensions?.()))
           <span class="host-extension-state">{{ t(extension.enabled ? 'hostExtensionEnabled' : 'hostExtensionDisabled') }}</span>
           <small>{{ extension.manifestPath }}</small>
         </div>
-        <div class="plugin-actions">
+        <div v-if="desktop?.removeHostExtension" class="plugin-actions">
           <UiButton size="compact" :disabled="busy" @click="operate(() => desktop?.setHostExtensionEnabled?.(extension.id, !extension.enabled))">{{ t(extension.enabled ? 'disablePlugin' : 'enablePlugin') }}</UiButton>
           <UiButton size="compact" variant="danger-secondary" :disabled="busy" @click="operate(() => desktop?.removeHostExtension?.(extension.id))">{{ t('removeHostExtension') }}</UiButton>
         </div>

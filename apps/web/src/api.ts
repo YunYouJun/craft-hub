@@ -149,6 +149,7 @@ export const api = {
   softwareInstallationRuns: (sourceId: string) => request<SoftwareInstallationRuns>(`/api/software/${encodeURIComponent(sourceId)}/runs`),
   cancelSoftwareInstallation: (sourceId: string, runId: string) => request<SoftwareInstallationRun>(`/api/software/${encodeURIComponent(sourceId)}/runs/${encodeURIComponent(runId)}/cancel`, { method: 'POST', body: JSON.stringify({}) }),
   openSoftwareApplication: (sourceId: string, softwareId: string) => request<SoftwareApplicationOpen>(`/api/software/${encodeURIComponent(sourceId)}/open`, { method: 'POST', body: JSON.stringify({ softwareId }) }),
+  openLocalApplication: (applicationId: 'microsoft-todo') => request<import('craft-hub').LocalApplicationOpenResult>(`/api/applications/${applicationId}/open`, { method: 'POST', body: '{}' }),
   localEnvironment: () => request<LocalEnvironmentSnapshot>('/api/environment'),
   ownerScopes: () => request<OwnerScope[]>('/api/owner-scopes'),
   ownerScopeState: () => request<OwnerScopeUiState>('/api/owner-scopes/state'),

@@ -1,0 +1,108 @@
+name: Release native macOS
+
+on:
+  push:
+    tags:
+      - 'native-v*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-native
+  cancel-in-progress: false
+
+jobs:
+  package:
+    name: Verify and package native Apple silicon app
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+        with:
+          run_install: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Validate native release version
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          test "$(uname -m)" = arm64
+          node -e 'if (process.env.RELEASE_TAG !== "native-v" + require("./package.json").version) throw new Error("Native tag must match the workspace version")'
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm build
+      - run: pnpm test --run
+      - run: swift test --package-path apps/macos
+      - name: Import release signing credentials
+        env:
+          MACOS_CERTIFICATE_BASE64: ${{ secrets.MACOS_CERTIFICATE_BASE64 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          APPLE_API_KEY_BASE64: ${{ secrets.APPLE_API_KEY_BASE64 }}
+          SPARKLE_PRIVATE_ED_KEY: ${{ secrets.SPARKLE_PRIVATE_ED_KEY }}
+        run: |
+          set -euo pipefail
+          umask 077
+          certificate_path="$RUNNER_TEMP/native-developer-id.p12"
+          keychain_path="$RUNNER_TEMP/native-signing.keychain-db"
+          keychain_password="$(openssl rand -base64 32)"
+          printf '%s' "$MACOS_CERTIFICATE_BASE64" | base64 -D > "$certificate_path"
+          printf '%s' "$APPLE_API_KEY_BASE64" | base64 -D > "$RUNNER_TEMP/native-notary.p8"
+          printf '%s' "$SPARKLE_PRIVATE_ED_KEY" > "$RUNNER_TEMP/native-sparkle.key"
+          security create-keychain -p "$keychain_password" "$keychain_path"
+          security set-keychain-settings -lut 21600 "$keychain_path"
+          security unlock-keychain -p "$keychain_password" "$keychain_path"
+          security import "$certificate_path" -P "$MACOS_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$keychain_path"
+          security set-key-partition-list -S apple-tool:,apple: -k "$keychain_password" "$keychain_path"
+          security list-keychains -d user -s "$keychain_path"
+          echo "MACOS_KEYCHAIN_PATH=$keychain_path" >> "$GITHUB_ENV"
+          echo "APPLE_API_KEY_PATH=$RUNNER_TEMP/native-notary.p8" >> "$GITHUB_ENV"
+          echo "SPARKLE_PRIVATE_KEY_FILE=$RUNNER_TEMP/native-sparkle.key" >> "$GITHUB_ENV"
+      - name: Build, sign, notarize, and sign the update feed
+        run: pnpm package:macos
+        env:
+          CRAFT_HUB_NATIVE_RELEASE: 'true'
+          RELEASE_TAG: ${{ github.ref_name }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+          SPARKLE_PUBLIC_ED_KEY: ${{ vars.SPARKLE_PUBLIC_ED_KEY }}
+      - uses: actions/upload-artifact@v7
+        with:
+          name: native-macos-arm64
+          path: release/native/arm64/*
+          if-no-files-found: error
+      - name: Remove temporary credentials
+        if: always()
+        run: |
+          security delete-keychain "$RUNNER_TEMP/native-signing.keychain-db" || true
+          rm -f "$RUNNER_TEMP/native-developer-id.p12" "$RUNNER_TEMP/native-notary.p8" "$RUNNER_TEMP/native-sparkle.key"
+
+  release:
+    needs: package
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: native-macos-arm64
+          path: release
+      - name: Publish verified native alpha artifacts
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$RELEASE_TAG" release/* --repo "$GITHUB_REPOSITORY" \
+            --verify-tag --prerelease --latest=false --generate-notes --title "Craft Hub Native ${RELEASE_TAG#native-v}"
+
+  deploy-site:
+    needs: release
+    permissions:
+      contents: read
+    uses: ./.github/workflows/deploy-site.yml
+    secrets: inherit

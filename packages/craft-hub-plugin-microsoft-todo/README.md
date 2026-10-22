@@ -27,6 +27,8 @@ Personal Microsoft accounts use the `consumers` tenant by default. A local host 
 
 Opening a task uses the official Microsoft To Do website; this version does not fabricate per-task deep links. Apart from completion (below), it does not edit existing tasks.
 
+The integration toolbar also offers **Open locally**, with a compact shortcut beside the home task list actions. Local macOS hosts launch the installed Microsoft To Do app and fall back to the official website when it is unavailable. Other platforms and hosted workbenches use the website. Opening the app does not select or modify a task.
+
 ## Quick capture and today’s focus
 
 Press **Command/Control + Shift + Space** while the desktop app is running, or choose **Quick capture** on Home. Enter a thought such as `明天下午三点跟进发布 #任务 !重要`, review the title, target list, due date and reminder, then save. **AI understanding** handles richer wording through the host’s configured text-assistance adapter. Ambiguous deadlines remain reviewable. The first version creates one task per capture; Microsoft due dates retain the calendar day; explicit times enable a separately reviewable reminder. Date-only captures do not enable reminders, and recurrence is not created.

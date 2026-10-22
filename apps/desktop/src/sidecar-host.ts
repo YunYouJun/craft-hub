@@ -1,4 +1,4 @@
-import type { CraftHubRuntime } from 'craft-hub'
+import type { CraftHubRuntime, HostExtensionStatus } from 'craft-hub'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { Buffer } from 'node:buffer'
 import { spawn } from 'node:child_process'
@@ -8,7 +8,7 @@ import { openPersonalWorkbenchTool } from './open-targets.ts'
 const cookieName = 'craft-hub-host-session'
 const hostPrefix = '/__craft_hub_host/'
 
-/** Restricts the sidecar's API and static assets to the one web view the native host bootstraps. */
+/** Restricts the sidecar to its owning native client and the web view it bootstraps. */
 export interface SidecarSessionGuard {
   setOrigin: (value: string) => void
   authorize: (request: IncomingMessage) => boolean
@@ -23,9 +23,10 @@ function sameSecret(value: string | null | undefined, secret: string): boolean {
 
 /**
  * Accept one bootstrap request carrying the secret, then only requests on the loopback origin that present the
- * HttpOnly session cookie it set. Other processes on the machine cannot read the cookie or reuse the bootstrap URL.
+ * HttpOnly session cookie it set. The native client receives a separate API-only bearer token over the parent pipe;
+ * it never enters a URL, web content, persistent storage, or a cookie. Both credentials expire with this process.
  */
-export function createSessionGuard(secret: string): SidecarSessionGuard {
+export function createSessionGuard(secret: string, nativeApiToken?: string): SidecarSessionGuard {
   let origin: string | undefined
   let bootstrapped = false
   return {
@@ -40,6 +41,12 @@ export function createSessionGuard(secret: string): SidecarSessionGuard {
         return false
       if (request.headers.origin && request.headers.origin !== origin)
         return false
+      if (request.headers.authorization !== undefined) {
+        // A native token cannot bootstrap a browser session or reach host actions/static assets.
+        const pathname = new URL(request.url ?? '/', origin).pathname
+        return pathname.startsWith('/api/') && !!nativeApiToken
+          && sameSecret(request.headers.authorization, `Bearer ${nativeApiToken}`)
+      }
       const cookie = request.headers.cookie?.split(';').map(value => value.trim()).find(value => value.startsWith(`${cookieName}=`))
       if (sameSecret(cookie?.slice(cookieName.length + 1), secret))
         return true
@@ -102,6 +109,12 @@ function send(response: ServerResponse, status: number, body: unknown): void {
   response.end(JSON.stringify(body))
 }
 
+/** Native host management is limited to optional code already shipped in the application bundle. */
+export interface SidecarBundledExtensions {
+  status: () => Promise<HostExtensionStatus>
+  setEnabled: (id: string, enabled: boolean) => Promise<HostExtensionStatus>
+}
+
 /**
  * Serve the bootstrap and the host actions that need runtime state. Operating-system actions such as dialogs and
  * the clipboard belong to the native host; these routes cover only what it cannot do without the runtime.
@@ -111,6 +124,7 @@ export function createSidecarRequestHandler(
   getRuntime: () => Pick<CraftHubRuntime, 'settings'>,
   openTool: typeof openPersonalWorkbenchTool = openPersonalWorkbenchTool,
   openUrl: (url: string) => Promise<void> = openInBrowser,
+  bundledExtensions?: SidecarBundledExtensions,
 ): (request: IncomingMessage, response: ServerResponse) => Promise<boolean> {
   return async (request, response) => {
     const pathname = new URL(request.url ?? '/', 'http://127.0.0.1').pathname
@@ -128,6 +142,18 @@ export function createSidecarRequestHandler(
     try {
       const input = await inputBody(request)
       switch (pathname.slice(hostPrefix.length)) {
+        case 'host-extensions': {
+          if (!bundledExtensions)
+            throw new Error('Bundled extension management is unavailable')
+          send(response, 200, { value: await bundledExtensions.status() })
+          return true
+        }
+        case 'set-host-extension-enabled': {
+          if (!bundledExtensions || typeof input.id !== 'string' || typeof input.enabled !== 'boolean')
+            throw new Error('A bundled extension identifier and boolean state are required')
+          send(response, 200, { value: await bundledExtensions.setEnabled(input.id, input.enabled) })
+          return true
+        }
         case 'open-workbench-tool': {
           if (typeof input.toolId !== 'string')
             throw new Error('Workbench tool identifier is required')

@@ -165,7 +165,7 @@ function guiToolDirectories(platform: NodeJS.Platform, home: string, env: Record
   const fnmDirectories = fnmRoots.flatMap((root) => {
     let versions: string[] = []
     try {
-      versions = readDirectory(path.join(root, 'node-versions')).filter(version => /^v\d+\.\d+\.\d+$/.test(version)).sort((left, right) => right.localeCompare(left, undefined, { numeric: true }))
+      versions = readDirectory(path.join(root, 'node-versions')).filter(version => /^v(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/.test(version)).sort((left, right) => right.localeCompare(left, undefined, { numeric: true }))
     }
     catch {
       // GUI startup does not require fnm or Node to be installed.

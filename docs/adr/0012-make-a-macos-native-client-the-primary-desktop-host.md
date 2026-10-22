@@ -2,7 +2,16 @@
 
 Date: 2026-10-22. Status: proposed. The maintainer set the direction; Electron remains the shipped host on every platform.
 
-Update, 2026-10-22: the `apps/macos` prototype (M1) runs the shared runtime sidecar from `apps/desktop/src/sidecar.ts`, which Electron and the native host compose through `createDesktopHostRuntime`. The Tauri trial is retired and removed (question 9).
+Update, 2026-10-22: the `apps/macos` prototype (M1) runs the shared runtime sidecar from `apps/desktop/src/sidecar.ts`, which Electron and the native host compose through `createDesktopHostRuntime`. The Tauri trial is retired and removed (question 9). Native environment inspection and software browsing now consume the public API through a separate per-process bearer token delivered over the parent pipe. Configuration and installation remain in the embedded workbench; this does not complete the M0 decisions or M1 daily-use acceptance.
+
+## M0 implementation decisions (2026-10-22)
+
+- **Node support:** bound the published range to majors 22, 24 and 26, with the existing minimums 22.18 and 24.11. The Node compatibility CI job tests all three majors; local and hosted results are recorded separately. New majors are added with evidence rather than accepted automatically. The [official release schedule](https://github.com/nodejs/Release/blob/main/schedule.json) currently places Node 27 in a future release phase.
+- **Fixed search:** preserve the caller's absolute PATH order, then explicit PNPM_HOME, common GUI directories (including the default pnpm directory), and fnm roots. Prefer each fnm default alias before its numerically sorted installations. Ignore relative manager roots and noncanonical version directory names. Electron and Swift consume the same fixture at `apps/desktop/test/fixtures/node-host-contract.json`.
+- **Bridge:** expose v1 metadata in both hosts and retain optional method detection for older clients. The [inventory](../guide/desktop-bridge.md) is the migration checklist; unimplemented methods stay absent.
+- **CI:** retain cross-platform Electron/runtime checks, add Node-major coverage, and build/test/signature-check the native app on `macos-26`, whose [runner image](https://github.com/actions/runner-images/blob/main/images/macos/macos-26-arm64-Readme.md) supplies Xcode 26. CI configuration alone is not a successful hosted run.
+
+The existing macOS 15 deployment target and separate prototype identity/data directory remain in effect. Architecture remains proposed until the outstanding data/identity migration, Node bootstrap and daily-use decisions below have evidence. Node CPU-architecture validation, bounded probe termination, explicit-path fallback diagnostics, Swift formatting and Electron performance baselines remain open M0 work.
 
 ## Context
 
@@ -19,12 +28,12 @@ The repository already separates what a native client needs:
 - `packages/craft-hub` owns the project registry, capability discovery, trust, execution and persistence. It serves them over the local HTTP API and the `/api/events` stream. `startCraftHubServer` accepts `authorizeRequest` and `handleHostRequest` hooks for a host's access gate and adapter routes. AGENTS.md already requires editor and desktop clients to consume public runtime contracts.
 - Marketplace plugins are declarative ([ADR 0006](./0006-separate-marketplace-plugins-from-host-plugins.md)), so their workbench blocks can be rendered by a client other than the web UI.
 - The Tauri host trial, since retired, bundled its own Node executable and ran the runtime as a separate backend process. That backend guarded every route with a one-use bootstrap URL and a session cookie, validated Host and Origin, and shut down when its parent's pipe closed. A Swift/AppKit helper supplied native folder selection. A native host can reuse the guard and the process lifecycle.
-- Most users of a developer workbench already have Node. The Electron host finds an external Codex CLI and its Node through fixed GUI search rules (`guiToolDirectories` in `apps/desktop/src/codex-executable.ts`): absolute `PATH` entries, `~/.local/bin`, Homebrew, pnpm, and fnm installations. It does not run shell startup scripts. The runtime's only native module, `node-pty` 1.1.0, is built on node-addon-api with one prebuild per platform, so a single build loads on every supported Node major. The workspace declares `^22.18.0 || ^24.11.0 || >=26.0.0`; the runtime package does not yet declare its own range.
+- Most users of a developer workbench already have Node. The Electron host finds an external Codex CLI and its Node through fixed GUI search rules (`guiToolDirectories` in `apps/desktop/src/codex-executable.ts`): absolute `PATH` entries, `~/.local/bin`, Homebrew, pnpm, and fnm installations. It does not run shell startup scripts. The runtime's only native module, `node-pty` 1.1.0, is built on node-addon-api with one prebuild per platform, so a single build loads on every supported Node major. The workspace and runtime package declare `^22.18.0 || ^24.11.0 || ^26.0.0`; future majors require an explicit compatibility review and CI coverage before extending the range.
 
 Moving the Electron host is still real work:
 
 - The Electron main process runs the runtime server in-process, along with Node-side services: Codex SDK execution and activity monitoring, the personal cloud controller, the `safeStorage`-backed device vault, host extensions, and host plugin loading such as the Microsoft To Do transport. It also owns the operating-system integration: menus, global shortcuts, deep links and single-instance handling, updates, editor and terminal launching, and window state.
-- The web UI uses 47 members of `window.craftHubDesktop`. `main.ts` registers 42 IPC handlers, and `host-extensions.ts` registers 6 more.
+- The [desktop bridge v1 inventory](../guide/desktop-bridge.md) covers 63 members of `window.craftHubDesktop`, including metadata. It records actual support and ownership for Electron, the native host, and the browser fallback; tests keep the inventory aligned with the injected scripts.
 - The web UI has 123 Vue components, about 19,000 lines. Rewriting it at once would stop releases for months.
 
 [ADR 0011](./0011-focus-on-machine-setup-and-environment.md) also requires the setup workbench to open on a machine without Node. A host may rely on external Node only if it provides an independent bootstrap view first. A native window can be that view because it starts before any Node process.
@@ -54,7 +63,7 @@ Each phase ends with a go/no-go review. A phase does not start until the previou
 
 - Extract the Node-side services from `apps/desktop/src/main.ts` into a host backend that the Electron host and a sidecar entry can both start. Reuse the lifecycle and guard of the Tauri trial's backend, now `apps/desktop/src/sidecar-host.ts`.
 - Define an authentication contract for clients that are not browsers, so a native client — and the MCP and agent clients that a session-cookie guard blocks — can connect without a browser cookie.
-- Specify the desktop bridge as a versioned contract grouped by concern: navigation and events, application launching, dialogs, updates, cloud, and Codex. This replaces the implicit set of 47 members.
+- Specify the desktop bridge as a versioned contract grouped by concern: navigation and events, application launching, dialogs, updates, cloud, and Codex. The versioned inventory replaces the implicit member list.
 - Declare the runtime's supported Node range in the runtime package and run its tests on each supported major.
 - Write the Node search rules down as shared fixtures. Node is resolved before any Node process exists, so the native host needs its own Swift implementation. Both implementations must pass the same fixtures as `guiToolDirectories`.
 

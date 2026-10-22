@@ -1,6 +1,8 @@
 const { contextBridge, ipcRenderer } = require('electron')
 
 contextBridge.exposeInMainWorld('craftHubDesktop', {
+  bridgeVersion: 1,
+  hostKind: 'electron',
   // Electron's sandbox exposes process as a safe, limited global.
   // eslint-disable-next-line node/prefer-global/process
   platform: process.platform,
