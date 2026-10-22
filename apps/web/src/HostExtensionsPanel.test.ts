@@ -24,6 +24,25 @@ it('shows the prebuilt environment engine separately from removable extensions',
   wrapper.unmount()
 })
 
+it('turns an optional bundled plugin on or off and asks for a restart', async () => {
+  useI18n().setLocale('zh-CN')
+  const todo = { id: 'microsoft-todo', name: 'Microsoft To Do', version: '0.1.0', optional: true, enabled: false }
+  const setHostExtensionEnabled = vi.fn(async (_id: string, enabled: boolean) => ({ extensions: [], diagnostics: [], restartRequired: true, bundledExtensions: [{ ...todo, enabled }] }))
+  window.craftHubDesktop = { hostExtensions: vi.fn(async () => ({ extensions: [], diagnostics: [], restartRequired: false, bundledExtensions: [todo] })), setHostExtensionEnabled }
+  const wrapper = mount(HostExtensionsPanel, { global: { stubs: { RouterLink: { template: '<a><slot /></a>' } } } })
+  await flushPromises()
+  const bundled = wrapper.get('[data-testid="bundled-host-extensions"]')
+  expect(bundled.text()).toContain('已禁用')
+  expect(bundled.text()).toContain('启用后才会加载')
+  expect(bundled.text()).not.toContain('打开环境恢复')
+  await bundled.get('button').trigger('click')
+  await flushPromises()
+  expect(setHostExtensionEnabled).toHaveBeenCalledWith('microsoft-todo', true)
+  expect(wrapper.get('[data-testid="bundled-host-extensions"]').text()).toContain('启动时加载')
+  expect(wrapper.text()).toContain('重启')
+  wrapper.unmount()
+})
+
 it('installs, disables and removes extensions with a persistent restart prompt', async () => {
   useI18n().setLocale('zh-CN')
   const installed: HostExtensionStatus = { extensions: [{ id: 'acme', name: 'Acme', enabled: true, manifestPath: '/example/distribution.json', modules: ['/example/host.mjs'] }], diagnostics: [], restartRequired: true }

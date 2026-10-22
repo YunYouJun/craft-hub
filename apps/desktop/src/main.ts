@@ -24,7 +24,7 @@ import { DeviceVault } from './device-vault.ts'
 import { communityDesktopAboutBranding, communityDesktopDevelopmentProtocol, communityDesktopProtocol, communityDesktopUpdateBaseUrl, loadDesktopDistributionManifest, resolveDesktopDistributionAsset } from './distribution.ts'
 import { selectedDirectoryPath, selectedDirectoryPaths } from './folder-picker.ts'
 import { registerHostExtensionHandlers } from './host-extensions.ts'
-import { createBuiltinHostPlugins, createDesktopHostRuntime } from './host-runtime.ts'
+import { createBuiltinHostPlugins, createDesktopHostRuntime, optionalHostPluginStatus } from './host-runtime.ts'
 import { codexThreadUrl, editorTargetPaths, externalHttpUrl, focusCodexApplication, gitRemoteHttpUrl, macTerminalApplications, openCodexProject, openCursorEditor, openCustomEditor, openMacTerminalProject, openPersonalWorkbenchTool, projectContainsPath, vscodeUrl } from './open-targets.ts'
 import { createDeferredOnceTask } from './shutdown-task.ts'
 import { DesktopUpdater } from './updater.ts'
@@ -33,8 +33,6 @@ import { readWindowState, restoreWindowState, writeWindowState } from './window-
 import { resolveWorkspaceLaunchTarget } from './workspace-launch-target.ts'
 
 const execFileAsync = promisify(execFile)
-const builtinHostPlugins = createBuiltinHostPlugins({ workstationDirectory: fileURLToPath(new URL('../workstation-runtime', import.meta.url)).replace(/\.asar(?=\/)/, '.asar.unpacked') })
-const workstation = builtinHostPlugins.workstation
 let quickCaptureRegistered = false
 let pendingQuickCapture = false
 
@@ -220,10 +218,16 @@ function directoryDialogDefaultPath(value: unknown): string | undefined {
   return typeof value === 'string' && isAbsolute(value) && !value.includes('\0') ? value : undefined
 }
 
+const builtinHostPlugins = createBuiltinHostPlugins({
+  workstationDirectory: fileURLToPath(new URL('../workstation-runtime', import.meta.url)).replace(/\.asar(?=\/)/, '.asar.unpacked'),
+  dataDir: desktopDataDirectories.runtimeDataDir,
+})
+const workstation = builtinHostPlugins.workstation
 const hostExtensionManager = new HostExtensionManager(desktopDataDirectories.runtimeDataDir)
 registerHostExtensionHandlers({
   manager: hostExtensionManager,
   bundledExtensions: workstation.bundled ? [{ id: 'workstation', name: 'Workstation', version: workstation.bundled.version }] : [],
+  optionalBundledExtensions: () => optionalHostPluginStatus(hostExtensionManager, builtinHostPlugins.optionalPlugins),
   window: () => mainWindow,
   localPluginPath: async (packageName) => {
     const plugin = (await craftHubServer?.runtime.pluginManager.listInstalled())?.find(item => item.package === packageName)
@@ -649,6 +653,7 @@ async function createWindow(): Promise<void> {
   if (!craftHubServer) {
     const runtime = await createDesktopHostRuntime({
       builtinPlugins: builtinHostPlugins.plugins,
+      optionalPlugins: builtinHostPlugins.optionalPlugins,
       dataDir: desktopDataDirectories.runtimeDataDir,
       distribution: runtimeDistribution,
       distributionPlugins: desktopDistribution?.hostPlugins?.length

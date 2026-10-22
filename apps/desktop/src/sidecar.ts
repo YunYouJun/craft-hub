@@ -25,9 +25,10 @@ async function main(): Promise<void> {
 
   const manifestPath = fileURLToPath(new URL('../distribution.json', import.meta.url))
   const distribution = loadDesktopDistributionManifest(manifestPath)
-  const builtinPlugins = createBuiltinHostPlugins({ workstationDirectory: fileURLToPath(new URL('../workstation-runtime', import.meta.url)) })
+  const builtinPlugins = createBuiltinHostPlugins({ workstationDirectory: fileURLToPath(new URL('../workstation-runtime', import.meta.url)), dataDir })
   const runtime = await createDesktopHostRuntime({
     builtinPlugins: builtinPlugins.plugins,
+    optionalPlugins: builtinPlugins.optionalPlugins,
     configDir,
     dataDir,
     distribution: distribution?.distribution ?? communityDistribution,

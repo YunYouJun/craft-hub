@@ -13,8 +13,11 @@ export interface MicrosoftTodoTransport {
   close: () => Promise<void>
 }
 
-/** Desktop hosts keep one authorized process alive and close it during host shutdown. */
-export interface MicrosoftTodoTransportOptions { keepAlive?: boolean, writable?: boolean }
+/**
+ * A connector closes after `idleTimeoutMs` without calls (30 seconds by default), or never with `keepAlive`, whose
+ * host then closes it during shutdown. A longer idle period spares repeated keychain prompts and startup latency.
+ */
+export interface MicrosoftTodoTransportOptions { keepAlive?: boolean, idleTimeoutMs?: number, writable?: boolean }
 
 /** Sanitized failure without credential-bearing upstream diagnostics. */
 export class MicrosoftTodoError extends Error {
@@ -113,7 +116,7 @@ export function createMicrosoftTodoTransport(options: MicrosoftTodoTransportOpti
         if (!active && !options.keepAlive) {
           idleTimer = setTimeout(() => {
             void close().catch(() => {})
-          }, Math.max(30_000, authorizingUntil - Date.now()))
+          }, Math.max(options.idleTimeoutMs ?? 30_000, authorizingUntil - Date.now()))
           idleTimer.unref()
         }
       }

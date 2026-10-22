@@ -47,8 +47,13 @@ onMounted(() => operate(() => desktop?.hostExtensions?.()))
     <p v-for="diagnostic in state.diagnostics" :key="diagnostic.pluginId" role="alert" class="marketplace-error">{{ diagnostic.pluginId }}: {{ diagnostic.message }}</p>
     <div v-if="state.bundledExtensions?.length" class="plugin-list" data-testid="bundled-host-extensions">
       <article v-for="extension in state.bundledExtensions" :key="extension.id" class="host-extension-row">
-        <div><strong>{{ extension.name }}</strong><span class="host-extension-state">{{ extension.version }} · {{ t('bundledHostExtension') }}</span><small>{{ t('bundledHostExtensionDescription') }}</small></div>
-        <RouterLink to="/environment/setup">{{ t('openEnvironmentRecovery') }}</RouterLink>
+        <div>
+          <strong>{{ extension.name }}</strong>
+          <span class="host-extension-state">{{ extension.version }} · {{ t('bundledHostExtension') }}<template v-if="extension.optional"> · {{ t(extension.enabled ? 'hostExtensionEnabled' : 'hostExtensionDisabled') }}</template></span>
+          <small>{{ t(extension.optional ? 'optionalBundledHostExtensionDescription' : 'bundledHostExtensionDescription') }}</small>
+        </div>
+        <UiButton v-if="extension.optional" size="compact" :disabled="busy" @click="operate(() => desktop?.setHostExtensionEnabled?.(extension.id, !extension.enabled))">{{ t(extension.enabled ? 'disablePlugin' : 'enablePlugin') }}</UiButton>
+        <RouterLink v-else to="/environment/setup">{{ t('openEnvironmentRecovery') }}</RouterLink>
       </article>
     </div>
     <div v-if="state.extensions.length" class="plugin-list">

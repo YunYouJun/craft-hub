@@ -45,9 +45,14 @@ export function registerHostExtensionHandlers(options: {
   restart: () => Promise<void>
   localPluginPath: (packageName: string) => Promise<string | undefined>
   bundledExtensions?: HostExtensionStatus['bundledExtensions']
+  /** Bundled extensions the user can turn on or off; their state is read again for every request. */
+  optionalBundledExtensions?: () => Promise<NonNullable<HostExtensionStatus['bundledExtensions']>>
 }): void {
   const { manager } = options
-  const status = async (): Promise<HostExtensionStatus> => ({ ...await manager.status(), ...(options.bundledExtensions?.length ? { bundledExtensions: options.bundledExtensions } : {}) })
+  const status = async (): Promise<HostExtensionStatus> => {
+    const bundledExtensions = [...options.bundledExtensions ?? [], ...await options.optionalBundledExtensions?.() ?? []]
+    return { ...await manager.status(), ...(bundledExtensions.length ? { bundledExtensions } : {}) }
+  }
   function windowFor(event: IpcMainInvokeEvent): BrowserWindow {
     const window = options.window()
     if (!window || event.sender !== window.webContents || event.senderFrame !== window.webContents.mainFrame)
@@ -103,7 +108,10 @@ export function registerHostExtensionHandlers(options: {
     windowFor(event)
     if (typeof id !== 'string' || typeof enabled !== 'boolean')
       throw new Error('Invalid host extension state')
-    await manager.setEnabled(id, enabled)
+    if ((await options.optionalBundledExtensions?.() ?? []).some(extension => extension.id === id))
+      await manager.setBundledEnabled(id, enabled)
+    else
+      await manager.setEnabled(id, enabled)
     return status()
   })
   ipcMain.handle('craft-hub:remove-host-extension', async (event, id: unknown) => {

@@ -1,10 +1,10 @@
 import type { CraftHubPlugin } from 'craft-hub'
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { communityDistribution, HostExtensionManager } from 'craft-hub'
 import { afterEach, expect, it, vi } from 'vitest'
-import { createDesktopHostRuntime } from '../src/host-runtime'
+import { createDesktopHostRuntime, hasMicrosoftTodoConnection, optionalHostPluginStatus } from '../src/host-runtime'
 
 const directories: string[] = []
 
@@ -65,4 +65,33 @@ it('reports a distribution plugin that fails to load and keeps the built-in plug
   expect(logError).toHaveBeenCalledWith(expect.stringMatching(/^Host Plugin .+ failed to load: /))
   expect(runtime.getPluginDiagnostics().length).toBeGreaterThan(0)
   await runtime.close()
+})
+
+it('loads an optional plugin only when enabled, defaulting to existing use', async () => {
+  const { root, hostExtensions, load } = await fixture()
+  const optional = { id: 'microsoft-todo', name: 'Microsoft To Do', plugin: { id: 'optional.todo', name: 'To Do', version: '0.1.0' }, enabledByDefault: vi.fn(async () => true) }
+  const options = { builtinPlugins: builtins, configDir: join(root, 'config'), dataDir: join(root, 'data'), distribution: communityDistribution, hostExtensions, logError: vi.fn(), optionalPlugins: [optional] }
+  let runtime = await createDesktopHostRuntime(options)
+  expect((load.mock.calls[0] as [CraftHubPlugin[]])[0].map(plugin => plugin.id)).toEqual(['builtin.alpha', 'builtin.beta', 'optional.todo'])
+  expect(await optionalHostPluginStatus(hostExtensions, [optional])).toEqual([{ id: 'microsoft-todo', name: 'Microsoft To Do', version: '0.1.0', optional: true, enabled: true }])
+  await runtime.close()
+
+  // The user's explicit choice wins over the default.
+  await hostExtensions.setBundledEnabled('microsoft-todo', false)
+  runtime = await createDesktopHostRuntime(options)
+  expect((load.mock.calls[1] as [CraftHubPlugin[]])[0].map(plugin => plugin.id)).toEqual(['builtin.alpha', 'builtin.beta'])
+  await runtime.close()
+})
+
+it('treats an enabled To Do connection as existing use', async () => {
+  const { root } = await fixture()
+  const dataDir = join(root, 'data')
+  expect(await hasMicrosoftTodoConnection(dataDir)).toBe(false)
+  await mkdir(join(dataDir, 'integrations', 'microsoft-todo'), { recursive: true })
+  await writeFile(join(dataDir, 'integrations', 'microsoft-todo', 'connection.json'), JSON.stringify({ enabled: false }))
+  expect(await hasMicrosoftTodoConnection(dataDir)).toBe(false)
+  await writeFile(join(dataDir, 'integrations', 'microsoft-todo', 'connection.json'), JSON.stringify({ enabled: true, account: 'me@example.com' }))
+  expect(await hasMicrosoftTodoConnection(dataDir)).toBe(true)
+  await writeFile(join(dataDir, 'integrations', 'microsoft-todo', 'connection.json'), '{ not json')
+  expect(await hasMicrosoftTodoConnection(dataDir)).toBe(false)
 })

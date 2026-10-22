@@ -65,4 +65,18 @@ describe('desktop host extension installation', () => {
     await expect(configure({ ...event, senderFrame: {} }, 'acme-ui')).rejects.toThrow(/main desktop window/)
     expect((await manager.status()).extensions).toHaveLength(1)
   })
+
+  it('saves optional bundled choices without treating them as installed extensions', async () => {
+    const { manager } = await fixture()
+    const webContents = { mainFrame: {} }
+    const event = { sender: webContents, senderFrame: webContents.mainFrame }
+    const optionalBundledExtensions = vi.fn(async () => [{ id: 'microsoft-todo', name: 'Microsoft To Do', version: '0.1.0', optional: true, enabled: await manager.bundledChoice('microsoft-todo') ?? false }])
+    registerHostExtensionHandlers({ manager, window: () => ({ webContents }) as never, restart: vi.fn(), localPluginPath: vi.fn(), bundledExtensions: [{ id: 'workstation', name: 'Workstation', version: '1.0.0' }], optionalBundledExtensions })
+    const status = await handlers.get('craft-hub:set-host-extension-enabled')!(event, 'microsoft-todo', true) as Awaited<ReturnType<HostExtensionManager['status']>>
+    expect(await manager.bundledChoice('microsoft-todo')).toBe(true)
+    expect(status.extensions).toEqual([])
+    expect(status.bundledExtensions?.map(item => `${item.id}:${item.enabled ?? 'fixed'}`)).toEqual(['workstation:fixed', 'microsoft-todo:true'])
+    // An id that is neither installed nor optional still fails instead of creating state.
+    await expect(handlers.get('craft-hub:set-host-extension-enabled')!(event, 'unknown', true)).rejects.toThrow(/not installed/)
+  })
 })

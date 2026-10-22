@@ -55,6 +55,18 @@ it('releases an idle command-line connector and reconnects after explicit discon
   await transport.close()
 })
 
+it('keeps an on-demand connector for its idle period, then releases it', async () => {
+  const transport = createMicrosoftTodoTransport({ idleTimeoutMs: 10 * 60_000 })
+  await transport.call('list-accounts')
+  await vi.advanceTimersByTimeAsync(9 * 60_000)
+  await transport.call('list-accounts')
+  await vi.advanceTimersByTimeAsync(9 * 60_000)
+  expect(mocks.clients).toHaveLength(1)
+  expect(mocks.clients[0]!.close).not.toHaveBeenCalled()
+  await vi.advanceTimersByTimeAsync(60_001)
+  expect(mocks.clients[0]!.close).toHaveBeenCalledOnce()
+})
+
 it('recovers a stopped desktop connector on the next read without retrying writes', async () => {
   const transport = createMicrosoftTodoTransport({ keepAlive: true })
   await transport.call('list-accounts')
