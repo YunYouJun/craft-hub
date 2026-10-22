@@ -1,12 +1,12 @@
 // @vitest-environment happy-dom
 
-import type { IntegrationEntityPage, ResolvedIntegrationContribution } from 'craft-hub'
+import type { IntegrationEntity, IntegrationEntityPage, ResolvedIntegrationContribution } from 'craft-hub'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, disposePinia, getActivePinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { h, nextTick } from 'vue'
 import { api, ApiRequestError } from './api'
-import { connectionKey, useHomeWorkDataStore } from './home-work-data'
+import { completionActionId, connectionKey, useHomeWorkDataStore } from './home-work-data'
 import { useI18n } from './i18n'
 import { emitIntegrationChange } from './integration-action-events'
 import { homeWorkSources } from './personal-workbench'
@@ -429,5 +429,41 @@ describe('shared home work data', () => {
     emitIntegrationChange({ integrationId: 'tasks', phase: 'settled' })
     await data.load(source)
     expect(api.invokeIntegrationAction).toHaveBeenCalledTimes(2)
+  })
+
+  it('patches every sibling list after a completion and discards a read that started before the write', async () => {
+    const tasks = contribution()
+    tasks.actions.push({ id: 'complete', title: 'Complete', operation: 'work-items.update-status', effect: 'remote-write', confirmation: 'always', effectiveConfirmation: 'always' })
+    useWorkbenchStore().integrationContributions = [tasks]
+    const data = useHomeWorkDataStore()
+    const [first, second] = sources()
+    await Promise.all([data.load(first!), data.load(second!)])
+    vi.mocked(api.invokeIntegrationAction).mockClear()
+    const stale = deferred<IntegrationEntityPage>()
+    const write = deferred<IntegrationEntity>()
+    vi.mocked(api.invokeIntegrationAction).mockImplementation(async (_id, action) => action === 'status' ? { connected: true } : action === 'complete' ? write.promise : stale.promise)
+    const refreshing = data.load(first!, { force: true })
+    await flushPromises()
+    const item = data.stateFor(first!).page!.items[0]!
+    const completing = data.setCompletion(first!, item, true)
+    expect(data.stateFor(first!).loading).toBe(false)
+    expect(await data.load(second!, { force: true })).toBeUndefined()
+    write.resolve({ ...item, status: 'completed', statusCategory: 'done' })
+    await completing
+    stale.resolve(page())
+    await refreshing
+    expect(data.stateFor(first!).page!.items[0]).toMatchObject({ title: 'Previous task', statusCategory: 'done' })
+    expect(data.stateFor(second!).page!.items[0]).toMatchObject({ statusCategory: 'done' })
+    expect(api.invokeIntegrationAction).toHaveBeenCalledWith('tasks', 'complete', expect.objectContaining({ itemId: 'Previous task', statusCategory: 'done' }), undefined, true, { broadcast: false })
+    expect(vi.mocked(api.invokeIntegrationAction).mock.calls.filter(([, action]) => action === 'list')).toHaveLength(1)
+  })
+
+  it('exposes completion only for direct status actions without workflow transitions', () => {
+    const tasks = contribution()
+    expect(completionActionId(tasks)).toBeUndefined()
+    tasks.actions.push({ id: 'complete', title: 'Complete', operation: 'work-items.update-status', effect: 'remote-write', confirmation: 'always', effectiveConfirmation: 'always' })
+    expect(completionActionId(tasks)).toBe('complete')
+    tasks.actions.push({ id: 'transitions', title: 'Transitions', operation: 'work-items.transitions', effect: 'remote-read', confirmation: 'never', effectiveConfirmation: 'never' })
+    expect(completionActionId(tasks)).toBeUndefined()
   })
 })

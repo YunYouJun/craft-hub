@@ -677,4 +677,81 @@ describe('shared work items overview', () => {
     expect(source(1).text()).toContain('source-b task')
     expect(source(1).find('[role="alert"]').exists()).toBe(false)
   })
+
+  describe('one-click completion', () => {
+    function completableSource(): ResolvedIntegrationContribution {
+      const contribution = workSource('todos')
+      contribution.actions.push({ id: 'status', title: 'Complete or reopen task', operation: 'work-items.update-status', effect: 'remote-write', confirmation: 'always', effectiveConfirmation: 'always' })
+      return contribution
+    }
+    function page(items: IntegrationEntity[]): IntegrationEntityPage {
+      return { currentUser: { id: 'me' }, collections: [{ id: 'list-1', title: 'Tasks' }], items }
+    }
+    const task = (title: string, extra: Partial<IntegrationEntity> = {}): IntegrationEntity => ({ ...ownedItem('todos', title), id: title, sourceRef: { providerId: 'tasks', instanceId: 'todos', accountId: 'me', containerId: 'list-1', kind: 'task', itemId: title }, status: 'inProgress', statusCategory: 'active', statusUpdateAvailable: true, ...extra })
+    const titles = () => source().findAll('.daily-row-title').map(row => row.text())
+
+    it('completes a task in place, undoes it with its native status and never reloads the account', async () => {
+      useWorkbenchStore().integrationContributions = [completableSource()]
+      let settle!: () => void
+      vi.mocked(api.invokeIntegrationAction).mockImplementation(async (_id, actionId, input = {}) => {
+        if (actionId === 'list')
+          return page([task('Take medicine'), task('Dentist', { statusUpdateAvailable: false })])
+        await new Promise<void>((resolve) => {
+          settle = resolve
+        })
+        return input.statusCategory === 'done' ? { ...task('Take medicine'), status: 'completed', statusCategory: 'done' } : task('Take medicine')
+      })
+      await open({ compact: true })
+      expect(titles()).toEqual(['Take medicine', 'Dentist'])
+      expect(source().findAll('[role="checkbox"]')).toHaveLength(1)
+      vi.mocked(api.invokeIntegrationAction).mockClear()
+
+      await source().get('[role="checkbox"][aria-label="Complete Take medicine"]').trigger('click')
+      expect(source().get('[role="checkbox"]').attributes()).toMatchObject({ 'aria-checked': 'true', 'disabled': '' })
+      settle()
+      await flushPromises()
+      expect(api.invokeIntegrationAction).toHaveBeenCalledExactlyOnceWith('todos', 'status', expect.objectContaining({ itemId: 'Take medicine', sourceRef: expect.objectContaining({ itemId: 'Take medicine' }), statusCategory: 'done' }), undefined, true, { broadcast: false })
+      expect(titles()).toEqual(['Dentist'])
+      expect(source().get('.home-completion').text()).toContain('Completed “Take medicine”')
+
+      vi.mocked(api.invokeIntegrationAction).mockClear()
+      await button('Undo').trigger('click')
+      settle()
+      await flushPromises()
+      expect(api.invokeIntegrationAction).toHaveBeenCalledExactlyOnceWith('todos', 'status', expect.objectContaining({ statusCategory: 'open', status: 'inProgress' }), undefined, true, { broadcast: false })
+      expect(titles()).toEqual(['Take medicine', 'Dentist'])
+      expect(source().find('.home-completion').exists()).toBe(false)
+    })
+
+    it('keeps the task and explains a failed write', async () => {
+      useWorkbenchStore().integrationContributions = [completableSource()]
+      vi.mocked(api.invokeIntegrationAction).mockImplementation(async (_id, actionId) => {
+        if (actionId === 'list')
+          return page([task('Take medicine')])
+        throw new Error('Microsoft To Do authorization is required.')
+      })
+      await open({ compact: true })
+      await source().get('[role="checkbox"]').trigger('click')
+      await flushPromises()
+      expect(titles()).toEqual(['Take medicine'])
+      expect(source().get('[role="alert"]').text()).toBe('Could not update “Take medicine”: Microsoft To Do authorization is required.')
+      expect(source().get('[role="checkbox"]').attributes('aria-checked')).toBe('false')
+    })
+
+    it('offers no one-click completion for workflow providers', async () => {
+      const workflow = completableSource()
+      workflow.actions.push({ id: 'transitions', title: 'Transitions', operation: 'work-items.transitions', effect: 'remote-read', confirmation: 'never', effectiveConfirmation: 'never' })
+      useWorkbenchStore().integrationContributions = [workflow]
+      vi.mocked(api.invokeIntegrationAction).mockResolvedValue(page([task('Take medicine')]))
+      await open({ compact: true })
+      expect(source().find('[role="checkbox"]').exists()).toBe(false)
+    })
+
+    it('offers no completion on a cached read-only snapshot', async () => {
+      useWorkbenchStore().integrationContributions = [completableSource()]
+      vi.mocked(api.invokeIntegrationAction).mockResolvedValue({ ...page([task('Take medicine')]), cache: { reason: 'offline', readOnly: true } })
+      await open({ compact: true })
+      expect(source().find('[role="checkbox"]').exists()).toBe(false)
+    })
+  })
 })

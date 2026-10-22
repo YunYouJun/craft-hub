@@ -1,4 +1,4 @@
-import type { CraftHubPlugin, IntegrationConnectionStatus, IntegrationEntity, IntegrationEntityPage, IntegrationProviderContext } from 'craft-hub'
+import type { CraftHubPlugin, IntegrationConnectionStatus, IntegrationEntity, IntegrationEntityPage, IntegrationProviderContext, WorkItemSourceRef } from 'craft-hub'
 import type { MicrosoftTodoTransport } from './transport'
 import { randomUUID } from 'node:crypto'
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
@@ -20,8 +20,10 @@ export interface MicrosoftTodoPluginOptions { transport?: MicrosoftTodoTransport
 const providerId = 'microsoft-todo'
 const webUrl = 'https://to-do.office.com/tasks/'
 const copy = (context: IntegrationProviderContext, zh: string, en: string): string => context.locale === 'zh-CN' ? zh : en
+const taskStates: Record<string, [string, string]> = { notStarted: ['未开始', 'Not started'], inProgress: ['进行中', 'In progress'], waitingOnOthers: ['等待他人', 'Waiting on others'], deferred: ['暂缓', 'Deferred'], completed: ['已完成', 'Completed'] }
+const openTaskStates = new Set(['notStarted', 'inProgress', 'waitingOnOthers', 'deferred'])
 
-/** Create a read-first To Do adapter with separately authorized capture; authentication caches stay owned by the local connector. */
+/** Create a read-first To Do adapter with separately authorized capture and completion; authentication caches stay owned by the local connector. */
 export function createMicrosoftTodoPlugin(options: MicrosoftTodoPluginOptions = {}): CraftHubPlugin {
   const transport = options.transport ?? createMicrosoftTodoTransport()
   const writeTransport = options.writeTransport ?? createMicrosoftTodoTransport({ writable: true })
@@ -126,7 +128,7 @@ export function createMicrosoftTodoPlugin(options: MicrosoftTodoPluginOptions = 
         requireGeneration(version)
         if (writable || !saved.writeEnabled)
           pending = undefined
-        return { ...base, connected: true, capabilities: { create: writable }, ...(pending ? { deviceAuthorization: pending } : {}), accountLabel: selected.email, message: writable ? copy(context, '已连接 · 可读取和新增待办。', 'Connected · Read and create tasks.') : copy(context, '已连接 · 只读；快速记录需要新增待办权限。', 'Connected · Read-only; enable task creation to capture.'), forms: [...(writable ? [] : [{ id: 'enable-write', title: copy(context, '启用快速记录', 'Enable quick capture'), description: copy(context, '授权 Microsoft To Do 新增待办权限（Tasks.ReadWrite）。', 'Grant task creation permission (Tasks.ReadWrite).'), submitLabel: copy(context, '授权新增待办', 'Authorize task creation'), fields: [] }]), { id: 'disconnect', title: copy(context, '断开 Craft Hub 连接', 'Disconnect Craft Hub'), description: copy(context, '保留本机其他应用的微软登录。', 'Keep the Microsoft login used by other local applications.'), submitLabel: copy(context, '断开连接', 'Disconnect'), fields: [] }] }
+        return { ...base, connected: true, capabilities: { create: writable }, ...(pending ? { deviceAuthorization: pending } : {}), accountLabel: selected.email, message: writable ? copy(context, '已连接 · 可读取、新增和完成待办。', 'Connected · Read, create and complete tasks.') : copy(context, '已连接 · 只读；快速记录和完成待办需要写入权限。', 'Connected · Read-only; enable write access to capture and complete tasks.'), forms: [...(writable ? [] : [{ id: 'enable-write', title: copy(context, '启用快速记录和完成待办', 'Enable capture and completion'), description: copy(context, '授权 Microsoft To Do 写入权限（Tasks.ReadWrite），用于新增和完成待办。', 'Grant write permission (Tasks.ReadWrite) to create and complete tasks.'), submitLabel: copy(context, '授权写入待办', 'Authorize task writes'), fields: [] }]), { id: 'disconnect', title: copy(context, '断开 Craft Hub 连接', 'Disconnect Craft Hub'), description: copy(context, '保留本机其他应用的微软登录。', 'Keep the Microsoft login used by other local applications.'), submitLabel: copy(context, '断开连接', 'Disconnect'), fields: [] }] }
       }
     }
     catch (error) {
@@ -206,9 +208,35 @@ export function createMicrosoftTodoPlugin(options: MicrosoftTodoPluginOptions = 
     throw new MicrosoftTodoError('response')
   }
 
+  function entity(context: IntegrationProviderContext, accountId: string, list: TodoList, task: TodoTask, writable: boolean): IntegrationEntity {
+    if (!task.id || typeof task.title !== 'string')
+      throw new MicrosoftTodoError('response')
+    const labels = taskStates[task.status]
+    return {
+      id: task.id,
+      title: task.title,
+      sourceRef: { providerId, instanceId: context.integrationId ?? providerId, accountId, containerId: list.id, kind: 'task', itemId: task.id },
+      personalMembership: { accountId, relation: 'owned' },
+      status: task.status,
+      statusCategory: task.status === 'completed' ? 'done' : task.status === 'inProgress' ? 'active' : 'open',
+      statusLabel: labels ? copy(context, labels[0], labels[1]) : task.status,
+      // Write consent is a local preference; the confirmed write still verifies the account, list and permission.
+      statusUpdateAvailable: writable,
+      important: task.importance === 'high',
+      metadata: { listTitle: list.displayName },
+      description: list.displayName,
+      url: webUrl,
+      ...(task.dueDateTime ? { dueDate: { ...task.dueDateTime, precision: 'date' as const } } : {}),
+      ...(task.isReminderOn === true && task.reminderDateTime ? { reminderDate: { ...task.reminderDateTime, precision: 'datetime' as const } } : {}),
+      ...(task.lastModifiedDateTime ? { updatedAt: task.lastModifiedDateTime } : {}),
+      ...(task.importance === 'high' ? { priority: { label: copy(context, '重要', 'Important'), tone: 'warning' as const } } : {}),
+    }
+  }
+
   async function read(context: IntegrationProviderContext): Promise<IntegrationEntityPage> {
     const version = generation
-    if (context.hostEnvironment === 'hosted' || !(await preferences()).enabled)
+    const saved = context.hostEnvironment === 'hosted' ? undefined : await preferences()
+    if (!saved?.enabled)
       throw new MicrosoftTodoError('authorization')
     requireGeneration(version)
     const selected = await account()
@@ -224,29 +252,7 @@ export function createMicrosoftTodoPlugin(options: MicrosoftTodoPluginOptions = 
         const currentIndex = index++
         const list = lists[currentIndex]!
         const tasks = await pages<TodoTask>('list-todo-tasks', selected.email, version, list.id)
-        groups[currentIndex] = tasks.filter(task => task.status !== 'completed').map((task) => {
-          if (!task.id || typeof task.title !== 'string')
-            throw new MicrosoftTodoError('response')
-          const states: Record<string, [string, string]> = { notStarted: ['未开始', 'Not started'], inProgress: ['进行中', 'In progress'], waitingOnOthers: ['等待他人', 'Waiting on others'], deferred: ['暂缓', 'Deferred'] }
-          const labels = states[task.status]
-          return {
-            id: task.id,
-            title: task.title,
-            sourceRef: { providerId, instanceId: context.integrationId ?? providerId, accountId: selected.email, containerId: list.id, kind: 'task', itemId: task.id },
-            personalMembership: { accountId: selected.email, relation: 'owned' },
-            status: task.status,
-            statusCategory: task.status === 'inProgress' ? 'active' : 'open',
-            statusLabel: labels ? copy(context, labels[0], labels[1]) : task.status,
-            important: task.importance === 'high',
-            metadata: { listTitle: list.displayName },
-            description: list.displayName,
-            url: webUrl,
-            ...(task.dueDateTime ? { dueDate: { ...task.dueDateTime, precision: 'date' as const } } : {}),
-            ...(task.isReminderOn === true && task.reminderDateTime ? { reminderDate: { ...task.reminderDateTime, precision: 'datetime' as const } } : {}),
-            ...(task.lastModifiedDateTime ? { updatedAt: task.lastModifiedDateTime } : {}),
-            ...(task.importance === 'high' ? { priority: { label: copy(context, '重要', 'Important'), tone: 'warning' as const } } : {}),
-          }
-        })
+        groups[currentIndex] = tasks.filter(task => task.status !== 'completed').map(task => entity(context, selected.email, list, task, saved.writeEnabled === true))
       }
     }))
     requireGeneration(version)
@@ -283,6 +289,36 @@ export function createMicrosoftTodoPlugin(options: MicrosoftTodoPluginOptions = 
     })
   }
 
+  /** Complete or reopen one owned task; `statusCategory` is semantic and `status` may restore a native open state. */
+  async function updateStatus(context: IntegrationProviderContext, input: Record<string, unknown>): Promise<IntegrationEntity> {
+    if (context.hostEnvironment === 'hosted' || !context.confirmed)
+      throw new Error('Confirm the task status change on the local host.')
+    const version = generation
+    const saved = await preferences()
+    requireGeneration(version)
+    if (!saved.enabled || !saved.writeEnabled)
+      throw new MicrosoftTodoError('authorization')
+    const ref = input.sourceRef as Partial<WorkItemSourceRef> | undefined
+    const status = input.statusCategory === 'done' ? 'completed' : input.statusCategory === 'open' ? (typeof input.status === 'string' && openTaskStates.has(input.status) ? input.status : 'notStarted') : undefined
+    if (!status || !ref || ref.providerId !== providerId || ref.instanceId !== (context.integrationId ?? providerId) || ref.kind !== 'task'
+      || typeof ref.containerId !== 'string' || !ref.containerId || ref.containerId.length > 1024 || typeof ref.itemId !== 'string' || !ref.itemId || ref.itemId.length > 1024) {
+      throw new Error('Invalid task status change. Refresh and try again.')
+    }
+    const selected = await account()
+    if (!selected || selected.email !== ref.accountId)
+      throw new Error('The Microsoft account changed. Refresh and try again.')
+    const lists = await pages<TodoList>('list-todo-task-lists', selected.email, version)
+    const target = lists.find(list => list.id === ref.containerId && list.isOwner === true && list.isShared === false)
+    if (!target)
+      throw new Error('Select an owned, private Microsoft To Do list.')
+    requireGeneration(version)
+    const result = await writeTransport.call('update-todo-task', { account: selected.email, todoTaskListId: target.id, todoTaskId: ref.itemId, confirm: true, body: { status } })
+    if (result.id !== ref.itemId || result.status !== status)
+      throw new MicrosoftTodoError('response')
+    readings.clear()
+    return entity(context, selected.email, target, result as unknown as TodoTask, true)
+  }
+
   const list = (context: IntegrationProviderContext): Promise<IntegrationEntityPage> => {
     if (context.hostEnvironment === 'hosted')
       return Promise.reject(new MicrosoftTodoError('authorization'))
@@ -302,12 +338,13 @@ export function createMicrosoftTodoPlugin(options: MicrosoftTodoPluginOptions = 
     id: '@craft-hub/craft-hub-plugin-microsoft-todo',
     name: 'Microsoft To Do',
     version: '0.1.0',
-    integrationProviders: [{ id: providerId, apiVersion: '1.0.0', connectionStatus: status, connection: { update: connect }, workItems: { list, search: list, create } }],
+    integrationProviders: [{ id: providerId, apiVersion: '1.0.0', connectionStatus: status, connection: { update: connect }, workItems: { list, search: list, create, updateStatus } }],
     integrations: [{
       id: providerId,
       provider: { id: providerId, requires: '^1.0.0' },
       actions: [
         { id: 'create', title: 'Create task', operation: 'work-items.create', effect: 'remote-write', confirmation: 'always' },
+        { id: 'status', title: 'Complete or reopen task', operation: 'work-items.update-status', effect: 'remote-write', confirmation: 'always' },
         { id: 'connection', title: 'Connection', operation: 'connection.status', effect: 'remote-read', confirmation: 'never' },
         { id: 'connect', title: 'Connect account', operation: 'connection.update', effect: 'local-write', confirmation: 'always' },
         { id: 'tasks', title: 'Unfinished tasks', operation: 'work-items.list', effect: 'remote-read', confirmation: 'never' },

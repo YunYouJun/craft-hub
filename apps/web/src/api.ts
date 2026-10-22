@@ -102,8 +102,10 @@ async function runCommand(projectId: string, capabilityId: string, inputs: Comma
   return current
 }
 
-async function invokeIntegrationAction<T extends IntegrationActionResult = IntegrationActionResult>(integrationId: string, actionId: string, input: Record<string, unknown> = {}, projectId?: string, confirmed = false): Promise<T> {
-  if (confirmed)
+/** Confirmed writes invalidate cached reads unless the caller applies the returned entity itself (`broadcast: false`). */
+async function invokeIntegrationAction<T extends IntegrationActionResult = IntegrationActionResult>(integrationId: string, actionId: string, input: Record<string, unknown> = {}, projectId?: string, confirmed = false, options: { broadcast?: boolean } = {}): Promise<T> {
+  const broadcast = confirmed && options.broadcast !== false
+  if (broadcast)
     emitIntegrationChange({ integrationId, phase: 'start' })
   try {
     return await request<T>(projectId
@@ -114,7 +116,7 @@ async function invokeIntegrationAction<T extends IntegrationActionResult = Integ
     })
   }
   finally {
-    if (confirmed)
+    if (broadcast)
       emitIntegrationChange({ integrationId, phase: 'settled' })
   }
 }
