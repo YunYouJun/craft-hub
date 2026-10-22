@@ -1,4 +1,4 @@
-import { execFile } from 'node:child_process'
+import { execFile, spawn } from 'node:child_process'
 import { access, cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
@@ -8,10 +8,11 @@ import { promisify } from 'node:util'
 import { deployDesktop } from '../../../scripts/package-macos.ts'
 import { packageWorkstationRuntime } from '../../../scripts/package-workstation-runtime.ts'
 import { prepareDesktopArchitecture, prepareDesktopPackage } from '../../../scripts/prepare-desktop-package.ts'
+import { bundleMicrosoftTodoConnector, bundleSidecar, sidecarExternals } from './bundle-sidecar.ts'
 
 // Builds the native macOS prototype from ADR 0012 into apps/macos/build/Craft Hub Prototype.app. The app ships no
-// Node: its runtime sidecar is the desktop package's `dist/sidecar.mjs`, deployed and pruned exactly like the
-// Electron app's, and runs on the user's own compatible Node.
+// Node: its runtime sidecar and the runtime CLI are single-file bundles that run on the user's own compatible Node.
+// Only native addons and files the runtime reads by path stay beside them; Electron-only files never ship.
 const run = promisify(execFile)
 const appDir = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const repositoryDir = resolve(appDir, '../..')
@@ -27,6 +28,73 @@ async function step(label: string, command: string, args: string[]): Promise<str
   process.stdout.write(`${label}\n`)
   const { stdout } = await run(command, args, { cwd: repositoryDir, maxBuffer: 64 * 1024 * 1024 })
   return stdout.trim()
+}
+
+/** Dependencies of the external packages that only build or install them, never load at runtime. */
+const buildOnlyPackages = new Set(['node-addon-api', 'prebuild-install'])
+
+/** Copy the externals and what they load at runtime from a deployed, pruned tree, keeping its nested layout. */
+async function copyRuntimePackages(from: string, to: string, roots: string[]): Promise<void> {
+  const copied = new Set<string>()
+  async function locate(name: string, fromDirectory: string): Promise<string | undefined> {
+    for (let directory = fromDirectory; directory.startsWith(from); directory = dirname(directory)) {
+      const candidate = join(directory, 'node_modules', name)
+      try {
+        await access(join(candidate, 'package.json'))
+        return candidate
+      }
+      catch {}
+      if (directory === from)
+        return undefined
+    }
+  }
+  async function visit(directory: string): Promise<void> {
+    if (copied.has(directory))
+      return
+    copied.add(directory)
+    await cp(directory, join(to, directory.slice(from.length)), { recursive: true, verbatimSymlinks: true })
+    const manifest = JSON.parse(await readFile(join(directory, 'package.json'), 'utf8')) as { dependencies?: Record<string, string> }
+    for (const name of Object.keys(manifest.dependencies ?? {})) {
+      if (buildOnlyPackages.has(name))
+        continue
+      const found = await locate(name, directory)
+      if (!found)
+        throw new Error(`Runtime dependency ${name} of ${directory} is missing from the deployed tree`)
+      await visit(found)
+    }
+  }
+  for (const root of roots)
+    await visit(join(from, 'node_modules', root))
+}
+
+/** Start the bundled sidecar in a throwaway data directory and require its handshake, so a bundling break fails the build. */
+async function verifySidecar(appDirectory: string): Promise<void> {
+  const dataDirectory = await mkdtemp(join(tmpdir(), 'craft-hub-sidecar-check-'))
+  try {
+    await new Promise<void>((resolvePromise, reject) => {
+      const child = spawn(process.execPath, [join(appDirectory, 'apps/desktop/dist/sidecar.mjs')], { env: { HOME: process.env.HOME, PATH: process.env.PATH, CRAFT_HUB_SIDECAR_DIR: dataDirectory }, stdio: ['pipe', 'pipe', 'pipe'] })
+      let errors = ''
+      const timer = setTimeout(() => child.kill(), 20_000)
+      child.stderr.on('data', chunk => errors += chunk)
+      child.stdout.once('data', (line) => {
+        if (String(line).includes('/__craft_hub_host/bootstrap?token='))
+          child.stdin.end()
+        else
+          child.kill()
+      })
+      child.once('exit', (code) => {
+        clearTimeout(timer)
+        if (code === 0)
+          resolvePromise()
+        else
+          reject(new Error(`The bundled sidecar did not start:\n${errors}`))
+      })
+    })
+    await run(process.execPath, [join(appDirectory, 'apps/desktop/dist/cli.mjs'), '--version'])
+  }
+  finally {
+    await rm(dataDirectory, { recursive: true, force: true })
+  }
 }
 
 /** The pinned Workstation release builds from source, so reuse it until the lock moves to another revision. */
@@ -49,20 +117,32 @@ async function workstationRuntime(): Promise<string> {
 await step('Building the runtime, web workbench and desktop sidecar', 'pnpm', ['--filter', 'craft-hub', '--filter', '@craft-hub/web', '--filter', '@craft-hub/desktop', 'build'])
 const staging = await mkdtemp(join(tmpdir(), 'craft-hub-macos-'))
 try {
-  const desktop = join(staging, 'apps/desktop')
-  process.stdout.write('Deploying the sidecar dependencies\n')
-  await deployDesktop(desktop)
+  const deployed = join(staging, 'deployed')
+  const app = join(staging, 'app')
+  const desktop = join(app, 'apps/desktop')
+  process.stdout.write('Deploying the native addons\n')
+  await deployDesktop(deployed)
+  // The same pruning as the Electron app: no duplicate store, no bundled Codex CLI, one PTY and keychain architecture.
+  await prepareDesktopPackage(deployed, 'external')
+  await prepareDesktopArchitecture(deployed, architecture, 'external')
+
+  process.stdout.write('Bundling the sidecar, CLI and Microsoft To Do connector\n')
+  await bundleSidecar(join(desktop, 'dist'))
+  // The cross-spawn parser is loaded with createRequire, so it resolves beside the bundles like the externals.
+  await copyRuntimePackages(deployed, desktop, [...sidecarExternals, 'cross-spawn'])
+  await bundleMicrosoftTodoConnector(join(deployed, 'node_modules/@softeria/ms-365-mcp-server'), join(desktop, 'node_modules/@softeria/ms-365-mcp-server'))
+  // The bundled runtime reads its software catalog from `../catalogs` relative to the bundle.
+  await cp(resolve(repositoryDir, 'packages/craft-hub/catalogs'), join(desktop, 'catalogs'), { recursive: true })
   await cp(await workstationRuntime(), join(desktop, 'workstation-runtime'), { recursive: true, verbatimSymlinks: true })
-  await cp(resolve(repositoryDir, 'apps/web/dist'), join(staging, 'apps/web/dist'), { recursive: true })
-  // The same pruning as the Electron app: no duplicate store, no bundled Codex CLI, one PTY architecture.
-  await prepareDesktopPackage(desktop, 'external')
-  await prepareDesktopArchitecture(desktop, architecture, 'external')
+  await cp(resolve(repositoryDir, 'apps/web/dist'), join(app, 'apps/web/dist'), { recursive: true })
+  process.stdout.write('Checking the bundled sidecar starts\n')
+  await verifySidecar(app)
 
   await step('Compiling the native app', 'swift', ['build', '-c', 'release', '--package-path', appDir])
   await rm(bundle, { recursive: true, force: true })
   await mkdir(resolve(contents, 'MacOS'), { recursive: true })
   await mkdir(resolve(contents, 'Resources'), { recursive: true })
-  await cp(join(staging, 'apps'), resolve(contents, 'Resources/app/apps'), { recursive: true, verbatimSymlinks: true })
+  await cp(app, resolve(contents, 'Resources/app'), { recursive: true, verbatimSymlinks: true })
 }
 finally {
   await rm(staging, { recursive: true, force: true })

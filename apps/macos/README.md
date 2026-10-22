@@ -11,7 +11,7 @@ pnpm build:macos
 open "apps/macos/build/Craft Hub Prototype.app"
 ```
 
-The build compiles the runtime, the web workbench and the desktop package's `dist/sidecar.mjs`. It deploys and prunes the sidecar's dependencies with the same steps as the Electron app, adds the pinned Workstation runtime (built once and cached in `apps/macos/build/`), compiles this package in release mode, and assembles an ad hoc signed app in `apps/macos/build/`. Run the Node resolution tests with `swift test --package-path apps/macos`.
+The build compiles the runtime and the web workbench, then bundles the runtime sidecar (`apps/desktop/src/sidecar.ts`) and the runtime CLI into single ESM files with `apps/macos/scripts/bundle-sidecar.ts`. The Microsoft To Do connector is bundled in place of its installed package. Only native addons (`node-pty`, `keytar`), `jsonc-parser`, the `cross-spawn` parser, the software catalog and the pinned Workstation runtime (built once and cached in `apps/macos/build/`) stay beside the bundles; Electron-only files never ship. The build starts the bundled sidecar once and fails if it does not hand back its bootstrap URL, then compiles this package in release mode and assembles an ad hoc signed app in `apps/macos/build/`. Run the Node resolution tests with `swift test --package-path apps/macos`.
 
 ## How it works
 
