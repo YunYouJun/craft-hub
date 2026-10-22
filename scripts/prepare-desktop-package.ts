@@ -8,6 +8,7 @@ export async function prepareDesktopPackage(desktopDirectory: string, codexMode:
   const root = await realpath(desktopDirectory)
   for (const entry of ['src', 'test', 'tsconfig.json', 'tsdown.config.ts', 'pnpm-lock.yaml', 'pnpm-workspace.yaml'])
     await rm(join(root, entry), { recursive: true, force: true })
+  await removeUnusedVirtualStore(root)
 
   // The desktop always supplies apps/web/dist as the local server's staticDir.
   // The CLI distribution keeps its embedded Web UI; only this deployed copy is pruned.
@@ -96,6 +97,59 @@ export async function prepareDesktopArchitecture(desktopDirectory: string, archi
     if (entry !== triple)
       await rm(join(vendorDirectory, entry), { recursive: true, force: true })
   }
+}
+
+/**
+ * A hoisted pnpm 12 deploy writes the complete tree to node_modules and also leaves its virtual store beside it.
+ * Nothing resolves into that store, so packaging it only duplicates every dependency, including native binaries.
+ */
+async function removeUnusedVirtualStore(root: string): Promise<void> {
+  const modulesDirectory = join(root, 'node_modules')
+  let layout: { nodeLinker?: string }
+  try {
+    layout = JSON.parse(await readFile(join(modulesDirectory, '.modules.yaml'), 'utf8')) as { nodeLinker?: string }
+  }
+  catch {
+    // Without a readable layout record the store might be in use, so it stays.
+    return
+  }
+  if (layout.nodeLinker !== 'hoisted')
+    return
+  const storePath = join(modulesDirectory, '.pnpm')
+  try {
+    await access(storePath)
+  }
+  catch {
+    return
+  }
+  const store = await stagedDirectory(root, storePath)
+  const links: string[] = []
+  for (const entry of await readdir(modulesDirectory, { withFileTypes: true })) {
+    if (entry.name === '.pnpm')
+      continue
+    const path = join(modulesDirectory, entry.name)
+    if (entry.isSymbolicLink()) {
+      links.push(path)
+    }
+    else if (entry.isDirectory()) {
+      for (const nested of await readdir(path, { recursive: true, withFileTypes: true })) {
+        if (nested.isSymbolicLink())
+          links.push(join(nested.parentPath, nested.name))
+      }
+    }
+  }
+  for (const link of links) {
+    let target: string
+    try {
+      target = await realpath(link)
+    }
+    catch {
+      continue
+    }
+    if (target === store || target.startsWith(`${store}${sep}`))
+      throw new Error(`Deployed dependency still resolves into the pnpm virtual store: ${link}`)
+  }
+  await rm(store, { recursive: true, force: true })
 }
 
 async function removeBundledCodex(root: string): Promise<void> {
