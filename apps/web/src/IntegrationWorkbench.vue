@@ -7,6 +7,7 @@ import { api } from './api'
 import { FormSelect } from './components/ui/select'
 import { Badge } from './components/ui/badge'
 import { Button as UiButton } from './components/ui/button'
+import { completionActionId } from './home-work-data'
 import Icon from './NavigationIcon.vue'
 import ConfigurationManager from './ConfigurationManager.vue'
 import { useI18n } from './i18n'
@@ -188,6 +189,17 @@ function statusActionsFor(block: WorkbenchIntegrationView['blocks'][number]): {
     transitionsActionId: transitions.id,
     updateActionId: update.id,
   }
+}
+
+/** One-step providers (a status write without workflow transitions) complete items from the list. */
+function completionActionsFor(block: WorkbenchIntegrationView['blocks'][number]): { integrationId: string, projectId?: string } | undefined {
+  const current = contribution.value
+  if (!current || listReadOnly(block.id) || !completionActionId(current))
+    return undefined
+  const blockAction = current.actions.find(action => action.id === block.actionId)
+  if (!blockAction || !['work-items.get', 'work-items.list', 'work-items.search'].includes(blockAction.operation))
+    return undefined
+  return { integrationId: current.id, projectId: view.value?.scope === 'global' ? undefined : inspectedProjectId.value || undefined }
 }
 
 function workItemActionsFor(block: WorkbenchIntegrationView['blocks'][number]) {
@@ -502,6 +514,7 @@ defineExpose({ refresh: refresh })
             :assignee-filter="block.assigneeFilter"
             :current-user="entityPage(stateFor(block.id).result)!.currentUser"
             :status-actions="statusActionsFor(block)"
+            :completion-actions="completionActionsFor(block)"
             :work-item-actions="workItemActionsFor(block)"
             :key="`${integrationId}:${viewId}:${inspectedProjectId}:${locale}:${currentSession()?.cacheKey ?? ''}`"
             :loading="stateFor(block.id).loading"

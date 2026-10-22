@@ -400,6 +400,93 @@ describe('integration workbench', () => {
     wrapper.unmount()
   })
 
+  describe('one-click completion', () => {
+    function completionSource() {
+      const store = workSource()
+      const source = store.integrationContributions[0]!
+      source.views[0]!.scope = 'global'
+      source.views[0]!.blocks[0]!.statusFilter = 'active'
+      source.actions.push({ id: 'status', title: 'Complete or reopen task', operation: 'work-items.update-status', effect: 'remote-write', confirmation: 'always', effectiveConfirmation: 'always' })
+      return store
+    }
+    const todo = (title: string, extra: Partial<IntegrationEntity> = {}): IntegrationEntity => ({ ...task(title, title), sourceRef: { providerId: 'tasks', instanceId: 'tasks', accountId: 'me', containerId: 'list-1', kind: 'task', itemId: title }, id: title, status: 'inProgress', statusLabel: 'In progress', statusCategory: 'active', statusUpdateAvailable: true, ...extra })
+    const titles = (wrapper: ReturnType<typeof mount>) => wrapper.findAll('[role="listitem"] strong').map(row => row.text())
+
+    it('completes a task in place without reloading, leaves the active filter and undoes with its native status', async () => {
+      completionSource()
+      let settle!: () => void
+      const invoke = vi.spyOn(api, 'invokeIntegrationAction').mockImplementation(async (_id, action, input = {}) => {
+        if (action === 'list')
+          return { currentUser: { id: 'me' }, items: [todo('Take medicine'), todo('Dentist', { statusUpdateAvailable: false })] }
+        await new Promise<void>((resolve) => {
+          settle = resolve
+        })
+        return input.statusCategory === 'done' ? { ...todo('Take medicine'), status: 'completed', statusLabel: 'Completed', statusCategory: 'done' } : todo('Take medicine')
+      })
+      const wrapper = mount(IntegrationWorkbench, { props: { integrationId: 'tasks', viewId: 'work' }, global: { plugins: [pinia] } })
+      await flushPromises()
+      expect(titles(wrapper)).toEqual(['Take medicine', 'Dentist'])
+      expect(wrapper.findAll('[role="checkbox"]')).toHaveLength(1)
+      expect(wrapper.findComponent(IntegrationStatusTransitionControl).exists()).toBe(false)
+      invoke.mockClear()
+
+      await wrapper.get('[role="checkbox"][aria-label="Complete Take medicine"]').trigger('click')
+      expect(wrapper.get('[role="checkbox"]').attributes()).toMatchObject({ 'aria-checked': 'true', 'disabled': '' })
+      settle()
+      await flushPromises()
+      expect(invoke).toHaveBeenCalledExactlyOnceWith('tasks', 'status', expect.objectContaining({ itemId: 'Take medicine', sourceRef: expect.objectContaining({ itemId: 'Take medicine' }), statusCategory: 'done' }), undefined, true, { broadcast: false })
+      expect(titles(wrapper)).toEqual(['Dentist'])
+      expect(wrapper.get('.integration-completion').text()).toContain('Completed “Take medicine”')
+
+      invoke.mockClear()
+      await wrapper.get('.integration-completion button').trigger('click')
+      expect(wrapper.get('.integration-completion button').text()).toBe('Undoing…')
+      settle()
+      await flushPromises()
+      expect(invoke).toHaveBeenCalledExactlyOnceWith('tasks', 'status', expect.objectContaining({ statusCategory: 'open', status: 'inProgress' }), undefined, true, { broadcast: false })
+      expect(titles(wrapper)).toEqual(['Take medicine', 'Dentist'])
+      expect(wrapper.find('.integration-completion').exists()).toBe(false)
+      wrapper.unmount()
+    })
+
+    it('keeps the task and explains a failed write', async () => {
+      completionSource()
+      vi.spyOn(api, 'invokeIntegrationAction').mockImplementation(async (_id, action) => {
+        if (action === 'list')
+          return { currentUser: { id: 'me' }, items: [todo('Take medicine')] }
+        throw new Error('Microsoft To Do authorization is required.')
+      })
+      const wrapper = mount(IntegrationWorkbench, { props: { integrationId: 'tasks', viewId: 'work' }, global: { plugins: [pinia] } })
+      await flushPromises()
+      await wrapper.get('[role="checkbox"]').trigger('click')
+      await flushPromises()
+      expect(titles(wrapper)).toEqual(['Take medicine'])
+      expect(wrapper.get('[role="alert"]').text()).toBe('Could not update “Take medicine”: Microsoft To Do authorization is required.')
+      expect(wrapper.get('[role="checkbox"]').attributes('aria-checked')).toBe('false')
+      expect(wrapper.find('.integration-completion').exists()).toBe(false)
+      wrapper.unmount()
+    })
+
+    it('offers no circle for workflow providers or cached read-only snapshots', async () => {
+      const store = completionSource()
+      store.integrationContributions[0]!.actions.push({ id: 'transitions', title: 'Transitions', operation: 'work-items.transitions', effect: 'remote-read', confirmation: 'never', effectiveConfirmation: 'never' })
+      vi.spyOn(api, 'invokeIntegrationAction').mockResolvedValue({ currentUser: { id: 'me' }, items: [todo('Review proposal')] })
+      const workflow = mount(IntegrationWorkbench, { props: { integrationId: 'tasks', viewId: 'work' }, global: { plugins: [pinia] } })
+      await flushPromises()
+      expect(workflow.find('[role="checkbox"]').exists()).toBe(false)
+      expect(workflow.findComponent(IntegrationStatusTransitionControl).exists()).toBe(true)
+      workflow.unmount()
+
+      completionSource()
+      vi.spyOn(api, 'invokeIntegrationAction').mockResolvedValue({ items: [todo('Cached task')], cache: { reason: 'offline' as const, readOnly: true as const } })
+      const cached = mount(IntegrationWorkbench, { props: { integrationId: 'tasks', viewId: 'work' }, global: { plugins: [pinia] } })
+      await flushPromises()
+      expect(cached.text()).toContain('Cached task')
+      expect(cached.find('[role="checkbox"]').exists()).toBe(false)
+      cached.unmount()
+    })
+  })
+
   it('appends two pages without losing declarative filters or conflating equal IDs in different containers', async () => {
     const store = workSource()
     store.selectedProjectId = 'untrusted-project'

@@ -469,6 +469,23 @@ describe('integration entity list', () => {
     expect(rows[2]!.find('.integration-status-trigger').exists()).toBe(false)
   })
 
+  it('offers one-click completion only for writable unfinished items in place of their icon', async () => {
+    const items = [
+      { id: 'open', title: 'Open task', icon: 'builtin:list', status: 'notStarted', statusCategory: 'open' as const, statusUpdateAvailable: true },
+      { id: 'done', title: 'Done task', status: 'completed', statusCategory: 'done' as const, statusUpdateAvailable: true },
+      { id: 'locked', title: 'Locked task', status: 'notStarted', statusUpdateAvailable: false },
+    ]
+    const wrapper = mount(IntegrationEntityList, { props: { completionActions: { integrationId: 'todos' }, items } })
+    const rows = wrapper.findAll('[role="listitem"]')
+    expect(rows.map(row => row.find('[role="checkbox"]').exists())).toEqual([true, false, false])
+    expect(rows[0]!.find('.integration-entity-icon').exists()).toBe(false)
+    expect(rows[0]!.find('.integration-hierarchy-control').exists()).toBe(false)
+    expect(rows[2]!.find('.integration-hierarchy-control').exists()).toBe(true)
+    await wrapper.setProps({ readOnly: true })
+    expect(wrapper.find('[role="checkbox"]').exists()).toBe(false)
+    expect(wrapper.find('.integration-entity-icon').exists()).toBe(true)
+  })
+
   it('renders rich provider descriptions as safe plain text', () => {
     const wrapper = mount(IntegrationEntityList, {
       props: {

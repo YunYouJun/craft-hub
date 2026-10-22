@@ -277,8 +277,9 @@ export const useHomeWorkDataStore = defineStore('home-work-data', () => {
   /**
    * Complete or reopen one loaded item through its confirmed status action, then patch every cached
    * list of that integration instead of reloading the whole account. `item` is the state to change from.
+   * Integration views pass their own scope and patch their page with the returned entity.
    */
-  async function setCompletion(source: HomeWorkSource, item: IntegrationEntity, done: boolean): Promise<IntegrationEntity> {
+  async function setCompletion(source: Pick<HomeWorkSource, 'integrationId'>, item: IntegrationEntity, done: boolean, projectId?: string): Promise<IntegrationEntity> {
     const { integrationId } = source
     const actionId = completionActionId(workbench.integrationContributions.find(contribution => contribution.id === integrationId))
     if (!actionId)
@@ -295,7 +296,7 @@ export const useHomeWorkDataStore = defineStore('home-work-data', () => {
         title: item.title,
         statusCategory: done ? 'done' : 'open',
         ...(!done && item.status ? { status: item.status } : {}),
-      }, undefined, true, { broadcast: false })
+      }, projectId, true, { broadcast: false })
       const identity = workItemIdentityKey(item)
       for (const [key, record] of catalog) {
         const page = states[key]?.page
