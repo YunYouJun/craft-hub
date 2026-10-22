@@ -175,7 +175,7 @@ async function reloadDraft(): Promise<void> {
           <a class="home-tool" :href="tool.url" target="_blank" rel="noopener noreferrer" :title="`${tool.title} · ${tool.description || tool.url}`" :aria-busy="openingToolId === tool.id" @click="openTool(tool, $event)">
             <SoftwareIcon class="home-tool-mark" :url="tool.url" v-bind="toolArtwork(tool)" /><span class="home-tool-copy"><strong>{{ tool.title }}</strong><small>{{ tool.launch ? (supportsNativeTools ? (tool.launch.application === 'raycast' && tool.launch.commandUrl ? copy('运行已配置的 Raycast 命令', 'Run configured Raycast command') : copy('打开本机应用', 'Open local application')) : copy('浏览器模式 · 打开网站', 'Browser mode · Open website')) : tool.description || domain(tool.url) }}</small></span><Icon :name="openingToolId === tool.id ? 'loading' : 'externalLink'" />
           </a>
-          <SoftwareLinks v-if="tool.downloadUrl || tool.repositoryUrl" class="home-tool-links" :title="tool.title" :download-url="tool.downloadUrl" :repository-url="tool.repositoryUrl" />
+          <SoftwareLinks v-if="!compact || tool.downloadUrl || tool.repositoryUrl" class="home-tool-links" :title="tool.title" :download-url="tool.downloadUrl" :repository-url="tool.repositoryUrl" />
         </div>
       </div></section>
     </div>
@@ -221,18 +221,21 @@ async function reloadDraft(): Promise<void> {
 .home-tool-group { min-width: 0; }
 .home-tool-group h3 { display: flex; align-items: center; gap: 8px; margin: 0; padding-block: 6px 2px; color: var(--text-secondary); font-size: 12px; font-weight: 500; line-height: 18px; }
 .home-tool-grid { display: grid; grid-template-columns: 1fr; }
-.home-tool { display: flex; flex: 1; align-items: center; gap: 8px; min-width: 0; min-height: 48px; padding: 6px 0; border: 0; border-radius: var(--control-radius); color: var(--text); background: transparent; text-decoration: none; }
-.home-tool-card { display: flex; align-items: center; min-width: 0; border: 0; border-radius: 0; }
-.home-tool-card + .home-tool-card { border-top: 1px solid var(--border); }
+.home-tool { display: flex; flex: 1; align-items: center; gap: 10px; min-width: 0; min-height: 48px; padding: 6px 0; border: 0; border-radius: var(--control-radius); color: var(--text); background: transparent; text-decoration: none; }
+.home-tool-card { position: relative; display: flex; align-items: center; min-width: 0; margin-inline: -8px; padding-inline: 8px; border-radius: var(--control-radius); transition: background-color .12s ease; }
+.home-tool-card + .home-tool-card::before { content: ''; position: absolute; top: 0; right: 8px; left: 8px; border-top: 1px solid var(--border); transition: opacity .12s ease; }
 .home-tool-card:hover, .home-tool-card:focus-within { background: var(--surface-hover); }
+.home-tool-card:is(:hover, :focus-within)::before, .home-tool-card:is(:hover, :focus-within) + .home-tool-card::before { opacity: 0; }
 .home-tool-mark { --software-icon-size: 28px; }
-.home-tool-links { flex: none; padding-left: 8px; }
+.home-tool-links { flex: none; justify-content: flex-start; min-width: 60px; padding-left: 4px; }
 .home-tool-links :deep(a) { width: 28px; height: 28px; }
+.home-tool-links :deep(a:hover) { background: var(--surface); }
 .home-tool-copy { min-width: 0; flex: 1; }
 .home-tool strong, .home-tool small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .home-tool strong { font-size: 14px; font-weight: 500; line-height: 20px; }
 .home-tool small { margin-top: 1px; color: var(--muted); font-size: 12px; line-height: 16px; }
-.home-tool > .app-icon { flex: none; width: 13px; height: 13px; color: var(--muted); }
+.home-tool > .app-icon { flex: none; width: 13px; height: 13px; margin-right: 8px; color: var(--muted); opacity: 0; transition: opacity .12s ease; }
+.home-tool-card:is(:hover, :focus-within) .home-tool > .app-icon, .home-tool[aria-busy="true"] > .app-icon { opacity: 1; }
 .home-tools-form { display: grid; gap: 16px; }
 .home-tool-editor { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 12px; min-width: 0; margin: 0; padding: 16px; border: 1px solid var(--border); border-radius: var(--panel-radius); background: var(--surface); }
 .home-tool-editor legend { padding: 0 5px; color: var(--muted); font-size: var(--font-size-control); }
@@ -246,11 +249,13 @@ async function reloadDraft(): Promise<void> {
 .home-tools { min-width: 0; border: 1px solid var(--border); border-radius: var(--panel-radius); padding: 0 12px; background: var(--surface); }
 .compact .home-section-heading { gap: 8px; }
 .compact .home-tool > .app-icon { display: none; }
+.compact .home-tool-links { min-width: 0; }
 .home-icon-button { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border: 0; border-radius: var(--control-radius); color: var(--muted); background: transparent; cursor: pointer; }
 .home-icon-button > .app-icon { width: 15px; height: 15px; }
 .home-icon-button:hover { background: var(--surface-hover); color: var(--text); }
 .home-icon-button:disabled { opacity: .55; cursor: default; }
 .home-text-button:focus-visible, .home-icon-button:focus-visible, .home-tool:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (hover: none) { .home-tool > .app-icon { opacity: 1; } }
 @media (max-width: 767.9px), (pointer: coarse) { .home-tool-editor input, .home-tool-editor select { font-size: 16px; } }
 @media (max-width: 600px) {
   .home-section-heading { flex-wrap: wrap; gap: 4px 8px; padding-block: 4px; }
