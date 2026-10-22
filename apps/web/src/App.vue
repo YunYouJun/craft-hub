@@ -26,6 +26,7 @@ const DesktopNavigationDialog = lazyComponent(() => import('./DesktopNavigationD
 <script setup lang="ts">
 import type { WorkbenchDiagnosticTarget } from 'craft-hub'
 import type { WorkbenchNavigationGroup } from './workbench-navigation'
+import type { NativeCommand } from './native-host'
 import type { DesktopMenuAction } from './shortcuts'
 import { TransitionPresets, useLocalStorage, useMediaQuery, useTransition } from '@vueuse/core'
 import { computed, onBeforeMount, onBeforeUnmount, onMounted, ref, watch } from 'vue'
@@ -51,6 +52,7 @@ import WorkbenchSplitter from './WorkbenchSplitter.vue'
 import WorkspaceProjectList from './WorkspaceProjectList.vue'
 import { useWorkbenchStore } from './store'
 import { prefetchLazyComponents, useOpenedOnce } from './lazy-components'
+import { nativeCommandEvent } from './native-host'
 
 const quickCaptureOpen = ref(false)
 let stopQuickCapture: (() => void) | undefined
@@ -96,6 +98,14 @@ const paletteShortcutLabel = computed(() => formatShortcut(store.settings?.setti
 function showPalette(mode: 'all' | 'projects' | 'commands'): void {
   paletteMode.value = mode
   paletteOpen.value = true
+}
+/** A native host's toolbar and menus reach the same palette and settings as the web chrome they replace. */
+function runNativeCommand(event: Event): void {
+  const command = (event as CustomEvent<NativeCommand>).detail
+  if (command === 'palette' && !hasOpenOverlay(true))
+    showPalette('all')
+  else if (command === 'settings')
+    openSettings()
 }
 const settingsOpen = ref(false)
 const settingsInitialTab = ref<'general' | 'help'>('general')
@@ -517,6 +527,7 @@ async function focusCodexApplication(): Promise<void> {
 
 onBeforeMount(async () => {
   window.addEventListener('keydown', onKeydown)
+  window.addEventListener(nativeCommandEvent, runNativeCommand)
   window.addEventListener('focus', refreshWhenVisible)
   document.addEventListener('visibilitychange', refreshWhenVisible)
   const initialProjectId = typeof route.query.project === 'string' ? route.query.project : undefined
@@ -605,6 +616,7 @@ onBeforeUnmount(() => {
   if (visibilityRefreshTimer)
     clearTimeout(visibilityRefreshTimer)
   window.removeEventListener('keydown', onKeydown)
+  window.removeEventListener(nativeCommandEvent, runNativeCommand)
   window.removeEventListener('focus', refreshWhenVisible)
   document.removeEventListener('visibilitychange', refreshWhenVisible)
   stopProjectEvents?.()

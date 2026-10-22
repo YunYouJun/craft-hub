@@ -10,6 +10,7 @@
   "scripts": {
     "build": "pnpm software-catalog:check && nr -r build && node packages/craft-hub/scripts/prepare-package.mjs",
     "build:mac": "pnpm build && pnpm run package:mac",
+    "build:macos": "node apps/macos/scripts/build-app.mjs",
     "build:tauri": "pnpm build && pnpm --filter @craft-hub/tauri-trial build:trial",
     "dev": "tsx scripts/dev-environment.ts desktop",
     "dev:web": "node --import tsx scripts/dev-environment.ts web",

@@ -1,6 +1,7 @@
 import { createPinia } from 'pinia'
 import { createApp, h } from 'vue'
 import { RouterView } from 'vue-router'
+import { installNativeHost } from './native-host'
 import { createWorkbenchRouter } from './router'
 import { applyWorkbenchTheme } from './theme'
 import { trackWindowFocus } from './window-focus'
@@ -22,7 +23,10 @@ if (desktopHost?.windowMaterial)
 
 applyWorkbenchTheme('system')
 
+const router = createWorkbenchRouter()
+installNativeHost(router)
+
 createApp({ render: () => h(RouterView) })
   .use(createPinia())
-  .use(createWorkbenchRouter())
+  .use(router)
   .mount('#app')
