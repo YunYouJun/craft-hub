@@ -65,6 +65,23 @@ jobs:
       - name: Run Vite process integration test
         run: pnpm test --run scripts/dev-vite.test.ts
 
+  browser-security:
+    name: Browser security regression
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+        with:
+          run_install: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec playwright install --with-deps chromium firefox webkit
+      - run: pnpm test:browser
+
   node-compatibility:
     name: Runtime on Node ${{ matrix.node }}
     runs-on: ubuntu-latest

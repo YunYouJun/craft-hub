@@ -87,6 +87,15 @@ pnpm test --run
 pnpm build
 ```
 
+Markdown preview security also runs in real Chromium, Firefox, and WebKit browsers:
+
+```bash
+pnpm exec playwright install chromium firefox webkit
+pnpm test:browser
+```
+
+CI installs browser system dependencies with `playwright install --with-deps` and runs this suite without retries. It covers executable HTML, event handlers, encoded URL schemes, parser mutations, and safe document rendering/navigation. The production sanitizer stays enabled throughout; an unsanitized control confirms that inline handlers can execute in the test browser.
+
 ### macOS releases
 
 Release tags (`v*`) build separate Apple Silicon (`arm64`) and Intel (`x64`) apps, sign and notarize them, then attach both ZIP files to the GitHub Release.

@@ -43,6 +43,16 @@ After testing, the temporary project's trust and registration were removed, the 
 
 Repository verification for the documentation handoff passed: `pnpm lint`, `pnpm typecheck`, `pnpm test --run` (2,098 passed, 3 skipped), `pnpm build`, and `swift test --package-path apps/macos` (35 passed). No production source changes or new release binaries were needed. This Alpha revision predates the `lint:macos` script.
 
+## Dependency audit follow-up — 2026-10-23
+
+The documentation PR's dependency audit identified DOMPurify 3.4.16. The follow-up retains the sanitizer and upgrades it to 3.4.17, the patched version for [GHSA-cg2g-xh64-v4q7](https://github.com/advisories/GHSA-cg2g-xh64-v4q7) and [GHSA-mrv2-3pqr-j5jr](https://github.com/advisories/GHSA-mrv2-3pqr-j5jr). The preview uses string input/output without the affected `IN_PLACE`, template mode or hooks; the package audit alone did not establish exploitability in this application.
+
+Browser regression testing also found that tab/newline-obfuscated URL schemes could be mistaken for local document paths. The preview now recognizes those schemes and discards document-authored `data-local-path` attributes before generating its own scoped navigation metadata. The tests retain the production sanitizer and verify executable content removal, dangerous links, malformed HTML reparsing, valid images, safe HTML, and project/plugin navigation. An unsanitized event-handler control verifies that the browser environment can execute the test payload. CI runs the browser suite without retries via `pnpm test:browser`.
+
+The dependency and preview changes apply to subsequent builds. The published Alpha 6/7 binaries and their source commits, hashes, signatures and update acceptance evidence above are unchanged.
+
+Local follow-up verification passed: production dependency audit at the high-severity threshold, lint, TypeScript and Vue type checks, 2,099 unit tests (3 existing skips), application and documentation builds, and all 48 browser checks (16 scenarios each in Chromium, Firefox and WebKit; no retries). A separate component preview at desktop and narrow viewports also verified expansion, scoped navigation, blocked links and stripped click handlers with no browser console errors. Browser-engine coverage does not replace acceptance in the shipped Electron or macOS WKWebView host.
+
 ## Coverage limits
 
 Intel updates, operation on the minimum supported macOS 15, sustained daily use, and live cancellation specifically during agent tasks or capture saves remain unverified. This extension exercised a running command and check-stage network loss; archive-download interruption and a physical network outage were not induced. Modified ZIP/feed and mismatched-key rejection retain their isolated artifact/unit coverage rather than production-feed fault injection.
