@@ -45,7 +45,7 @@ const vulnerableRanges = [
   { name: '@toon-format/toon', range: '<2.3.1' },
   { name: '@vue/server-renderer', range: '<3.5.42' },
   { name: 'brace-expansion', range: '>=2.0.0 <2.1.7 || >=4.0.0 <5.0.12' },
-  { name: 'dompurify', range: '<=3.4.15' },
+  { name: 'dompurify', range: '<3.4.17' },
   { name: 'fast-uri', range: '>=3.0.0 <3.1.8' },
   // The upstream maintainer disputes GHSA-ch52-4w7c-c8xp. Version 4.3.0 is
   // outside its reported range; this is not proof of a max-stale behavior fix.

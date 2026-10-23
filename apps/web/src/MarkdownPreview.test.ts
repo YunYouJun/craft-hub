@@ -36,6 +36,24 @@ describe('markdown preview', () => {
     expect(openProjectEvidenceInEditor).toHaveBeenCalledWith('project', 'docs/configuration.md')
   })
 
+  it('does not grant scoped navigation to obfuscated schemes or document-authored metadata', async () => {
+    const openProjectEvidenceInEditor = vi.fn(async () => {})
+    window.craftHubDesktop = { openProjectEvidenceInEditor }
+    const wrapper = mount(MarkdownPreview, {
+      props: {
+        content: '<a href="java&#x09;script:alert(1)">Unsafe</a><a href="#section" data-local-path="../../outside.md">Forged</a>',
+        projectId: 'project',
+        readmePath: 'docs/README.md',
+      },
+    })
+
+    expect(wrapper.find('[data-local-path]').exists()).toBe(false)
+    for (const link of wrapper.findAll('a'))
+      await link.trigger('click')
+    expect(openProjectEvidenceInEditor).not.toHaveBeenCalled()
+    expect(wrapper.emitted('navigateDocument')).toBeUndefined()
+  })
+
   it('resolves plugin assets and emits contained Markdown navigation without a project bridge', async () => {
     const assetUrl = vi.fn((path: string) => `/api/plugins/document-asset?path=${encodeURIComponent(path)}`)
     const wrapper = mount(MarkdownPreview, {

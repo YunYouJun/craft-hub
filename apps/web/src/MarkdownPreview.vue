@@ -29,7 +29,9 @@ function safeExternalUrl(value: string): boolean {
 }
 
 function hasUrlScheme(value: string): boolean {
-  return /^[a-z][a-z\d+.-]*:/i.test(value)
+  // Browsers ignore tabs/newlines in URL schemes. Do not reinterpret an
+  // obfuscated external scheme as a local document or asset path.
+  return /^[a-z][a-z\d+.-]*:/i.test(value.replace(/[\t\n\r]/g, '').trimStart())
 }
 
 const html = computed(() => {
@@ -53,6 +55,8 @@ const html = computed(() => {
     image.referrerPolicy = 'no-referrer'
   }
   for (const link of document.querySelectorAll<HTMLAnchorElement>('a')) {
+    // Only this resolver may grant access to the scoped document navigation.
+    delete link.dataset.localPath
     const href = link.getAttribute('href') ?? ''
     if (href.startsWith('#'))
       continue
