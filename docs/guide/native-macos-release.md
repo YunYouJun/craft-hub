@@ -57,9 +57,13 @@ After `pnpm build:macos`, run `pnpm test:macos-updates` to load the embedded fra
 Build and publish two signed, notarized native alphas with the same identity and keys. Install N into a writable Applications location, then verify:
 
 1. Manual check offers N+1 from the public HTTPS feed; disabling automatic checks still permits manual checks.
-2. Download, **Later**, a subsequent manual check, restart and replacement all work. Only the native app is replaced, the new bundle version is N+1, and projects, settings, grants and capture drafts survive.
+2. Before downloading, exercise **Remind Me Later** and **Skip This Version** across relaunch and a due background check. An explicit manual check intentionally clears a skipped version. Then download, choose **Install and Relaunch**, and verify replacement. The **Ready to Install** window does not offer Later. Only the native app is replaced, the new bundle version is N+1, and projects, settings, grants and capture drafts survive.
 3. Active commands, agent tasks and capture saves can cancel restart; normal idle restart leaves no old sidecar before starting the new one.
 4. Automatic checks/download preferences survive relaunch, no duplicate download occurs, and no-update/offline/failure states use Sparkle's normal UI.
 5. A modified ZIP, modified signed feed, wrong Ed25519 key and an incompatible architecture are rejected. Perform negative tests with isolated test identities and keys, never by corrupting the production feed.
 
 Passing local builds and unit tests does not prove this public N → N+1 path. Record its result before describing native release updates as validated.
+
+## Recorded Alpha acceptance
+
+[Alpha 6 → Alpha 7 acceptance](../research/native-macos-update-acceptance.md) passed on Apple silicon/macOS 26.6.2 on 2026-10-22, with running-command cancellation, Later/Skip and app-scoped check-stage offline recovery added on 2026-10-23. The record distinguishes signed Release tests from the isolated network simulation and lists remaining minimum-system, daily-use and Intel coverage.
