@@ -40,7 +40,7 @@ The [desktop bridge v1 inventory](../../docs/guide/desktop-bridge.md) records ev
 - Missing desktop bridge capabilities include editor, terminal and Codex launching, settings file, personal cloud, external host extension installation/removal, menu and deep link events, and theme and locale sync. Updates use native Sparkle menus and settings rather than the Electron bridge.
 - Software installation, source management and environment configuration still use the full web workflows. Native observations refresh on demand; API event-stream refresh is not yet connected.
 - Not yet implemented: menu bar item, App Intents, notifications, the login-shell PATH fallback and the private Node download. Native observations and palette discovery refresh on demand; event-stream updates, custom shortcut synchronization and pinned-result ranking remain follow-up work.
-- Local builds are ad hoc signed and do not start an updater. Release builds use Developer ID signing, notarization and Sparkle 2; see [native distribution](../../docs/guide/native-macos-release.md). The first public two-version update exercise remains a release acceptance gate.
+- Local builds are ad hoc signed and do not start an updater. Release builds use Developer ID signing, notarization and Sparkle 2; see [native distribution](../../docs/guide/native-macos-release.md). The [Alpha 6 → Alpha 7 acceptance record](../../docs/research/native-macos-update-acceptance.md) covers public installation, running-command cancellation, Later/Skip and app-scoped check-stage offline recovery, with remaining coverage stated explicitly.
 
 ## Software updates
 
