@@ -1,8 +1,9 @@
 import AppKit
-import SwiftUI
 import CraftHubMacCore
 import Foundation
+import SwiftUI
 import Testing
+
 @testable import CraftHubMac
 
 @MainActor @Test func paletteFiltersAndWrapsWithoutRequiringARuntime() {
@@ -56,9 +57,11 @@ import Testing
   defer { try? FileManager.default.removeItem(at: directory) }
   let store = CaptureDraftStore(url: directory.appendingPathComponent("draft.json"))
   let secret = String(repeating: "a", count: 64)
-  let connection = try RuntimeConnection(handshake: JSONSerialization.data(withJSONObject: [
-    "version": 1, "url": "http://127.0.0.1:49218/__craft_hub_host/bootstrap?token=\(secret)", "nativeApiToken": secret,
-  ]))
+  let connection = try RuntimeConnection(
+    handshake: JSONSerialization.data(withJSONObject: [
+      "version": 1, "url": "http://127.0.0.1:49218/__craft_hub_host/bootstrap?token=\(secret)",
+      "nativeApiToken": secret,
+    ]))
   var requests: [String] = []
   var saves: [String] = []
   let client = RuntimeAPIClient(connection: connection) { request in
@@ -118,18 +121,23 @@ import Testing
   model.recoverDraft()
   #expect(!model.recoveryRequired)
   #expect(try store.load().text == "New text")
-  let backup = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil).first { $0.lastPathComponent.contains("recovery-") }
+  let backup = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil).first {
+    $0.lastPathComponent.contains("recovery-")
+  }
   #expect(try Data(contentsOf: #require(backup)) == damaged)
 }
 
 @MainActor @Test func paletteKeyboardDefersToChineseCompositionBeforeOpeningACommand() {
   var submitted = 0
   var movement = 0
-  let view = PaletteSearchField(text: .constant("搜索"), placeholder: "", focus: UUID(), move: { movement += $0 }, submit: { submitted += 1 }, dismiss: {})
+  let view = PaletteSearchField(
+    text: .constant("搜索"), placeholder: "", focus: UUID(), move: { movement += $0 }, submit: { submitted += 1 },
+    dismiss: {})
   let coordinator = view.makeCoordinator()
   let field = NSTextField()
   let editor = NSTextView()
-  editor.setMarkedText("sou", selectedRange: NSRange(location: 3, length: 0), replacementRange: NSRange(location: NSNotFound, length: 0))
+  editor.setMarkedText(
+    "sou", selectedRange: NSRange(location: 3, length: 0), replacementRange: NSRange(location: NSNotFound, length: 0))
   #expect(!coordinator.control(field, textView: editor, doCommandBy: NSSelectorFromString("insertNewline:")))
   #expect(!coordinator.control(field, textView: editor, doCommandBy: NSSelectorFromString("moveDown:")))
   #expect(submitted == 0 && movement == 0)

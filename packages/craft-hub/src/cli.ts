@@ -11,6 +11,7 @@ import { pairDeliveryDevice } from './delivery/connection'
 import { createLocalCraftHubRuntime } from './local-runtime'
 import { initializeMarketplacePlugin, packMarketplacePlugin, validateMarketplacePlugin } from './plugin-authoring'
 import { loadCraftHubPlugins } from './plugins'
+import { registerProfileMigrationCommands } from './profile-migration-cli'
 import { validateRepository } from './repository-validation'
 import { CraftHubRuntime } from './runtime'
 import { startCraftHubServer } from './server'
@@ -19,6 +20,7 @@ import { resolveCraftHubWebDirectory } from './web-assets'
 
 const cli = cac('craft-hub')
 const runtime = new CraftHubRuntime()
+registerProfileMigrationCommands(cli)
 
 cli.command('repo:validate <directory>', 'Validate repository declarations without importing, trusting or executing them')
   .option('--json', 'Print a versioned structured validation report')
@@ -408,7 +410,21 @@ cli.command('ui', 'Start the local Craft Hub workbench')
 
 cli.help()
 cli.version(craftHubVersion)
-cli.parse()
+cli.parse(process.argv, { run: false })
+if (cli.matchedCommand && !cli.options.help) {
+  try {
+    if (!cli.matchedCommand.name.startsWith('profile:'))
+      await runtime.protectProfile()
+    await cli.runMatchedCommand()
+  }
+  catch (error) {
+    console.error(error instanceof Error ? error.message : error)
+    process.exitCode = 1
+  }
+  finally {
+    await runtime.close()
+  }
+}
 
 process.on('unhandledRejection', (error) => {
   console.error(error instanceof Error ? error.message : error)

@@ -14,6 +14,7 @@ import { existsSync, realpathSync } from 'node:fs'
 import { access, mkdir, readFile, realpath, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { delimiter, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import process from 'node:process'
+import { isDeepStrictEqual } from 'node:util'
 import pacote from 'pacote'
 import { gt, maxSatisfying, satisfies, valid, validRange } from 'semver'
 import { z } from 'zod'
@@ -346,6 +347,14 @@ export interface PluginUpdateResult {
   updated: InstalledPlugin[]
   skipped: PluginUpdatePlanItem[]
   failures: Array<PluginUpdatePlanItem & { error: string }>
+}
+
+/** A client must review a changed dependency or permission plan before installing it. */
+export class PluginInstallPlanChangedError extends Error {
+  constructor() {
+    super('Plugin installation plan changed; review the current versions and permissions before installing')
+    this.name = 'PluginInstallPlanChangedError'
+  }
 }
 
 /** Result returned by a plugin package installer. */
@@ -752,10 +761,18 @@ export class PluginManager {
     return structuredClone(source)
   }
 
-  async install(request: InstallPluginRequest): Promise<InstalledPlugin> {
+  /** Install a resolved plan; clients may bind approval to the exact dependency and permission preview. */
+  async install(request: InstallPluginRequest, reviewedPlan?: unknown): Promise<InstalledPlugin> {
     await this.initialize()
     const plan = await this.planInstall(request)
-    const source = this.requireSource(request.sourceId)
+    if (reviewedPlan !== undefined && !isDeepStrictEqual(plan, reviewedPlan))
+      throw new PluginInstallPlanChangedError()
+    // Freeze the catalog for this operation before any installer await can refresh a source.
+    const source = structuredClone(this.requireSource(request.sourceId))
+    for (const item of plan.items) {
+      if (!isDeepStrictEqual(item.permissions, this.requireCatalogEntry(source, item.package, item.version).permissions))
+        throw new PluginInstallPlanChangedError()
+    }
     const candidateRoot = join(this.dataDir, 'plugins', '.candidates', randomUUID())
     try {
       const prepared = new Map<string, { entry: CatalogPluginV1, installedPackage: InstalledPackage, manifest: PluginManifestV1 }>()

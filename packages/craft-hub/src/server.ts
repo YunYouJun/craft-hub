@@ -4,6 +4,7 @@ import type { LocalApplicationLauncher } from './local-applications'
 import type { PersonalGitSyncResolution } from './personal-git-sync'
 import type { CommandInputValues, ProjectAccentColor, ProjectCatalogSnapshot, ProjectDescriptionChange, WorkspaceManifest } from './types'
 import type { UserConfigStatus } from './user-config'
+import type { ProjectChangeEvent } from './watcher'
 import { Buffer } from 'node:buffer'
 import { createReadStream } from 'node:fs'
 import { access } from 'node:fs/promises'
@@ -21,8 +22,12 @@ import { dotfilesOperations, DotfilesTrustError, DotfilesValidationError } from 
 import { environmentSourceCommandSchema, EnvironmentSourceError } from './environment-sources'
 import { GitIntegrationConflictError, GitIntegrationValidationError } from './git-integration'
 import { isLocalDirectoryMutation } from './host-environment'
-import { IntegrationConfirmationRequiredError } from './integrations'
+import { IntegrationFormError } from './integration-forms'
+import { presentIntegrationAction } from './integration-presentation'
+import { IntegrationConfirmationRequiredError, IntegrationReviewChangedError } from './integrations'
 import { openMicrosoftTodo } from './local-applications'
+import { PluginInstallPlanChangedError } from './marketplace'
+import { marketplaceOverview } from './marketplace-model'
 import { captureDueInstant, parseQuickCapture } from './quick-capture'
 import { CraftHubRuntime } from './runtime'
 import { SettingsConflictError, SettingsValidationError } from './settings'
@@ -30,6 +35,7 @@ import { setupProfileCommandSchema, SetupProfileError } from './setup-profile'
 import { softwareApplicationRequestSchema, softwareInstallationConfirmationSchema, softwareInstallationRequestSchema, SoftwareOperationError } from './software-catalog'
 import { softwareSourceCommandSchema, SoftwareSourceError } from './software-sources'
 import { TeamLifecycleValidationError } from './teams'
+import { todayFocusSnapshot } from './today-focus-snapshot'
 import { PERSONAL_OWNER_SCOPE_ID, projectAccentColors } from './types'
 import { ProjectWatcher } from './watcher'
 import { WorkItemProjectConflictError, workItemProjectDeleteRequestSchema, WorkItemProjectError, workItemProjectUpdateRequestSchema } from './work-item-projects'
@@ -137,6 +143,24 @@ export interface CraftHubServer {
 /** Start the local-only HTTP API used by the web and Electron clients. */
 export async function startCraftHubServer(options: CraftHubServerOptions = {}): Promise<CraftHubServer> {
   const runtime = options.runtime ?? new CraftHubRuntime()
+  await runtime.protectProfile()
+  let disposed = false
+  const disposeRuntime = async (): Promise<void> => {
+    if (!disposed) {
+      disposed = true
+      await runtime.close()
+    }
+  }
+  try {
+    return await startProtectedServer(options, runtime, disposeRuntime)
+  }
+  catch (error) {
+    await disposeRuntime()
+    throw error
+  }
+}
+
+async function startProtectedServer(options: CraftHubServerOptions, runtime: CraftHubRuntime, disposeRuntime: () => Promise<void>): Promise<CraftHubServer> {
   const agentConnection = new AgentConnectionService(runtime)
   let stopDeliveryConnection: (() => Promise<void>) | undefined
   await runtime.accountSync.recover()
@@ -149,6 +173,8 @@ export async function startCraftHubServer(options: CraftHubServerOptions = {}): 
       client.write(message)
   }
   const watcher = new ProjectWatcher(event => broadcastEvent('project-change', event))
+  const stopProjectEvents = runtime.projects.onChanged(() => broadcastEvent('project-catalog-change', { changedAt: new Date().toISOString() }))
+  const stopIntegrationEvents = runtime.onIntegrationsChanged(integrationId => broadcastEvent('integration-change', { integrationId }))
   const stopRunEvents = runtime.onRunsChanged(summary => broadcastEvent('run-change', summary))
   const stopAgentTaskEvents = runtime.agentTasks.onChanged(task => broadcastEvent('agent-task-change', task))
   const stopSettingsEvents = runtime.settings.onChanged(snapshot => broadcastEvent('settings-change', snapshot))
@@ -245,6 +271,13 @@ export async function startCraftHubServer(options: CraftHubServerOptions = {}): 
 
       if (request.method === 'GET' && url.pathname === '/api/diagnostics')
         return sendJson(response, 200, await runtime.diagnosticSnapshot())
+
+      if (request.method === 'GET' && url.pathname === '/api/workbench/today') {
+        const locale = url.searchParams.get('locale') ?? 'en'
+        if (locale !== 'en' && locale !== 'zh-CN')
+          return sendJson(response, 400, { error: 'Locale must be en or zh-CN' })
+        return sendJson(response, 200, await todayFocusSnapshot(runtime, locale))
+      }
 
       if (parts[0] === 'api' && parts[1] === 'work-assistant') {
         if (runtime.hostEnvironment.kind !== 'local')
@@ -391,6 +424,19 @@ export async function startCraftHubServer(options: CraftHubServerOptions = {}): 
         if (url.search && url.search !== '?discovery=none')
           return sendJson(response, 400, { error: 'Software discovery only accepts discovery=none' })
         return sendJson(response, 200, await runtime.softwareCatalogSnapshot({ localDiscovery: !url.search }))
+      }
+
+      if (url.pathname === '/api/software-favorites') {
+        if (url.search)
+          return sendJson(response, 400, { error: 'Favorites accept no query parameters' })
+        if (request.method !== 'POST')
+          return sendJson(response, 405, { error: 'Use a JSON POST request' })
+        if (!addressesThisSocket(request.headers.host ?? '', request) || request.headers['sec-fetch-site'] === 'cross-site'
+          || (request.headers.origin && request.headers.origin !== `http://${request.headers.host}`)
+          || request.headers['content-type']?.split(';')[0]?.trim().toLowerCase() !== 'application/json') {
+          return sendJson(response, 403, { error: 'Favorites require a same-origin local JSON request' })
+        }
+        return sendJson(response, 200, await runtime.updateSoftwareFavorite(await jsonBody(request, 4096)))
       }
 
       if (parts[0] === 'api' && parts[1] === 'software' && parts.length >= 3) {
@@ -779,6 +825,13 @@ export async function startCraftHubServer(options: CraftHubServerOptions = {}): 
       if (request.method === 'GET' && url.pathname === '/api/settings/schema')
         return sendJson(response, 200, runtime.settings.schema())
 
+      if (request.method === 'GET' && url.pathname === '/api/marketplace/overview') {
+        const installed = await runtime.pluginManager.listInstalled()
+        const catalog = await runtime.pluginManager.catalog()
+        const sources = await runtime.pluginManager.listSources()
+        return sendJson(response, 200, marketplaceOverview(catalog, installed, sources))
+      }
+
       if (request.method === 'GET' && url.pathname === '/api/marketplace/catalog')
         return sendJson(response, 200, await runtime.pluginManager.catalog())
 
@@ -844,20 +897,42 @@ export async function startCraftHubServer(options: CraftHubServerOptions = {}): 
       if (request.method === 'GET' && url.pathname === '/api/integrations')
         return sendJson(response, 200, await runtime.integrationContributions())
 
+      const formParts = parts[1] === 'projects' ? parts.slice(3) : parts.slice(1)
+      if (request.method === 'POST' && parts[0] === 'api' && formParts[0] === 'integrations' && formParts[1] && formParts[2] === 'forms' && formParts.length === 4) {
+        if (url.search || !['prepare', 'execute', 'discard'].includes(formParts[3]!))
+          return sendJson(response, 400, { error: 'Unknown integration form operation' })
+        if (!request.headers['content-type']?.startsWith('application/json') || request.headers['sec-fetch-site'] === 'cross-site')
+          return sendJson(response, 403, { error: 'Integration forms require a same-site JSON request' })
+        const body = await jsonBody(request, 1_048_576)
+        const project = parts[1] === 'projects' ? parts[2] : undefined
+        if (formParts[3] === 'prepare')
+          return sendJson(response, 200, await runtime.integrationForms.prepare(formParts[1], project, body))
+        if (formParts[3] === 'discard') {
+          runtime.integrationForms.discard(formParts[1], project, body)
+          return sendJson(response, 200, { version: 1 })
+        }
+        return sendJson(response, 200, presentIntegrationAction(await runtime.integrationForms.execute(formParts[1], project, body, callbackUrl(formParts[1], request))))
+      }
+
       if (request.method === 'POST' && parts[0] === 'api' && parts[1] === 'integrations' && parts[2] && parts[3] === 'actions' && parts[4] && parts.length === 5) {
+        if (url.search && url.search !== '?presentation=workbench-v1')
+          return sendJson(response, 400, { error: 'Unknown integration presentation' })
         if (!request.headers['content-type']?.startsWith('application/json') || request.headers['sec-fetch-site'] === 'cross-site')
           return sendJson(response, 403, { error: 'Integration actions require a same-site JSON request' })
         const body = await jsonBody(request)
         const input = body.input === undefined ? {} : body.input
         if (!input || typeof input !== 'object' || Array.isArray(input))
           return sendJson(response, 400, { error: 'input must be an object' })
-        return sendJson(response, 200, await runtime.invokeIntegrationAction({
+        const result = await runtime.invokeIntegrationAction({
           integrationId: parts[2],
           callbackUrl: callbackUrl(parts[2], request),
           actionId: parts[4],
+          reviewedAction: body.reviewedAction,
+          reviewedConnection: body.reviewedConnection,
           input: input as Record<string, unknown>,
           confirmed: body.confirmed === true,
-        }))
+        })
+        return sendJson(response, 200, url.search ? presentIntegrationAction(result) : result)
       }
 
       if (request.method === 'GET' && url.pathname === '/api/plugins/document') {
@@ -952,7 +1027,7 @@ export async function startCraftHubServer(options: CraftHubServerOptions = {}): 
           sourceId: body.sourceId,
           package: body.package,
           version: typeof body.version === 'string' ? body.version : undefined,
-        }))
+        }, body.reviewedPlan))
       }
 
       if (request.method === 'PATCH' && url.pathname === '/api/settings') {
@@ -1136,20 +1211,25 @@ export async function startCraftHubServer(options: CraftHubServerOptions = {}): 
       if (parts[0] === 'api' && parts[1] === 'projects' && parts[2]) {
         const projectId = parts[2]
         if (request.method === 'POST' && parts[3] === 'integrations' && parts[4] && parts[5] === 'actions' && parts[6] && parts.length === 7) {
+          if (url.search && url.search !== '?presentation=workbench-v1')
+            return sendJson(response, 400, { error: 'Unknown integration presentation' })
           if (!request.headers['content-type']?.startsWith('application/json') || request.headers['sec-fetch-site'] === 'cross-site')
             return sendJson(response, 403, { error: 'Integration actions require a same-site JSON request' })
           const body = await jsonBody(request)
           const input = body.input === undefined ? {} : body.input
           if (!input || typeof input !== 'object' || Array.isArray(input))
             return sendJson(response, 400, { error: 'input must be an object' })
-          return sendJson(response, 200, await runtime.invokeIntegrationAction({
+          const result = await runtime.invokeIntegrationAction({
             integrationId: parts[4],
             callbackUrl: callbackUrl(parts[4], request),
             actionId: parts[6],
+            reviewedAction: body.reviewedAction,
+            reviewedConnection: body.reviewedConnection,
             projectId,
             input: input as Record<string, unknown>,
             confirmed: body.confirmed === true,
-          }))
+          })
+          return sendJson(response, 200, url.search ? presentIntegrationAction(result) : result)
         }
         if (request.method === 'PUT' && parts[3] === 'group') {
           const body = await jsonBody(request)
@@ -1267,7 +1347,9 @@ export async function startCraftHubServer(options: CraftHubServerOptions = {}): 
           const body = await jsonBody(request)
           if (!Array.isArray(body.capabilityIds) || !body.capabilityIds.every(id => typeof id === 'string'))
             return sendJson(response, 400, { error: 'capabilityIds must be an array of strings' })
-          return sendJson(response, 200, await runtime.updateCapabilityPins(projectId, body.capabilityIds))
+          const pins = await runtime.updateCapabilityPins(projectId, body.capabilityIds)
+          broadcastEvent('project-change', { projectId, scopes: ['capabilities'] } satisfies ProjectChangeEvent)
+          return sendJson(response, 200, pins)
         }
         if (request.method === 'GET' && parts[3] === 'icon') {
           const path = await runtime.projects.iconPath(projectId)
@@ -1342,12 +1424,16 @@ export async function startCraftHubServer(options: CraftHubServerOptions = {}): 
       sendJson(response, 404, { error: 'Not found' })
     }
     catch (error) {
+      if (error instanceof IntegrationFormError)
+        return sendJson(response, error.status, { error: error.message })
       if (error instanceof WorkItemProjectConflictError)
         return sendJson(response, 409, { error: error.message, actualRevision: error.actualRevision })
       if (error instanceof WorkItemProjectError)
         return sendJson(response, error.status, { error: error.message })
       if (error instanceof SoftwareOperationError || error instanceof SoftwareSourceError || error instanceof SetupProfileError || error instanceof EnvironmentSourceError)
         return sendJson(response, error.status, { error: error.message })
+      if (error instanceof PluginInstallPlanChangedError)
+        return sendJson(response, 409, { error: error.message, reviewRequired: true })
       if (error instanceof SettingsConflictError)
         return sendJson(response, 409, { error: error.message, actualRevision: error.actualRevision })
       if (error instanceof WorkspaceSubscriptionError)
@@ -1358,6 +1444,8 @@ export async function startCraftHubServer(options: CraftHubServerOptions = {}): 
         return sendJson(response, 409, { error: error.message, actualRevision: error.actualRevision })
       if (error instanceof IntegrationConfirmationRequiredError)
         return sendJson(response, 409, { error: error.message, confirmationRequired: true })
+      if (error instanceof IntegrationReviewChangedError)
+        return sendJson(response, 409, { error: error.message, reviewRequired: true })
       if (error instanceof DotfilesTrustError)
         return sendJson(response, 403, { error: error.message })
       if (error instanceof CommandInputValidationError || error instanceof DotfilesValidationError || error instanceof GitIntegrationValidationError || error instanceof SettingsValidationError || error instanceof TeamLifecycleValidationError || error instanceof ZodError || error instanceof SyntaxError)
@@ -1453,6 +1541,8 @@ export async function startCraftHubServer(options: CraftHubServerOptions = {}): 
       if (heartbeat)
         clearInterval(heartbeat)
       stopRunEvents()
+      stopProjectEvents()
+      stopIntegrationEvents()
       stopAgentTaskEvents()
       stopSettingsEvents()
       stopPluginEvents()
@@ -1471,8 +1561,7 @@ export async function startCraftHubServer(options: CraftHubServerOptions = {}): 
       if (stopDeliveryConnection)
         await stopDeliveryConnection()
       const cleanup = [
-        runtime.close(),
-        runtime.settings.close(),
+        disposeRuntime(),
       ]
       if (!closeOptions.processExiting)
         cleanup.push(watcher.close())

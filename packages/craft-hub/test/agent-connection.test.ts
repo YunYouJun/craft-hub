@@ -1,9 +1,11 @@
 import type { ResolvedIntegrationContribution } from '../src/integrations'
+import { execFile } from 'node:child_process'
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { request as httpRequest } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import process from 'node:process'
+import { promisify } from 'node:util'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -13,6 +15,7 @@ import { CraftHubRuntime } from '../src/runtime'
 import { startCraftHubServer } from '../src/server'
 
 const cleanup: Array<() => Promise<unknown>> = []
+const execFileAsync = promisify(execFile)
 afterEach(async () => {
   for (const close of cleanup.splice(0).reverse())
     await close()
@@ -54,11 +57,29 @@ describe('local agent connection', () => {
     const list = await callAgentHost(options, 'craft_hub_projects')
     expect(list).toMatchObject([{ id: projects[0]!.id, trust: 'untrusted' }])
     expect(list).toHaveLength(1)
-    expect(await callAgentHost(options, 'craft_hub_project_context', { projectId: projects[0]!.id })).toMatchObject({ capabilities: [{ name: 'test' }] })
+    const context = await callAgentHost(options, 'craft_hub_project_context', { projectId: projects[0]!.id })
+    expect(context).toMatchObject({ capabilities: [{ name: 'test' }] })
+    expect(context).not.toHaveProperty('reference')
     await expect(callAgentHost(options, 'craft_hub_project_context', { projectId: projects[1]!.id })).rejects.toThrow(/not shared/)
     await expect(callAgentHost(options, 'craft_hub_integrations')).rejects.toThrow(/not been granted/)
     await expect(callAgentHost(options, 'craft_hub_run_command', { projectId: projects[0]!.id })).rejects.toThrow(/read tools/)
     expect((await runtime.projects.get(projects[0]!.id)).trust).toBe('untrusted')
+  })
+
+  it('exposes a portable Git reference for shared projects without remote credentials or execution trust', async () => {
+    const { root, runtime, projects, configure, options } = await fixture()
+    await execFileAsync('git', ['init', root])
+    const remote = new URL('https://example.com/team/workbench.git')
+    remote.username = 'fixture-user'
+    remote.password = 'fixture-value'
+    await execFileAsync('git', ['-C', root, 'remote', 'add', 'origin', remote.href])
+    await configure({ enabled: true, projectIds: [projects[0]!.id] })
+    const context = await callAgentHost(options, 'craft_hub_project_context', { projectId: projects[0]!.id })
+    expect(context).toMatchObject({ reference: { repository: 'https://example.com/team/workbench', subdir: 'shared' } })
+    expect(JSON.stringify(context)).not.toContain(remote.username)
+    expect(JSON.stringify(context)).not.toContain(remote.password)
+    expect((await runtime.projects.get(projects[0]!.id)).trust).toBe('untrusted')
+    expect(await runtime.runs()).toEqual([])
   })
 
   it('rejects browser credential calls and cross-origin management, rotates and revokes immediately', async () => {

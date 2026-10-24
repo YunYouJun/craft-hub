@@ -318,6 +318,8 @@ export const api = {
 
 export interface ProjectChangeSubscription {
   onChange: (event: ProjectChangeEvent) => void
+  onProjectCatalogChange?: () => void
+  onIntegrationChange?: (integrationId: string) => void
   onRunChange?: (summary: ProjectRunSummary) => void
   onSettingsChange?: (snapshot: SettingsSnapshot) => void
   onUserConfigChange?: (status: UserConfigStatus) => void
@@ -331,6 +333,15 @@ export interface ProjectChangeSubscription {
 
 export function subscribeToProjectChanges(subscription: ProjectChangeSubscription): () => void {
   const events = new EventSource('/api/events')
+  events.addEventListener('project-catalog-change', () => subscription.onProjectCatalogChange?.())
+  events.addEventListener('integration-change', (event) => {
+    try {
+      const value = JSON.parse((event as MessageEvent<string>).data) as { integrationId?: unknown }
+      if (typeof value.integrationId === 'string')
+        subscription.onIntegrationChange?.(value.integrationId)
+    }
+    catch { /* Ignore malformed events until a valid invalidation arrives. */ }
+  })
   events.addEventListener('configuration-sync', () => subscription.onConfigurationSync?.())
   events.addEventListener('open', () => subscription.onOpen?.())
   events.addEventListener('error', () => subscription.onError?.())

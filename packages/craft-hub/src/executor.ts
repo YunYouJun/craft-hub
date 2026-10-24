@@ -40,11 +40,16 @@ export async function executeCommand(
   capability: CommandCapability,
   onOutput?: (event: RunOutputEvent) => void,
   persistedInvocation = capability.invocation,
+  guard?: { validate: () => Promise<void>, assertActive: () => void },
 ): Promise<RunHandle> {
   if (project.trust !== 'trusted')
     throw new Error(`Project ${project.name} is untrusted. Trust it before running commands.`)
   const invocations = commandInvocationSequence(capability.invocation)
   await Promise.all(invocations.map(invocation => assertCommandWorkingDirectory(project.path, invocation.cwd)))
+  if (guard) {
+    await guard.validate()
+    guard.assertActive()
+  }
 
   const run: RunRecord = {
     id: randomUUID(),
@@ -89,6 +94,13 @@ export async function executeCommand(
   }
 
   function startStep(index: number): void {
+    try {
+      guard?.assertActive()
+    }
+    catch {
+      void finish('cancelled', null)
+      return
+    }
     const invocation = invocations[index]!
     if (invocations.length > 1)
       appendOutput(`\r\n[Craft Hub ${index + 1}/${invocations.length}] ${invocation.label ?? invocation.command}\r\n`)

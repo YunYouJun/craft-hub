@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { ConfigurationManagementPage } from 'craft-hub'
+import { configurationBackupSources } from 'craft-hub/configuration-management'
 import { computed, reactive, ref } from 'vue'
 import { Alert } from './components/ui/alert'
 import { Badge } from './components/ui/badge'
@@ -23,7 +24,7 @@ const targetAudiences = computed(() => audienceOptions.value.filter(option => op
 const kindOptions = computed(() => [{ value: 'dotfiles', label: copy('Dotfiles', '通用 dotfiles') }, { value: 'overlay', label: copy('Private overlay', '私有配置清单') }])
 const driverOptions = computed(() => [{ value: 'workstation', label: copy('Workstation encrypted backup', 'Workstation 加密备份') }, { value: 'external', label: copy('Original application', '由原应用同步') }])
 const audienceLabel = (value: string) => audienceOptions.value.find(option => option.value === value)?.label ?? copy('Classification required', '待分类')
-const eligibleSources = computed(() => props.registry.sources.filter(source => source.audience === 'public' || source.audience === target.audience))
+const eligibleSources = computed(() => configurationBackupSources(props.registry, target.audience))
 function update(input: Record<string, unknown>) {
   emit('request', 'repositories-update', { registry: { ...input, revision: props.registry.revision } })
 }

@@ -1,7 +1,7 @@
 import { Buffer } from 'node:buffer'
 import { generateKeyPairSync, sign } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
-import { nativeReleaseConfiguration, nativeUpdatePlist, verifyNativeAppcast, xmlText } from './native-release.ts'
+import { nativeLinkPlist, nativeReleaseConfiguration, nativeUpdatePlist, verifyNativeAppcast, xmlText } from './native-release.ts'
 
 const environment = {
   CRAFT_HUB_NATIVE_RELEASE: 'true',
@@ -13,6 +13,20 @@ const environment = {
 }
 
 describe('native release configuration', () => {
+  it('requires separate signed-release opt-in before declaring public URL eligibility', () => {
+    const local = nativeReleaseConfiguration('0.0.1-alpha.5', 'arm64', {})
+    const release = nativeReleaseConfiguration('0.0.1-alpha.5', 'arm64', environment)
+    for (const config of [local, release]) {
+      expect(nativeLinkPlist(config, {})).toContain('<string>craft-hub-native</string>')
+      expect(nativeLinkPlist(config, {})).not.toContain('<string>craft-hub</string>')
+      expect(nativeLinkPlist(config, {})).toContain('<key>CraftHubPublicLinksEnabled</key><false/>')
+    }
+    const handover = { CRAFT_HUB_NATIVE_PUBLIC_LINKS: 'true' }
+    expect(() => nativeLinkPlist(local, handover)).toThrow('signed native release')
+    expect(nativeLinkPlist(release, handover)).toContain('<string>craft-hub</string>')
+    expect(nativeLinkPlist(release, handover)).toContain('<key>CraftHubPublicLinksEnabled</key><true/>')
+  })
+
   it('keeps local builds disabled even when release credentials exist', () => {
     const config = nativeReleaseConfiguration('0.0.1-alpha.5', 'arm64', { ...environment, CRAFT_HUB_NATIVE_RELEASE: undefined })
     expect(config.enabled).toBe(false)

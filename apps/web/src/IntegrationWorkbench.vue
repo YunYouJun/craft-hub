@@ -19,7 +19,7 @@ import { useWorkbenchStore } from './store'
 import WorkbenchViewFrame from './WorkbenchViewFrame.vue'
 import { mergeIntegrationEntityPages } from './work-item-pagination'
 
-const props = withDefaults(defineProps<{ embedded?: boolean, integrationId: string, viewId: string, initialScope?: 'global' }>(), { embedded: false })
+const props = withDefaults(defineProps<{ embedded?: boolean, integrationId: string, viewId: string, initialScope?: 'global', initialProjectId?: string }>(), { embedded: false })
 const store = useWorkbenchStore()
 const { t, locale } = useI18n()
 
@@ -63,8 +63,10 @@ onBeforeUnmount(() => {
   for (const timer of filterTimers.values()) clearTimeout(timer)
 })
 const inspectedProjectId = ref('')
-watch([() => props.initialScope, () => store.selectedProjectId], ([scope, projectId]) => {
-  inspectedProjectId.value = scope === 'global' ? '' : projectId || ''
+watch([() => props.initialScope, () => props.initialProjectId, () => store.selectedProjectId, () => store.projects], ([scope, explicitProjectId, projectId]) => {
+  inspectedProjectId.value = scope === 'global' ? '' : explicitProjectId !== undefined
+    ? explicitProjectId
+    : projectId || ''
 }, { immediate: true })
 const view = computed(() => store.integrationViews.find(candidate => candidate.integrationId === props.integrationId && candidate.id === props.viewId))
 const contribution = computed(() => store.integrationContributions.find(candidate => candidate.id === props.integrationId))
@@ -77,6 +79,7 @@ const scopeOptions = computed(() => [
   ...store.projects.map(project => ({ value: project.id, label: project.name, icon: 'folder' })),
 ])
 const requiresProject = computed(() => view.value?.scope === 'project')
+const projectUnavailable = computed(() => Boolean(props.initialProjectId !== undefined && inspectedProjectId.value && !store.projects.some(project => project.id === inspectedProjectId.value)))
 const diagnostics = computed(() => store.integrationDiagnostics.filter(diagnostic => diagnostic.integrationId === props.integrationId))
 
 function stateFor(blockId: string): BlockState {
@@ -232,7 +235,7 @@ function needsConnection(block: WorkbenchIntegrationView['blocks'][number]): boo
 
 async function invoke(block: WorkbenchIntegrationView['blocks'][number], extraInput?: Record<string, unknown>, append = false): Promise<void> {
   const currentView = view.value
-  if (!currentView || !readBlock(block) || blockNeedsProject(block))
+  if (!currentView || projectUnavailable.value || !readBlock(block) || blockNeedsProject(block))
     return
   const state = stateFor(block.id)
   if (needsConnection(block)) {
@@ -400,7 +403,7 @@ defineExpose({ refresh: refresh })
         </div>
       </aside>
 
-      <section v-if="requiresProject && !store.selectedProjectId" class="integration-empty">
+      <section v-if="projectUnavailable || (requiresProject && !inspectedProjectId)" class="integration-empty">
         <Icon name="folderOpen" />
         <h2>{{ t('integrationChooseProject') }}</h2>
         <p>{{ t('integrationProjectRequired') }}</p>

@@ -84,6 +84,40 @@ describe('app startup', () => {
   // Lazy views resolve once here, as idle prefetch does in the app, so routes render in the same tick.
   beforeAll(loadLazyComponents)
 
+  it('records mounted pages and focused palettes while keeping failed navigation separate', async () => {
+    stubStartupData()
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    const { wrapper, router } = await mountApp(pinia, '/overview')
+    await flushPromises()
+    const traceWindow = window as Window & { __craftHubInteractionTrace?: { samples: import('./interaction-trace').InteractionTraceSample[], dropped: number } }
+    const trace = { samples: [] as import('./interaction-trace').InteractionTraceSample[], dropped: 0 }
+    traceWindow.__craftHubInteractionTrace = trace
+    try {
+      await wrapper.get('[data-testid="open-tools"]').trigger('click')
+      await flushPromises()
+      expect(router.currentRoute.value.path).toBe('/tools')
+      expect(trace.samples.map(({ kind, outcome }) => ({ kind, outcome }))).toEqual([{ kind: 'page', outcome: 'complete' }])
+
+      const mac = isMacPlatform(navigator.platform)
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: mac, ctrlKey: !mac, bubbles: true }))
+      await flushPromises()
+      expect(document.activeElement).toBe(document.querySelector('.palette-search input'))
+      expect(trace.samples.at(-1)).toMatchObject({ kind: 'palette', outcome: 'complete' })
+
+      const removeGuard = router.beforeEach(() => false)
+      await router.push('/navigation')
+      await flushPromises()
+      expect(router.currentRoute.value.path).toBe('/tools')
+      expect(trace.samples.at(-1)).toMatchObject({ kind: 'page', outcome: 'cancelled' })
+      removeGuard()
+    }
+    finally {
+      wrapper.unmount()
+      delete traceWindow.__craftHubInteractionTrace
+    }
+  })
+
   it('opens software discovery only from its route and returns to project navigation', async () => {
     stubStartupData()
     const catalog = vi.spyOn(api, 'softwareCatalog').mockResolvedValue({ version: 1, sources: [] })

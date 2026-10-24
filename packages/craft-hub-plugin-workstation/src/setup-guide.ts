@@ -18,7 +18,7 @@ export interface WorkstationSetupOptions {
   sourceDirectory?: string
   sourceDataDirectory?: string
   managed?: boolean
-  invocation?: { command: string, args: string[], environment: Record<string, string> }
+  invocation?: { command: string, args: string[], environment: NodeJS.ProcessEnv }
   sourceExists?: (path: string) => boolean
 }
 
@@ -44,7 +44,7 @@ export function workstationSetupProvider(negotiate: () => Promise<WorkstationSup
       const launcher = join(home, '.local', 'bin', 'workstation')
       const activeCommand = options.command ?? process.env.CRAFT_HUB_WORKSTATION_COMMAND ?? environment.tools.find(tool => tool.id === 'workstation')?.executablePath ?? launcher
       const invocation = options.invocation
-        ? ['env', ...Object.entries(options.invocation.environment).map(([key, value]) => quote(`${key}=${value}`)), quote(options.invocation.command), ...options.invocation.args.map(quote)].join(' ')
+        ? ['env', ...Object.entries(options.invocation.environment).filter(([, value]) => value === undefined).flatMap(([key]) => ['-u', quote(key)]), ...Object.entries(options.invocation.environment).filter(([, value]) => value !== undefined).map(([key, value]) => quote(`${key}=${value}`)), quote(options.invocation.command), ...options.invocation.args.map(quote)].join(' ')
         : quote(activeCommand)
       const sourceExists = (options.sourceExists ?? existsSync)(join(directory, '.git'))
       const build = [
@@ -89,7 +89,7 @@ export function workstationSetupProvider(negotiate: () => Promise<WorkstationSup
           const result = await transport({ operation: 'inspect' })
           const items = result.items
           if (!Array.isArray(items))
-            throw new Error('Invalid configuration inventory')
+            throw new TypeError('Invalid configuration inventory')
           sourceState = wanted.every(reference => items.some((item: Record<string, unknown>) => item?.id === reference.itemId && item.origin === reference.origin && item.owner === 'user' && item.scope !== 'project' && typeof item.sourcePath === 'string' && !!item.sourcePath && typeof item.source === 'string' && item.source !== '(absent)' && !['error', 'unmanaged', 'read-only'].includes(String(item.status)))) ? 'ready' : 'action-required'
         }
         catch { sourceState = 'unknown' }

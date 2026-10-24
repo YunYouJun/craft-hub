@@ -1,4 +1,5 @@
 import AppKit
+import CraftHubMacCore
 import SwiftUI
 import WebKit
 
@@ -14,8 +15,11 @@ struct WorkbenchWebView: NSViewRepresentable {
     let configuration = WKWebViewConfiguration()
     configuration.websiteDataStore = model.webSessionDataStore()
     let scripts = configuration.userContentController
-    scripts.addUserScript(WKUserScript(source: "window.__craftHubNativeHost = 'macos'", injectionTime: .atDocumentStart, forMainFrameOnly: true))
-    scripts.addUserScript(WKUserScript(source: DesktopBridge.script, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+    scripts.addUserScript(
+      WKUserScript(
+        source: "window.__craftHubNativeHost = 'macos'", injectionTime: .atDocumentStart, forMainFrameOnly: true))
+    scripts.addUserScript(
+      WKUserScript(source: DesktopBridge.script, injectionTime: .atDocumentStart, forMainFrameOnly: true))
     scripts.add(context.coordinator, name: "craftHubNative")
     scripts.addScriptMessageHandler(context.coordinator.bridge, contentWorld: .page, name: DesktopBridge.handlerName)
     let webView = WKWebView(frame: .zero, configuration: configuration)
@@ -34,9 +38,13 @@ struct WorkbenchWebView: NSViewRepresentable {
   func updateNSView(_ webView: WKWebView, context: Context) {}
 
   static func dismantleNSView(_ webView: WKWebView, coordinator: Coordinator) {
-    if coordinator.model.webView === webView { coordinator.model.webWillLoad(); coordinator.model.webView = nil }
+    if coordinator.model.webView === webView {
+      coordinator.model.webWillLoad()
+      coordinator.model.webView = nil
+    }
     webView.configuration.userContentController.removeScriptMessageHandler(forName: "craftHubNative")
-    webView.configuration.userContentController.removeScriptMessageHandler(forName: DesktopBridge.handlerName, contentWorld: .page)
+    webView.configuration.userContentController.removeScriptMessageHandler(
+      forName: DesktopBridge.handlerName, contentWorld: .page)
   }
 
   @MainActor
@@ -51,6 +59,16 @@ struct WorkbenchWebView: NSViewRepresentable {
       self.origin = origin
       bridge = DesktopBridge(origin: origin)
       bridge.restartRuntime = { [weak model] in try await model?.restartRuntime?() }
+      bridge.openPluginManagement = { [weak model] catalog in try model?.openPluginManagement(catalogURL: catalog) }
+      let generation = model.connectionGeneration
+      bridge.cloudAction = { [weak model] action in
+        guard let model, model.connectionGeneration == generation else { throw NativeHostChannelError.closed }
+        return try await model.cloud.bridge(action)
+      }
+      bridge.codexActivityAction = { [weak model] action in
+        guard let model, model.connectionGeneration == generation else { throw NativeHostChannelError.closed }
+        return try await model.codexActivity.bridge(action)
+      }
     }
 
     func observe(_ webView: WKWebView) {
@@ -68,7 +86,8 @@ struct WorkbenchWebView: NSViewRepresentable {
     func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
       let source = message.frameInfo.securityOrigin
       guard message.frameInfo.isMainFrame, source.protocol == origin.scheme, source.host == origin.host,
-            source.port == origin.port ?? 0 else { return }
+        source.port == origin.port ?? 0
+      else { return }
       guard let body = message.body as? [String: Any] else { return }
       switch body["type"] as? String {
       case "route": if let path = body["path"] as? String { model.routeChanged(path) }
@@ -80,7 +99,10 @@ struct WorkbenchWebView: NSViewRepresentable {
     }
 
     /// The workbench stays on its local origin; HTTPS links open in the default browser.
-    func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction, decisionHandler: @escaping @MainActor (WKNavigationActionPolicy) -> Void) {
+    func webView(
+      _ webView: WKWebView, decidePolicyFor action: WKNavigationAction,
+      decisionHandler: @escaping @MainActor (WKNavigationActionPolicy) -> Void
+    ) {
       guard let target = action.request.url else { return decisionHandler(.cancel) }
       if target.scheme == origin.scheme && target.host == origin.host && target.port == origin.port {
         return decisionHandler(.allow)
@@ -92,7 +114,10 @@ struct WorkbenchWebView: NSViewRepresentable {
     }
 
     /// Links that ask for a new window never get one; HTTPS targets open in the default browser instead.
-    func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration, for action: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
+    func webView(
+      _ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration, for action: WKNavigationAction,
+      windowFeatures: WKWindowFeatures
+    ) -> WKWebView? {
       if let target = action.request.url, target.scheme == "https" {
         NSWorkspace.shared.open(target)
       }

@@ -1,31 +1,15 @@
 import type { AddressInfo } from 'node:net'
+import type { CodexActivityHookReview } from './codex-activity-hooks.ts'
 import { Buffer } from 'node:buffer'
 import { randomUUID } from 'node:crypto'
-import { chmod, mkdir, open, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdir, open, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { homedir } from 'node:os'
-import { dirname, join, resolve } from 'node:path'
+import { dirname, join } from 'node:path'
 import process from 'node:process'
+import { CodexActivityHooks } from './codex-activity-hooks.ts'
 
-const hookMarker = '# craft-hub-codex-activity'
-const hookEvents = ['SessionStart', 'SessionEnd', 'UserPromptSubmit', 'Stop'] as const
 const recentRolloutWindowMs = 30 * 60 * 1000
-
-interface HookCommand {
-  command?: unknown
-  type?: unknown
-  [key: string]: unknown
-}
-
-interface HookGroup {
-  hooks?: HookCommand[]
-  [key: string]: unknown
-}
-
-interface HooksDocument {
-  hooks?: Record<string, HookGroup[]>
-  [key: string]: unknown
-}
 
 interface CodexHookEvent {
   hook_event_name?: unknown
@@ -37,6 +21,8 @@ export interface CodexActivityStatus {
   diagnostic?: string
   hooksPath?: string
   installed: boolean
+  ownHookCount?: number
+  otherHookCount?: number
   requiresTrustReview?: boolean
   runningSessionIds: string[]
   supported: boolean
@@ -47,53 +33,6 @@ export interface CodexActivityMonitorOptions {
   dataDir: string
   onStatus?: (status: CodexActivityStatus) => void
   platform?: NodeJS.Platform
-}
-
-function shellQuote(value: string): string {
-  const quote = String.fromCharCode(39)
-  return `${quote}${value.replaceAll(quote, `${quote}\\${quote}${quote}`)}${quote}`
-}
-
-function isCraftHubCommand(command: HookCommand): boolean {
-  return command.type === 'command' && typeof command.command === 'string' && command.command.includes(hookMarker)
-}
-
-function withoutCraftHubHooks(document: HooksDocument): HooksDocument {
-  const hooks = { ...document.hooks }
-  for (const event of hookEvents) {
-    const groups = hooks[event]
-    if (!Array.isArray(groups))
-      continue
-    const next = groups
-      .map(group => ({ ...group, hooks: group.hooks?.filter(command => !isCraftHubCommand(command)) }))
-      .filter(group => !Array.isArray(group.hooks) || group.hooks.length > 0)
-    if (next.length)
-      hooks[event] = next
-    else
-      delete hooks[event]
-  }
-  return { ...document, hooks }
-}
-
-async function readHooksDocument(path: string): Promise<HooksDocument> {
-  try {
-    const value = JSON.parse(await readFile(path, 'utf8')) as unknown
-    if (!value || typeof value !== 'object' || Array.isArray(value))
-      throw new Error('hooks.json must contain a JSON object')
-    return value as HooksDocument
-  }
-  catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT')
-      return {}
-    throw error
-  }
-}
-
-async function writeJsonAtomically(path: string, value: unknown): Promise<void> {
-  await mkdir(dirname(path), { recursive: true })
-  const temporaryPath = `${path}.${randomUUID()}.tmp`
-  await writeFile(temporaryPath, `${JSON.stringify(value, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 })
-  await rename(temporaryPath, path)
 }
 
 async function recentRolloutPaths(root: string): Promise<string[]> {
@@ -171,29 +110,36 @@ async function runningDesktopRollouts(codexHome: string): Promise<string[]> {
 
 /** Tracks Codex Desktop turns through official command hooks without persisting prompt content. */
 export class CodexActivityMonitor {
-  readonly #bridgePath: string
+  readonly hooks: CodexActivityHooks
   readonly #codexHome: string
   readonly #endpointPath: string
-  readonly #hooksPath: string
   readonly #onStatus?: (status: CodexActivityStatus) => void
   readonly #platform: NodeJS.Platform
   readonly #fallbackRunningSessionIds = new Set<string>()
   readonly #hookRunningSessionIds = new Set<string>()
   #diagnostic: string | undefined
+  #ownHookCount = 0
+  #otherHookCount = 0
+  #closed = false
+  #installed = false
+  #statusGeneration = 0
   #server: ReturnType<typeof createServer> | undefined
+  #endpointContent: string | undefined
 
   constructor(options: CodexActivityMonitorOptions) {
     this.#platform = options.platform ?? process.platform
     this.#codexHome = options.codexHome ?? process.env.CODEX_HOME ?? join(homedir(), '.codex')
-    this.#hooksPath = join(this.#codexHome, 'hooks.json')
-    this.#bridgePath = resolve(options.dataDir, 'codex-hook-bridge.sh')
-    this.#endpointPath = resolve(options.dataDir, 'codex-hook-endpoint')
+    this.hooks = new CodexActivityHooks(this.#codexHome, options.dataDir)
+    this.#endpointPath = this.hooks.endpointPath
     this.#onStatus = options.onStatus
   }
 
   async start(): Promise<void> {
     if (this.#platform !== 'darwin')
       return
+    if (this.#server)
+      throw new Error('Activity monitor is already started')
+    this.#closed = false
     const token = randomUUID()
     this.#server = createServer((request, response) => {
       if (request.method !== 'POST' || request.url !== `/${token}`) {
@@ -222,22 +168,33 @@ export class CodexActivityMonitor {
     })
     const address = this.#server.address() as AddressInfo
     await mkdir(dirname(this.#endpointPath), { recursive: true })
-    await writeFile(this.#endpointPath, `http://127.0.0.1:${address.port}/${token}\n`, { encoding: 'utf8', mode: 0o600 })
+    const endpoint = `http://127.0.0.1:${address.port}/${token}\n`
+    await writeFile(this.#endpointPath, endpoint, { encoding: 'utf8', mode: 0o600 })
+    this.#endpointContent = endpoint
+    await this.status()
   }
 
   async close(): Promise<void> {
-    await rm(this.#endpointPath, { force: true })
+    this.#closed = true
+    this.#statusGeneration++
+    this.hooks.clearReviews()
+    if (this.#endpointContent && await readFile(this.#endpointPath, 'utf8').catch(() => undefined) === this.#endpointContent)
+      await rm(this.#endpointPath, { force: true })
+    this.#endpointContent = undefined
     if (this.#server) {
+      this.#server.closeAllConnections()
       await new Promise<void>(resolvePromise => this.#server!.close(() => resolvePromise()))
       this.#server = undefined
     }
   }
 
   accept(event: CodexHookEvent): void {
-    const sessionId = typeof event.session_id === 'string' ? event.session_id : undefined
-    if (!sessionId)
+    if (this.#closed || !this.#installed)
       return
-    if (event.hook_event_name === 'UserPromptSubmit')
+    const sessionId = typeof event.session_id === 'string' ? event.session_id : undefined
+    if (!sessionId || sessionId.length > 256)
+      return
+    if (event.hook_event_name === 'UserPromptSubmit' && this.#hookRunningSessionIds.size < 1000)
       this.#hookRunningSessionIds.add(sessionId)
     else if (event.hook_event_name === 'Stop' || event.hook_event_name === 'SessionEnd')
       this.#hookRunningSessionIds.delete(sessionId)
@@ -247,67 +204,84 @@ export class CodexActivityMonitor {
   }
 
   async status(): Promise<CodexActivityStatus> {
+    const generation = ++this.#statusGeneration
     let installed = false
-    this.#diagnostic = undefined
+    let ownHookCount = 0
+    let otherHookCount = 0
+    let diagnostic: string | undefined
+    let fallback: string[] = []
     if (this.#platform === 'darwin') {
       try {
-        const document = await readHooksDocument(this.#hooksPath)
-        installed = Object.values(document.hooks ?? {}).some(groups => groups.some(group => group.hooks?.some(isCraftHubCommand)))
-        this.#fallbackRunningSessionIds.clear()
-        if (installed) {
-          for (const sessionId of await runningDesktopRollouts(this.#codexHome))
-            this.#fallbackRunningSessionIds.add(sessionId)
-        }
+        const state = await this.hooks.status()
+        installed = state.installed
+        ownHookCount = state.ownHookCount
+        otherHookCount = state.otherHookCount
+        if (installed)
+          fallback = await runningDesktopRollouts(this.#codexHome)
       }
-      catch (error) {
-        this.#diagnostic = error instanceof Error ? error.message : String(error)
-      }
+      catch (error) { diagnostic = error instanceof Error ? error.message : String(error) }
     }
-    return this.#snapshot(installed)
+    if (generation === this.#statusGeneration && !this.#closed) {
+      this.#diagnostic = diagnostic
+      this.#installed = installed
+      this.#ownHookCount = ownHookCount
+      this.#otherHookCount = otherHookCount
+      this.#fallbackRunningSessionIds.clear()
+      for (const id of fallback)
+        this.#fallbackRunningSessionIds.add(id)
+    }
+    return { ...this.#snapshot(installed), ownHookCount, otherHookCount, diagnostic, runningSessionIds: installed ? [...new Set([...this.#hookRunningSessionIds, ...fallback])] : [] }
   }
 
+  /** Prepare a read-only review for native consent, retaining other profiles' hook commands. */
+  async review(action: 'install' | 'uninstall'): Promise<CodexActivityHookReview> {
+    if (this.#platform !== 'darwin' || this.#closed)
+      throw new Error('Codex activity is unavailable')
+    return this.hooks.review(action)
+  }
+
+  /** Consume a reviewed operation; configuration or script changes require a new review. */
+  async apply(id: string): Promise<CodexActivityStatus> {
+    if (this.#platform !== 'darwin' || this.#closed)
+      throw new Error('Codex activity is unavailable')
+    const action = await this.hooks.apply(id)
+    this.#fallbackRunningSessionIds.clear()
+    this.#hookRunningSessionIds.clear()
+    const status = { ...await this.status(), ...(action === 'install' ? { requiresTrustReview: true } : {}) }
+    if (!this.#closed)
+      this.#onStatus?.(status)
+    return status
+  }
+
+  /** Electron's existing explicit enable action; native callers use the separate review/apply flow. */
   async install(): Promise<CodexActivityStatus> {
     if (this.#platform !== 'darwin')
       return this.#snapshot(false)
-    const script = `#!/bin/sh\nendpoint_file=${shellQuote(this.#endpointPath)}\n[ -r "$endpoint_file" ] || exit 0\nendpoint=$(/bin/cat "$endpoint_file")\n/usr/bin/curl --silent --max-time 1 --header 'content-type: application/json' --data-binary @- "$endpoint" >/dev/null 2>&1 || true\nexit 0\n`
-    await mkdir(dirname(this.#bridgePath), { recursive: true })
-    await writeFile(this.#bridgePath, script, { encoding: 'utf8', mode: 0o700 })
-    await chmod(this.#bridgePath, 0o700)
-
-    const document = withoutCraftHubHooks(await readHooksDocument(this.#hooksPath))
-    const hooks = { ...document.hooks }
-    const command = `${shellQuote(this.#bridgePath)} ${hookMarker}`
-    for (const event of hookEvents) {
-      hooks[event] = [
-        ...(hooks[event] ?? []),
-        { hooks: [{ type: 'command', command, timeout: event === 'SessionEnd' ? 3 : 5 }] },
-      ]
-    }
-    await writeJsonAtomically(this.#hooksPath, { ...document, hooks })
-    this.#diagnostic = undefined
-    return { ...await this.status(), requiresTrustReview: true }
+    return this.apply((await this.review('install')).id)
   }
 
+  /** Remove this profile's commands only, retaining other hosts and unrelated hooks. */
   async uninstall(): Promise<CodexActivityStatus> {
     if (this.#platform !== 'darwin')
       return this.#snapshot(false)
-    const document = withoutCraftHubHooks(await readHooksDocument(this.#hooksPath))
-    await writeJsonAtomically(this.#hooksPath, document)
-    await rm(this.#bridgePath, { force: true })
-    this.#fallbackRunningSessionIds.clear()
-    this.#hookRunningSessionIds.clear()
-    this.#diagnostic = undefined
-    return this.#snapshot(false)
+    return this.apply((await this.review('uninstall')).id)
   }
 
   #emitStatus(): void {
-    void this.status().then(status => this.#onStatus?.(status))
+    const pending = this.status()
+    const generation = this.#statusGeneration
+    void pending.then((status) => {
+      if (!this.#closed && generation === this.#statusGeneration)
+        this.#onStatus?.(status)
+    })
   }
 
   #snapshot(installed: boolean): CodexActivityStatus {
     return {
       ...(this.#diagnostic ? { diagnostic: this.#diagnostic } : {}),
-      hooksPath: this.#hooksPath,
+      hooksPath: this.hooks.hooksPath,
+      ownHookCount: this.#ownHookCount,
+      otherHookCount: this.#otherHookCount,
       installed,
       runningSessionIds: [...new Set([...this.#hookRunningSessionIds, ...this.#fallbackRunningSessionIds])],
       supported: this.#platform === 'darwin',

@@ -3,6 +3,7 @@ import type { HostEnvironmentKind } from './host-environment'
 import type { MarketplaceSource, PluginPackageInstaller } from './marketplace'
 import type { MarketplaceTrustPolicy } from './marketplace-trust'
 import type { CraftHubPlugin, PluginDiagnostic } from './plugins'
+import type { ProfileLease } from './profile-lease'
 import type { WorkbenchLocale } from './settings'
 import type { Capability, CapabilityDiscoveryResult, ProjectRecord } from './types'
 import type { WorkAssistantProvider } from './work-assistant'
@@ -41,6 +42,8 @@ export interface CraftHubOptions {
   hostEnvironment?: HostEnvironmentKind
   dataDir?: string
   configDir?: string
+  /** A host can acquire its migration barrier before loading any trusted plugin modules. */
+  profileLease?: ProfileLease
   /** Trusted repository readers; these take precedence over public Git. */
   workspaceRepositoryProviders?: WorkspaceRepositoryProvider[]
   workspaceCatalogProviders?: WorkspaceCatalogProvider[]

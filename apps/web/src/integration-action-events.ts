@@ -1,6 +1,6 @@
 export interface IntegrationChangeEvent {
   integrationId: string
-  phase: 'start' | 'settled'
+  phase: 'start' | 'settled' | 'external'
 }
 
 type IntegrationChangeListener = (event: IntegrationChangeEvent) => void

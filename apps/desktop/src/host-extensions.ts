@@ -1,42 +1,9 @@
 import type { HostExtension, HostExtensionManager, HostExtensionStatus } from 'craft-hub'
 import type { BrowserWindow, IpcMainInvokeEvent } from 'electron'
-import { access } from 'node:fs/promises'
-import { dirname, join, resolve } from 'node:path'
 import { dialog, ipcMain } from 'electron'
-import { loadDesktopDistributionManifest } from './distribution.ts'
+import { findLocalHostExtension, prepareDesktopHostExtension } from './host-extension-review.ts'
 
-/** Review a local distribution as an extension without changing application identity or loading code. */
-export async function prepareDesktopHostExtension(manager: HostExtensionManager, manifestPath: string): Promise<HostExtension> {
-  const manifest = loadDesktopDistributionManifest(manifestPath)
-  if (!manifest?.hostPlugins?.length)
-    throw new Error('This distribution does not declare any host plugins')
-  const extension = manager.prepare({
-    id: manifest.distribution.id,
-    name: manifest.distribution.name,
-    manifestPath,
-    modules: manifest.hostPlugins,
-  })
-  await Promise.all(extension.modules.map(path => access(path)))
-  return extension
-}
-
-/** Find the containing distribution for a linked local plugin; only reads declarations. */
-export async function findLocalHostExtension(manager: HostExtensionManager, pluginPath: string): Promise<HostExtension | undefined> {
-  let directory = resolve(pluginPath)
-  while (dirname(directory) !== directory) {
-    const manifestPath = join(directory, 'distribution.json')
-    try {
-      await access(manifestPath)
-    }
-    catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT')
-        throw error
-      directory = dirname(directory)
-      continue
-    }
-    return prepareDesktopHostExtension(manager, manifestPath)
-  }
-}
+export { findLocalHostExtension, prepareDesktopHostExtension } from './host-extension-review.ts'
 
 /** Register desktop-only installation controls; HTTP clients cannot enable executable code. */
 export function registerHostExtensionHandlers(options: {
@@ -97,7 +64,7 @@ export function registerHostExtensionHandlers(options: {
   ipcMain.handle('craft-hub:configure-local-plugin-host', async (event, packageName: unknown) => {
     const window = windowFor(event)
     if (typeof packageName !== 'string')
-      throw new Error('Invalid local plugin')
+      throw new TypeError('Invalid local plugin')
     const path = await options.localPluginPath(packageName)
     const extension = path ? await findLocalHostExtension(manager, path) : undefined
     if (extension)
@@ -107,7 +74,7 @@ export function registerHostExtensionHandlers(options: {
   ipcMain.handle('craft-hub:set-host-extension-enabled', async (event, id: unknown, enabled: unknown) => {
     windowFor(event)
     if (typeof id !== 'string' || typeof enabled !== 'boolean')
-      throw new Error('Invalid host extension state')
+      throw new TypeError('Invalid host extension state')
     if ((await options.optionalBundledExtensions?.() ?? []).some(extension => extension.id === id))
       await manager.setBundledEnabled(id, enabled)
     else
@@ -117,7 +84,7 @@ export function registerHostExtensionHandlers(options: {
   ipcMain.handle('craft-hub:remove-host-extension', async (event, id: unknown) => {
     windowFor(event)
     if (typeof id !== 'string')
-      throw new Error('Invalid host extension id')
+      throw new TypeError('Invalid host extension id')
     await manager.remove(id)
     return status()
   })

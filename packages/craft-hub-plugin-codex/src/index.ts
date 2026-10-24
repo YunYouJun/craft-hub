@@ -108,7 +108,7 @@ export function configurationRows(globalValue: unknown, projectValue: unknown, i
 async function compactInventory(value: unknown): Promise<unknown> {
   const inventory = object(value)
   if (!Array.isArray(inventory.marketplaces))
-    throw new Error('Unsupported Codex configuration response. Update the local Codex CLI.')
+    throw new TypeError('Unsupported Codex configuration response. Update the local Codex CLI.')
   return {
     marketplaces: await Promise.all(inventory.marketplaces.map(async (entry) => {
       const market = object(entry)

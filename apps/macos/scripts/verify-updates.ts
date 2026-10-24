@@ -13,7 +13,7 @@ import { signNativeBundle, verifyNativeAppcast } from './native-release.ts'
 // This does not publish a release, alter Keychain, launch the workbench or replace an installed application.
 const run = promisify(execFile)
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../../..')
-const source = join(root, 'apps/macos/build/Craft Hub Prototype.app')
+const source = resolve(process.argv[2] ?? join(root, 'apps/macos/build/Craft Hub Prototype.app'))
 const tools = join(root, 'apps/macos/.build/artifacts/sparkle/Sparkle/bin')
 const temporary = await mkdtemp(join(tmpdir(), 'craft-hub-update-check-'))
 try {

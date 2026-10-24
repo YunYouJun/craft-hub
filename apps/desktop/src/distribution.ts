@@ -64,12 +64,12 @@ export function parseDesktopDistributionManifest(input: unknown): DesktopDistrib
     distribution.dataDirectoryName = safeFileName(rawDistribution.dataDirectoryName, 'distribution.dataDirectoryName')
   if (rawDistribution.marketplaceSources !== undefined) {
     if (!Array.isArray(rawDistribution.marketplaceSources))
-      throw new Error('distribution.marketplaceSources must be an array')
+      throw new TypeError('distribution.marketplaceSources must be an array')
     distribution.marketplaceSources = rawDistribution.marketplaceSources.map((source, index) => parseMarketplaceSource(source, index))
   }
   if (rawDistribution.workspaceMarkets !== undefined) {
     if (!Array.isArray(rawDistribution.workspaceMarkets))
-      throw new Error('distribution.workspaceMarkets must be an array')
+      throw new TypeError('distribution.workspaceMarkets must be an array')
     distribution.workspaceMarkets = rawDistribution.workspaceMarkets.map(market => workspaceMarketSchema.parse(market))
     const ids = distribution.workspaceMarkets.map(market => market.catalog.id)
     if (new Set(ids).size !== ids.length)
@@ -77,7 +77,7 @@ export function parseDesktopDistributionManifest(input: unknown): DesktopDistrib
   }
   if (rawDistribution.marketplaceTrustPolicies !== undefined) {
     if (!Array.isArray(rawDistribution.marketplaceTrustPolicies))
-      throw new Error('distribution.marketplaceTrustPolicies must be an array')
+      throw new TypeError('distribution.marketplaceTrustPolicies must be an array')
     distribution.marketplaceTrustPolicies = rawDistribution.marketplaceTrustPolicies.map((policy, index) => parseMarketplaceTrustPolicy(policy, index))
   }
 
@@ -207,7 +207,7 @@ function requiredString(value: unknown, name: string): string {
 
 function booleanValue(value: unknown, name: string): boolean {
   if (typeof value !== 'boolean')
-    throw new Error(`${name} must be a boolean`)
+    throw new TypeError(`${name} must be a boolean`)
   return value
 }
 

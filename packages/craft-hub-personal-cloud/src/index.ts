@@ -1,6 +1,8 @@
+export { PersonalCloudError, personalCloudOrigin } from './cloud-http'
 export * from './cloudbase-backend'
 export * from './controller'
 export * from './device-signing'
+export * from './identity-transfer'
 export * from './memory-backend'
 export * from './remote-runner'
 export * from './runtime-documents'

@@ -8,6 +8,9 @@ const buildSignalPath = process.env.CRAFT_HUB_DEV_BUILD_SIGNAL
 export default defineConfig({
   entry: [
     'src/index.ts',
+    'src/marketplace-model.ts',
+    'src/configuration-management.ts',
+    'src/integration-form-inputs.ts',
     'src/cli.ts',
     'src/command-inputs.ts',
     'src/personal-workbench.ts',

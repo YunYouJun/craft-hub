@@ -21,11 +21,14 @@ final class NativeUpdater: NSObject, ObservableObject, SPUUpdaterDelegate {
     super.init()
     do {
       guard let configuration = try NativeUpdateConfiguration(info: info) else {
-        unavailableReason = L10n.text.copy("此本地构建未启用自动更新。请安装已签名的发布版本。", "Updates are unavailable in this local build. Install a signed release to enable updates.")
+        unavailableReason = L10n.text.copy(
+          "此本地构建未启用自动更新。请安装已签名的发布版本。",
+          "Updates are unavailable in this local build. Install a signed release to enable updates.")
         return
       }
       self.configuration = configuration
-      let controller = SPUStandardUpdaterController(startingUpdater: false, updaterDelegate: self, userDriverDelegate: nil)
+      let controller = SPUStandardUpdaterController(
+        startingUpdater: false, updaterDelegate: self, userDriverDelegate: nil)
       self.controller = controller
       controller.updater.publisher(for: \.canCheckForUpdates).assign(to: &$canCheckForUpdates)
       controller.updater.publisher(for: \.automaticallyChecksForUpdates).assign(to: &$automaticallyChecks)
@@ -37,8 +40,10 @@ final class NativeUpdater: NSObject, ObservableObject, SPUUpdaterDelegate {
   func start() {
     guard !started, let controller else { return }
     started = true
-    do { try controller.updater.start() }
-    catch { unavailableReason = error.localizedDescription; canCheckForUpdates = false }
+    do { try controller.updater.start() } catch {
+      unavailableReason = error.localizedDescription
+      canCheckForUpdates = false
+    }
   }
 
   func checkForUpdates() {
@@ -56,7 +61,7 @@ final class NativeUpdater: NSObject, ObservableObject, SPUUpdaterDelegate {
 struct NativeUpdateCommands: Commands {
   @Environment(\.openWindow) private var openWindow
   @ObservedObject var updater: NativeUpdater
-  private let text = L10n.text
+  private var text: L10n { L10n.text }
 
   var body: some Commands {
     CommandGroup(after: .appInfo) {
@@ -69,25 +74,33 @@ struct NativeUpdateCommands: Commands {
 
 struct NativeUpdateSettings: View {
   @ObservedObject var updater: NativeUpdater
-  private let text = L10n.text
+  private var text: L10n { L10n.text }
 
   var body: some View {
     Form {
       if let reason = updater.unavailableReason {
         Text(reason).foregroundStyle(.secondary)
       } else {
-        Toggle(text.copy("自动检查更新", "Automatically check for updates"),
+        Toggle(
+          text.copy("自动检查更新", "Automatically check for updates"),
           isOn: Binding(get: { updater.automaticallyChecks }, set: updater.setAutomaticChecks))
-        Toggle(text.copy("自动下载并在退出时安装更新", "Automatically download and install updates on quit"),
-          isOn: Binding(get: { updater.automaticallyDownloads }, set: updater.setAutomaticDownloads))
-          .disabled(!updater.automaticallyChecks)
+        Toggle(
+          text.copy("自动下载并在退出时安装更新", "Automatically download and install updates on quit"),
+          isOn: Binding(get: { updater.automaticallyDownloads }, set: updater.setAutomaticDownloads)
+        )
+        .disabled(!updater.automaticallyChecks)
         if let date = updater.lastCheck {
           LabeledContent(text.copy("上次检查", "Last checked")) { Text(date, format: .dateTime) }
         }
         Button(text.copy("立即检查", "Check Now")) { updater.checkForUpdates() }
           .disabled(!updater.canCheckForUpdates)
-        Text(text.copy("更新由 Sparkle 检查和验证。自动检查默认每天进行一次，安装前会妥善关闭本地运行时。", "Sparkle checks and verifies updates. Automatic checks run daily; installation waits for the local runtime to shut down."))
-          .font(.caption).foregroundStyle(.secondary)
+        Text(
+          text.copy(
+            "更新由 Sparkle 检查和验证。自动检查默认每天进行一次，安装前会妥善关闭本地运行时。",
+            "Sparkle checks and verifies updates. Automatic checks run daily; installation waits for the local runtime to shut down."
+          )
+        )
+        .font(.caption).foregroundStyle(.secondary)
       }
     }
     .formStyle(.grouped)

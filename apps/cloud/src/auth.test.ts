@@ -74,4 +74,22 @@ describe('personal cloud authentication', () => {
     expect(mocks.adoptSsoIdentityProof).toHaveBeenCalledWith(expect.anything(), authorization, expect.any(Object))
     expect(mocks.signOut).toHaveBeenCalledOnce()
   })
+
+  it('normalizes an absent SDK session and still signs out when SSO rejects it', async () => {
+    const { restoreSession } = await import('./auth')
+    mocks.consumeSsoRedirect.mockReturnValue({ ok: true })
+    const sdkAuth = {
+      getSession: vi.fn(async () => ({ data: { session: null }, error: null })),
+      signInWithCustomTicket: vi.fn(),
+      signOut: mocks.signOut,
+    }
+    mocks.init.mockReturnValue({ auth: sdkAuth })
+    mocks.adoptSsoIdentityProof.mockImplementation(async (auth) => {
+      expect(await auth.getSession()).toEqual({ data: { session: undefined }, error: null })
+      throw new Error('No authenticated session')
+    })
+    await expect(restoreSession()).rejects.toThrow('No authenticated session')
+    expect(mocks.cloudRequest).not.toHaveBeenCalled()
+    expect(mocks.signOut).toHaveBeenCalledOnce()
+  })
 })

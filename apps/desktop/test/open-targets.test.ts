@@ -211,11 +211,11 @@ describe('desktop open targets', () => {
     child.unref = vi.fn(() => child)
     const launch = vi.fn(() => child)
     const opened = focusCodexApplication('darwin', launch)
-    child.emit('spawn')
+    child.emit('close', 0, null)
     await opened
 
-    expect(launch).toHaveBeenCalledWith('open', ['-b', 'com.openai.codex'], {
-      detached: true,
+    expect(launch).toHaveBeenCalledWith('/usr/bin/open', ['-b', 'com.openai.codex'], {
+      timeout: 10_000,
       shell: false,
       stdio: 'ignore',
     })
@@ -226,11 +226,11 @@ describe('desktop open targets', () => {
     child.unref = vi.fn(() => child)
     const launch = vi.fn(() => child)
     const opened = openCursorEditor('/project with spaces', 'darwin', launch)
-    child.emit('spawn')
+    child.emit('close', 0, null)
     await opened
 
-    expect(launch).toHaveBeenCalledWith('open', ['-a', 'Cursor', '/project with spaces'], {
-      detached: true,
+    expect(launch).toHaveBeenCalledWith('/usr/bin/open', ['-a', 'Cursor', '--', '/project with spaces'], {
+      timeout: 10_000,
       shell: false,
       stdio: 'ignore',
     })
@@ -281,15 +281,33 @@ describe('desktop open targets', () => {
     child.unref = vi.fn(() => child)
     const launch = vi.fn(() => child)
     const opened = openMacTerminalProject('/project with spaces', 'iTerm', 'darwin', launch)
-    child.emit('spawn')
+    child.emit('close', 0, null)
     await opened
 
-    expect(launch).toHaveBeenCalledWith('open', ['-a', 'iTerm', '/project with spaces'], {
-      detached: true,
+    expect(launch).toHaveBeenCalledWith('/usr/bin/open', ['-a', 'iTerm', '--', '/project with spaces'], {
+      timeout: 10_000,
       shell: false,
       stdio: 'ignore',
     })
-    expect(child.unref).toHaveBeenCalled()
+    expect(child.unref).not.toHaveBeenCalled()
+  })
+
+  it.each(['codex', 'cursor', 'terminal'])('reports a failed macOS %s launch instead of resolving when open spawns', async (application) => {
+    const child = new EventEmitter() as ChildProcess
+    const launch = vi.fn(() => child)
+    const opened = application === 'codex'
+      ? focusCodexApplication('darwin', launch)
+      : application === 'cursor'
+        ? openCursorEditor('/project', 'darwin', launch)
+        : openMacTerminalProject('/project', 'Terminal', 'darwin', launch)
+    const resolved = vi.fn()
+    void opened.then(resolved, () => {})
+    child.emit('spawn')
+    await Promise.resolve()
+    expect(resolved).not.toHaveBeenCalled()
+    child.emit('close', 1, null)
+    await expect(opened).rejects.toThrow('Application launcher failed')
+    expect(resolved).not.toHaveBeenCalled()
   })
 
   it('rejects terminal launch outside macOS', async () => {

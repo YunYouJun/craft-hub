@@ -11,7 +11,10 @@ import { createDesktopBuildInfo } from '../apps/desktop/src/build-info.ts'
 import { communityDesktopArtifactName, communityDesktopProtocol, loadDesktopDistributionManifest, resolveDesktopDistributionAsset } from '../apps/desktop/src/distribution.ts'
 import { macosApplicationVersion } from '../apps/desktop/src/macos-version.ts'
 import { loadCraftHubPlugins } from '../packages/craft-hub/src/plugins.ts'
+import { buildIdentityLauncher } from './build-identity-launcher.ts'
+import { hardenDesktopFuses, verifyDesktopFuses } from './desktop-fuses.ts'
 import { parseLocalSigningIdentities, resolveLocalSigningIdentity } from './macos-local-signing.ts'
+import { packageDesktopNode } from './package-desktop-node.ts'
 import { packageHostPlugins } from './package-host-plugins.ts'
 import { packageWorkstationRuntime } from './package-workstation-runtime.ts'
 import { prepareDesktopArchitecture, prepareDesktopPackage } from './prepare-desktop-package.ts'
@@ -49,6 +52,8 @@ export interface MacosPackageOptions {
   architectures?: MacArchitecture[]
   createArtifacts?: boolean
   codexMode?: DesktopCodexMode
+  /** Isolated build/rehearsal without selecting or persisting a local signing identity. Never combined with release signing. */
+  adHoc?: boolean
 }
 
 export interface MacosPackageResult {
@@ -290,6 +295,8 @@ async function copyDistributionAsset(
 export async function packageMacos(options: MacosPackageOptions = {}): Promise<MacosPackageResult> {
   if (process.platform !== 'darwin')
     throw new Error('macOS packages must be built on macOS')
+  if (options.adHoc && process.env.MACOS_SIGNING_ENABLED === 'true')
+    throw new Error('An ad hoc rehearsal cannot enable release signing')
   const codexMode = options.codexMode ?? process.env.CRAFT_HUB_DESKTOP_CODEX_MODE ?? 'external'
   if (codexMode !== 'bundled' && codexMode !== 'external')
     throw new Error(`Unsupported desktop Codex mode: ${codexMode}`)
@@ -347,29 +354,37 @@ export async function packageMacos(options: MacosPackageOptions = {}): Promise<M
     const architectures = options.architectures ?? getArchitectures()
     const signingIdentity = process.env.MACOS_SIGNING_ENABLED === 'true'
       ? await resolveSigningIdentity()
-      : (await resolveLocalSigningIdentity({
-          identities: parseLocalSigningIdentities((await execFileAsync('security', ['find-identity', '-p', 'codesigning', '-v'])).stdout),
-          statePath: join(homedir(), 'Library', 'Application Support', productName, 'build', `${appBundleId}-signing.json`),
-          requestedIdentity: process.env.MACOS_LOCAL_SIGNING_IDENTITY,
-        }))?.hash
+      : options.adHoc
+        ? undefined
+        : (await resolveLocalSigningIdentity({
+            identities: parseLocalSigningIdentities((await execFileAsync('security', ['find-identity', '-p', 'codesigning', '-v'])).stdout),
+            statePath: join(homedir(), 'Library', 'Application Support', productName, 'build', `${appBundleId}-signing.json`),
+            requestedIdentity: process.env.MACOS_LOCAL_SIGNING_IDENTITY,
+          }))?.hash
     if (process.env.MACOS_SIGNING_ENABLED !== 'true') {
-      console.log(signingIdentity
-        ? `Using pinned local code signing identity ${signingIdentity}`
-        : 'No local application signing certificate found; using ad hoc signing. Keychain approvals may recur after rebuilding.')
+      console.log(options.adHoc
+        ? 'Using explicit ad hoc rehearsal signing; local signing identities were not selected.'
+        : signingIdentity
+          ? `Using pinned local code signing identity ${signingIdentity}`
+          : 'No local application signing certificate found; using ad hoc signing. Keychain approvals may recur after rebuilding.')
     }
     const appPaths = await packager({
+      afterExtract: [async ({ buildPath }) => { await hardenDesktopFuses(join(buildPath, 'Electron.app')) }],
       afterCopy: [async ({ buildPath, platform, arch }) => {
         if (platform !== 'darwin' || (arch !== 'arm64' && arch !== 'x64'))
           throw new Error(`Unsupported desktop native target: ${platform}-${arch}`)
         await prepareDesktopArchitecture(join(buildPath, 'apps/desktop'), arch, codexMode)
+        await packageDesktopNode(join(buildPath, 'apps/desktop/workstation-runtime/node'), arch)
+        await buildIdentityLauncher(join(buildPath, 'apps/desktop/identity-launcher/launcher.node'), arch)
       }],
       appBundleId,
       appCategoryType: 'public.app-category.developer-tools',
       arch: architectures,
       appVersion: macosApplicationVersion(desktopVersion),
-      asar: { unpack: '**/{node-pty,keytar,@openai/codex*,workstation-runtime}/**' },
+      asar: { unpack: '**/{node-pty,keytar,@openai/codex*,workstation-runtime,identity-launcher}/**' },
       dir: stagingDirectory,
       electronVersion: electronPackage.version,
+      extendInfo: { CraftHubIdentityTransferVersion: 1, CraftHubIdentityTransferCapabilities: ['preview', 'recipient-preflight'] },
       icon: macosApplicationIcon,
       name: productName,
       out: outputDirectory,
@@ -387,6 +402,7 @@ export async function packageMacos(options: MacosPackageOptions = {}): Promise<M
     }
 
     for (const appPath of appPaths) {
+      await verifyDesktopFuses(join(appPath, `${productName}.app`))
       if (signingIdentity) {
         await execFileAsync('codesign', [
           '--verify',

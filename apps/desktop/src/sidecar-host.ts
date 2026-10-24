@@ -1,9 +1,12 @@
 import type { CraftHubRuntime, HostExtensionStatus } from 'craft-hub'
 import type { IncomingMessage, ServerResponse } from 'node:http'
+import type { NativeNavigationService } from './native-navigation.ts'
+import type { ProjectLaunchService } from './project-launch.ts'
 import { Buffer } from 'node:buffer'
 import { spawn } from 'node:child_process'
 import { timingSafeEqual } from 'node:crypto'
 import { openPersonalWorkbenchTool } from './open-targets.ts'
+import { invokeProjectLaunch, projectLaunchActions } from './project-launch.ts'
 
 const cookieName = 'craft-hub-host-session'
 const hostPrefix = '/__craft_hub_host/'
@@ -25,6 +28,7 @@ function sameSecret(value: string | null | undefined, secret: string): boolean {
  * Accept one bootstrap request carrying the secret, then only requests on the loopback origin that present the
  * HttpOnly session cookie it set. The native client receives a separate API-only bearer token over the parent pipe;
  * it never enters a URL, web content, persistent storage, or a cookie. Both credentials expire with this process.
+ * The exact agent-access endpoint authenticates its own revocable read grant, independently of the native session.
  */
 export function createSessionGuard(secret: string, nativeApiToken?: string): SidecarSessionGuard {
   let origin: string | undefined
@@ -41,6 +45,13 @@ export function createSessionGuard(secret: string, nativeApiToken?: string): Sid
         return false
       if (request.headers.origin && request.headers.origin !== origin)
         return false
+      if (request.url === '/api/agent-access' && request.method === 'POST'
+        && !request.headers.origin && !request.headers['sec-fetch-site']
+        && request.headers['content-type']?.split(';')[0]?.trim() === 'application/json'
+        && /^Bearer [a-f\d]{64}$/.test(request.headers.authorization ?? '')) {
+        // Only route to the credential-protected read handler; this is not a host session grant.
+        return true
+      }
       if (request.headers.authorization !== undefined) {
         // A native token cannot bootstrap a browser session or reach host actions/static assets.
         const pathname = new URL(request.url ?? '/', origin).pathname
@@ -81,14 +92,20 @@ export function externalUrl(value: unknown): string {
 
 /** Open a validated HTTPS URL in the default browser with a fixed executable and no shell. */
 export function openInBrowser(url: string): Promise<void> {
+  return openSystemTarget(externalUrl(url))
+}
+
+/** OS delivery for targets already resolved by the project launch service; never accepts a raw renderer path. */
+export function openSystemTarget(target: string): Promise<void> {
   return new Promise((resolve, reject) => {
-    const child = spawn('/usr/bin/open', ['--', externalUrl(url)], { shell: false, stdio: 'ignore' })
-    child.once('error', () => reject(new Error('The default browser is unavailable')))
-    child.once('close', code => code === 0 ? resolve() : reject(new Error('The default browser did not open the link')))
+    const child = spawn('/usr/bin/open', ['--', target], { shell: false, stdio: 'ignore', timeout: 10_000 })
+    child.once('error', () => reject(new Error('The requested application is unavailable')))
+    child.once('close', code => code === 0 ? resolve() : reject(new Error('The requested application did not open the target')))
   })
 }
 
-async function inputBody(request: IncomingMessage): Promise<Record<string, unknown>> {
+/** Read a bounded JSON host request without accepting arrays or primitive values. */
+export async function inputBody(request: IncomingMessage): Promise<Record<string, unknown>> {
   const chunks: Buffer[] = []
   let size = 0
   for await (const chunk of request) {
@@ -125,9 +142,62 @@ export function createSidecarRequestHandler(
   openTool: typeof openPersonalWorkbenchTool = openPersonalWorkbenchTool,
   openUrl: (url: string) => Promise<void> = openInBrowser,
   bundledExtensions?: SidecarBundledExtensions,
+  projectLaunch?: ProjectLaunchService,
+  navigation?: NativeNavigationService,
 ): (request: IncomingMessage, response: ServerResponse) => Promise<boolean> {
   return async (request, response) => {
-    const pathname = new URL(request.url ?? '/', 'http://127.0.0.1').pathname
+    const url = new URL(request.url ?? '/', 'http://127.0.0.1')
+    const pathname = url.pathname
+    if (pathname === '/api/native-host/open-workbench-tool') {
+      if (!request.headers.authorization || !guard.authorize(request)) {
+        send(response, 403, { error: 'Native authorization is required' })
+        return true
+      }
+      if (request.method !== 'POST' || request.headers['content-type']?.split(';')[0] !== 'application/json') {
+        send(response, 405, { error: 'Use a JSON POST request' })
+        return true
+      }
+      try {
+        if (url.search)
+          throw new Error('Query parameters are not accepted')
+        const input = await inputBody(request)
+        if (Object.keys(input).length !== 1 || typeof input.toolId !== 'string' || !input.toolId || input.toolId.length > 128)
+          throw new Error('Only a saved tool identifier is accepted')
+        const tool = (await getRuntime().settings.get()).settings['workbench.home'].tools.find(tool => tool.id === input.toolId)
+        if (!tool)
+          throw new Error('Unknown workbench tool')
+        send(response, 200, await openTool(tool, openUrl))
+      }
+      catch (error) { send(response, 400, { error: error instanceof Error ? error.message : 'Tool could not be opened' }) }
+      return true
+    }
+    if (pathname === '/api/native-host/extensions') {
+      // This narrow native capability must never inherit the browser's cookie credential.
+      if (!request.headers.authorization || !guard.authorize(request)) {
+        send(response, 403, { error: 'Native authorization is required' })
+        return true
+      }
+      try {
+        if (!bundledExtensions)
+          throw new Error('Bundled extension management is unavailable')
+        if (request.method === 'GET') {
+          send(response, 200, await bundledExtensions.status())
+        }
+        else if (request.method === 'PUT' && request.headers['content-type'] === 'application/json') {
+          const input = await inputBody(request)
+          if (typeof input.id !== 'string' || typeof input.enabled !== 'boolean')
+            throw new TypeError('A bundled extension identifier and boolean state are required')
+          send(response, 200, await bundledExtensions.setEnabled(input.id, input.enabled))
+        }
+        else {
+          send(response, 405, { error: 'Only reading status and changing bundled choices are supported' })
+        }
+      }
+      catch (error) {
+        send(response, 400, { error: error instanceof Error ? error.message : 'Extension operation failed' })
+      }
+      return true
+    }
     if (!pathname.startsWith(hostPrefix))
       return false
     if (pathname === `${hostPrefix}bootstrap` && request.method === 'GET') {
@@ -141,7 +211,24 @@ export function createSidecarRequestHandler(
     }
     try {
       const input = await inputBody(request)
-      switch (pathname.slice(hostPrefix.length)) {
+      const action = pathname.slice(hostPrefix.length)
+      if (projectLaunch && projectLaunchActions.has(action)) {
+        send(response, 200, { value: await invokeProjectLaunch(projectLaunch, action, input) })
+        return true
+      }
+      switch (action) {
+        case 'resolve-desktop-link': {
+          if (!navigation)
+            throw new Error('Desktop navigation is unavailable')
+          send(response, 200, { value: await navigation.resolve(input.url) })
+          return true
+        }
+        case 'verify-project-reference': {
+          if (!navigation)
+            throw new Error('Desktop navigation is unavailable')
+          send(response, 200, { value: await navigation.verify(input.reference, input.path) })
+          return true
+        }
         case 'host-extensions': {
           if (!bundledExtensions)
             throw new Error('Bundled extension management is unavailable')
@@ -156,7 +243,7 @@ export function createSidecarRequestHandler(
         }
         case 'open-workbench-tool': {
           if (typeof input.toolId !== 'string')
-            throw new Error('Workbench tool identifier is required')
+            throw new TypeError('Workbench tool identifier is required')
           const home = (await getRuntime().settings.get()).settings['workbench.home']
           const tool = home.tools.find(tool => tool.id === input.toolId)
           if (!tool)

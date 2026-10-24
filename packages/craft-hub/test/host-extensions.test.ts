@@ -23,6 +23,21 @@ async function fixture() {
 }
 
 describe('persistent host extensions', () => {
+  it('compares reviewed registrations inside the serialized write before replacing, enabling or removing code', async () => {
+    const { manager, extension, marker } = await fixture()
+    const results = await Promise.allSettled([manager.install(extension, null), manager.install({ ...extension, name: 'Replacement' }, null)])
+    expect(results.map(result => result.status)).toEqual(['fulfilled', 'rejected'])
+    expect((await manager.status()).extensions).toEqual([extension])
+    await manager.setEnabled(extension.id, false, extension)
+    await expect(manager.remove(extension.id, extension)).rejects.toThrow(/changed/)
+    await expect(manager.setEnabled(extension.id, true, extension)).rejects.toThrow(/changed/)
+    await expect(manager.install({ ...extension, name: 'Unreviewed replacement' }, extension)).rejects.toThrow(/changed/)
+    const disabled = { ...extension, enabled: false }
+    expect((await manager.status()).extensions).toEqual([disabled])
+    await manager.remove(extension.id, disabled)
+    expect((await manager.status()).extensions).toEqual([])
+    await expect(access(marker)).rejects.toThrow()
+  })
   it('remembers optional bundled choices beside installations and asks for a restart when they change', async () => {
     const { manager, extension } = await fixture()
     expect(await manager.bundledChoice('microsoft-todo')).toBeUndefined()

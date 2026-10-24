@@ -3,6 +3,7 @@ import { normalizeProjectReference } from 'craft-hub'
 
 export const productionDesktopScheme = 'craft-hub'
 export const developmentDesktopScheme = 'craft-hub-dev'
+export const nativeCandidateDesktopScheme = 'craft-hub-native'
 const maximumDesktopLinkLength = 2_048
 
 export type DesktopNavigationRequest
@@ -45,6 +46,8 @@ export class DesktopLinkError extends Error {
 export function parseDesktopLink(rawUrl: string, acceptedSchemes = [productionDesktopScheme, developmentDesktopScheme]): DesktopLink {
   if (rawUrl.length > maximumDesktopLinkLength)
     throw new DesktopLinkError('link-too-long')
+  if ([...rawUrl].some(character => character.charCodeAt(0) <= 32 || character.charCodeAt(0) === 127))
+    throw new DesktopLinkError('invalid-url')
   let url: URL
   try {
     url = new URL(rawUrl)
@@ -53,6 +56,8 @@ export function parseDesktopLink(rawUrl: string, acceptedSchemes = [productionDe
     throw new DesktopLinkError('invalid-url')
   }
   const scheme = url.protocol.slice(0, -1)
+  if ([url.username, url.password, url.port].some(Boolean))
+    throw new DesktopLinkError('invalid-url')
   if (!acceptedSchemes.includes(scheme))
     throw new DesktopLinkError('unexpected-scheme')
   if (url.hash)

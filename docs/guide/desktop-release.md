@@ -2,6 +2,20 @@
 
 Craft Hub distributes separate macOS builds for Apple silicon and Intel. The arm64 build is supported during alpha; the x64 build is experimental. A DMG is the initial installer and the matching ZIP is retained as the Squirrel.Mac update payload.
 
+## Runtime hardening and bundled backend
+
+Mac packages disable Electron's RunAsNode, Node-options and inspector fuses and enable ASAR integrity and ASAR-only app loading before signing. The packager embeds the archive digest; the build reads back the actual fuse values after packaging. No new cookie or web-protocol policy is selected by this change.
+
+Workstation runs on a fixed private executable at `app.asar.unpacked/apps/desktop/workstation-runtime/node/bin/node`, so its own detached workers and backup subprocesses remain ordinary Node processes. Release pins and arm64/x64 archive SHA-256 values live in `scripts/desktop-node.lock.json`. Packaging downloads only from the official Node release server, checks both the published manifest and pinned archive digest before extraction, verifies the binary architecture, and retains Node's license. No terminal Node installation is required for this backend. The native candidate continues to use its separate Node bootstrap and does not package this Electron-only executable. The arm64 resource adds approximately 116.35 MiB uncompressed; this is the cost of removing Electron's general-purpose Node entry point while retaining the legacy host's bundled backend.
+
+The archive download has one ten-minute deadline across at most three transport attempts. After a broken connection, a pinned archive may resume from the fully written byte offset only when the official server returns the matching byte range and total size. The complete archive must still match its pinned SHA-256. Manifest downloads have a three-minute deadline and never resume partial content; status, range, size, filesystem and checksum failures are not retried. Failed staging directories are cleaned up without promoting a partial runtime.
+
+After packaging, run `pnpm test:desktop-backend <app>` and `pnpm test:macos-identity-source <app>`. They use disposable profiles and cover the real backend, a no-install detached worker, attempted Electron Node/preload/inspector injection and ASAR corruption in a re-signed disposable app copy. Release CI runs both before mounted-DMG acceptance and artifact upload. A local rehearsal can call `packageMacos({ adHoc: true, createArtifacts: false, architectures: [...] })` with an isolated `CRAFT_HUB_DESKTOP_OUTPUT_DIR`; this avoids selecting or persisting a real local signer and cannot be combined with `MACOS_SIGNING_ENABLED=true`.
+
+The macOS package also compiles and signs the small `identity-launcher/launcher.node` process-owner module for its selected architecture. `pnpm test:identity-launcher <app>` verifies suspended fixture creation/validation, refusal cleanup, descriptor isolation, authenticated Mach transport and the packaged Node ABI; the actual Electron maintenance check loads the module as well. The source coordinator, native review, recovery and ordinary App menu are connected, but the complete identity-transfer release markers remain disabled until real Developer ID paired-app acceptance. See the [source-owned process boundary](native-secure-storage.md#source-owned-process-foundation) and [App migration entry](native-secure-storage.md#app-menu-and-guarded-startup-recovery).
+
+These checks do not enable real identity migration. The coordinated-transfer security marker remains absent until authenticated source-owned recipient launch, private pipes and user consent/recovery are implemented and accepted.
+
 ## Version policy
 
 Desktop versions accept stable SemVer and numeric `alpha.N` prereleases, with `N` from 0 to 998. The macOS version uses `major.minor.(patch × 1000 + N)` for alpha builds and `major.minor.(patch × 1000 + 999)` for stable builds:

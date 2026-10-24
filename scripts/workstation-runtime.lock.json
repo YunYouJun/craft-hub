@@ -1,6 +1,6 @@
 {
   "repository": "https://github.com/YunYouJun/workstation.git",
-  "revision": "762c5914e22525bb15c9b1ccd8c50c08c3a5d7b8",
+  "revision": "3eb0053288dc183c4e094b5e4b3ed4e486b89c53",
   "packageManager": "pnpm@11.21.0",
   "package": "@yunyoujun/workstation",
   "version": "0.1.0"

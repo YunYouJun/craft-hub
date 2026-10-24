@@ -29,7 +29,7 @@ import type { WorkbenchNavigationGroup } from './workbench-navigation'
 import type { NativeCommand } from './native-host'
 import type { DesktopMenuAction } from './shortcuts'
 import { TransitionPresets, useLocalStorage, useMediaQuery, useTransition } from '@vueuse/core'
-import { computed, onBeforeMount, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeMount, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { DialogClose, DialogContent, DialogDescription, DialogOverlay, DialogPortal, DialogRoot, DialogTitle, SplitterPanel } from 'reka-ui'
 import { useRoute, useRouter } from 'vue-router'
 import { subscribeToProjectChanges } from './api'
@@ -39,6 +39,8 @@ import { Button as UiButton } from './components/ui/button'
 import DetailPanel from './DetailPanel.vue'
 import Icon from './NavigationIcon.vue'
 import { useI18n } from './i18n'
+import { emitIntegrationChange } from './integration-action-events'
+import { beginInteractionTrace } from './interaction-trace'
 import WorkbenchSectionNavigation from './WorkbenchSectionNavigation.vue'
 import { classifyWorkbenchSection, isEnvironmentView } from './workbench-navigation'
 import PersonalWorkbench from './PersonalWorkbench.vue'
@@ -93,6 +95,37 @@ function goForward(): void {
     router.forward()
 }
 const paletteOpen = ref(false)
+let finishPaletteTrace: ReturnType<typeof beginInteractionTrace> | undefined
+watch(paletteOpen, (open) => {
+  finishPaletteTrace?.('cancelled')
+  finishPaletteTrace = open ? beginInteractionTrace('palette') : undefined
+}, { flush: 'sync' })
+function completePaletteTrace(): void {
+  finishPaletteTrace?.()
+  finishPaletteTrace = undefined
+}
+let pageTrace: { path: string, finish: NonNullable<ReturnType<typeof beginInteractionTrace>> } | undefined
+const stopPageTrace = router.beforeEach((to, from) => {
+  pageTrace?.finish('cancelled')
+  const finish = to.path !== from.path ? beginInteractionTrace('page') : undefined
+  pageTrace = finish ? { path: to.fullPath, finish } : undefined
+})
+const stopFailedPageTrace = router.afterEach((to, _from, failure) => {
+  if (failure && pageTrace?.path === to.fullPath) {
+    pageTrace?.finish('cancelled')
+    pageTrace = undefined
+  }
+})
+async function completePageTrace(): Promise<void> {
+  const current = pageTrace
+  if (!current)
+    return
+  await nextTick()
+  if (current === pageTrace && current.path === route.fullPath) {
+    current.finish()
+    pageTrace = undefined
+  }
+}
 const paletteMode = ref<'all' | 'projects' | 'commands'>('all')
 const paletteShortcutLabel = computed(() => formatShortcut(store.settings?.settings['workbench.shortcuts']?.[commandPaletteShortcutId] ?? defaultCommandPaletteShortcut, shortcutPlatform))
 function showPalette(mode: 'all' | 'projects' | 'commands'): void {
@@ -567,6 +600,8 @@ onBeforeMount(async () => {
   ])
   await store.loadRunSummaries().catch(() => {})
   stopProjectEvents = subscribeToProjectChanges({
+    onProjectCatalogChange: () => { void store.refreshProjects().catch(() => {}) },
+    onIntegrationChange: integrationId => emitIntegrationChange({ integrationId, phase: 'external' }),
     onChange: event => void store.refreshProject(event).catch(() => {}),
     onRunChange: summary => store.applyRunSummary(summary),
     onSettingsChange: snapshot => void store.applySettings(snapshot)
@@ -649,6 +684,10 @@ onBeforeUnmount(() => {
   stopMarketplaceImportEvents?.()
   stopDesktopNavigationEvents?.()
   stopHistoryTracking()
+  stopPageTrace()
+  stopFailedPageTrace()
+  pageTrace?.finish('cancelled')
+  finishPaletteTrace?.('cancelled')
   celebration.reset()
 })
 </script>
@@ -709,13 +748,14 @@ onBeforeUnmount(() => {
         @open-settings="openSettings()"
         @open-workbench="openWorkbench"
       />
-      <ConfigurationSubscriptions v-if="subscriptionsOpen" ref="activePage">
+      <ConfigurationSubscriptions v-if="subscriptionsOpen" ref="activePage" @vue:mounted="completePageTrace" @vue:updated="completePageTrace">
         <template #sidebar><WorkbenchSectionNavigation :title="sectionTitle" :icon="sectionIcon" :groups="sectionGroups" /></template>
       </ConfigurationSubscriptions>
-      <PluginWorkbench v-else-if="pluginWorkbenchOpen" ref="activePage" :breadcrumbs="pageBreadcrumbs" :plugin-id="activePluginWorkbenchPluginId" :workbench-id="activePluginWorkbenchId" :refresh-key="navigationRevision" @manage-plugins="openMarketplace" @open-project="openProject" @open-integration="openIntegration" />
+      <PluginWorkbench v-else-if="pluginWorkbenchOpen" ref="activePage" :breadcrumbs="pageBreadcrumbs" :plugin-id="activePluginWorkbenchPluginId" :workbench-id="activePluginWorkbenchId" :refresh-key="navigationRevision" @vue:mounted="completePageTrace" @vue:updated="completePageTrace" @manage-plugins="openMarketplace" @open-project="openProject" @open-integration="openIntegration" />
       <WorkbenchPageShell v-else :breadcrumbs="pageBreadcrumbs">
         <template v-if="sectionGroups.length" #sidebar><WorkbenchSectionNavigation :title="sectionTitle" :icon="sectionIcon" :groups="sectionGroups" /></template>
         <PersonalWorkbench
+          @vue:mounted="completePageTrace"
           @capture="showQuickCapture"
           :refresh-key="navigationRevision"
           v-if="overviewOpen"
@@ -728,19 +768,20 @@ onBeforeUnmount(() => {
           @open-diagnostics="openDiagnostics"
           @open-marketplace="openMarketplace"
         />
-        <ToolsWorkbench v-else-if="toolsOpen" />
-        <WorkbenchesOverview v-else-if="workbenchesOpen" />
-        <SoftwareCenter v-else-if="softwareOpen" ref="activePage" />
-        <SetupProfileWorkbench v-else-if="setupProfileOpen" />
-        <EnvironmentWorkbench v-else-if="environmentOpen" />
-        <DiagnosticsWorkbench v-else-if="diagnosticsOpen" @open-target="openDiagnosticTarget" />
-        <IntegrationWorkbench v-else-if="integrationOpen" ref="activePage" :integration-id="activeIntegrationId" :view-id="activeIntegrationViewId" :initial-scope="route.query.scope === 'global' ? 'global' : undefined" />
-        <NavigationWorkbench v-else-if="navigationOpen" :refresh-key="navigationRevision" @manage-plugins="openMarketplace" />
-        <MarketplaceDialog v-else ref="activePage" open :import-catalog-url="marketplaceImportCatalogUrl" />
+        <ToolsWorkbench v-else-if="toolsOpen" @vue:mounted="completePageTrace" />
+        <WorkbenchesOverview v-else-if="workbenchesOpen" @vue:mounted="completePageTrace" />
+        <SoftwareCenter v-else-if="softwareOpen" ref="activePage" @vue:mounted="completePageTrace" />
+        <SetupProfileWorkbench v-else-if="setupProfileOpen" @vue:mounted="completePageTrace" />
+        <EnvironmentWorkbench v-else-if="environmentOpen" @vue:mounted="completePageTrace" />
+        <DiagnosticsWorkbench v-else-if="diagnosticsOpen" @vue:mounted="completePageTrace" @open-target="openDiagnosticTarget" />
+        <IntegrationWorkbench v-else-if="integrationOpen" ref="activePage" :integration-id="activeIntegrationId" :view-id="activeIntegrationViewId" :initial-scope="route.query.scope === 'global' ? 'global' : undefined" :initial-project-id="typeof route.query.project === 'string' ? route.query.project : undefined" @vue:mounted="completePageTrace" @vue:updated="completePageTrace" />
+        <NavigationWorkbench v-else-if="navigationOpen" :refresh-key="navigationRevision" @vue:mounted="completePageTrace" @manage-plugins="openMarketplace" />
+        <MarketplaceDialog v-else ref="activePage" open :import-catalog-url="marketplaceImportCatalogUrl" @vue:mounted="completePageTrace" @vue:updated="completePageTrace" />
       </WorkbenchPageShell>
     </section>
     <WorkbenchSplitter
       v-else
+      @vue:mounted="completePageTrace"
       id="craft-hub-workbench"
       class="workbench-splitter"
       :class="{ 'empty-projects': !store.projects.length }"
@@ -822,7 +863,7 @@ onBeforeUnmount(() => {
         <span v-if="store.selectedProject">{{ t('project', { name: store.selectedProject.name }) }}</span>
       </div>
     </footer>
-    <CommandPalette v-if="paletteMounted" v-model:open="paletteOpen" :mode="paletteMode" @open-workbench="openWorkbench" @open-integration="openIntegration" @open-plugin-workbench="openPluginWorkbench" @open-settings="openSettings()" @refresh="refreshWorkbench" />
+    <CommandPalette v-if="paletteMounted" v-model:open="paletteOpen" :mode="paletteMode" @ready="completePaletteTrace" @open-workbench="openWorkbench" @open-integration="openIntegration" @open-plugin-workbench="openPluginWorkbench" @open-settings="openSettings()" @refresh="refreshWorkbench" />
     <SettingsDialog v-if="settingsMounted" v-model:open="settingsOpen" :initial-tab="settingsInitialTab" />
     <ProjectAgentActionDialog v-if="agentActionMounted" v-model:open="store.agentActionDialogOpen" />
     <DesktopNavigationDialog

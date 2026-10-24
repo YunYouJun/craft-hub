@@ -85,7 +85,7 @@ function isolatedState() {
 const offlineConfig = { env: 'test-env', secretId: 'test-id', secretKey: 'test-key' }
 
 // The SDK uses shared CJS exports and a static Db field, so keep this suite serial.
-describe.sequential('dependency security compatibility', () => {
+describe('dependency security compatibility', { concurrent: false }, () => {
   it('initializes the real CloudBase SDK and local clients offline after dependency overrides', () => {
     const before = isolatedState()
     withOfflineCloudBase((cloudbase) => {

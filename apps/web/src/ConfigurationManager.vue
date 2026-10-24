@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { ConfigurationManagementItem, ConfigurationManagementPage, ConfigurationManagementTool, ResolvedIntegrationContribution } from 'craft-hub'
+import { configurationItemWritable } from 'craft-hub/configuration-management'
 import { computed, inject, reactive, ref, watch } from 'vue'
 import { routeLocationKey, RouterLink } from 'vue-router'
 import { api } from './api'
@@ -97,10 +98,7 @@ const fieldOptions = computed(() => [{ value: 'local', label: copy('Local', '本
 const statusOptions = computed(() => [{ value: 'all', label: copy('All states', '全部状态') }, { value: 'attention', label: copy('Needs review', '待审阅') }, ...['ownership-conflict', 'conflict', 'first-adoption', 'local-modified', 'source-modified', 'synced', 'unmanaged', 'read-only', 'error'].map(value => ({ value, label: label(value) }))])
 const attentionCount = computed(() => props.page.items.filter(item => !['synced', 'read-only'].includes(item.status)).length)
 function isWritable(value: ConfigurationManagementItem): boolean {
-  return !!value.sourcePath && !['error', 'read-only', 'ownership-conflict'].includes(value.status)
-    && value.owner === 'user'
-    && !['installer', 'external', 'project'].includes(value.origin)
-    && (!value.manager || value.manager === 'workstation')
+  return configurationItemWritable(value, props.contribution.provider.id)
 }
 const writable = computed(() => item.value ? isWritable(item.value) : false)
 const inventoryOnly = computed(() => item.value?.kind === 'skill' && item.value.owner !== 'user')

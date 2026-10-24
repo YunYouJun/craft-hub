@@ -7,7 +7,7 @@ import { useI18n } from './i18n'
 import { useWorkbenchStore } from './store'
 
 const props = withDefaults(defineProps<{ open: boolean, mode?: 'all' | 'projects' | 'commands' }>(), { mode: 'all' })
-const emit = defineEmits<{ 'update:open': [value: boolean], openWorkbench: [], openIntegration: [integrationId: string, viewId: string], openPluginWorkbench: [pluginId: string, workbenchId: string], openSettings: [], refresh: [] }>()
+const emit = defineEmits<{ 'update:open': [value: boolean], ready: [], openWorkbench: [], openIntegration: [integrationId: string, viewId: string], openPluginWorkbench: [pluginId: string, workbenchId: string], openSettings: [], refresh: [] }>()
 const store = useWorkbenchStore()
 const { t, locale } = useI18n()
 const query = ref(props.mode === 'commands' ? '> ' : '')
@@ -30,6 +30,11 @@ async function changeCategory(value: string | number): Promise<void> {
 const activeIndex = ref(0)
 const searchInput = ref<HTMLInputElement>()
 const resultList = ref<HTMLElement>()
+async function reportFocusReady(): Promise<void> {
+  await nextTick()
+  if (props.open && searchInput.value?.isConnected && document.activeElement === searchInput.value)
+    emit('ready')
+}
 async function revealActive(): Promise<void> {
   await nextTick()
   resultList.value?.children[activeIndex.value]?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' })
@@ -234,7 +239,7 @@ function onSearchKeydown(event: KeyboardEvent): void {
 </script>
 
 <template>
-  <DialogShell :open="open" content-class="command-palette" description-class="sr-only" overlay-class="palette-overlay" title-class="sr-only" @update:open="emit('update:open', $event)">
+  <DialogShell :open="open" content-class="command-palette" description-class="sr-only" overlay-class="palette-overlay" title-class="sr-only" @open-auto-focus="reportFocusReady" @update:open="emit('update:open', $event)">
     <template #title>{{ modeLabel }}</template>
     <template #description>{{ t('currentProjectFirst') }}</template>
     <label class="palette-search">

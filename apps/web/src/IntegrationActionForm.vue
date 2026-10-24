@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { IntegrationActionResult, IntegrationContribution, ResolvedIntegrationAction } from 'craft-hub'
+import { integrationFormInput } from 'craft-hub/integration-form-inputs'
 import { computed, ref, useId } from 'vue'
 import { api } from './api'
 import { Button as UiButton } from './components/ui/button'
@@ -41,17 +42,13 @@ function submit(): void {
   if (missing.value || saving.value)
     return
   error.value = ''
-  const input: Record<string, unknown> = { ...props.block.input }
-  for (const field of props.block.fields ?? []) {
-    const rawValue = String(values.value[field.id] ?? '')
-    const value = field.type === 'textarea' ? rawValue : rawValue.trim()
-    if (field.type === 'checkbox') {
-      input[field.id] = values.value[field.id] === 'true'
-      continue
-    }
-    if (!value && field.value === undefined)
-      continue
-    input[field.id] = field.type === 'number' ? Number(value) : field.type === 'string-list' ? value.split(',').map(item => item.trim()).filter(Boolean) : value
+  let input: Record<string, unknown>
+  try {
+    input = integrationFormInput(props.block.fields ?? [], values.value, props.block.input)
+  }
+  catch (caught) {
+    error.value = caught instanceof Error ? caught.message : String(caught)
+    return
   }
   if (props.action.effectiveConfirmation !== 'never')
     pending.value = input

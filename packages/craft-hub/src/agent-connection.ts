@@ -121,8 +121,11 @@ export class AgentConnectionService {
     switch (name as ToolName) {
       case 'craft_hub_projects': return projects
       case 'craft_hub_project_context': {
+        const project = projects.find(project => project.id === projectId)!
         const capabilities = await this.runtime.capabilities(projectId!)
-        return { project: projects.find(project => project.id === projectId), capabilities: capabilities.map(({ id, name, kind, description, source }) => ({ id, name, kind, description, source })) }
+        // A portable reference supports navigation without handing clients executable actions.
+        const reference = await this.runtime.projects.identify(project.path).catch(() => undefined)
+        return { project, ...(reference ? { reference } : {}), capabilities: capabilities.map(({ id, name, kind, description, source }) => ({ id, name, kind, description, source })) }
       }
       case 'craft_hub_runs': return {
         commands: (await this.runtime.runs()).filter(run => grant.projectIds.includes(run.projectId)),

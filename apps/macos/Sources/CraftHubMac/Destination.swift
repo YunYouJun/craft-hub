@@ -1,3 +1,4 @@
+import CraftHubMacCore
 import Foundation
 
 /// A primary workbench destination shown in the native sidebar, mapped to a web route.
@@ -35,14 +36,18 @@ enum Destination: String, CaseIterable, Identifiable {
     }
   }
 
-  var title: String { L10n.text.destination(self) }
+  @MainActor var title: String { L10n.text.destination(self) }
 
-  var isNative: Bool { self == .environment || self == .software }
+  var isNative: Bool {
+    [.overview, .projects, .environment, .software, .workbenches, .marketplace, .diagnostics].contains(self)
+  }
 
   /// The destination a web route belongs to, so the sidebar follows in-page navigation.
   static func matching(path: String) -> Destination? {
     if path == "/" { return .projects }
-    return allCases
+    if path.hasPrefix("/integrations/") { return .workbenches }
+    return
+      allCases
       .filter { $0 != .projects && (path == $0.path || path.hasPrefix($0.path + "/")) }
       .max { $0.path.count < $1.path.count }
   }
@@ -50,7 +55,7 @@ enum Destination: String, CaseIterable, Identifiable {
 
 /// User-facing strings in the two locales the web workbench supports.
 struct L10n {
-  static let text = L10n(chinese: Locale.preferredLanguages.first?.hasPrefix("zh") ?? false)
+  @MainActor static var text: L10n { L10n(chinese: NativePreferences.shared.language == .chinese) }
 
   let chinese: Bool
 
@@ -101,6 +106,24 @@ struct L10n {
   }
 
   var missingNodeTitle: String { chinese ? "没有找到兼容的 Node" : "No compatible Node found" }
+  func nodeSelectionFailure(_ failure: NodeSelectionFailure, fallback: ResolvedNode?) -> String {
+    let reason: String
+    switch failure.reason {
+    case .invalidPath: reason = copy("路径不是有效的绝对路径", "the path is not a valid absolute path")
+    case .missingExecutable: reason = copy("文件已不存在或不可执行", "the file is missing or not executable")
+    case .unsupportedVersion(let version): reason = copy("版本 \(version) 不受支持", "version \(version) is unsupported")
+    case .architectureMismatch(let found, let expected):
+      reason = copy(
+        "CPU 架构为 \(found)，此 App 需要 \(expected)", "its CPU architecture is \(found); this app needs \(expected)")
+    case .probe(.timedOut): reason = copy("检查超时，已结束检查进程", "the check timed out and its process was stopped")
+    case .probe(.outputLimit): reason = copy("检查输出过多，已结束检查进程", "the check exceeded its output limit and was stopped")
+    case .probe: reason = copy("无法获取有效的 Node 版本和架构", "its Node version and architecture could not be read")
+    }
+    let message = copy("未使用设置的 Node：\(reason)。", "The selected Node was not used: \(reason).")
+    guard let fallback else { return message }
+    return message + " "
+      + copy("已改用 \(fallback.path)（\(fallback.version)）。", "Using \(fallback.path) (\(fallback.version)) instead.")
+  }
   var missingNodeMessage: String {
     chinese
       ? "Craft Hub 需要 Node 22（≥22.18）、24（≥24.11）或 26来运行项目能力。已检查 PATH、Homebrew、~/.local/bin、pnpm 和 fnm。"
@@ -111,7 +134,9 @@ struct L10n {
   var chooseNodeMessage: String { chinese ? "选择一个 node 可执行文件" : "Choose a node executable" }
   var retry: String { chinese ? "重试" : "Retry" }
   var failedTitle: String { chinese ? "运行时没有启动" : "The runtime didn't start" }
-  var backendMissing: String { chinese ? "应用里缺少运行时后端，请重新构建原型。" : "The runtime backend is missing from the app. Rebuild the prototype." }
+  var backendMissing: String {
+    chinese ? "应用里缺少运行时后端，请重新构建原型。" : "The runtime backend is missing from the app. Rebuild the prototype."
+  }
   var backendHandshakeFailed: String { chinese ? "运行时没有返回本地地址。" : "The runtime didn't report its local address." }
   func backendExited(_ status: Int32, _ detail: String) -> String {
     let summary = chinese ? "运行时已退出（状态 \(status)）。" : "The runtime exited (status \(status))."

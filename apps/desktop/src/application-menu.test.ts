@@ -189,6 +189,27 @@ describe('localized application menu', () => {
       expect(isDesktopMenuLocale(value)).toBe(false)
   })
 
+  it('exposes migration only through an explicitly configured macOS native callback', () => {
+    const onNativeMigration = vi.fn()
+    const options = {
+      applicationName: 'Craft Hub',
+      locale: 'zh-CN' as const,
+      platform: 'darwin',
+      onAction: vi.fn(),
+      onAbout: vi.fn(),
+      onSettings: vi.fn(),
+      onHelp: vi.fn(),
+      onReplayOnboarding: vi.fn(),
+      onNativeMigration,
+    }
+    const item = flatten(createApplicationMenu(options)).find(item => item.label === '原生版资料迁移…')
+    expect(item).toBeDefined()
+    item!.click?.({} as never, undefined, {} as never)
+    expect(onNativeMigration).toHaveBeenCalledOnce()
+    expect(flatten(createApplicationMenu({ ...options, platform: 'win32' })).some(item => item.label === '原生版资料迁移…')).toBe(false)
+    expect(flatten(createApplicationMenu({ ...options, onNativeMigration: undefined })).some(item => item.label === '原生版资料迁移…')).toBe(false)
+  })
+
   it.each(['zh-CN', 'en'] as const)('offers a localized manual update check in %s', (locale) => {
     const onCheckForUpdates = vi.fn()
     const menu = createApplicationMenu({

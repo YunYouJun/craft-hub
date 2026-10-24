@@ -3,7 +3,7 @@ import type { MarketplaceTrustPolicy } from '../src/marketplace-trust'
 import { Buffer } from 'node:buffer'
 import { spawnSync } from 'node:child_process'
 import { generateKeyPairSync, sign } from 'node:crypto'
-import { mkdir, mkdtemp, readFile, rename, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import process from 'node:process'
@@ -1078,4 +1078,25 @@ describe('plugin marketplace contracts', () => {
       expect.objectContaining({ id: userSource.id, kind: 'user', catalogUrl }),
     ])
   })
+})
+
+it('binds reviewed installation to the current versions and permission plan before downloading', async () => {
+  const dataDir = await mkdtemp(join(tmpdir(), 'craft-hub-reviewed-install-'))
+  const installer = new FixtureInstaller()
+  const manager = new PluginManager(dataDir, [source()], installer)
+  const request = { sourceId: source().id, package: manifest.id, version: '1.0.0' }
+  try {
+    const plan = await manager.planInstall(request)
+    expect(installer.installs).toEqual([])
+    expect(await manager.listInstalled()).toEqual([])
+    await expect(manager.install(request, { ...plan, permissions: [] })).rejects.toThrow(/plan changed/)
+    await expect(manager.install(request, { ...plan, items: [] })).rejects.toThrow(/plan changed/)
+    expect(installer.installs).toEqual([])
+    const installed = await manager.install(request, JSON.parse(JSON.stringify(plan)))
+    expect(installed.package).toBe(manifest.id)
+    expect(installer.installs).toEqual([manifest.id])
+  }
+  finally {
+    await rm(dataDir, { recursive: true, force: true })
+  }
 })

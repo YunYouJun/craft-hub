@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import type { PersonalWorkbenchTool, SoftwareCatalogItem, SoftwareCatalogSnapshot, SoftwareInstallationPlan, SoftwareInstallationRun } from 'craft-hub'
-import { personalWorkbenchHomeSchema, personalWorkbenchToolLaunchForUrl } from 'craft-hub/personal-workbench'
+import type { SoftwareCatalogItem, SoftwareCatalogSnapshot, SoftwareInstallationPlan, SoftwareInstallationRun } from 'craft-hub'
+import { createSoftwareFavorite, findSoftwareFavorite, personalWorkbenchHomeSchema } from 'craft-hub/personal-workbench'
 import { computed, inject, onMounted, onUnmounted, ref, watch } from 'vue'
 import { routeLocationKey, RouterLink } from 'vue-router'
 import { api } from './api'
@@ -110,20 +110,9 @@ const visibleEntries = computed(() => {
       .some(value => value?.toLocaleLowerCase().includes(keyword))))
 })
 
-function websiteIdentity(value: string): string {
-  try {
-    const url = new URL(value)
-    url.hostname = url.hostname.replace(/^www\./, '')
-    url.pathname = url.pathname.replace(/\/+$/, '') || '/'
-    url.hash = ''
-    return url.href
-  }
-  catch { return value }
-}
 const favoriteTools = computed(() => store.settings?.settings['workbench.home']?.tools ?? [])
 function isFavorite(item: SoftwareCatalogItem): boolean {
-  return favoriteTools.value.some(tool => websiteIdentity(tool.url) === websiteIdentity(item.url)
-    && (!tool.id.startsWith('software:') || websiteIdentity(tool.downloadUrl || tool.url) === websiteIdentity(item.downloadUrl || item.url)))
+  return !!findSoftwareFavorite(favoriteTools.value, item)
 }
 
 async function loadCatalog(): Promise<void> {
@@ -470,21 +459,7 @@ async function addFavorite(item: SoftwareCatalogItem): Promise<void> {
       saveError.value = copy('常用工具已达到 100 项，请先在个人工作台移除一些工具。', 'Favorites already contain 100 tools. Remove a tool from your personal workbench first.')
       return
     }
-    const launch = personalWorkbenchToolLaunchForUrl(item.url)
-    const tool: PersonalWorkbenchTool = {
-      id: `software:${crypto.randomUUID()}`,
-      title: text(item.title).slice(0, 128),
-      group: text(item.group.title).slice(0, 64),
-      url: item.url,
-      ...(launch ? { launch } : {}),
-      ...(item.downloadUrl ? { downloadUrl: item.downloadUrl } : {}),
-      ...(item.repositoryUrl ? { repositoryUrl: item.repositoryUrl } : {}),
-      ...(item.iconUrl ? { iconUrl: item.iconUrl } : {}),
-      ...(item.macosIconUrl ? { macosIconUrl: item.macosIconUrl } : {}),
-      ...(item.iconStyle ? { iconStyle: item.iconStyle } : {}),
-      ...(item.iconScale !== undefined ? { iconScale: item.iconScale } : {}),
-      ...(item.description ? { description: item.description.slice(0, 512) } : {}),
-    }
+    const tool = createSoftwareFavorite(item, locale.value === 'zh-CN' ? 'zh-CN' : 'en', `software:${crypto.randomUUID()}`)
     const next = personalWorkbenchHomeSchema.parse({ ...home, tools: [...home.tools, tool] })
     await store.applySettings(await api.updateSettings({ 'workbench.home': next }, settings.revision))
     saveNotice.value = copy(`已将 ${tool.title} 添加到个人工作台。`, `Added ${tool.title} to your personal workbench.`)

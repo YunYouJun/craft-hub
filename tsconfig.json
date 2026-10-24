@@ -7,6 +7,9 @@
     "paths": {
       "@craft-hub/craft-hub-plugin-microsoft-todo": ["./packages/craft-hub-plugin-microsoft-todo/src/index.ts"],
       "@craft-hub/craft-hub-plugin-workstation": ["./packages/craft-hub-plugin-workstation/src/index.ts"],
+      "craft-hub/marketplace-model": ["./packages/craft-hub/src/marketplace-model.ts"],
+      "craft-hub/configuration-management": ["./packages/craft-hub/src/configuration-management.ts"],
+      "craft-hub/integration-form-inputs": ["./packages/craft-hub/src/integration-form-inputs.ts"],
       "craft-hub": ["./packages/craft-hub/src/index.ts"],
       "craft-hub/personal-workbench": ["./packages/craft-hub/src/personal-workbench.ts"],
       "craft-hub/quick-capture": ["./packages/craft-hub/src/quick-capture.ts"],
@@ -26,5 +29,6 @@
     "verbatimModuleSyntax": true,
     "skipDefaultLibCheck": true,
     "skipLibCheck": true
-  }
+  },
+  "exclude": ["**/node_modules/**", "apps/macos/build/**", "apps/macos/.build/**", ".claude/worktrees/**", ".codex/worktrees/**"]
 }

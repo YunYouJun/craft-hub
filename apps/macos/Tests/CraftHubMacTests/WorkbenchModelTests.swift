@@ -1,7 +1,27 @@
+import CraftHubMacCore
 import Foundation
 import Testing
-import CraftHubMacCore
+
 @testable import CraftHubMac
+
+@MainActor @Test func integrationFallbackKeepsTheNativeWorkbenchReturnAndSearchEntrypoints() {
+  let suite = "craft-hub-integration-navigation-\(UUID())"
+  let defaults = UserDefaults(suiteName: suite)!
+  defer { defaults.removePersistentDomain(forName: suite) }
+  let model = WorkbenchModel(defaults: defaults)
+  model.routeChanged("/overview")
+  model.selection = .workbenches
+  model.select(.workbenches)
+  #expect(model.presentsNativeContent)
+  let request = model.findRequest
+  model.find()
+  #expect(model.findRequest == request + 1)
+  model.showIntegrationWeb("/integrations/fixture/view?project=selected")
+  model.routeChanged("/integrations/fixture/view")
+  #expect(model.selection == .workbenches && !model.presentsNativeContent)
+  model.select(.workbenches)
+  #expect(model.presentsNativeContent)
+}
 
 @MainActor
 @Test func lateWebRoutesCannotStealANativeSelection() {
@@ -44,6 +64,10 @@ import CraftHubMacCore
   #expect(model.selection == .software)
   #expect(model.presentsNativeContent)
   #expect(model.machine != nil)
+  model.navigateToWebPath("/environment/setup")
+  #expect(model.selection == .environment && model.presentsNativeContent)
+  #expect(model.machine?.environmentTab == "profile")
+  #expect(model.machine?.environmentProfile.snapshot == nil)
   model.showWebWorkbench()
   model.select(.software)
   #expect(model.presentsNativeContent)
@@ -56,9 +80,61 @@ import CraftHubMacCore
   #expect(model.webSessionDataStore() === original)
   #expect(!original.isPersistent)
   let secret = String(repeating: "a", count: 64)
-  let connection = try RuntimeConnection(handshake: JSONSerialization.data(withJSONObject: [
-    "version": 1, "url": "http://127.0.0.1:49218/__craft_hub_host/bootstrap?token=\(secret)", "nativeApiToken": secret,
-  ]))
+  let connection = try RuntimeConnection(
+    handshake: JSONSerialization.data(withJSONObject: [
+      "version": 1, "url": "http://127.0.0.1:49218/__craft_hub_host/bootstrap?token=\(secret)",
+      "nativeApiToken": secret,
+    ]))
   model.connect(connection)
   #expect(model.webSessionDataStore() !== original)
+}
+
+@MainActor @Test func choosingAProjectKeepsItsReviewPageVisibleUntilTheUserReturnsToTheNativeList() {
+  let suite = "craft-hub-project-navigation-\(UUID())"
+  let defaults = UserDefaults(suiteName: suite)!
+  defer { defaults.removePersistentDomain(forName: suite) }
+  let model = WorkbenchModel(defaults: defaults)
+  model.routeChanged("/overview")
+  model.selection = .projects
+  model.select(.projects)
+  #expect(model.presentsNativeContent)
+  model.selectProject("registered-project", capability: "command")
+  #expect(!model.presentsNativeContent && model.selection == .projects)
+  model.routeChanged("/")
+  #expect(!model.presentsNativeContent)
+  model.select(.projects)
+  #expect(model.presentsNativeContent)
+}
+
+@MainActor @Test func pluginAndDiagnosticsEntrypointsUseNativeSearchablePages() {
+  let suite = "craft-hub-management-navigation-\(UUID())"
+  let defaults = UserDefaults(suiteName: suite)!
+  defer { defaults.removePersistentDomain(forName: suite) }
+  let model = WorkbenchModel(defaults: defaults)
+  model.navigateToWebPath("/marketplace")
+  #expect(model.selection == .marketplace && model.presentsNativeContent)
+  let old = model.findRequest
+  model.find()
+  #expect(model.findRequest == old + 1)
+  model.navigateToWebPath("/diagnostics")
+  #expect(model.selection == .diagnostics && model.presentsNativeContent)
+  model.find()
+  #expect(model.findRequest == old + 2)
+}
+
+@MainActor @Test func validatedMarketplaceLinksNavigateToNativeSourceReviewWithoutAddingAnything() throws {
+  let suite = "craft-hub-source-link-test-\(UUID())"
+  let defaults = UserDefaults(suiteName: suite)!
+  defer { defaults.removePersistentDomain(forName: suite) }
+  let model = WorkbenchModel(defaults: defaults)
+  model.showWebWorkbench()
+  try model.openPluginManagement(catalogURL: "https://example.com/catalog.json")
+  #expect(model.selection == .marketplace && model.presentsNativeContent)
+  #expect(model.plugins.tab == .sources)
+  #expect(model.plugins.sourceCatalogURL == "https://example.com/catalog.json")
+  #expect(model.plugins.sourceReview == nil && !model.plugins.busy)
+  model.routeChanged("/overview")
+  #expect(model.selection == .marketplace && model.presentsNativeContent)
+  try model.openPluginManagement(catalogURL: nil)
+  #expect(model.plugins.sourceCatalogURL == "https://example.com/catalog.json")
 }
