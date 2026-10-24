@@ -29,5 +29,6 @@
     "verbatimModuleSyntax": true,
     "skipDefaultLibCheck": true,
     "skipLibCheck": true
-  }
+  },
+  "exclude": ["**/node_modules/**", "apps/macos/build/**", "apps/macos/.build/**", ".claude/worktrees/**", ".codex/worktrees/**"]
 }

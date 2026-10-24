@@ -7,6 +7,6 @@ const requireFromWeb = createRequire(new URL('./apps/web/package.json', import.m
 
 export default defineConfig({
   plugins: [vue({ compiler: requireFromWeb('vue/compiler-sfc') })],
-  // Local agent checkouts are separate repositories, not additional tests for this checkout's release.
-  test: { exclude: [...configDefaults.exclude, '**/.claude/worktrees/**', '**/.codex/worktrees/**'] },
+  // Native build evidence and local agent checkouts are not test sources for this checkout's release.
+  test: { exclude: [...configDefaults.exclude, '**/apps/macos/build/**', '**/apps/macos/.build/**', '**/.claude/worktrees/**', '**/.codex/worktrees/**'] },
 })
