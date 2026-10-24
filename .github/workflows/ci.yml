@@ -133,6 +133,9 @@ jobs:
         run: |
           node --print 'JSON.stringify({ version: process.version, arch: process.arch, executable: process.execPath })'
           CRAFT_HUB_TEST_NODE="$(command -v node)" CRAFT_HUB_TEST_CLOUD_SIDECAR="$PWD/apps/macos/build/Craft Hub Prototype.app/Contents/Resources/app/apps/desktop/dist/sidecar.mjs" swift test --package-path apps/macos
+      - name: Verify private pipe progress with one cooperative worker
+        run: |
+          LIBDISPATCH_COOPERATIVE_POOL_STRICT=1 CRAFT_HUB_TEST_NODE="$(command -v node)" CRAFT_HUB_TEST_CLOUD_SIDECAR="$PWD/apps/macos/build/Craft Hub Prototype.app/Contents/Resources/app/apps/desktop/dist/sidecar.mjs" swift test --skip-build --package-path apps/macos --filter 'identityMaintenanceInputBoundsFragmentsEOFAndStalledWriters|identityMachMaintenanceAuthenticatesReadyAndEveryTransactionBeforeDispatch|realNodeClientExchangesIdentityOnlyOverPrivatePipesWithAnIsolatedKeychain|realNodeProfileCoordinatorCommitsRecoversAndRollsBackWithAnIsolatedNativeKeychain|packagedSidecarConnectsSyncsAndRevokesThroughTheProductionPipeAndIsolatedKeychain'
       - name: Verify the local app signature
         run: codesign --verify --deep --strict 'apps/macos/build/Craft Hub Prototype.app'
       - name: Verify native plugin management and external host extension lifecycle

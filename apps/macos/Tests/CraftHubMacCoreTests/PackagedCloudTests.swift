@@ -32,7 +32,7 @@ func packagedSidecarConnectsSyncsAndRevokesThroughTheProductionPipeAndIsolatedKe
   }
   var prelude = Data()
   while !prelude.contains(10) {
-    let bytes = output.fileHandleForReading.availableData
+    let bytes = await readFixturePipe(output.fileHandleForReading)
     guard !bytes.isEmpty, prelude.count + bytes.count <= 4096 else { throw NativeHostChannelError.invalidFrame }
     prelude.append(bytes)
   }
@@ -49,11 +49,11 @@ func packagedSidecarConnectsSyncsAndRevokesThroughTheProductionPipeAndIsolatedKe
     contentsOf: JSONSerialization.data(withJSONObject: ["publicKey": identity.publicKey]) + Data([10]))
   var connections = 0
   while true {
-    let bytes = output.fileHandleForReading.availableData
+    let bytes = await readFixturePipe(output.fileHandleForReading)
     if bytes.isEmpty { break }
     if try channel.accept(bytes) != nil { connections += 1 }
   }
-  child.waitUntilExit()
+  try await waitForFixtureProcess(child)
   await channel.close()
   #expect(child.terminationStatus == 0 && connections == 1)
   #expect(try await vault.load() == nil)

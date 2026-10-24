@@ -101,9 +101,9 @@ func realNodeProfileCoordinatorCommitsRecoversAndRollsBackWithAnIsolatedNativeKe
   try child.run()
   DispatchQueue.global().asyncAfter(deadline: .now() + 30, execute: watchdog)
   var buffer = Data()
-  func readLine() throws -> Data {
+  func readLine() async throws -> Data {
     while buffer.firstIndex(of: 10) == nil {
-      let chunk = output.fileHandleForReading.availableData
+      let chunk = await readFixturePipe(output.fileHandleForReading)
       guard !chunk.isEmpty, buffer.count + chunk.count <= 32768 else { throw NativeHostChannelError.invalidFrame }
       buffer.append(chunk)
     }
@@ -112,7 +112,7 @@ func realNodeProfileCoordinatorCommitsRecoversAndRollsBackWithAnIsolatedNativeKe
     buffer.removeSubrange(...newline)
     return value
   }
-  #expect(try readLine() == Data("ready".utf8))
+  #expect(try await readLine() == Data("ready".utf8))
   let vault = try KeychainDeviceVault(profile: target, endpoint: endpoint, webOrigin: web, keychain: fixture.keychain)
   var authentications = 0
   func session() -> IdentityMaintenanceSession {
@@ -128,7 +128,7 @@ func realNodeProfileCoordinatorCommitsRecoversAndRollsBackWithAnIsolatedNativeKe
   }
   var operations: [String] = []
   while true {
-    let data = try readLine()
+    let data = try await readLine()
     let frame = try JSONDecoder().decode(Frame.self, from: data)
     if frame.testControl == "done" { break }
     if frame.testControl == "reopen" {
@@ -149,7 +149,7 @@ func realNodeProfileCoordinatorCommitsRecoversAndRollsBackWithAnIsolatedNativeKe
   }
   await recipient.close()
   try input.fileHandleForWriting.close()
-  child.waitUntilExit()
+  try await waitForFixtureProcess(child)
   #expect(child.terminationStatus == 0)
   #expect(operations.filter { $0 == "stage" }.count == 1)
   #expect(operations.contains("reopen") && operations.contains("finish") && operations.contains("rollback"))

@@ -134,11 +134,11 @@ private func handshakeFrame() throws -> Data {
     }
     var connections = 0
     while true {
-      let bytes = output.fileHandleForReading.availableData
+      let bytes = await readFixturePipe(output.fileHandleForReading)
       if bytes.isEmpty { break }
       if try channel.accept(bytes) != nil { connections += 1 }
     }
-    child.waitUntilExit()
+    try await waitForFixtureProcess(child)
     #expect(child.terminationStatus == 0)
     #expect(connections == 1)
     #expect(try await vault.load() == nil)
