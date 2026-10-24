@@ -1,15 +1,14 @@
 import { spawn } from 'node:child_process'
-import { once } from 'node:events'
 import { link, mkdir, mkdtemp, readdir, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import process from 'node:process'
-import { fileURLToPath } from 'node:url'
 import { afterEach, expect, it } from 'vitest'
 import { acquireProfileLease } from '../src/profile-lease'
 import { applyProfileMigration, previewProfileMigration, previewProfileRecovery, previewProfileRollback, ProfileMigrationRecoveryError, recoverProfileMigration, rollbackProfileMigration } from '../src/profile-migration'
 import { CraftHubRuntime } from '../src/runtime'
 import { startCraftHubServer } from '../src/server'
+import { stopMigrationFixture, waitForMigrationCheckpoint } from './fixtures/migration-process'
 
 const roots: string[] = []
 async function stopped() {}
@@ -292,35 +291,31 @@ it('shares active client barriers but excludes migration and releases kernel loc
     first.release()
     second.release()
   }
-  const modulePath = fileURLToPath(new URL('../src/profile-lease.ts', import.meta.url))
+  const modulePath = new URL('../src/profile-lease.ts', import.meta.url).href
   const child = spawn(process.execPath, ['--import', 'tsx', '--input-type=module', '-e', `import {acquireProfileLease} from ${JSON.stringify(modulePath)}; await acquireProfileLease([process.argv[1]], 'migration'); process.send('locked'); setInterval(()=>{},1000)`, paths.sourceData], { cwd: resolve('.'), env: { ...process.env, TMPDIR: paths.sourceConfig }, stdio: ['ignore', 'ignore', 'pipe', 'ipc'] })
   try {
-    await once(child, 'message', { signal: AbortSignal.timeout(10000) })
+    expect(await waitForMigrationCheckpoint(child)).toBe('locked')
     await expect(acquireProfileLease([paths.sourceData])).rejects.toThrow('profile is in use')
   }
   finally {
-    const exited = once(child, 'exit')
-    child.kill('SIGKILL')
-    await exited
+    await stopMigrationFixture(child)
   }
   const recovered = await acquireProfileLease([paths.sourceData], 'migration')
   recovered.release()
-})
+}, 15000)
 
 it.each(['target-saved', 'installed'] as const)('recovers a real process crash at %s using the durable journal', async (crashPhase) => {
   const { root, paths } = await fixture()
   const review = await previewProfileMigration(paths)
   const reviewPath = join(root, 'review.json')
   await writeFile(reviewPath, JSON.stringify(review))
-  const modulePath = fileURLToPath(new URL('../src/profile-migration.ts', import.meta.url))
+  const modulePath = new URL('../src/profile-migration.ts', import.meta.url).href
   const child = spawn(process.execPath, ['--import', 'tsx', '--input-type=module', '-e', `import {readFile} from 'node:fs/promises'; import {applyProfileMigration} from ${JSON.stringify(modulePath)}; const p=JSON.parse(await readFile(process.argv[1])); await applyProfileMigration(p.paths,p.revision,async()=>{},async phase=>{if(phase===process.argv[2]){setInterval(()=>{},1000);process.send('saved');await new Promise(()=>{})}})`, reviewPath, crashPhase], { cwd: resolve('.'), stdio: ['ignore', 'ignore', 'pipe', 'ipc'] })
   try {
-    await once(child, 'message', { signal: AbortSignal.timeout(10000) })
+    expect(await waitForMigrationCheckpoint(child)).toBe('saved')
   }
   finally {
-    const exited = once(child, 'exit')
-    child.kill('SIGKILL')
-    await exited
+    await stopMigrationFixture(child)
   }
   const transaction = join(root, (await readdir(root)).find(name => name.startsWith('.native.migration-'))!)
   expect((await recoverProfileMigration(transaction, stopped)).phase).toBe(crashPhase === 'installed' ? 'complete' : 'rolled-back')
@@ -330,3 +325,14 @@ it.each(['target-saved', 'installed'] as const)('recovers a real process crash a
     expect((await applyProfileMigration(paths, review.revision, stopped)).alreadyApplied).toBe(true)
   expect(JSON.parse(await readFile(join(paths.sourceData, 'projects.json'), 'utf8'))[0].trust).toBe('untrusted')
 }, 15000)
+
+it('reports early fixture exits and completes cleanup without waiting for a second exit event', async () => {
+  const child = spawn(process.execPath, ['-e', 'process.exit(1)'], { stdio: ['ignore', 'ignore', 'pipe', 'ipc'] })
+  try {
+    await expect(waitForMigrationCheckpoint(child)).rejects.toThrow('exited before its checkpoint')
+    await expect(waitForMigrationCheckpoint(child)).rejects.toThrow('exited before its checkpoint')
+  }
+  finally {
+    await stopMigrationFixture(child)
+  }
+})

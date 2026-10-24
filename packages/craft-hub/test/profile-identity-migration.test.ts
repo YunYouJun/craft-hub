@@ -1,16 +1,15 @@
 import type { ProfileIdentityBinding, ProfileIdentityCheckpoint, ProfileMigrationPaths } from '../src/profile-migration'
 import { spawn } from 'node:child_process'
 import { createHash, generateKeyPairSync, randomBytes } from 'node:crypto'
-import { once } from 'node:events'
 import { access, mkdir, mkdtemp, readdir, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import process from 'node:process'
-import { fileURLToPath } from 'node:url'
 import { afterEach, expect, it } from 'vitest'
 import { acquireProfileLease, inspectProfileMigrationGuard, profileMigrationGuardPath } from '../src/profile-lease'
 import { applyIdentityProfileMigration, applyProfileMigration, previewIdentityProfileRecovery, previewProfileMigration, ProfileIdentityRecoveryError, recoverIdentityProfileMigration, recoverProfileMigration, rollbackIdentityProfileMigration, rollbackProfileMigration } from '../src/profile-migration'
 import { CraftHubRuntime } from '../src/runtime'
+import { stopMigrationFixture, waitForMigrationCheckpoint } from './fixtures/migration-process'
 import { fixtureIdentityParticipant } from './fixtures/profile-identity-participant'
 
 const fixtures: Array<{ root: string, markers: string[] }> = []
@@ -236,19 +235,15 @@ it.each(['guarded', 'staged', 'installed', 'commit-decided', 'finished', 'settle
   const preview = await previewProfileMigration(f.paths)
   const inputPath = join(f.root, 'input.json')
   await writeFile(inputPath, JSON.stringify({ paths: f.paths, revision: preview.revision, identity: f.identity, stateFile: f.stateFile }))
-  const implementation = fileURLToPath(new URL('../src/profile-migration.ts', import.meta.url))
-  const adapter = fileURLToPath(new URL('./fixtures/profile-identity-participant.ts', import.meta.url))
+  const implementation = new URL('../src/profile-migration.ts', import.meta.url).href
+  const adapter = new URL('./fixtures/profile-identity-participant.ts', import.meta.url).href
   const code = `import {readFile} from 'node:fs/promises'; import {applyIdentityProfileMigration} from ${JSON.stringify(implementation)}; import {fixtureIdentityParticipant} from ${JSON.stringify(adapter)}; const input=JSON.parse(await readFile(process.argv[1])); await applyIdentityProfileMigration(input.paths,input.revision,input.identity,fixtureIdentityParticipant(input.stateFile),async()=>{},async phase=>{if(phase===process.argv[2]){setInterval(()=>{},1000);process.send('checkpoint');await new Promise(()=>{})}})`
   const child = spawn(process.execPath, ['--import', 'tsx', '--input-type=module', '-e', code, inputPath, checkpoint], { cwd: resolve('.'), stdio: ['ignore', 'ignore', 'pipe', 'ipc'] })
   try {
-    expect((await once(child, 'message', { signal: AbortSignal.timeout(10000) }))[0]).toBe('checkpoint')
+    expect(await waitForMigrationCheckpoint(child)).toBe('checkpoint')
   }
   finally {
-    if (child.exitCode === null && child.signalCode === null) {
-      const exited = once(child, 'exit')
-      child.kill('SIGKILL')
-      await exited
-    }
+    await stopMigrationFixture(child)
   }
   const transaction = join(f.root, (await readdir(f.root)).find(name => name.startsWith('.native.migration-'))!)
   const committed = ['commit-decided', 'finished', 'settled'].includes(checkpoint)
