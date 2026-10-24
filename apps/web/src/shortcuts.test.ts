@@ -2,9 +2,24 @@
 /// <reference lib="dom" />
 
 import { describe, expect, it } from 'vitest'
+import shortcutContract from '../../desktop/test/fixtures/shortcut-contract.json'
 import { applicationShortcutReferences, applicationShortcutReferencesForPlatform, capabilityShortcutId, defaultCommandPaletteShortcut, desktopWorkbenchShortcuts, formatShortcut, matchesShortcut, parseCapabilityShortcutId, shortcutFromKeyboardEvent } from './shortcuts'
 
 describe('keyboard shortcuts', () => {
+  it('records and matches the same portable bindings consumed by native macOS menus', () => {
+    for (const fixture of shortcutContract) {
+      const event = new KeyboardEvent('keydown', {
+        key: fixture.key,
+        metaKey: fixture.modifiers.includes('Mod'),
+        ctrlKey: fixture.modifiers.includes('Control'),
+        altKey: fixture.modifiers.includes('Alt'),
+        shiftKey: fixture.modifiers.includes('Shift'),
+      })
+      expect(shortcutFromKeyboardEvent(event, 'MacIntel')).toBe(fixture.shortcut)
+      expect(matchesShortcut(event, fixture.shortcut, 'MacIntel')).toBe(true)
+    }
+  })
+
   it('normalizes the platform primary modifier', () => {
     const event = new KeyboardEvent('keydown', { key: 'p', metaKey: true, shiftKey: true })
     expect(shortcutFromKeyboardEvent(event, 'MacIntel')).toBe('Mod+Shift+P')

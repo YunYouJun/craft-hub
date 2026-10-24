@@ -4,7 +4,7 @@ struct CommandPaletteView: View {
   @Bindable var model: CommandPaletteModel
   let choose: (CommandPaletteModel.Item) -> Void
   let dismiss: () -> Void
-  private let text = L10n.text
+  private var text: L10n { L10n.text }
 
   var body: some View {
     VStack(spacing: 0) {
@@ -37,10 +37,12 @@ struct CommandPaletteView: View {
         .font(.system(size: 20, weight: .regular))
         .foregroundStyle(.secondary)
         .accessibilityHidden(true)
-      PaletteSearchField(text: $model.query,
+      PaletteSearchField(
+        text: $model.query,
         placeholder: text.copy("搜索页面、项目、命令和技能…", "Search pages, projects, commands, skills…"), focus: model.focus,
-        move: { model.move($0) }, submit: { if let selected = model.selected { choose(selected) } }, dismiss: dismiss)
-        .frame(height: 28)
+        move: { model.move($0) }, submit: { if let selected = model.selected { choose(selected) } }, dismiss: dismiss
+      )
+      .frame(height: 28)
       if !model.query.isEmpty {
         Button {
           model.query = ""
@@ -87,7 +89,9 @@ struct CommandPaletteView: View {
 
   private func resultRow(_ item: CommandPaletteModel.Item) -> some View {
     let selected = item.id == model.selected?.id
-    return Button { choose(item) } label: {
+    return Button {
+      choose(item)
+    } label: {
       HStack(spacing: 12) {
         Image(systemName: item.symbol)
           .font(.system(size: 17))
@@ -98,6 +102,12 @@ struct CommandPaletteView: View {
           Text(item.subtitle).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
         }
         Spacer(minLength: 16)
+        if item.isPinned {
+          Image(systemName: "pin.fill")
+            .font(.system(size: 11))
+            .foregroundStyle(.secondary)
+            .accessibilityLabel(text.copy("已置顶", "Pinned"))
+        }
         Text(item.category.title).font(.system(size: 11)).foregroundStyle(.tertiary)
         Image(systemName: "return")
           .font(.system(size: 11, weight: .medium))
@@ -121,7 +131,9 @@ struct CommandPaletteView: View {
         ProgressView().controlSize(.small)
           .help(text.copy("正在更新索引…", "Updating index…"))
       } else {
-        Button { model.refresh() } label: {
+        Button {
+          model.refresh()
+        } label: {
           Image(systemName: "arrow.clockwise").frame(width: 20, height: 20)
         }
         .buttonStyle(.plain)

@@ -1,4 +1,5 @@
 import Testing
+
 @testable import CraftHubMac
 
 @MainActor @Test func unconfiguredUpdaterStaysDisabledAcrossStartsAndManualChecks() {

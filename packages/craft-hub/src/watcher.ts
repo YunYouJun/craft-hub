@@ -4,7 +4,7 @@ import { realpath } from 'node:fs/promises'
 import { extname, matchesGlob, relative, sep } from 'node:path'
 import chokidar from 'chokidar'
 
-/** Semantic area affected by a project file change. */
+/** Semantic area affected by project files or machine-local project preferences. */
 export type ProjectChangeScope = 'capabilities' | 'overview' | 'project'
 
 /** Coalesced project change notification. */

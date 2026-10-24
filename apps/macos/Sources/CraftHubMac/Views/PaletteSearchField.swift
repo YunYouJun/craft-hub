@@ -28,11 +28,15 @@ struct PaletteSearchField: NSViewRepresentable {
   func updateNSView(_ field: NSTextField, context: Context) {
     let coordinator = context.coordinator
     coordinator.parent = self
-    field.placeholderAttributedString = NSAttributedString(string: placeholder, attributes: [
-      .font: NSFont.systemFont(ofSize: 20), .foregroundColor: NSColor.placeholderTextColor,
-    ])
+    field.placeholderAttributedString = NSAttributedString(
+      string: placeholder,
+      attributes: [
+        .font: NSFont.systemFont(ofSize: 20), .foregroundColor: NSColor.placeholderTextColor,
+      ])
     field.setAccessibilityLabel(placeholder)
-    if field.stringValue != text, (field.currentEditor() as? NSTextView)?.hasMarkedText() != true { field.stringValue = text }
+    if field.stringValue != text, (field.currentEditor() as? NSTextView)?.hasMarkedText() != true {
+      field.stringValue = text
+    }
     if coordinator.lastFocus != focus {
       coordinator.lastFocus = focus
       DispatchQueue.main.async { [weak field, weak coordinator] in

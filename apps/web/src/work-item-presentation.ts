@@ -1,6 +1,8 @@
 import type { IntegrationEntity, WorkItemDueDate } from 'craft-hub'
 import type { IconName } from './icons'
 
+export { isWorkItemOverdue } from 'craft-hub/work-items'
+
 const dateOnlyOptions: Intl.DateTimeFormatOptions = {
   year: 'numeric',
   month: 'short',
@@ -67,36 +69,6 @@ export function isWorkItemDueToday(dueDate: WorkItemDueDate | undefined, now: nu
     return false
   const localNow = new Date(now + deadline.offsetMinutes * 60_000)
   return Number.isFinite(localNow.getTime()) && deadline.day === localNow.toISOString().slice(0, 10)
-}
-
-/** Compare deadlines in their declared timezone; unknown offsetless zones are not guessed. */
-export function isWorkItemOverdue(dueDate: WorkItemDueDate | undefined, now: number): boolean {
-  if (!dueDate || !Number.isFinite(now))
-    return false
-  if (dueDate.precision === 'date') {
-    const dueDay = dueDate.dateTime.slice(0, 10)
-    const date = new Date(`${dueDay}T00:00:00Z`)
-    if (!/^\d{4}-\d{2}-\d{2}T/.test(dueDate.dateTime) || Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== dueDay)
-      return false
-    try {
-      const parts = new Intl.DateTimeFormat('en-CA', { timeZone: dueDate.timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(now)
-      const part = (name: Intl.DateTimeFormatPartTypes): string => parts.find(part => part.type === name)!.value
-      return dueDay < `${part('year')}-${part('month')}-${part('day')}`
-    }
-    catch { return false }
-  }
-  if (offsetPattern.test(dueDate.dateTime))
-    return new Date(dueDate.dateTime).getTime() < now
-  const wallTime = new Date(`${dueDate.dateTime}Z`).getTime()
-  if (!Number.isFinite(wallTime))
-    return false
-  try {
-    const parts = new Intl.DateTimeFormat('en-CA', { timeZone: dueDate.timeZone, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' }).formatToParts(now)
-    const part = (name: Intl.DateTimeFormatPartTypes): string => parts.find(part => part.type === name)!.value
-    const localNow = Date.parse(`${part('year')}-${part('month')}-${part('day')}T${part('hour')}:${part('minute')}:${part('second')}Z`) + now % 1000
-    return wallTime < localNow
-  }
-  catch { return false }
 }
 
 function unavailable(locale: string): string {

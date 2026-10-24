@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+
 @testable import CraftHubMacCore
 
 @Test func draftAndRetryIdentitySurviveReopeningWithoutCredentials() throws {
@@ -16,7 +17,9 @@ import Testing
   var restored = try store.load()
   #expect(restored == draft)
   #expect(try restored.prepareAttempt(payload: payload, important: true) == first)
-  #expect(try restored.prepareAttempt(payload: payload.merging(["accountId": "b"]) { _, new in new }, important: true) != first)
+  #expect(
+    try restored.prepareAttempt(payload: payload.merging(["accountId": "b"]) { _, new in new }, important: true)
+      != first)
   let permissions = try FileManager.default.attributesOfItem(atPath: store.url.path)[.posixPermissions] as? Int
   #expect(permissions == 0o600)
 }

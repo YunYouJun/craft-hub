@@ -1,11 +1,14 @@
 import Foundation
 import Testing
+
 @testable import CraftHubMacCore
 
 private func releaseInfo() -> [String: Any] {
-  ["CraftHubUpdatesEnabled": true, "SUFeedURL": "https://updates.example.com/native/arm64/appcast.xml",
-   "SUPublicEDKey": Data(repeating: 1, count: 32).base64EncodedString(),
-   "SUVerifyUpdateBeforeExtraction": true, "SURequireSignedFeed": true]
+  [
+    "CraftHubUpdatesEnabled": true, "SUFeedURL": "https://updates.example.com/native/arm64/appcast.xml",
+    "SUPublicEDKey": Data(repeating: 1, count: 32).base64EncodedString(),
+    "SUVerifyUpdateBeforeExtraction": true, "SURequireSignedFeed": true,
+  ]
 }
 
 @Test func localBuildsCannotStartUpdatesFromStaleReleaseSettings() throws {
@@ -16,7 +19,10 @@ private func releaseInfo() -> [String: Any] {
   #expect(try NativeUpdateConfiguration(info: releaseInfo())?.feedURL.host == "updates.example.com")
 }
 
-@Test(arguments: ["http://updates.example.com/appcast.xml", "file:///tmp/appcast.xml", "https://user:secret@example.com/feed", "https://example.com/feed#fragment", "https://example.com/\nfeed"])
+@Test(arguments: [
+  "http://updates.example.com/appcast.xml", "file:///tmp/appcast.xml", "https://user:secret@example.com/feed",
+  "https://example.com/feed#fragment", "https://example.com/\nfeed",
+])
 func nativeUpdatesRejectUnsafeFeeds(_ feed: String) {
   var info = releaseInfo()
   info["SUFeedURL"] = feed
@@ -40,7 +46,8 @@ func releaseUpdatesRequireAllTrustInputs(_ key: String) {
 
 @MainActor @Test func cancellingABusyUpdateQuitLeavesTheRuntimeRunning() async {
   var stopped = false
-  let accepted = await NativeTermination.prepare(requireIdle: { throw CocoaError(.userCancelled) },
+  let accepted = await NativeTermination.prepare(
+    requireIdle: { throw CocoaError(.userCancelled) },
     confirmInterruption: { _ in false }, shutdown: { stopped = true })
   #expect(!accepted)
   #expect(!stopped)
@@ -48,8 +55,13 @@ func releaseUpdatesRequireAllTrustInputs(_ key: String) {
 
 @MainActor @Test func updateQuitWaitsForRuntimeDrainBeforeApprovingRelaunch() async {
   var events: [String] = []
-  let accepted = await NativeTermination.prepare(requireIdle: { events.append("idle") },
-    confirmInterruption: { _ in Issue.record("Idle quit must not prompt"); return false }, shutdown: {
+  let accepted = await NativeTermination.prepare(
+    requireIdle: { events.append("idle") },
+    confirmInterruption: { _ in
+      Issue.record("Idle quit must not prompt")
+      return false
+    },
+    shutdown: {
       events.append("stopping")
       await Task.yield()
       events.append("stopped")
@@ -60,7 +72,8 @@ func releaseUpdatesRequireAllTrustInputs(_ key: String) {
 
 @MainActor @Test func explicitQuitCanProceedWhenRuntimeStatusIsUnavailable() async {
   var stopped = false
-  let accepted = await NativeTermination.prepare(requireIdle: { throw URLError(.timedOut) },
+  let accepted = await NativeTermination.prepare(
+    requireIdle: { throw URLError(.timedOut) },
     confirmInterruption: { _ in true }, shutdown: { stopped = true })
   #expect(accepted && stopped)
 }

@@ -521,4 +521,27 @@ describe('shared home work data', () => {
     tasks.actions.push({ id: 'transitions', title: 'Transitions', operation: 'work-items.transitions', effect: 'remote-read', confirmation: 'never', effectiveConfirmation: 'never' })
     expect(completionActionId(tasks)).toBeUndefined()
   })
+
+  it('defers an external invalidation until a local completion settles, then requests a fresh snapshot', async () => {
+    const tasks = contribution()
+    tasks.actions.push({ id: 'complete', title: 'Complete', operation: 'work-items.update-status', effect: 'remote-write', confirmation: 'always', effectiveConfirmation: 'always' })
+    useWorkbenchStore().integrationContributions = [tasks]
+    const data = useHomeWorkDataStore()
+    const source = sources()[0]!
+    await data.load(source)
+    const item = data.stateFor(source).page!.items[0]!
+    const write = deferred<IntegrationEntity>()
+    vi.mocked(api.invokeIntegrationAction).mockImplementation(async (_id, action) => action === 'complete' ? write.promise : action === 'status' ? { connected: true } : page('Fresh task'))
+    const revision = data.revision
+    const completing = data.setCompletion(source, item, true)
+    emitIntegrationChange({ integrationId: 'tasks', phase: 'external' })
+    expect(data.revision).toBe(revision)
+    expect(data.stateFor(source).page?.items[0]).toEqual(item)
+    write.resolve({ ...item, statusCategory: 'done' })
+    await completing
+    expect(data.revision).toBeGreaterThan(revision)
+    expect(data.stateFor(source).page).toBeUndefined()
+    await data.load(source)
+    expect(data.stateFor(source).page?.items[0]?.title).toBe('Fresh task')
+  })
 })

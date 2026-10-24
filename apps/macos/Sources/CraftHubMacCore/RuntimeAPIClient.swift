@@ -18,7 +18,7 @@ public final class RuntimeAPIClient {
       let configuration = URLSessionConfiguration.ephemeral
       configuration.httpCookieStorage = nil
       configuration.urlCache = nil
-      let session = URLSession(configuration: configuration, delegate: NoRedirects(), delegateQueue: nil)
+      let session = URLSession(configuration: configuration, delegate: RuntimeNoRedirects(), delegateQueue: nil)
       self.session = session
       self.transport = { try await session.data(for: $0) }
     }
@@ -40,12 +40,13 @@ public final class RuntimeAPIClient {
 
   /// Selects catalog IDs only; the runtime validates current detection and provider capability again before opening.
   public func openApplication(sourceID: String, softwareID: String) async throws {
-    struct Acknowledgement: Decodable { let version: Int; let softwareId: String; let destination: String }
-    // Encode one URL segment. Slashes, percent escapes and dot segments can never change the endpoint.
-    guard !sourceID.isEmpty, sourceID != ".", sourceID != "..",
-          let source = sourceID.addingPercentEncoding(withAllowedCharacters: .alphanumerics) else {
-      throw RuntimeAPIError.invalidEndpoint
+    struct Acknowledgement: Decodable {
+      let version: Int
+      let softwareId: String
+      let destination: String
     }
+    // Encode one URL segment. Slashes, percent escapes and dot segments can never change the endpoint.
+    let source = try Self.segment(sourceID)
     let body = try JSONEncoder().encode(["softwareId": softwareID])
     let result: Acknowledgement = try await fetch(path: "/api/software/\(source)/open", body: body)
     guard result.version == 1, result.softwareId == softwareID, result.destination == "application" else {
@@ -53,8 +54,13 @@ public final class RuntimeAPIClient {
     }
   }
 
-  func fetch<Value: Decodable>(path: String, body: Data? = nil, timeout: TimeInterval = 30, query: [URLQueryItem] = []) async throws -> Value {
+  func fetch<Value: Decodable>(
+    path: String, body: Data? = nil, timeout: TimeInterval = 30, query: [URLQueryItem] = [], method: String? = nil
+  )
+    async throws -> Value
+  {
     var request = try connection.request(path: path, body: body, query: query)
+    if let method { request.httpMethod = method }
     request.timeoutInterval = timeout
     let (data, response) = try await transport(request)
     guard let response = response as? HTTPURLResponse, response.url == request.url else {
@@ -69,9 +75,11 @@ public final class RuntimeAPIClient {
 }
 
 /// Even a same-origin redirect is unexpected for API endpoints. Never send the bearer credential onward.
-private final class NoRedirects: NSObject, URLSessionTaskDelegate {
-  func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
-                  newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
+final class RuntimeNoRedirects: NSObject, URLSessionTaskDelegate {
+  func urlSession(
+    _ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+    newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void
+  ) {
     completionHandler(nil)
   }
 }

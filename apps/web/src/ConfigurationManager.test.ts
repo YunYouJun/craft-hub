@@ -12,7 +12,7 @@ import { useI18n } from './i18n'
 
 enableAutoUnmount(afterEach)
 
-const contribution: ResolvedIntegrationContribution = { id: 'test', pluginId: 'test', source: 'host:test', provider: { id: 'test', requires: '^1.0.0' }, providerVersion: '1.0.0', views: [], actions: [
+const contribution: ResolvedIntegrationContribution = { id: 'test', pluginId: 'test', source: 'host:test', provider: { id: 'workstation', requires: '^1.0.0' }, providerVersion: '1.0.0', views: [], actions: [
   { id: 'read', title: 'Read', operation: 'configuration.read', effect: 'local-read', confirmation: 'never', effectiveConfirmation: 'never' },
   { id: 'update', title: 'Update', operation: 'configuration.update', effect: 'local-write', confirmation: 'always', effectiveConfirmation: 'always' },
 ] }

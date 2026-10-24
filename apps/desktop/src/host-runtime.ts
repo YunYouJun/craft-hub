@@ -1,9 +1,9 @@
-import type { CraftHubPlugin, DistributionConfig, HostExtensionManager, HostExtensionStatus, WorkbenchCodexSetting } from 'craft-hub'
+import type { CraftHubPlugin, DistributionConfig, HostExtensionManager, HostExtensionStatus, ProfileLease, WorkbenchCodexSetting } from 'craft-hub'
 import { readFile } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import codexConfigurationPlugin from '@craft-hub/craft-hub-plugin-codex'
 import { createMicrosoftTodoPlugin, createMicrosoftTodoTransport } from '@craft-hub/craft-hub-plugin-microsoft-todo'
-import { CraftHubRuntime, loadCraftHubPlugins } from 'craft-hub'
+import { acquireProfileLease, CraftHubRuntime, getCraftHubConfigDir, loadCraftHubPlugins } from 'craft-hub'
 import { CodexAgentTaskProvider } from './codex-agent-task-provider.ts'
 import { CodexWorkAssistant } from './codex-work-assistant.ts'
 import { desktopWorkstation } from './workstation-runtime.ts'
@@ -38,6 +38,8 @@ export interface DistributionHostPlugins {
 /** Inputs shared by the Electron host and the native host's runtime sidecar. */
 export interface DesktopHostRuntimeOptions {
   dataDir: string
+  /** Trusted host handoff when protection must begin before profile directory creation. */
+  profileLease?: ProfileLease
   /** Portable user configuration; defaults to the runtime's own configuration directory. */
   configDir?: string
   distribution: DistributionConfig
@@ -69,10 +71,10 @@ export async function hasMicrosoftTodoConnection(dataDir: string): Promise<boole
  * Create the built-in Codex configuration and Workstation host plugins, and the optional Microsoft To Do plugin.
  * To Do connectors start on the first call and close after an idle period instead of staying resident.
  */
-export function createBuiltinHostPlugins(options: { workstationDirectory: string, dataDir: string }): BuiltinHostPlugins {
+export function createBuiltinHostPlugins(options: { workstationDirectory: string, workstationExecutable?: string, workstationElectronNodeMode?: boolean, dataDir: string, configurationEnvironment?: NodeJS.ProcessEnv }): BuiltinHostPlugins {
   const microsoftTodoTransport = createMicrosoftTodoTransport({ idleTimeoutMs: microsoftTodoReadIdleMs })
   const microsoftTodoWriteTransport = createMicrosoftTodoTransport({ idleTimeoutMs: microsoftTodoWriteIdleMs, writable: true })
-  const workstation = desktopWorkstation({ directory: options.workstationDirectory })
+  const workstation = desktopWorkstation({ directory: options.workstationDirectory, executable: options.workstationExecutable, electronNodeMode: options.workstationElectronNodeMode, configurationEnvironment: options.configurationEnvironment })
   const microsoftTodo = createMicrosoftTodoPlugin({
     transport: microsoftTodoTransport,
     writeTransport: microsoftTodoWriteTransport,
@@ -110,37 +112,45 @@ export async function optionalHostPluginStatus(hostExtensions: HostExtensionMana
  * stopping the host.
  */
 export async function createDesktopHostRuntime(options: DesktopHostRuntimeOptions): Promise<CraftHubRuntime> {
-  let runtime!: CraftHubRuntime
-  const codexSettings = async (): Promise<WorkbenchCodexSetting> => (await runtime.settings.get()).settings['workbench.codex']
-  const distributionPlugins = options.distributionPlugins?.modules.length ? options.distributionPlugins : undefined
-  const configuredPlugins = distributionPlugins
-    ? await loadCraftHubPlugins(distributionPlugins.modules, { baseDir: dirname(distributionPlugins.manifestPath) })
-    : { plugins: [], diagnostics: [] }
-  const preloadedModules = distributionPlugins && !configuredPlugins.diagnostics.length
-    ? options.hostExtensions.prepare(distributionPlugins).modules
-    : []
-  const enabledOptional: CraftHubPlugin[] = []
-  for (const optional of options.optionalPlugins ?? []) {
-    if (await isOptionalHostPluginEnabled(options.hostExtensions, optional))
-      enabledOptional.push(optional.plugin)
+  const lease = options.profileLease ?? await acquireProfileLease([resolve(options.dataDir), resolve(options.configDir ?? getCraftHubConfigDir())])
+  try {
+    let runtime!: CraftHubRuntime
+    const codexSettings = async (): Promise<WorkbenchCodexSetting> => (await runtime.settings.get()).settings['workbench.codex']
+    const distributionPlugins = options.distributionPlugins?.modules.length ? options.distributionPlugins : undefined
+    const configuredPlugins = distributionPlugins
+      ? await loadCraftHubPlugins(distributionPlugins.modules, { baseDir: dirname(distributionPlugins.manifestPath) })
+      : { plugins: [], diagnostics: [] }
+    const preloadedModules = distributionPlugins && !configuredPlugins.diagnostics.length
+      ? options.hostExtensions.prepare(distributionPlugins).modules
+      : []
+    const enabledOptional: CraftHubPlugin[] = []
+    for (const optional of options.optionalPlugins ?? []) {
+      if (await isOptionalHostPluginEnabled(options.hostExtensions, optional))
+        enabledOptional.push(optional.plugin)
+    }
+    const hostPlugins = await options.hostExtensions.load([
+      ...configuredPlugins.plugins,
+      ...[...options.builtinPlugins, ...enabledOptional].filter(builtin => !configuredPlugins.plugins.some(plugin => plugin.id === builtin.id)),
+    ], preloadedModules)
+    hostPlugins.diagnostics.unshift(...configuredPlugins.diagnostics)
+    for (const diagnostic of hostPlugins.diagnostics)
+      options.logError(`Host Plugin ${diagnostic.pluginId} failed to load: ${diagnostic.message}`)
+    runtime = new CraftHubRuntime({
+      agentTaskProvider: new CodexAgentTaskProvider(codexSettings),
+      workAssistantProvider: new CodexWorkAssistant(codexSettings),
+      dataDir: options.dataDir,
+      profileLease: lease,
+      ...(options.configDir ? { configDir: options.configDir } : {}),
+      distribution: options.distribution,
+      pluginDiagnostics: hostPlugins.diagnostics,
+      plugins: hostPlugins.plugins,
+    })
+    return runtime
   }
-  const hostPlugins = await options.hostExtensions.load([
-    ...configuredPlugins.plugins,
-    ...[...options.builtinPlugins, ...enabledOptional].filter(builtin => !configuredPlugins.plugins.some(plugin => plugin.id === builtin.id)),
-  ], preloadedModules)
-  hostPlugins.diagnostics.unshift(...configuredPlugins.diagnostics)
-  for (const diagnostic of hostPlugins.diagnostics)
-    options.logError(`Host Plugin ${diagnostic.pluginId} failed to load: ${diagnostic.message}`)
-  runtime = new CraftHubRuntime({
-    agentTaskProvider: new CodexAgentTaskProvider(codexSettings),
-    workAssistantProvider: new CodexWorkAssistant(codexSettings),
-    dataDir: options.dataDir,
-    ...(options.configDir ? { configDir: options.configDir } : {}),
-    distribution: options.distribution,
-    pluginDiagnostics: hostPlugins.diagnostics,
-    plugins: hostPlugins.plugins,
-  })
-  return runtime
+  catch (error) {
+    lease.release()
+    throw error
+  }
 }
 
 /** Allow the native host to toggle only shipped optional plugins, never arbitrary executable modules. */

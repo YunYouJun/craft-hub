@@ -17,10 +17,11 @@ public struct RuntimeConnection: Equatable, Sendable {
     let url = value.url
     let parts = URLComponents(url: url, resolvingAgainstBaseURL: false)
     guard value.version == 1, url.scheme == "http", url.host == "127.0.0.1",
-          let port = url.port, (1...65535).contains(port), url.user == nil, url.password == nil,
-          url.path == "/__craft_hub_host/bootstrap", url.fragment == nil,
-          parts?.queryItems?.count == 1, parts?.queryItems?.first?.name == "token",
-          Self.isSecret(parts?.queryItems?.first?.value ?? ""), Self.isSecret(value.nativeApiToken) else {
+      let port = url.port, (1...65535).contains(port), url.user == nil, url.password == nil,
+      url.path == "/__craft_hub_host/bootstrap", url.fragment == nil,
+      parts?.queryItems?.count == 1, parts?.queryItems?.first?.name == "token",
+      Self.isSecret(parts?.queryItems?.first?.value ?? ""), Self.isSecret(value.nativeApiToken)
+    else {
       throw RuntimeAPIError.invalidHandshake
     }
     bootstrapURL = url
@@ -35,8 +36,9 @@ public struct RuntimeConnection: Equatable, Sendable {
   /// Builds only same-origin API requests; credentials cannot be forwarded to a web page or host route.
   func request(path: String, body: Data? = nil, query: [URLQueryItem] = []) throws -> URLRequest {
     guard path.hasPrefix("/api/"), !path.contains("?"), !path.contains("#"),
-          let url = URL(string: origin.absoluteString + path), url.host == origin.host,
-          url.port == origin.port, url.standardized.path.hasPrefix("/api/") else {
+      let url = URL(string: origin.absoluteString + path), url.host == origin.host,
+      url.port == origin.port, url.standardized.path.hasPrefix("/api/")
+    else {
       throw RuntimeAPIError.invalidEndpoint
     }
     var components = URLComponents(url: url, resolvingAgainstBaseURL: false)!
@@ -56,7 +58,8 @@ public struct RuntimeConnection: Equatable, Sendable {
 
 /// Safe protocol failures, without URLs or credentials in their descriptions.
 public enum RuntimeAPIError: LocalizedError {
-  case invalidHandshake, invalidEndpoint, invalidResponse, incompatibleVersion, rejected(Int, String)
+  case invalidHandshake, invalidEndpoint, invalidResponse, incompatibleVersion
+  case rejected(Int, String)
 
   public var errorDescription: String? {
     switch self {

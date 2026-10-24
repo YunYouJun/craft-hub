@@ -42,6 +42,25 @@ describe('integration workbench', () => {
     return { id: '1', title, sourceRef: { providerId: 'tasks', instanceId: 'tasks', accountId, containerId, kind: 'task', itemId: '1' }, personalMembership: { accountId, relation: 'owned' } }
   }
 
+  it('preserves an explicit native fallback scope without silently borrowing the selected project', async () => {
+    const store = workSource()
+    store.projects = [{ id: 'reviewed', name: 'Reviewed', path: '/fixture/reviewed', trust: 'untrusted', addedAt: '2026-10-23T00:00:00Z' }, { id: 'other', name: 'Other', path: '/fixture/other', trust: 'trusted', addedAt: '2026-10-23T00:00:00Z' }]
+    store.selectedProjectId = 'other'
+    const invoke = vi.spyOn(api, 'invokeIntegrationAction').mockResolvedValue({ items: [] })
+    const wrapper = mount(IntegrationWorkbench, { props: { integrationId: 'tasks', viewId: 'work', initialProjectId: 'reviewed' }, global: { plugins: [pinia] } })
+    await flushPromises()
+    expect(invoke).toHaveBeenLastCalledWith('tasks', 'list', expect.any(Object), 'reviewed')
+    expect(store.selectedProjectId).toBe('other')
+    await wrapper.setProps({ initialScope: 'global' })
+    await flushPromises()
+    expect(invoke).toHaveBeenLastCalledWith('tasks', 'list', expect.any(Object), undefined)
+    invoke.mockClear()
+    await wrapper.setProps({ initialScope: undefined, initialProjectId: 'removed' })
+    await flushPromises()
+    expect(invoke).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
   it('adds the native Microsoft shortcut to the standalone toolbar without changing block actions', async () => {
     const store = workSource()
     store.integrationContributions[0]!.provider.id = 'microsoft-todo'

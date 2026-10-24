@@ -3,6 +3,9 @@ import { describe, expect, it } from 'vitest'
 import { DesktopLinkCoordinator, findDesktopLinkArgument, parseDesktopLink } from '../src/deep-links'
 
 const rejectedLinks: Array<[string, DesktopLinkErrorCode]> = [
+  ['craft-hub://user:secret@open?v=1', 'invalid-url'],
+  ['craft-hub://open:42?v=1', 'invalid-url'],
+  ['craft-hub://open?v=1\n', 'invalid-url'],
   ['https://example.com', 'unexpected-scheme'],
   ['craft-hub://run?v=1&command=test', 'unexpected-action'],
   ['craft-hub://open?v=2', 'unexpected-version'],

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { CatalogPluginV1, ManagedPlugin, MarketplaceSource, MarketplaceSourcePreview } from 'craft-hub'
+import { preferredMarketplaceCatalog } from 'craft-hub/marketplace-model'
 import { maxSatisfying, satisfies } from 'semver'
 import { computed, ref, useId, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -78,19 +79,7 @@ function moveTabSelection(event: KeyboardEvent): void {
   buttons[index]?.focus()
 }
 
-const preferredCatalog = computed(() => {
-  const grouped = new Map<string, CatalogItem[]>()
-  for (const plugin of catalog.value) {
-    const key = `${plugin.sourceId}:${plugin.package}`
-    grouped.set(key, [...(grouped.get(key) ?? []), plugin])
-  }
-  return [...grouped.values()].map((versions) => {
-    const activeVersions = versions.filter(plugin => plugin.status === 'active')
-    const candidates = activeVersions.length ? activeVersions : versions
-    const version = maxSatisfying(candidates.map(plugin => plugin.version), '*', { includePrerelease: true })
-    return candidates.find(plugin => plugin.version === version) ?? candidates[0]!
-  })
-})
+const preferredCatalog = computed(() => preferredMarketplaceCatalog(catalog.value))
 const includedCatalogPackages = computed(() => new Set(preferredCatalog.value
   .filter(plugin => plugin.status === 'active' && plugin.includesPlugins.length)
   .flatMap(plugin => plugin.includesPlugins.map(included => `${plugin.sourceId}:${included.package}`))))

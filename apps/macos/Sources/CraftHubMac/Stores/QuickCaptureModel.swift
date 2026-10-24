@@ -25,7 +25,7 @@ final class QuickCaptureModel {
   @ObservationIgnored private var revision = 0
   @ObservationIgnored private var parsedDraft: CaptureDraft?
   @ObservationIgnored private var connectionRevision = 0
-  private let text = L10n.text
+  private var text: L10n { L10n.text }
   private var locale: String { text.chinese ? "zh-CN" : "en" }
   var busy: Bool { saving || analyzing }
   var writable: Bool { connection?.connected == true && connection?.capabilities?.create == true }
@@ -35,11 +35,13 @@ final class QuickCaptureModel {
       && lists.contains { $0.id == document.draft.listId } && persistenceError == nil
   }
   init(store: CaptureDraftStore? = nil) {
-    let url = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-      .appendingPathComponent("Craft Hub Prototype/native/capture-draft.json")
+    let url = NativeStorage.directory.appendingPathComponent("native/capture-draft.json")
     self.store = store ?? CaptureDraftStore(url: url)
-    do { document = try self.store.load() }
-    catch { document = CaptureDocument(); persistenceError = error.localizedDescription; recoveryRequired = true }
+    do { document = try self.store.load() } catch {
+      document = CaptureDocument()
+      persistenceError = error.localizedDescription
+      recoveryRequired = true
+    }
   }
   func connect(_ client: RuntimeAPIClient?) {
     self.client = client
@@ -54,12 +56,22 @@ final class QuickCaptureModel {
     aiAvailable = false
     if isOpen { Task { await load() } }
   }
-  func opened() { isOpen = true; focus = UUID(); Task { await load() } }
-  func closed() { isOpen = false; pollTask?.cancel(); pollTask = nil }
+  func opened() {
+    isOpen = true
+    focus = UUID()
+    Task { await load() }
+  }
+  func closed() {
+    isOpen = false
+    pollTask?.cancel()
+    pollTask = nil
+  }
   func persist() {
     guard !recoveryRequired else { return }
-    do { try store.save(document); persistenceError = nil }
-    catch { persistenceError = error.localizedDescription }
+    do {
+      try store.save(document)
+      persistenceError = nil
+    } catch { persistenceError = error.localizedDescription }
   }
   func recoverDraft() {
     do {
@@ -97,12 +109,23 @@ final class QuickCaptureModel {
       await preview(ai: false, version: version)
     }
   }
-  func editedDraft() { revision += 1; previewing = false; previewTask?.cancel(); document.receipt = nil }
-  func analyze() async { revision += 1; await preview(ai: true, version: revision) }
+  func editedDraft() {
+    revision += 1
+    previewing = false
+    previewTask?.cancel()
+    document.receipt = nil
+  }
+  func analyze() async {
+    revision += 1
+    await preview(ai: true, version: revision)
+  }
   private func preview(ai: Bool, version: Int) async {
     guard let client, !document.text.isEmpty else { return }
     if ai { analyzing = true }
-    defer { if ai { analyzing = false }; if version == revision { previewing = false } }
+    defer {
+      if ai { analyzing = false }
+      if version == revision { previewing = false }
+    }
     do {
       var result = try await client.previewCapture(text: document.text, lists: lists, ai: ai, locale: locale)
       guard version == revision, self.client === client else { return }
@@ -143,7 +166,8 @@ final class QuickCaptureModel {
           }
         }
         if !lists.contains(where: { $0.id == document.draft.listId }) {
-          document.draft.listId = lists.first { $0.id == document.preferredLists[status.accountLabel ?? ""] }?.id
+          document.draft.listId =
+            lists.first { $0.id == document.preferredLists[status.accountLabel ?? ""] }?.id
             ?? lists.first { ["Tasks", "任务", "Inbox", "收件箱"].contains($0.title) }?.id ?? lists.first?.id
         }
       }
@@ -163,7 +187,9 @@ final class QuickCaptureModel {
     }
   }
   func save() async {
-    guard canSave, let client, let account = connection?.accountLabel, let listID = document.draft.listId else { return }
+    guard canSave, let client, let account = connection?.accountLabel, let listID = document.draft.listId else {
+      return
+    }
     previewTask?.cancel()
     revision += 1
     saving = true
@@ -171,13 +197,19 @@ final class QuickCaptureModel {
     defer { saving = false }
     do {
       let draft = document.draft
-      var payload = ["accountId": account, "listId": listID, "title": draft.title.trimmingCharacters(in: .whitespacesAndNewlines), "notes": draft.notes]
+      var payload = [
+        "accountId": account, "listId": listID, "title": draft.title.trimmingCharacters(in: .whitespacesAndNewlines),
+        "notes": draft.notes,
+      ]
       if let due = draft.dueLocal, !due.isEmpty {
         let instant = try CaptureDates.instant(due)
         payload["dueDate"] = String(due.prefix(10))
         if draft.remind { payload["reminderAt"] = instant }
       }
-      guard payload["title"]!.count <= 500, draft.notes.count <= 10000 else { throw RuntimeAPIError.rejected(400, text.copy("标题限 500 字，备注限 10000 字。", "Title is limited to 500 characters and notes to 10000.")) }
+      guard payload["title"]!.count <= 500, draft.notes.count <= 10000 else {
+        throw RuntimeAPIError.rejected(
+          400, text.copy("标题限 500 字，备注限 10000 字。", "Title is limited to 500 characters and notes to 10000."))
+      }
       let requestID = try document.prepareAttempt(payload: payload, important: draft.important)
       try store.save(document)
       let item = try await client.saveCapture(payload: payload, important: draft.important, requestID: requestID)
@@ -191,7 +223,9 @@ final class QuickCaptureModel {
       document = cleared
       focus = UUID()
     } catch {
-      self.error = text.copy("保存未确认，草稿已保留。可核对 To Do 后重试：", "Save unconfirmed. Draft retained; check To Do and retry: ") + error.localizedDescription
+      self.error =
+        text.copy("保存未确认，草稿已保留。可核对 To Do 后重试：", "Save unconfirmed. Draft retained; check To Do and retry: ")
+        + error.localizedDescription
     }
   }
 }

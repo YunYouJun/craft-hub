@@ -39,6 +39,19 @@ export function xmlText(value: string): string {
   return value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll('\'', '&apos;')
 }
 
+/** Public URL eligibility is a separate release decision; ordinary candidates never claim the public scheme. */
+export function nativeLinkPlist(config: ReturnType<typeof nativeReleaseConfiguration>, environment: NodeJS.ProcessEnv): string {
+  const enabled = environment.CRAFT_HUB_NATIVE_PUBLIC_LINKS === 'true'
+  if (enabled && !config.enabled)
+    throw new Error('Public-link handover requires an explicitly enabled signed native release')
+  return `<key>CraftHubPublicLinksEnabled</key><${enabled ? 'true' : 'false'}/>
+<key>CFBundleURLTypes</key><array><dict>
+<key>CFBundleURLName</key><string>Craft Hub Native Candidate</string>
+<key>CFBundleTypeRole</key><string>Viewer</string>
+<key>CFBundleURLSchemes</key><array><string>craft-hub-native</string>${enabled ? '<string>craft-hub</string>' : ''}</array>
+</dict></array>`
+}
+
 /** Use Sparkle's default consent prompt and scheduler; never reset user defaults on launch. */
 export function nativeUpdatePlist(config: ReturnType<typeof nativeReleaseConfiguration>): string {
   if (!config.enabled)

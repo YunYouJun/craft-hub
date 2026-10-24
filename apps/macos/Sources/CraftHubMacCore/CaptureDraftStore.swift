@@ -14,7 +14,8 @@ public struct CaptureDocument: Codable, Equatable {
   public mutating func prepareAttempt(payload: [String: String], important: Bool) throws -> String {
     var fields: [String: Any] = payload
     fields["important"] = important
-    let fingerprint = String(decoding: try JSONSerialization.data(withJSONObject: fields, options: [.sortedKeys]), as: UTF8.self)
+    let fingerprint = String(
+      decoding: try JSONSerialization.data(withJSONObject: fields, options: [.sortedKeys]), as: UTF8.self)
     if self.fingerprint != fingerprint || requestID == nil {
       self.fingerprint = fingerprint
       requestID = UUID().uuidString.lowercased()
@@ -32,8 +33,9 @@ public struct CaptureDraftStore {
   }
   /// Persist before a remote mutation, with private permissions and an atomic replacement.
   public func save(_ document: CaptureDocument) throws {
-    try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true,
-                                           attributes: [.posixPermissions: 0o700])
+    try FileManager.default.createDirectory(
+      at: url.deletingLastPathComponent(), withIntermediateDirectories: true,
+      attributes: [.posixPermissions: 0o700])
     try JSONEncoder().encode(document).write(to: url, options: [.atomic])
     try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
   }

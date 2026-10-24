@@ -30,6 +30,12 @@ it('serves native discovery through the public API while preserving the project 
       body: JSON.stringify({ capabilityId: command.id }),
     })
     expect(preview.status).toBe(200)
+    const marketplace = await fetch(`${server.url}/api/marketplace/overview`, { headers })
+    expect(marketplace.status).toBe(200)
+    expect(await marketplace.json()).toMatchObject({ version: 1, catalog: expect.any(Array), installed: [], sources: expect.any(Array) })
+    const diagnostics = await fetch(`${server.url}/api/diagnostics`, { headers })
+    expect(diagnostics.status).toBe(200)
+    expect(await diagnostics.json()).toMatchObject({ diagnostics: expect.any(Array), summary: { errors: expect.any(Number), warnings: expect.any(Number) } })
     const denied = await fetch(`${server.url}/api/projects/${project.id}/run`, {
       method: 'POST',
       headers,

@@ -175,16 +175,21 @@ export function focusCodexApplication(
   if (platform !== 'darwin')
     return Promise.reject(new Error('Activating Codex is currently supported on macOS only'))
 
+  return openMacApplication(['-b', 'com.openai.codex'], launch)
+}
+
+function openMacApplication(
+  args: string[],
+  launch: (command: string, args: string[], options: SpawnOptions) => ChildProcess,
+): Promise<void> {
   return new Promise((resolve, reject) => {
-    const child = launch('open', ['-b', 'com.openai.codex'], {
-      detached: true,
-      shell: false,
-      stdio: 'ignore',
-    })
+    const child = launch('/usr/bin/open', args, { shell: false, stdio: 'ignore', timeout: 10_000 })
     child.once('error', reject)
-    child.once('spawn', () => {
-      child.unref()
-      resolve()
+    child.once('close', (code, signal) => {
+      if (code === 0)
+        resolve()
+      else
+        reject(new Error(`Application launcher failed: ${signal ?? code ?? 'unknown'}`))
     })
   })
 }
@@ -195,11 +200,11 @@ export function openCursorEditor(
   platform = process.platform,
   launch: (command: string, args: string[], options: SpawnOptions) => ChildProcess = spawn,
 ): Promise<void> {
-  const command = platform === 'darwin' ? 'open' : 'cursor'
-  const args = platform === 'darwin' ? ['-a', 'Cursor', path] : [path]
+  if (platform === 'darwin')
+    return openMacApplication(['-a', 'Cursor', '--', path], launch)
 
   return new Promise((resolve, reject) => {
-    const child = launch(command, args, {
+    const child = launch('cursor', [path], {
       detached: true,
       shell: false,
       stdio: 'ignore',
@@ -252,16 +257,5 @@ export function openMacTerminalProject(
   if (platform !== 'darwin')
     return Promise.reject(new Error('Opening a project terminal is currently supported on macOS only'))
 
-  return new Promise((resolve, reject) => {
-    const child = launch('open', ['-a', application, path], {
-      detached: true,
-      shell: false,
-      stdio: 'ignore',
-    })
-    child.once('error', reject)
-    child.once('spawn', () => {
-      child.unref()
-      resolve()
-    })
-  })
+  return openMacApplication(['-a', application, '--', path], launch)
 }

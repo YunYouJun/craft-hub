@@ -6,7 +6,7 @@ import { prepareMacosKeytar } from './prepare-macos-keytar.ts'
 /** Remove only known build inputs and duplicated resources from a deployed macOS desktop. */
 export async function prepareDesktopPackage(desktopDirectory: string, codexMode: DesktopCodexMode = 'bundled'): Promise<void> {
   const root = await realpath(desktopDirectory)
-  for (const entry of ['src', 'test', 'tsconfig.json', 'tsdown.config.ts', 'pnpm-lock.yaml', 'pnpm-workspace.yaml'])
+  for (const entry of ['src', 'test', 'native', 'tsconfig.json', 'tsdown.config.ts', 'pnpm-lock.yaml', 'pnpm-workspace.yaml'])
     await rm(join(root, entry), { recursive: true, force: true })
   await removeUnusedVirtualStore(root)
 

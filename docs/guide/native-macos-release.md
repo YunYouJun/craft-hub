@@ -11,6 +11,12 @@ The SwiftUI host uses [Sparkle 2](https://sparkle-project.org/documentation/), p
 - Quit and update restart wait for the runtime child to exit. If capture, commands or agent tasks are active, or the runtime cannot be checked, a native dialog allows cancellation or explicit interruption. Draft persistence continues to use the existing native draft store.
 - Local `pnpm build:macos` builds have `CraftHubUpdatesEnabled=false` and never initialize Sparkle, even if preferences from a previous release remain. They are ad hoc signed and need no publishing credentials.
 
+### Local App Intents verification
+
+On macOS 26.6.2, Shortcuts listed both actions from the ad hoc candidate, but `linkd` rejected invocation with `Unable to get teamId` and `requiresValidatedBundle`. A local Apple Development signature on the isolated copy allowed invocation. Metadata discovery and `codesign --verify` alone therefore do not establish that system actions can run.
+
+Use an explicitly selected local development identity when reproducing this check, with a distinct test bundle identity and empty profile. Preserve the original ad hoc artifact and its digest. Development signing does not enable release updates, public-link takeover or identity migration; it does not establish Developer ID, notarization or Gatekeeper acceptance. See the [system-entry evidence](native-candidate-acceptance.md#app-intents-系统调用与冷启动修复2026-10-23).
+
 ## Release configuration
 
 The current release workflow supports **Apple silicon, macOS 15 or later**, on the Alpha channel. The build scripts also accept a native Intel host and produce a separate `x64` feed URL, but Intel publication and testing are not enabled in CI yet. No cross-architecture update is offered.
@@ -28,7 +34,7 @@ Existing Apple credentials are reused:
 
 Set the non-secret GitHub repository variable `SPARKLE_PUBLIC_ED_KEY` to the matching base64 public key. Keep the private key in a secure backup. Losing or replacing it requires Sparkle's documented key-rotation process; never silently generate a new release key per build.
 
-Resolve the pinned tools with `swift package --package-path apps/macos resolve`. Then use `apps/macos/.build/artifacts/sparkle/Sparkle/bin/generate_keys --account dev.craft-hub.macos-prototype` to create or reuse the project signing key in Keychain. Use the same `--account dev.craft-hub.macos-prototype` for public-key lookup (`-p`) and export (`-x`). Use that tool's `--help` for exporting to a private path outside this repository. Upload the exported content to `SPARKLE_PRIVATE_ED_KEY` through GitHub secret management, and remove the temporary export. Do not put keys in source, app resources, appcasts, logs or command-line arguments. See [Sparkle setup](https://sparkle-project.org/documentation/) and [publishing updates](https://sparkle-project.org/documentation/publishing/).
+Resolve the pinned tools with `swift package --package-path apps/macos resolve`. Then use `apps/macos/.build/artifacts/sparkle/Sparkle/bin/generate_keys` to create the signing key in Keychain. Use that tool's `--help` for exporting to a private path outside this repository. Upload the exported content to `SPARKLE_PRIVATE_ED_KEY` through GitHub secret management, and remove the temporary export. Do not put keys in source, app resources, appcasts, logs or command-line arguments. See [Sparkle setup](https://sparkle-project.org/documentation/) and [publishing updates](https://sparkle-project.org/documentation/publishing/).
 
 ## Packaging and publication
 
@@ -49,6 +55,8 @@ For a downstream distribution, set `CRAFT_HUB_NATIVE_UPDATE_BASE_URL` at build t
 For local release packaging, provide `MACOS_KEYCHAIN_PATH`, `APPLE_API_KEY_PATH`, `APPLE_API_KEY_ID`, `APPLE_API_ISSUER_ID`, `SPARKLE_PUBLIC_ED_KEY`, `SPARKLE_PRIVATE_KEY_FILE`, `GITHUB_REPOSITORY`, and `RELEASE_TAG` through the environment, plus `CRAFT_HUB_NATIVE_RELEASE=true`. `pnpm package:macos` only produces verified artifacts under `release/native/<architecture>`; it never uploads them. A release keychain must contain exactly one Developer ID Application signing identity.
 
 `CFBundleVersion` uses the existing numeric mapping shared with desktop packaging: `0.0.1-alpha.5` becomes `0.0.1005`. Sparkle compares this monotonically increasing number; the original SemVer is retained as `CraftHubReleaseVersion` and in the archive filename. Stable native publication needs a separate channel policy before enabling it.
+
+Public-link eligibility is separately gated by `CRAFT_HUB_NATIVE_PUBLIC_LINKS=true`, and remains disabled in the release workflow. See [default-handler handover and rollback](native-link-handover.md) before enabling it for a release.
 
 ## First N → N+1 acceptance gate
 

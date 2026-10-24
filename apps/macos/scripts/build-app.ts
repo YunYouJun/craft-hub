@@ -8,8 +8,9 @@ import { promisify } from 'node:util'
 import { deployDesktop } from '../../../scripts/package-macos.ts'
 import { packageWorkstationRuntime } from '../../../scripts/package-workstation-runtime.ts'
 import { prepareDesktopArchitecture, prepareDesktopPackage } from '../../../scripts/prepare-desktop-package.ts'
+import { embedAppIntents } from './app-intents.ts'
 import { bundleMicrosoftTodoConnector, bundleSidecar, sidecarExternals } from './bundle-sidecar.ts'
-import { nativeReleaseConfiguration, nativeUpdatePlist, signNativeBundle, xmlText } from './native-release.ts'
+import { nativeLinkPlist, nativeReleaseConfiguration, nativeUpdatePlist, signNativeBundle, xmlText } from './native-release.ts'
 
 // Builds the native macOS prototype from ADR 0012 into apps/macos/build/Craft Hub Prototype.app. The app ships no
 // Node: its runtime sidecar and the runtime CLI are single-file bundles that run on the user's own compatible Node.
@@ -18,14 +19,18 @@ const run = promisify(execFile)
 const appDir = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const repositoryDir = resolve(appDir, '../..')
 const buildDir = resolve(appDir, 'build')
+const outputDir = process.env.CRAFT_HUB_NATIVE_OUTPUT_DIR ? resolve(repositoryDir, process.env.CRAFT_HUB_NATIVE_OUTPUT_DIR) : buildDir
 const productName = 'Craft Hub Prototype'
-const bundle = resolve(buildDir, `${productName}.app`)
+const bundle = resolve(outputDir, `${productName}.app`)
 const contents = resolve(bundle, 'Contents')
 const architecture = process.arch === 'arm64' ? 'arm64' : 'x64'
+const swiftArchitecture = architecture === 'arm64' ? 'arm64' : 'x86_64'
+const swiftBuildArguments = ['build', '-c', 'release', '--arch', swiftArchitecture, '--package-path', appDir]
 if (process.platform !== 'darwin')
   throw new Error('The native prototype builds on macOS only')
 const { version } = JSON.parse(await readFile(resolve(repositoryDir, 'package.json'), 'utf8')) as { version: string }
 const releaseConfig = nativeReleaseConfiguration(version, process.arch, process.env)
+const linkPlist = nativeLinkPlist(releaseConfig, process.env)
 
 async function step(label: string, command: string, args: string[]): Promise<string> {
   process.stdout.write(`${label}\n`)
@@ -143,7 +148,7 @@ async function workstationRuntime(): Promise<string> {
   }
 }
 
-await step('Building the runtime, web workbench and desktop sidecar', 'pnpm', ['--filter', 'craft-hub', '--filter', '@craft-hub/web', '--filter', '@craft-hub/desktop', 'build'])
+await step('Building the runtime, web workbench and desktop sidecar', 'pnpm', ['--filter', '@craft-hub/web...', '--filter', '@craft-hub/desktop...', 'build'])
 const staging = await mkdtemp(join(tmpdir(), 'craft-hub-macos-'))
 try {
   const deployed = join(staging, 'deployed')
@@ -167,7 +172,17 @@ try {
   process.stdout.write('Checking the bundled sidecar starts\n')
   await verifySidecar(app)
 
-  await step('Compiling the native app', 'swift', ['build', '-c', 'release', '--package-path', appDir])
+  const intentProtocols = join(staging, 'intent-protocols.json')
+  await writeFile(intentProtocols, JSON.stringify(['AppIntent', 'AppShortcutsProvider']))
+  await step('Compiling the native app', 'swift', [
+    ...swiftBuildArguments,
+    '-Xswiftc',
+    '-emit-const-values',
+    '-Xswiftc',
+    '-const-gather-protocols-list',
+    '-Xswiftc',
+    intentProtocols,
+  ])
   await rm(bundle, { recursive: true, force: true })
   await mkdir(resolve(contents, 'MacOS'), { recursive: true })
   await mkdir(resolve(contents, 'Resources'), { recursive: true })
@@ -177,9 +192,14 @@ finally {
   await rm(staging, { recursive: true, force: true })
 }
 
-const binDirectory = await step('Locating the build products', 'swift', ['build', '-c', 'release', '--package-path', appDir, '--show-bin-path'])
+const binDirectory = await step('Locating the build products', 'swift', [...swiftBuildArguments, '--show-bin-path'])
 const executable = resolve(contents, 'MacOS/CraftHubMac')
 await cp(join(binDirectory, 'CraftHubMac'), executable)
+const executableArchitecture = (await run('lipo', ['-archs', executable])).stdout.trim()
+if (executableArchitecture !== swiftArchitecture)
+  throw new Error(`Native executable architecture ${executableArchitecture} does not match packaged ${architecture} dependencies`)
+process.stdout.write('Extracting App Intents metadata\n')
+await embedAppIntents(appDir, resolve(contents, 'Resources'), architecture, binDirectory)
 // ditto preserves the framework's version symlinks and helper executable permissions.
 await mkdir(resolve(contents, 'Frameworks'), { recursive: true })
 await step('Embedding Sparkle', 'ditto', [resolve(appDir, '.build/artifacts/sparkle/Sparkle/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework'), resolve(contents, 'Frameworks/Sparkle.framework')])
@@ -207,6 +227,13 @@ await writeFile(resolve(contents, 'Info.plist'), `<?xml version="1.0" encoding="
 <key>CFBundleDisplayName</key><string>${productName}</string>
 <key>CFBundleExecutable</key><string>CraftHubMac</string>
 <key>CFBundlePackageType</key><string>APPL</string>
+${linkPlist}
+<key>CFBundleDocumentTypes</key><array><dict>
+<key>CFBundleTypeName</key><string>Project Folder</string>
+<key>CFBundleTypeRole</key><string>Viewer</string>
+<key>LSHandlerRank</key><string>Alternate</string>
+<key>LSItemContentTypes</key><array><string>public.folder</string></array>
+</dict></array>
 <key>NSPrincipalClass</key><string>NSApplication</string>
 <key>CFBundleShortVersionString</key><string>${version.replace(/-.*$/, '')}</string>
 <key>CFBundleVersion</key><string>${releaseConfig.bundleVersion}</string>

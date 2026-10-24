@@ -111,6 +111,12 @@ jobs:
           xcrun stapler validate "$dmg_path"
           hdiutil verify "$dmg_path"
           unzip -t "$zip_path"
+      - name: Verify hardened source host and bundled backend
+        run: |
+          app_path="release/Craft Hub-darwin-${{ matrix.arch }}/Craft Hub.app"
+          pnpm test:desktop-backend "$app_path"
+          pnpm test:identity-launcher "$app_path"
+          pnpm test:macos-identity-source "$app_path"
       - name: Run mounted DMG startup smoke test
         run: |
           mount_path="$RUNNER_TEMP/craft-hub-${{ matrix.arch }}"

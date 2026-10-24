@@ -434,6 +434,8 @@ export class CraftHubSettingsService {
 
   /** Stop watching the settings file. */
   async close(): Promise<void> {
+    await this.writeTail.catch(() => {})
+    await this.initialization?.catch(() => {})
     await this.watcherInitialization?.catch(() => {})
     await this.watcher?.close()
     this.watcher = undefined

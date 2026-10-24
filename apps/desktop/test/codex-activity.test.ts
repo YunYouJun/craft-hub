@@ -36,7 +36,7 @@ describe('codex activity monitor', () => {
     expect(installed.requiresTrustReview).toBe(true)
     expect(document.custom).toBe(true)
     expect(document.hooks.Stop[0].hooks[0].command).toBe('/usr/bin/existing-hook')
-    expect(document.hooks.Stop[1].hooks[0].command).toContain('craft-hub-codex-activity')
+    expect(document.hooks.Stop[1].hooks[0].command).toContain('craft-hub-profile-activity-v1')
     expect(document.hooks.UserPromptSubmit[0].hooks[0].type).toBe('command')
 
     await monitor.uninstall()
@@ -50,6 +50,7 @@ describe('codex activity monitor', () => {
     const root = await temporaryDirectory()
     const monitor = new CodexActivityMonitor({ codexHome: join(root, 'codex'), dataDir: join(root, 'data'), platform: 'darwin' })
 
+    await monitor.install()
     monitor.accept({ hook_event_name: 'UserPromptSubmit', session_id: 'session-1', prompt: 'private' } as any)
     expect((await monitor.status()).runningSessionIds).toEqual(['session-1'])
     monitor.accept({ hook_event_name: 'Stop', session_id: 'session-1' })

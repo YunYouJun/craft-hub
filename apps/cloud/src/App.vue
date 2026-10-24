@@ -3,6 +3,7 @@ import type { CloudDevice, CloudRequest } from './api'
 import { computed, onMounted, ref } from 'vue'
 import { cloudRequest } from './api'
 import { login, restoreSession } from './auth'
+import { desktopConnectFromURL, storedDesktopConnect } from './desktop-connect'
 import OpenDesktopAction from './OpenDesktopAction.vue'
 
 const loading = ref(true)
@@ -84,19 +85,20 @@ async function submitRequest(): Promise<void> {
 }
 
 function rememberDesktopConnect(): void {
-  const url = new URL(window.location.href)
-  const publicKey = url.searchParams.get('public_key')
-  const challenge = url.searchParams.get('challenge')
-  const callback = url.searchParams.get('callback')
-  if (url.pathname === '/connect' && publicKey && challenge && (callback === 'craft-hub://cloud/connect' || callback === 'craft-hub-dev://cloud/connect'))
-    sessionStorage.setItem('craft-hub-device-connect', JSON.stringify({ publicKey, challenge, callback }))
+  const input = desktopConnectFromURL(new URL(window.location.href))
+  if (input)
+    sessionStorage.setItem('craft-hub-device-connect', JSON.stringify(input))
 }
 
 async function finishDesktopConnect(): Promise<void> {
   const raw = sessionStorage.getItem('craft-hub-device-connect')
   if (!raw || !csrf.value)
     return
-  const pending = JSON.parse(raw) as { publicKey: string, challenge: string, callback: string }
+  const pending = storedDesktopConnect(raw)
+  if (!pending) {
+    sessionStorage.removeItem('craft-hub-device-connect')
+    return
+  }
   const result = await cloudRequest<{ code: string, challenge: string }>('/v1/device-bootstrap', {
     method: 'POST',
     headers: { 'x-craft-csrf': csrf.value },

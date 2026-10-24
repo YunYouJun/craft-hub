@@ -1,4 +1,5 @@
 import Testing
+
 @testable import CraftHubMacCore
 
 @Test func parsesNodeVersionsAndMatchesTheRuntimeRange() {
@@ -17,23 +18,24 @@ import Testing
     environment: ["PATH": "/custom/bin:relative/bin:/usr/bin", "FNM_DIR": "/opt/fnm"],
     listDirectory: { path in path == "/opt/fnm/node-versions" ? ["v22.18.0", "v24.11.0", "notes"] : [] },
     isExecutable: { _ in false },
-    readVersion: { _ in nil }
+    inspect: { _ in .failure(.invalidResponse) }
   )
-  #expect(locator.candidateDirectories() == [
-    "/custom/bin",
-    "/usr/bin",
-    "/Users/me/.local/bin",
-    "/opt/homebrew/bin",
-    "/usr/local/bin",
-    "/bin",
-    "/Users/me/Library/pnpm",
-    "/opt/fnm/aliases/default/bin",
-    "/opt/fnm/node-versions/v24.11.0/installation/bin",
-    "/opt/fnm/node-versions/v22.18.0/installation/bin",
-    "/Users/me/Library/Application Support/fnm/aliases/default/bin",
-    "/Users/me/.local/share/fnm/aliases/default/bin",
-    "/Users/me/.fnm/aliases/default/bin",
-  ])
+  #expect(
+    locator.candidateDirectories() == [
+      "/custom/bin",
+      "/usr/bin",
+      "/Users/me/.local/bin",
+      "/opt/homebrew/bin",
+      "/usr/local/bin",
+      "/bin",
+      "/Users/me/Library/pnpm",
+      "/opt/fnm/aliases/default/bin",
+      "/opt/fnm/node-versions/v24.11.0/installation/bin",
+      "/opt/fnm/node-versions/v22.18.0/installation/bin",
+      "/Users/me/Library/Application Support/fnm/aliases/default/bin",
+      "/Users/me/.local/share/fnm/aliases/default/bin",
+      "/Users/me/.fnm/aliases/default/bin",
+    ])
 }
 
 @Test func prefersACompatibleExplicitPathAndSkipsIncompatibleNodes() {
@@ -48,14 +50,24 @@ import Testing
     environment: [:],
     listDirectory: { _ in [] },
     isExecutable: { versions[$0] != nil },
-    readVersion: { versions[$0].flatMap(NodeVersion.init) }
+    inspect: { path in
+      versions[path].flatMap(NodeVersion.init).map { .success(NodeRuntimeInfo(version: $0)) }
+        ?? .failure(.invalidResponse)
+    }
   )
-  #expect(locator.resolve(explicitPath: "/chosen/node") == ResolvedNode(path: "/chosen/node", version: NodeVersion(major: 24, minor: 12, patch: 0), explicit: true))
+  #expect(
+    locator.resolve(explicitPath: "/chosen/node")
+      == ResolvedNode(path: "/chosen/node", version: NodeVersion(major: 24, minor: 12, patch: 0), explicit: true))
   // An incompatible explicit choice falls back to the machine search, which skips Node 23.
-  #expect(locator.resolve(explicitPath: "/old/node") == ResolvedNode(path: "/usr/local/bin/node", version: NodeVersion(major: 22, minor: 20, patch: 0), explicit: false))
+  #expect(
+    locator.resolve(explicitPath: "/old/node")
+      == ResolvedNode(
+        path: "/usr/local/bin/node", version: NodeVersion(major: 22, minor: 20, patch: 0), explicit: false))
 }
 
 @Test func reportsNoNodeWhenNothingCompatibleExists() {
-  let locator = NodeLocator(home: "/Users/me", environment: [:], listDirectory: { _ in [] }, isExecutable: { _ in true }, readVersion: { _ in NodeVersion(major: 20, minor: 0, patch: 0) })
+  let locator = NodeLocator(
+    home: "/Users/me", environment: [:], listDirectory: { _ in [] }, isExecutable: { _ in true },
+    inspect: { _ in .success(NodeRuntimeInfo(version: NodeVersion(major: 20, minor: 0, patch: 0))) })
   #expect(locator.resolve(explicitPath: nil) == nil)
 }

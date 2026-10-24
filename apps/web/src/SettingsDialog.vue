@@ -749,7 +749,8 @@ async function cleanupRuns(includeAllUnpinned: boolean): Promise<void> {
                   <UiButton size="compact" :disabled="codexActivityBusy || !codexActivityStatus?.supported" data-testid="toggle-codex-activity" @click="setCodexActivityHooks(!codexActivityStatus?.installed)">{{ t(codexActivityStatus?.installed ? 'disable' : 'enable') }}</UiButton>
                 </template>
               </SettingsStatus>
-              <template v-if="codexActivityStatus?.requiresTrustReview || codexActivityStatus?.diagnostic" #footer>
+              <template v-if="codexActivityStatus?.requiresTrustReview || codexActivityStatus?.diagnostic || codexActivityStatus?.otherHookCount" #footer>
+                <p v-if="codexActivityStatus?.otherHookCount">{{ t('codexActivityOtherHosts') }}</p>
                 <p v-if="codexActivityStatus?.requiresTrustReview">{{ t('codexActivityTrustReview') }}</p>
                 <p v-if="codexActivityStatus?.diagnostic" class="error-message" role="alert">{{ codexActivityStatus.diagnostic }}</p>
               </template>

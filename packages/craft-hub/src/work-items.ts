@@ -109,15 +109,19 @@ export function isPersonalWorkItem(item: IntegrationEntity, currentUser: Integra
     : Boolean(item.assignees?.some(assignee => assignee.id === userId))
 }
 
+/** Shared unfinished-state presentation for workbench lists; native status strings stay provider-owned. */
+export function isActiveWorkItem(item: IntegrationEntity): boolean {
+  return !item.archived && !['resolved', 'done', 'closed', 'cancelled'].includes(item.statusCategory ?? '')
+}
+
 /** Return unfinished personal work only when the authorized account and membership agree. */
 export function personalActiveWork(page: IntegrationEntityPage): IntegrationEntity[] {
   const userId = page.currentUser?.id
   if (!userId)
     return []
-  const terminalStatuses = new Set(['resolved', 'done', 'closed', 'cancelled'])
   const seen = new Set<string>()
   return page.items.filter((item) => {
-    if (item.archived || terminalStatuses.has(item.statusCategory ?? ''))
+    if (!isActiveWorkItem(item))
       return false
     if (!isPersonalWorkItem(item, page.currentUser))
       return false
@@ -127,4 +131,34 @@ export function personalActiveWork(page: IntegrationEntityPage): IntegrationEnti
     seen.add(key)
     return true
   })
+}
+
+/** Compare deadlines in their declared timezone; unknown offsetless zones are not guessed. */
+export function isWorkItemOverdue(dueDate: WorkItemDueDate | undefined, now: number): boolean {
+  if (!dueDate || !Number.isFinite(now))
+    return false
+  if (dueDate.precision === 'date') {
+    const dueDay = dueDate.dateTime.slice(0, 10)
+    const date = new Date(`${dueDay}T00:00:00Z`)
+    if (!/^\d{4}-\d{2}-\d{2}T/.test(dueDate.dateTime) || Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== dueDay)
+      return false
+    try {
+      const parts = new Intl.DateTimeFormat('en-CA', { timeZone: dueDate.timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(now)
+      const part = (name: Intl.DateTimeFormatPartTypes): string => parts.find(part => part.type === name)!.value
+      return dueDay < `${part('year')}-${part('month')}-${part('day')}`
+    }
+    catch { return false }
+  }
+  if (/(?:Z|[+-]\d{2}:\d{2})$/i.test(dueDate.dateTime))
+    return new Date(dueDate.dateTime).getTime() < now
+  const wallTime = new Date(`${dueDate.dateTime}Z`).getTime()
+  if (!Number.isFinite(wallTime))
+    return false
+  try {
+    const parts = new Intl.DateTimeFormat('en-CA', { timeZone: dueDate.timeZone, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' }).formatToParts(now)
+    const part = (name: Intl.DateTimeFormatPartTypes): string => parts.find(part => part.type === name)!.value
+    const localNow = Date.parse(`${part('year')}-${part('month')}-${part('day')}T${part('hour')}:${part('minute')}:${part('second')}Z`) + now % 1000
+    return wallTime < localNow
+  }
+  catch { return false }
 }

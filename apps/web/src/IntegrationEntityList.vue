@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { IntegrationEntity, IntegrationEntityPage } from 'craft-hub'
 import type { HomeWorkSource } from './personal-workbench'
-import { isPersonalWorkItem, workItemIdentityKey, workItemSourceRefSchema } from 'craft-hub/work-items'
+import { isActiveWorkItem, isPersonalWorkItem, workItemIdentityKey, workItemSourceRefSchema } from 'craft-hub/work-items'
 import { computed, ref, useId, watch } from 'vue'
 import { Button as UiButton } from './components/ui/button'
 import { FormSelect } from './components/ui/select'
@@ -128,7 +128,6 @@ async function openSource(event: MouseEvent, entityId: string, detailIndex: numb
   }
 }
 
-const terminalStatuses = new Set(['resolved', 'done', 'closed', 'cancelled'])
 function statusKey(item: IntegrationEntity): string {
   if (item.archived)
     return 'archived'
@@ -172,7 +171,7 @@ const assigneeOptions = computed(() => {
 const visibleItems = computed(() => {
   const keyword = query.value.trim().toLocaleLowerCase()
   return props.items.filter((item) => {
-    if (props.statusFilter && statusSelection.value === 'active' && (item.archived || terminalStatuses.has(item.statusCategory ?? '')))
+    if (props.statusFilter && statusSelection.value === 'active' && !isActiveWorkItem(item))
       return false
     if (props.statusFilter && statusSelection.value === 'archived' && !item.archived)
       return false

@@ -55,6 +55,7 @@ export const useHomeWorkDataStore = defineStore('home-work-data', () => {
   const connections = new Map<string, ConnectionRecord>()
   const flights = new Map<string, SourceFlight>()
   const mutations = new Map<string, number>()
+  const pendingExternalChanges = new Set<string>()
   const copy = (zh: string, en: string): string => locale.value === 'zh-CN' ? zh : en
 
   function stateFor(source: HomeWorkSource): SourceState {
@@ -263,10 +264,14 @@ export const useHomeWorkDataStore = defineStore('home-work-data', () => {
   }
 
   function endMutation(integrationId: string): void {
-    if ((mutations.get(integrationId) ?? 0) > 1)
+    if ((mutations.get(integrationId) ?? 0) > 1) {
       mutations.set(integrationId, mutations.get(integrationId)! - 1)
-    else
+    }
+    else {
       mutations.delete(integrationId)
+      if (pendingExternalChanges.delete(integrationId))
+        invalidate(integrationId)
+    }
   }
 
   /**
@@ -359,6 +364,13 @@ export const useHomeWorkDataStore = defineStore('home-work-data', () => {
   }, { immediate: true, flush: 'sync' })
 
   const unsubscribe = subscribeIntegrationChanges(({ integrationId, phase }) => {
+    if (phase === 'external') {
+      if (mutations.has(integrationId))
+        pendingExternalChanges.add(integrationId)
+      else
+        invalidate(integrationId)
+      return
+    }
     if (phase === 'start')
       mutations.set(integrationId, (mutations.get(integrationId) ?? 0) + 1)
     else

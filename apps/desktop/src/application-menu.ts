@@ -74,6 +74,7 @@ interface ApplicationMenuOptions {
   onAction: (action: DesktopMenuAction) => void
   onAbout: () => void
   onCheckForUpdates?: () => void
+  onNativeMigration?: () => void
   onSettings: () => void
   onHelp: () => void
   onReplayOnboarding: () => void
@@ -91,6 +92,7 @@ export function createApplicationMenu(options: ApplicationMenuOptions): MenuItem
         ...(options.onCheckForUpdates ? [{ label: label('Check for Updates…', '检查更新…'), click: options.onCheckForUpdates }] : []),
         { type: 'separator' },
         { label: label('Settings…', '设置…'), accelerator: desktopSettingsAccelerator, click: options.onSettings },
+        ...(platform === 'darwin' && options.onNativeMigration ? [{ label: label('Migrate to Native App…', '原生版资料迁移…'), click: options.onNativeMigration }] : []),
         { type: 'separator' },
         { role: 'services', label: label('Services', '服务') },
         { type: 'separator' },

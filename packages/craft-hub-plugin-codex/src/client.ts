@@ -2,6 +2,7 @@ import { Buffer } from 'node:buffer'
 import { spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
+import { join } from 'node:path'
 import process from 'node:process'
 
 /** Query allowlist; an isolated editor session additionally exposes one scoped plugin edit. */
@@ -15,14 +16,17 @@ export interface CodexReader {
 export class CodexMethodUnavailableError extends Error {}
 
 /** Find the locally installed CLI without relying on a project executable. */
-export function codexExecutable(): string {
-  if (process.platform === 'darwin') {
-    for (const path of ['/Applications/ChatGPT.app/Contents/Resources/codex', '/Applications/Codex.app/Contents/Resources/codex']) {
-      if (existsSync(path))
+export function codexExecutable(options: { platform?: NodeJS.Platform, home?: string, exists?: (path: string) => boolean } = {}): string {
+  const platform = options.platform ?? process.platform
+  const exists = options.exists ?? existsSync
+  if (platform === 'darwin') {
+    const home = options.home ?? homedir()
+    for (const path of ['/Applications/ChatGPT.app/Contents/Resources/codex', '/Applications/Codex.app/Contents/Resources/codex', join(home, 'Applications/Codex.app/Contents/Resources/codex'), join(home, '.local/bin/codex'), '/opt/homebrew/bin/codex', '/usr/local/bin/codex']) {
+      if (exists(path))
         return path
     }
   }
-  return process.platform === 'win32' ? 'codex.exe' : 'codex'
+  return platform === 'win32' ? 'codex.exe' : 'codex'
 }
 
 /** Open a bounded configuration session; configHome is reserved for isolated TOML editing. */

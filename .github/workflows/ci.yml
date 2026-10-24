@@ -104,9 +104,13 @@ jobs:
       - run: pnpm test --run packages/craft-hub/test apps/desktop/test
 
   native-macos:
-    name: Native macOS build and tests
+    name: Native macOS with Node ${{ matrix.runtime-node }}
     runs-on: macos-26
     timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        runtime-node: [22, 24, 26]
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
@@ -118,12 +122,33 @@ jobs:
           cache: pnpm
       - run: xcodebuild -version
       - run: pnpm install --frozen-lockfile
-      - run: swift test --package-path apps/macos
+      - run: pnpm lint:macos
       - run: pnpm build:macos
+      # Keep build tools on the pinned workspace Node, then exercise the finished app with each supported runtime.
+      - name: Select runtime Node ${{ matrix.runtime-node }}
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.runtime-node }}
+      - name: Test Swift with built Node dependencies and packaged cloud runtime
+        run: |
+          node --print 'JSON.stringify({ version: process.version, arch: process.arch, executable: process.execPath })'
+          CRAFT_HUB_TEST_NODE="$(command -v node)" CRAFT_HUB_TEST_CLOUD_SIDECAR="$PWD/apps/macos/build/Craft Hub Prototype.app/Contents/Resources/app/apps/desktop/dist/sidecar.mjs" swift test --package-path apps/macos
       - name: Verify the local app signature
         run: codesign --verify --deep --strict 'apps/macos/build/Craft Hub Prototype.app'
+      - name: Verify native plugin management and external host extension lifecycle
+        run: |
+          node --import tsx apps/macos/scripts/verify-management.ts
+          node --import tsx apps/macos/scripts/verify-host-extensions.ts
+      - name: Verify profile migration and native instance lifecycle
+        run: |
+          node --import tsx apps/macos/scripts/verify-profile-migration.ts
+          node --import tsx apps/macos/scripts/verify-native-instance.ts
+      - name: Reject unverified identity recipients before normal native startup
+        run: node --import tsx apps/macos/scripts/verify-identity-recipient.ts
+      - name: Verify suspended identity recipient process ownership
+        run: node --import tsx scripts/verify-identity-launcher.ts
       - name: Verify Sparkle framework and signed update artifacts
-        run: pnpm test:macos-updates
+        run: node --import tsx apps/macos/scripts/verify-updates.ts
 
   docs:
     name: Build docs

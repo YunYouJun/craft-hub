@@ -7,6 +7,13 @@ import Observation
 @Observable
 final class MachineModel {
   private let client: RuntimeAPIClient
+  let installations: SoftwareInstallationModel
+  let softwareSources: SoftwareSourcesModel
+  let environmentProfile: EnvironmentProfileModel
+  let environmentSources: EnvironmentSourcesModel
+  let configuration: ConfigurationModel
+  let favorites: SoftwareFavoritesModel
+  var environmentTab = "inspection"
   private(set) var environment: EnvironmentSnapshot?
   private(set) var software: SoftwareSnapshot?
   private(set) var checkingEnvironment = false
@@ -17,37 +24,113 @@ final class MachineModel {
   var operationMessage: String?
   var search = ""
   var softwareFilter = "all"
+  private var environmentRevision = 0
+  private var softwareRevision = 0
+  private var loadedEnvironmentRevision = -1
+  private var loadedSoftwareRevision = -1
 
-  init(client: RuntimeAPIClient) { self.client = client }
+  init(client: RuntimeAPIClient) {
+    self.client = client
+    installations = SoftwareInstallationModel(client: client)
+    softwareSources = SoftwareSourcesModel(client: client)
+    environmentProfile = EnvironmentProfileModel(client: client)
+    environmentSources = EnvironmentSourcesModel(client: client)
+    configuration = ConfigurationModel(client: client)
+    favorites = SoftwareFavoritesModel(client: client)
+    favorites.changed = { [weak self] in Task { await self?.loadSoftware(force: true) } }
+    configuration.changed = { [weak self] in self?.environmentProfile.invalidate() }
+    environmentSources.connected = { [weak self] in self?.environmentProfile.invalidate() }
+    installations.detectionChanged = { [weak self] in await self?.loadSoftware(force: true) }
+    softwareSources.changed = { [weak self] in await self?.loadSoftware(force: true) }
+  }
+
+  func disconnect() {
+    installations.disconnect()
+    softwareSources.disconnect()
+    environmentProfile.disconnect()
+    environmentSources.disconnect()
+    configuration.disconnect()
+    favorites.disconnect()
+  }
+
+  /// Mark observations stale; the visible page refreshes now, other pages refresh when next opened.
+  func invalidate(_ changes: Set<RuntimeChange>) {
+    if changes.contains(.settings) { favorites.invalidate() }
+    if !changes.isDisjoint(with: [.integrations, .plugins, .configurationSync, .userConfig]) {
+      configuration.invalidate(clearApproval: !changes.isDisjoint(with: [.plugins, .configurationSync, .userConfig]))
+    }
+    if changes.contains(.softwareSources) || changes.contains(.configurationSync) { softwareSources.invalidate() }
+    if !changes.isDisjoint(with: [
+      .runs, .settings, .plugins, .userConfig, .configurationSync, .softwareSources, .pluginUpdate,
+    ]) {
+      environmentRevision += 1
+      softwareRevision += 1
+      environmentProfile.invalidate()
+    }
+  }
 
   func loadEnvironment(force: Bool = false) async {
-    guard !checkingEnvironment, force || environment == nil else { return }
+    if force { environmentRevision += 1 }
+    guard !checkingEnvironment, environment == nil || loadedEnvironmentRevision != environmentRevision else { return }
     checkingEnvironment = true
     environmentError = nil
     defer { checkingEnvironment = false }
-    do { environment = try await client.environment() }
-    catch { if !Task.isCancelled { environmentError = error.localizedDescription } }
+    repeat {
+      let revision = environmentRevision
+      do {
+        let result = try await client.environment()
+        guard !Task.isCancelled else { return }
+        environment = result
+        loadedEnvironmentRevision = revision
+        environmentError = nil
+      } catch {
+        if !Task.isCancelled { environmentError = error.localizedDescription }
+      }
+      if Task.isCancelled || revision == environmentRevision { return }
+      // An event during the request requires one more snapshot; never lose it behind the loading guard.
+    } while true
   }
 
   func loadSoftware(force: Bool = false) async {
-    guard !checkingSoftware, force || software == nil else { return }
+    if force {
+      softwareRevision += 1
+      favorites.invalidate()
+    }
+    guard !checkingSoftware, software == nil || loadedSoftwareRevision != softwareRevision else { return }
     checkingSoftware = true
     softwareError = nil
     defer { checkingSoftware = false }
-    do { software = try await client.software() }
-    catch { if !Task.isCancelled { softwareError = error.localizedDescription } }
+    repeat {
+      let revision = softwareRevision
+      let favoritesVersion = favorites.readVersion
+      do {
+        let result = try await client.software()
+        guard !Task.isCancelled else { return }
+        software = result
+        if revision == softwareRevision { favorites.receive(result.favorites, version: favoritesVersion) }
+        installations.updateSources(result.sources)
+        loadedSoftwareRevision = revision
+        softwareError = nil
+      } catch {
+        if !Task.isCancelled { softwareError = error.localizedDescription }
+      }
+      if Task.isCancelled || revision == softwareRevision { return }
+    } while true
   }
 
   func visibleItems(_ source: SoftwareSnapshot.Source) -> [SoftwareSnapshot.Item] {
     let query = search.trimmingCharacters(in: .whitespacesAndNewlines)
     return source.items.filter { item in
       (softwareFilter == "all" || item.status == softwareFilter)
-        && (query.isEmpty || [item.title.en, item.title.zh ?? "", item.group.title.en, item.group.title.zh ?? "", item.id]
-          .contains { $0.localizedStandardContains(query) })
+        && (query.isEmpty
+          || [item.title.en, item.title.zh ?? "", item.group.title.en, item.group.title.zh ?? "", item.id]
+            .contains { $0.localizedStandardContains(query) })
     }
   }
 
-  func key(_ source: SoftwareSnapshot.Source, _ item: SoftwareSnapshot.Item) -> String { "\(source.id.count):\(source.id)\(item.id)" }
+  func key(_ source: SoftwareSnapshot.Source, _ item: SoftwareSnapshot.Item) -> String {
+    "\(source.id.count):\(source.id)\(item.id)"
+  }
 
   func open(_ item: SoftwareSnapshot.Item, in source: SoftwareSnapshot.Source) async {
     let key = key(source, item)
@@ -57,8 +140,8 @@ final class MachineModel {
     defer { opening.remove(key) }
     do {
       try await client.openApplication(sourceID: source.id, softwareID: item.id)
-      operationMessage = L10n.text.copy("已请求打开 \(item.title.localized(chinese: L10n.text.chinese))", "Requested to open \(item.title.en)")
-    }
-    catch { operationMessage = error.localizedDescription }
+      operationMessage = L10n.text.copy(
+        "已请求打开 \(item.title.localized(chinese: L10n.text.chinese))", "Requested to open \(item.title.en)")
+    } catch { operationMessage = error.localizedDescription }
   }
 }

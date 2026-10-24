@@ -25,7 +25,7 @@ describe('desktop package scripts', () => {
   it('ships application icons for the Electron window and macOS package', async () => {
     const iconPngUrl = new URL('../assets/icon.png', import.meta.url)
     const iconIcnsUrl = new URL('../assets/icon.icns', import.meta.url)
-    const mainUrl = new URL('../src/main.ts', import.meta.url)
+    const mainUrl = new URL('../src/desktop-main.ts', import.meta.url)
     const packageMacUrl = new URL('../../../scripts/package-macos.ts', import.meta.url)
     const [iconPng, iconIcns, mainSource, packageMacSource] = await Promise.all([
       stat(iconPngUrl),
@@ -70,7 +70,7 @@ describe('desktop package scripts', () => {
     const packageMacSource = await readFile(new URL('../../../scripts/package-macos.ts', import.meta.url), 'utf8')
     const nodePtyPatch = await readFile(new URL('../../../patches/node-pty@1.1.0.patch', import.meta.url), 'utf8')
 
-    expect(packageMacSource).toContain('asar: { unpack: \'**/{node-pty,keytar,@openai/codex*,workstation-runtime}/**\' }')
+    expect(packageMacSource).toContain('asar: { unpack: \'**/{node-pty,keytar,@openai/codex*,workstation-runtime,identity-launcher}/**\' }')
     expect(packageMacSource).toContain('options.codexMode ?? process.env.CRAFT_HUB_DESKTOP_CODEX_MODE ?? \'external\'')
     expect(nodePtyPatch).toContain('fs.chmodSync(spawnHelper, 0o755)')
   })
@@ -125,7 +125,7 @@ describe('desktop package scripts', () => {
 
   it('keeps the alpha updater behind a narrow desktop IPC boundary', async () => {
     const updater = await readFile(new URL('../src/updater.ts', import.meta.url), 'utf8')
-    const main = await readFile(new URL('../src/main.ts', import.meta.url), 'utf8')
+    const main = await readFile(new URL('../src/desktop-main.ts', import.meta.url), 'utf8')
     const preload = await readFile(new URL('../preload.cjs', import.meta.url), 'utf8')
 
     expect(updater).toContain('from \'update-electron-app\'')
@@ -138,7 +138,7 @@ describe('desktop package scripts', () => {
   })
 
   it('brands the desktop shell and integrates the toolbar with the macOS title bar', async () => {
-    const desktopMainUrl = new URL('../src/main.ts', import.meta.url)
+    const desktopMainUrl = new URL('../src/desktop-main.ts', import.meta.url)
     const webIndexUrl = new URL('../../web/index.html', import.meta.url)
     const webMainUrl = new URL('../../web/src/main.ts', import.meta.url)
     const desktopStylesUrl = new URL('../../web/src/desktop.css', import.meta.url)
@@ -191,7 +191,7 @@ describe('desktop package scripts', () => {
   })
 
   it('runs one desktop instance and separates development from packaged ports', async () => {
-    const desktopMain = (await readFile(new URL('../src/main.ts', import.meta.url), 'utf8')).replaceAll('\r\n', '\n')
+    const desktopMain = (await readFile(new URL('../src/desktop-main.ts', import.meta.url), 'utf8')).replaceAll('\r\n', '\n')
 
     expect(desktopMain).toContain('app.requestSingleInstanceLock()')
     expect(desktopMain).toContain('Dev is already running; activated the existing window instead.')
@@ -203,13 +203,14 @@ describe('desktop package scripts', () => {
     expect(desktopMain).toContain('distribution: runtimeDistribution')
     expect(desktopMain).toContain('app.on(\'second-instance\', (_event, argv) => {')
     expect(desktopMain).toContain('findDesktopLinkArgument(argv, [desktopProtocol])')
+    expect(desktopMain).toContain('if (process.platform !== \'darwin\' && !process.env.CRAFT_HUB_PERFORMANCE_TRACE)\n  app.setAsDefaultProtocolClient(desktopProtocol)')
     expect(desktopMain).toContain('mainWindow.restore()')
     expect(desktopMain).toContain('mainWindow.focus()')
     expect(desktopMain).toContain('port: developmentUrl ? 4318 : 0')
   })
 
   it('closes the local server before quitting and exits when the development window closes', async () => {
-    const desktopMain = await readFile(new URL('../src/main.ts', import.meta.url), 'utf8')
+    const desktopMain = await readFile(new URL('../src/desktop-main.ts', import.meta.url), 'utf8')
 
     expect(desktopMain).toContain('app.on(\'before-quit\'')
     expect(desktopMain).toContain('window.destroy()')
@@ -220,7 +221,7 @@ describe('desktop package scripts', () => {
   })
 
   it('persists desktop lifecycle failures to a discoverable application log', async () => {
-    const desktopMain = await readFile(new URL('../src/main.ts', import.meta.url), 'utf8')
+    const desktopMain = await readFile(new URL('../src/desktop-main.ts', import.meta.url), 'utf8')
 
     expect(desktopMain).toContain('app.setAppLogsPath()')
     expect(desktopMain).toContain('craft-hub.log')
@@ -230,7 +231,7 @@ describe('desktop package scripts', () => {
   })
 
   it('exposes a sandboxed folder picker through Electron IPC', async () => {
-    const desktopMainUrl = new URL('../src/main.ts', import.meta.url)
+    const desktopMainUrl = new URL('../src/desktop-main.ts', import.meta.url)
     const preloadUrl = new URL('../preload.cjs', import.meta.url)
     const tsconfigUrl = new URL('../../../tsconfig.json', import.meta.url)
     const [desktopMain, preload, tsconfig] = await Promise.all([
@@ -249,8 +250,8 @@ describe('desktop package scripts', () => {
     expect(JSON.parse(tsconfig).compilerOptions.allowImportingTsExtensions).toBe(true)
   })
 
-  it('keeps editor and Codex launch requests in the desktop main process', async () => {
-    const desktopMainUrl = new URL('../src/main.ts', import.meta.url)
+  it('connects editor and Codex IPC to the shared host launch service', async () => {
+    const desktopMainUrl = new URL('../src/desktop-main.ts', import.meta.url)
     const hostRuntimeUrl = new URL('../src/host-runtime.ts', import.meta.url)
     const preloadUrl = new URL('../preload.cjs', import.meta.url)
     const [desktopMain, hostRuntime, preload] = await Promise.all([
@@ -268,24 +269,24 @@ describe('desktop package scripts', () => {
     expect(desktopMain).toContain('craft-hub:open-workspace-in-codex')
     expect(desktopMain).toContain('craft-hub:open-workspace-in-editor')
     expect(desktopMain).not.toContain('ipcMain.handle(\'craft-hub:open-workspace\',')
-    expect(desktopMain).toContain('openCodexProject((await workspaceLaunchTarget(workspaceId)).primaryProjectPath)')
+    expect(desktopMain).toContain('createProjectLaunchService')
+    expect(desktopMain).toContain('projectLaunch.openWorkspaceInCodex(workspaceId)')
     expect(desktopMain).toContain('craft-hub:start-workspace-in-codex')
-    expect(desktopMain).toContain('runtime.agentTasks.start')
+    expect(desktopMain).toContain('projectLaunch.startWorkspaceInCodex(workspaceId, projectIds, primaryProjectId, prompt)')
     // Codex agent tasks read the saved Codex setting in the runtime composition shared with the native host.
     expect(hostRuntime).toContain('settings[\'workbench.codex\']')
-    expect(desktopMain).toContain('waitForAgentTaskThread')
     const workspaceTaskHandler = desktopMain.slice(
       desktopMain.indexOf('ipcMain.handle(\'craft-hub:start-workspace-in-codex\''),
       desktopMain.indexOf('ipcMain.handle(\'craft-hub:open-codex-thread\''),
     )
     expect(workspaceTaskHandler).not.toContain('shell.openExternal')
     expect(desktopMain).toContain('craft-hub:start-project-in-codex')
-    expect(desktopMain).toContain('clipboard.writeText(normalizedPrompt)')
+    expect(desktopMain).toContain('clipboard.writeText(prepared.prompt)')
     expect(desktopMain).toContain('craft-hub:open-project-in-terminal')
     expect(desktopMain).toContain('craft-hub:open-dotfiles-in-terminal')
-    expect(desktopMain).toContain('runtime.dotfilesManager.status()')
+    expect(desktopMain).toContain('projectLaunch.openDotfilesInTerminal()')
     expect(desktopMain).toContain('craft-hub:list-terminal-applications')
-    expect(desktopMain).toContain('await craftHubServer.runtime.projects.get(projectId)')
+    expect(desktopMain).toContain('projectLaunch.openProjectDirectory(projectId)')
     expect(preload).toContain('openCapabilitySourceInEditor')
     expect(preload).toContain('openCapabilityWorkingDirectory')
     expect(preload).toContain('openProjectDirectory')

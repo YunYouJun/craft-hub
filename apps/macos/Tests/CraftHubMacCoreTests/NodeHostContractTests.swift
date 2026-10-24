@@ -1,9 +1,13 @@
 import Foundation
 import Testing
+
 @testable import CraftHubMacCore
 
 private struct NodeHostContract: Decodable {
-  struct Version: Decodable { let value: String; let supported: Bool }
+  struct Version: Decodable {
+    let value: String
+    let supported: Bool
+  }
   struct Search: Decodable {
     let name: String
     let home: String
@@ -31,8 +35,10 @@ private struct NodeHostContract: Decodable {
 
 @Test func nativeGUISearchMatchesTheElectronFixtures() throws {
   for entry in try NodeHostContract.load().searches {
-    let locator = NodeLocator(home: entry.home, environment: entry.environment,
-      listDirectory: { entry.directories[$0] ?? [] }, isExecutable: { _ in false }, readVersion: { _ in nil })
+    let locator = NodeLocator(
+      home: entry.home, environment: entry.environment,
+      listDirectory: { entry.directories[$0] ?? [] }, isExecutable: { _ in false },
+      inspect: { _ in .failure(.invalidResponse) })
     #expect(locator.candidateDirectories() == entry.expected, "\(entry.name)")
   }
 }

@@ -892,6 +892,21 @@ describe('craft hub server lifecycle', () => {
         expect.objectContaining({ id: 'test', kind: 'builtin' }),
       ])
       await expect(fetch(`${app.url}/api/plugins`).then(response => response.json())).resolves.toEqual([])
+      const installRequest = { sourceId: 'test', package: '@acme/craft-hub-plugin-test', version: '1.0.0' }
+      const plan = await fetch(`${app.url}/api/plugins/install/preview`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(installRequest),
+      }).then(response => response.json())
+      const staleReview = await fetch(`${app.url}/api/plugins/install`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ...installRequest, reviewedPlan: { ...plan, items: [] } }),
+      })
+      expect(staleReview.status).toBe(409)
+      expect(await staleReview.json()).toMatchObject({ reviewRequired: true })
+      await expect(fetch(`${app.url}/api/plugins`).then(response => response.json())).resolves.toEqual([])
+      expect(await runtime.runs()).toEqual([])
       const localPluginPath = join(dataDir, 'local-plugin')
       await mkdir(localPluginPath)
       await writeFile(join(localPluginPath, 'package.json'), JSON.stringify({

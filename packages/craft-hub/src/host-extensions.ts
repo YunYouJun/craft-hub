@@ -25,6 +25,13 @@ interface HostExtensionState { extensions: HostExtension[], bundled: Record<stri
 /** Machine-local installation of explicitly trusted executable host modules. */
 export type HostExtension = z.infer<typeof registrationSchema>
 
+/** A reviewed registration was replaced or edited before its mutation could be persisted. */
+export class HostExtensionChangedError extends Error {
+  constructor() {
+    super('The host extension registration changed. Refresh and review it again.')
+  }
+}
+
 /** Installation state and the result of the last application startup. */
 export interface HostExtensionStatus {
   /** Executable components shipped and updated by the application, independently of Marketplace packages. */
@@ -87,15 +94,22 @@ export class HostExtensionManager {
     return registrationSchema.parse({ ...input, manifestPath, modules, enabled: true })
   }
 
-  /** Persist an installation after the host has obtained explicit trust for its exact modules. */
-  async install(extension: HostExtension): Promise<void> {
+  /**
+   * Persist an installation after the host has obtained explicit trust for its exact modules.
+   * When supplied, expected is compared inside the serialized write; null requires no previous registration.
+   */
+  async install(extension: HostExtension, expected?: HostExtension | null): Promise<void> {
     const parsed = registrationSchema.parse(extension)
-    await this.mutate(state => ({ ...state, extensions: [...state.extensions.filter(item => item.id !== parsed.id), parsed] }))
+    await this.mutate((state) => {
+      assertExpectedExtension(state, parsed.id, expected)
+      return { ...state, extensions: [...state.extensions.filter(item => item.id !== parsed.id), parsed] }
+    })
   }
 
-  /** Save whether an installed extension should load on the next startup. */
-  async setEnabled(id: string, enabled: boolean): Promise<void> {
+  /** Save the next-startup choice, optionally requiring the displayed registration to still match at write time. */
+  async setEnabled(id: string, enabled: boolean, expected?: HostExtension): Promise<void> {
     await this.mutate((state) => {
+      assertExpectedExtension(state, id, expected)
       const item = state.extensions.find(item => item.id === id)
       if (!item)
         throw new Error(`Host extension is not installed: ${id}`)
@@ -104,9 +118,12 @@ export class HostExtensionManager {
     })
   }
 
-  /** Remove registration only; local source files and Marketplace plugins are retained. */
-  async remove(id: string): Promise<void> {
-    await this.mutate(state => ({ ...state, extensions: state.extensions.filter(item => item.id !== id) }))
+  /** Remove only the matching registration; local source files and Marketplace plugins are retained. */
+  async remove(id: string, expected?: HostExtension): Promise<void> {
+    await this.mutate((state) => {
+      assertExpectedExtension(state, id, expected)
+      return { ...state, extensions: state.extensions.filter(item => item.id !== id) }
+    })
   }
 
   /** Load saved extensions on startup, isolating failures and preserving host-owned providers. */
@@ -173,6 +190,15 @@ export class HostExtensionManager {
     this.writeTail = operation.catch(() => {})
     await operation
   }
+}
+
+function assertExpectedExtension(state: HostExtensionState, id: string, expected: HostExtension | null | undefined): void {
+  if (expected === undefined)
+    return
+  const parsed = expected === null ? null : registrationSchema.parse(expected)
+  const current = state.extensions.find(item => item.id === id) ?? null
+  if ((parsed && parsed.id !== id) || JSON.stringify(current) !== JSON.stringify(parsed))
+    throw new HostExtensionChangedError()
 }
 
 async function canonicalModulePath(path: string): Promise<string> {

@@ -23,6 +23,21 @@ describe('command palette', () => {
     store.paletteItems = capabilities.map(capability => ({ project, capability }))
   })
 
+  it('reports readiness only after the actual search input has focus, including reopening', async () => {
+    const wrapper = mount(CommandPalette, { props: { open: true }, attachTo: document.body })
+    await flushPromises()
+    expect(document.activeElement).toBe(document.querySelector('.palette-search input'))
+    expect(wrapper.emitted('ready')).toHaveLength(1)
+    await wrapper.setProps({ open: false })
+    await flushPromises()
+    expect(wrapper.emitted('ready')).toHaveLength(1)
+    await wrapper.setProps({ open: true })
+    await flushPromises()
+    expect(document.activeElement).toBe(document.querySelector('.palette-search input'))
+    expect(wrapper.emitted('ready')).toHaveLength(2)
+    wrapper.unmount()
+  })
+
   it('navigates results with arrows and selects with Enter', async () => {
     const pinia = createPinia()
     setActivePinia(pinia)

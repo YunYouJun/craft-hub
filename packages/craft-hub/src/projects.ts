@@ -14,7 +14,20 @@ function projectId(path: string): string {
 }
 
 export class ProjectRegistry {
+  private readonly listeners = new Set<() => void>()
+
   constructor(private readonly store: CraftHubStore) {}
+
+  /** Observe persisted registration, ordering and trust changes; discovery itself does not emit changes. */
+  onChanged(listener: () => void): () => void {
+    this.listeners.add(listener)
+    return () => this.listeners.delete(listener)
+  }
+
+  private emitChanged(): void {
+    for (const listener of this.listeners)
+      listener()
+  }
 
   /** Read registered projects while isolating project-local metadata failures. */
   async snapshot(): Promise<ProjectCatalogSnapshot> {
@@ -78,6 +91,7 @@ export class ProjectRegistry {
       addedAt: new Date().toISOString(),
     }
     await this.store.saveProjects([...projects, project])
+    this.emitChanged()
     return project
   }
 
@@ -111,6 +125,7 @@ export class ProjectRegistry {
     const project = { ...projects[index]!, trust }
     projects[index] = project
     await this.store.saveProjects(projects)
+    this.emitChanged()
     return project
   }
 
@@ -131,6 +146,7 @@ export class ProjectRegistry {
       throw new Error('Project order must contain every registered project exactly once')
     const reordered = projectOrder.map(id => known.get(id)!)
     await this.store.saveProjects(reordered)
+    this.emitChanged()
     return reordered
   }
 
@@ -141,6 +157,7 @@ export class ProjectRegistry {
     if (!project)
       throw new Error(`Unknown project: ${id}`)
     await this.store.saveProjects(projects.filter(item => item.id !== id))
+    this.emitChanged()
     return project
   }
 

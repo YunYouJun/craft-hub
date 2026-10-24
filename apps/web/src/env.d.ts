@@ -95,6 +95,8 @@ interface CodexActivityStatus {
   diagnostic?: string
   hooksPath?: string
   installed: boolean
+  ownHookCount?: number
+  otherHookCount?: number
   requiresTrustReview?: boolean
   runningSessionIds: string[]
   supported: boolean

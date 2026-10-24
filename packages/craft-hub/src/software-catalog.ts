@@ -1,3 +1,4 @@
+import type { PersonalWorkbenchTool } from './personal-workbench'
 import type { SoftwareSource } from './software-sources'
 import { z } from 'zod'
 import { operationSupportSchema } from './configuration-management'
@@ -15,6 +16,19 @@ export const softwareInstallationRequestSchema = z.object({ softwareIds: uniqueS
 export const softwareInstallationConfirmationSchema = z.object({ planId: identifier, confirmed: z.literal(true) }).strict()
 /** Only a trusted catalog application can be opened. */
 export const softwareApplicationRequestSchema = z.object({ softwareId: identifier }).strict()
+
+/** Favorites select published metadata or an existing favorite, never client-authored executable content. */
+export const softwareFavoriteRequestSchema = z.discriminatedUnion('action', [
+  z.object({ action: z.literal('add'), revision: identifier, sourceId: identifier, softwareId: identifier, locale: z.enum(['en', 'zh-CN']) }).strict(),
+  z.object({ action: z.literal('remove'), revision: identifier, toolId: identifier }).strict(),
+])
+/** Runtime-derived favorite state, shared with the personal workbench settings. */
+export interface SoftwareFavoritesSnapshot {
+  version: 1
+  revision: string
+  tools: PersonalWorkbenchTool[]
+  matches: { sourceId: string, softwareId: string, toolId: string }[]
+}
 
 /** Portable catalog metadata; no machine observations or executable recipes. */
 export const softwareMetadataSchema = z.object({
@@ -165,6 +179,7 @@ export type SoftwareCatalogSource = SoftwareCatalog['source'] & {
 export interface SoftwareCatalogSnapshot {
   version: 1
   sources: SoftwareCatalogSource[]
+  favorites?: SoftwareFavoritesSnapshot
 }
 
 function withFallbackMetadata(item: SoftwareCatalogItem, fallback?: SoftwareCatalogItem): SoftwareCatalogItem {

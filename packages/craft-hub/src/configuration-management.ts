@@ -27,6 +27,37 @@ export interface ConfigurationManagementPage {
   /** Provider-declared original management entries, independent of configuration writes. */
   managementTools?: ConfigurationManagementTool[]
   operationSupport?: OperationSupport
+  /** Runtime-derived UI affordances, not authority to bypass provider checks. */
+  presentation?: ConfigurationManagementPresentation
+}
+
+/** Shared UI rules for native and browser clients; the provider still validates every write. */
+export interface ConfigurationManagementPresentation {
+  version: 1
+  writableItemIds: string[]
+  backupSourceIds?: Record<'personal' | 'work', string[]>
+}
+
+/** Sources eligible for a backup audience; the provider rechecks scope when registering and executing. */
+export function configurationBackupSources(registry: ConfigurationRepositoryRegistry, audience: string): ConfigurationRepositoryRegistry['sources'] {
+  return ['personal', 'work'].includes(audience) ? registry.sources.filter(source => source.audience === 'public' || source.audience === audience) : []
+}
+
+/** Retain existing ownership boundaries when exposing configuration resolution controls. */
+export function configurationItemWritable(item: ConfigurationManagementItem, providerId: string): boolean {
+  return !!item.sourcePath && !['error', 'read-only', 'ownership-conflict'].includes(item.status)
+    && item.owner === 'user'
+    && !['installer', 'external', 'project'].includes(item.origin)
+    && (!item.manager || item.manager === providerId)
+}
+
+/** Attach a fresh projection rather than trusting presentation metadata returned by a provider. */
+export function presentConfigurationManagement(page: ConfigurationManagementPage, providerId: string): ConfigurationManagementPage {
+  return { ...page, presentation: {
+    version: 1,
+    writableItemIds: page.items.filter(item => configurationItemWritable(item, providerId)).map(item => item.id),
+    ...(page.registry ? { backupSourceIds: { personal: configurationBackupSources(page.registry, 'personal').map(source => source.id), work: configurationBackupSources(page.registry, 'work').map(source => source.id) } } : {}),
+  } }
 }
 
 export interface ConfigurationManagementItem {

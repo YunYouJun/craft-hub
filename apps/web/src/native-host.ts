@@ -19,6 +19,7 @@ export function requestNativePanel(type: 'palette' | 'capture', mode?: string, t
 
 /** Report readiness only after the initial project catalog and application listeners are installed. */
 export function nativeWorkbenchReady(target: Window = window): void {
+  target.performance?.mark?.('craft-hub:workbench-ready')
   const host = target as NativeHostWindow
   if (host.__craftHubNativeHost === 'macos')
     host.webkit?.messageHandlers?.craftHubNative?.postMessage({ type: 'ready' })

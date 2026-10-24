@@ -1,3 +1,4 @@
+import type { SoftwareCatalogItem } from './software-catalog'
 import { z } from 'zod'
 
 function hasControlCharacters(value: string): boolean {
@@ -68,6 +69,44 @@ export const personalWorkbenchHomeSchema = z.object({
 
 /** One grouped tool entry with HTTPS website, download and source links and an optional application launcher. */
 export type PersonalWorkbenchTool = z.infer<typeof personalWorkbenchToolSchema>
+
+/** Stable website identity for software favorites; download destinations distinguish catalog variants. */
+export function softwareWebsiteIdentity(value: string): string {
+  try {
+    const url = new URL(value)
+    url.hostname = url.hostname.replace(/^www\./, '')
+    url.pathname = url.pathname.replace(/\/+$/, '') || '/'
+    url.hash = ''
+    return url.href
+  }
+  catch { return value }
+}
+
+/** Find an existing custom or catalog favorite without merging separately downloadable variants. */
+export function findSoftwareFavorite(tools: PersonalWorkbenchTool[], item: Pick<SoftwareCatalogItem, 'url' | 'downloadUrl'>): PersonalWorkbenchTool | undefined {
+  return tools.find(tool => softwareWebsiteIdentity(tool.url) === softwareWebsiteIdentity(item.url)
+    && (!tool.id.startsWith('software:') || softwareWebsiteIdentity(tool.downloadUrl || tool.url) === softwareWebsiteIdentity(item.downloadUrl || item.url)))
+}
+
+/** Convert validated catalog metadata to a portable favorite; clients cannot supply executable launch recipes. */
+export function createSoftwareFavorite(item: SoftwareCatalogItem, locale: 'en' | 'zh-CN', id: string): PersonalWorkbenchTool {
+  const text = (value: { en: string, zh?: string }): string => locale === 'zh-CN' ? value.zh || value.en : value.en
+  const launch = personalWorkbenchToolLaunchForUrl(item.url)
+  return personalWorkbenchToolSchema.parse({
+    id,
+    title: text(item.title).slice(0, 128),
+    group: text(item.group.title).slice(0, 64),
+    url: item.url,
+    ...(launch ? { launch } : {}),
+    ...(item.downloadUrl ? { downloadUrl: item.downloadUrl } : {}),
+    ...(item.repositoryUrl ? { repositoryUrl: item.repositoryUrl } : {}),
+    ...(item.iconUrl ? { iconUrl: item.iconUrl } : {}),
+    ...(item.macosIconUrl ? { macosIconUrl: item.macosIconUrl } : {}),
+    ...(item.iconStyle ? { iconStyle: item.iconStyle } : {}),
+    ...(item.iconScale !== undefined ? { iconScale: item.iconScale } : {}),
+    ...(item.description ? { description: item.description.slice(0, 512) } : {}),
+  })
+}
 /** Supported application launch presets without automatic project or task context. */
 export type PersonalWorkbenchToolLaunch = z.infer<typeof toolLaunchSchema>
 /** Personal shortcuts, project pins and task display preferences stored in the operating-system data directory. */
@@ -98,3 +137,8 @@ export const defaultPersonalWorkbenchTools: ReadonlyArray<Readonly<PersonalWorkb
 export function createDefaultPersonalWorkbenchHome(): PersonalWorkbenchHome {
   return { tools: defaultPersonalWorkbenchTools.map(tool => ({ ...tool, ...(tool.launch ? { launch: { ...tool.launch } } : {}) })) }
 }
+
+export { homeWorkGroups, homeWorkSources } from './home-work-sources'
+export type { HomeWorkGroup, HomeWorkSource } from './home-work-sources'
+export { focusCandidates, rankTodayFocus } from './today-focus'
+export type { FocusEntry, RankedFocus } from './today-focus'

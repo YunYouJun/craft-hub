@@ -1,5 +1,6 @@
 import type { Buffer } from 'node:buffer'
 import type { AccountProvider } from './accounts'
+import type { CommandRunGuard } from './command-run-guard'
 import type { HostDiagnosticProvider, WorkbenchDiagnosticSnapshot } from './diagnostics'
 import type { RunHandle } from './executor'
 import type { CapabilityProvider, CraftHubOptions, DistributionConfig } from './extensions'
@@ -8,8 +9,10 @@ import type { HostEnvironment } from './host-environment'
 import type { InstalledIntegrationContribution, IntegrationActionResult, IntegrationDiagnostic, ResolvedIntegrationContribution } from './integrations'
 import type { LocalEnvironmentSnapshot } from './local-environment'
 import type { CraftHubPlugin, PluginDiagnostic } from './plugins'
-import type { SoftwareApplicationOpen, SoftwareCatalogSnapshot, SoftwareInstallationPlan, SoftwareInstallationRun, SoftwareInstallationRuns } from './software-catalog'
+import type { ProfileLease } from './profile-lease'
+import type { SoftwareApplicationOpen, SoftwareCatalogSnapshot, SoftwareFavoritesSnapshot, SoftwareInstallationPlan, SoftwareInstallationRun, SoftwareInstallationRuns } from './software-catalog'
 import type { Capability, CapabilityDiscoveryDiagnostic, CapabilityDiscoveryResult, CapabilityPins, CapabilityReference, CommandCapability, CommandInputValues, CommandInvocation, CommandPackage, LocalSkillActivationSettings, ProjectConfigInitializationMode, ProjectConfigInitializationResult, ProjectOverview, ProjectRecord, ProjectRunSummary, ProjectSkillsState, ReleasePlan, RunCleanupOptions, RunCleanupResult, RunOutputEvent, RunRecord } from './types'
+import { randomUUID } from 'node:crypto'
 import { isAbsolute, resolve } from 'node:path'
 import process from 'node:process'
 import { AccountSyncService } from './account-sync'
@@ -18,7 +21,9 @@ import { AgentTaskManager } from './agent-tasks'
 import { bundledSoftwareCatalog } from './bundled-software-catalog'
 import { resolveCommandContributions } from './command-contributions'
 import { resolveCommandInvocation, resolvePersistedCommandInvocation } from './command-inputs'
+import { assertCommandRunGuardActive, assertCommandRunGuardMatches } from './command-run-guard'
 import { applyProjectConfigInitialization, loadProjectConfig, previewProjectConfigInitialization } from './config'
+import { presentConfigurationManagement } from './configuration-management'
 import { collectWorkbenchDiagnostics, readHostDiagnosticProviders } from './diagnostics'
 import { DotfilesManager } from './dotfiles-manager'
 import { EnvironmentSetupService } from './environment-setup'
@@ -27,22 +32,27 @@ import { executeCommand } from './executor'
 import { builtinCapabilityProvider, communityDistribution } from './extensions'
 import { GitIntegration } from './git-integration'
 import { describeHostEnvironment } from './host-environment'
+import { matchesConnectionReview } from './integration-connection-review'
+import { IntegrationFormService } from './integration-forms'
 import { integrationFiltersSchema, IntegrationLocalState } from './integration-local-state'
-import { IntegrationConfirmationRequiredError, integrationContributionSchema, IntegrationRegistry } from './integrations'
+import { IntegrationConfirmationRequiredError, integrationContributionSchema, IntegrationRegistry, IntegrationReviewChangedError, integrationReviewedActionSchema } from './integrations'
 import { inspectLocalEnvironment } from './local-environment'
 import { PluginManager } from './marketplace'
 import { OwnerScopeService } from './owner-scopes'
 import { assertCommandWorkingDirectory } from './path-security'
 import { PersonalConfigRepository } from './personal-config-repository'
 import { PersonalGitSyncService } from './personal-git-sync'
+import { createSoftwareFavorite, findSoftwareFavorite, personalWorkbenchHomeSchema } from './personal-workbench'
 import { getCraftHubConfigDir, getCraftHubDataDir } from './platform'
+import { acquireProfileLease } from './profile-lease'
 import { readProjectOverviewAsset, readProjectReadme } from './project-overview'
 import { ProjectRegistry } from './projects'
 import { ReleasePlanner } from './release-planner'
-import { CraftHubSettingsService } from './settings'
+import { CraftHubSettingsService, SettingsConflictError } from './settings'
 import { SetupProfileService } from './setup-profile'
 import { localSkillActivationSettingsSchema, resolveSkillActivations } from './skill-activation'
-import { SoftwareCatalogService, SoftwareOperationError } from './software-catalog'
+import { SoftwareCatalogService, softwareFavoriteRequestSchema, SoftwareOperationError } from './software-catalog'
+import { softwareFavoritesSnapshot } from './software-favorites'
 import { SoftwareSourceService } from './software-sources'
 import { CraftHubStore } from './store'
 import { TeamGitSyncService } from './team-git-sync'
@@ -57,6 +67,13 @@ import { WorkspaceSubscriptionService } from './workspace-subscriptions'
 import { WorkspaceService } from './workspaces'
 
 export class CraftHubRuntime {
+  /** One-use native form reviews share the runtime's declaration, project and invocation boundaries. */
+  readonly integrationForms = new IntegrationFormService({
+    catalog: () => this.integrationContributions(),
+    project: id => this.projects.get(id),
+    invoke: options => this.invokeIntegrationAction(options),
+  })
+
   private get integrationLocalState(): IntegrationLocalState {
     return this.localIntegrationState ??= new IntegrationLocalState(this.store.dataDir)
   }
@@ -101,11 +118,15 @@ export class CraftHubRuntime {
   private readonly capabilityDiscoveryRequests = new Map<string, Promise<CapabilityDiscoveryResult>>()
   private readonly lastRuns = new Map<string, Pick<ProjectRunSummary, 'lastFinishedAt' | 'lastStatus'>>()
   private readonly runListeners = new Set<(summary: ProjectRunSummary) => void>()
+  private readonly integrationListeners = new Set<(integrationId: string) => void>()
   private diagnostics: PluginDiagnostic[] = []
   private environmentInspection?: Promise<LocalEnvironmentSnapshot>
+  private profileLease?: Promise<ProfileLease>
 
   constructor(options: string | CraftHubOptions = {}) {
     const normalizedOptions = typeof options === 'string' ? { dataDir: options } : options
+    if (normalizedOptions.profileLease)
+      this.profileLease = Promise.resolve(normalizedOptions.profileLease)
     this.hostEnvironment = describeHostEnvironment(normalizedOptions.hostEnvironment)
     this.distribution = normalizedOptions.distribution ?? communityDistribution
     const plugins = normalizedOptions.plugins ?? []
@@ -286,7 +307,33 @@ export class CraftHubRuntime {
 
   /** Browse cached metadata; optionally overlay read-only plugin discovery on local hosts. */
   async softwareCatalogSnapshot({ localDiscovery = true }: { localDiscovery?: boolean } = {}): Promise<SoftwareCatalogSnapshot> {
-    return this.softwareCatalog.snapshot({ localDiscovery: localDiscovery && this.hostEnvironment.kind === 'local', repositories: await this.softwareSources.catalogs() })
+    const catalog = await this.softwareCatalog.snapshot({ localDiscovery: localDiscovery && this.hostEnvironment.kind === 'local', repositories: await this.softwareSources.catalogs() })
+    return { ...catalog, favorites: softwareFavoritesSnapshot(catalog, await this.settings.get()) }
+  }
+
+  /** Change one favorite while preserving all other home settings, with the caller's inspected revision. */
+  async updateSoftwareFavorite(request: unknown): Promise<SoftwareFavoritesSnapshot> {
+    this.assertLocalSoftwareManagement()
+    const input = softwareFavoriteRequestSchema.parse(request)
+    const current = await this.settings.get()
+    if (input.revision !== current.revision)
+      throw new SettingsConflictError(input.revision, current.revision)
+    const catalog = await this.softwareCatalogSnapshot()
+    const home = current.settings['workbench.home']
+    let tools = home.tools
+    if (input.action === 'add') {
+      const item = catalog.sources.find(source => source.id === input.sourceId)?.items.find(item => item.id === input.softwareId)
+      if (!item)
+        throw new SoftwareOperationError(404, 'Software is no longer in the catalog. Reload before saving a favorite.')
+      if (!findSoftwareFavorite(tools, item))
+        tools = [...tools, createSoftwareFavorite(item, input.locale, `software:${randomUUID()}`)]
+    }
+    else {
+      tools = tools.filter(tool => tool.id !== input.toolId)
+    }
+    const next = personalWorkbenchHomeSchema.parse({ ...home, tools })
+    const saved = await this.settings.update({ 'workbench.home': next }, input.revision)
+    return softwareFavoritesSnapshot(catalog, saved)
   }
 
   /** Review selected host software without changing project trust or installing packages. */
@@ -325,6 +372,12 @@ export class CraftHubRuntime {
   }
 
   /** Invoke one enabled declarative integration through a trusted host adapter. */
+  /** Observe attempted integration writes after they settle; reads and denied confirmations do not emit. */
+  onIntegrationsChanged(listener: (integrationId: string) => void): () => void {
+    this.integrationListeners.add(listener)
+    return () => this.integrationListeners.delete(listener)
+  }
+
   async invokeIntegrationAction(options: {
     integrationId: string
     callbackUrl?: string
@@ -332,6 +385,8 @@ export class CraftHubRuntime {
     projectId?: string
     input?: Record<string, unknown>
     confirmed?: boolean
+    reviewedAction?: unknown
+    reviewedConnection?: unknown
   }): Promise<IntegrationActionResult> {
     const { integrations } = await this.integrationContributions()
     const contribution = integrations.find(candidate => candidate.id === options.integrationId)
@@ -340,10 +395,27 @@ export class CraftHubRuntime {
     const action = contribution.actions.find(candidate => candidate.id === options.actionId)
     if (!action)
       throw new Error(`Integration action is unavailable: ${options.actionId}`)
+    if (options.reviewedAction !== undefined) {
+      const reviewed = integrationReviewedActionSchema.parse(options.reviewedAction)
+      if (reviewed.operation !== action.operation || reviewed.effect !== action.effect)
+        throw new IntegrationReviewChangedError()
+    }
     if (action.effectiveConfirmation !== 'never' && options.confirmed !== true)
       throw new IntegrationConfirmationRequiredError(contribution.id, action.id)
     const project = options.projectId ? await this.projects.get(options.projectId) : undefined
     const operation = action.operation
+    if (options.reviewedConnection !== undefined) {
+      const statusAction = contribution.actions.find(candidate => candidate.operation === 'connection.status')
+      if (operation !== 'connection.update' || !statusAction || statusAction.effectiveConfirmation !== 'never')
+        throw new IntegrationReviewChangedError()
+      const status = await this.integrationRegistry.invoke({
+        contribution,
+        actionId: statusAction.id,
+        context: { hostEnvironment: this.hostEnvironment.kind, ...(project ? { projectId: project.id, projectPath: project.path } : {}), ...(options.input?.locale === 'zh-CN' ? { locale: 'zh-CN' as const } : {}) },
+      })
+      if (!('connected' in status) || !matchesConnectionReview(status, options.reviewedConnection, options.input ?? {}))
+        throw new IntegrationReviewChangedError()
+    }
     if (operation === 'resources.update' || operation === 'resources.execute') {
       if (!this.hostEnvironment.capabilities.localProjectDirectories)
         throw new Error('Local project resource operations are unavailable on this host')
@@ -379,14 +451,28 @@ export class CraftHubRuntime {
     if (!key) {
       if (cacheable && options.input?.cacheOnly === true)
         return { items: [] }
-      const result = await invoke()
-      if (writingWorkItems) {
-        // Retain the pre-write identity if a successful write makes the next probe fail.
-        const status = await readConnection().catch(() => undefined)
-        const keys = new Set([session?.cacheKey, status && 'connected' in status ? status.session?.cacheKey : undefined].filter((value): value is string => Boolean(value)))
-        await Promise.all([...keys].map(key => this.integrationLocalState.invalidate(contribution.id, key).catch(() => {})))
+      try {
+        const result = await invoke()
+        if (writingWorkItems) {
+          // Retain the pre-write identity if a successful write makes the next probe fail.
+          const status = await readConnection().catch(() => undefined)
+          const keys = new Set([session?.cacheKey, status && 'connected' in status ? status.session?.cacheKey : undefined].filter((value): value is string => Boolean(value)))
+          await Promise.all([...keys].map(key => this.integrationLocalState.invalidate(contribution.id, key).catch(() => {})))
+        }
+        return 'configuration' in result && result.configuration === true && Array.isArray(result.items)
+          ? presentConfigurationManagement(result, contribution.provider.id)
+          : result
       }
-      return result
+      finally {
+        if (action.effect === 'local-write' || action.effect === 'remote-write') {
+          for (const listener of this.integrationListeners) {
+            try {
+              listener(contribution.id)
+            }
+            catch { /* Observers cannot change the authoritative write result. */ }
+          }
+        }
+      }
     }
     const { cacheOnly, ...input } = options.input ?? {}
     const scope = [options.actionId, project?.path ?? '', input]
@@ -666,14 +752,19 @@ export class CraftHubRuntime {
     return this.releasePlanner.plan(project, capability, inputs)
   }
 
-  /** Execute a discovered command capability after rechecking project trust and resolving inputs. */
-  async run(projectId: string, capabilityId: string, onOutput?: (event: RunOutputEvent) => void, inputs: CommandInputValues = {}): Promise<RunHandle> {
+  /** Execute a discovered command after trust/input validation; optional host reviews are rechecked before spawn. */
+  async run(projectId: string, capabilityId: string, onOutput?: (event: RunOutputEvent) => void, inputs: CommandInputValues = {}, approval?: CommandRunGuard): Promise<RunHandle> {
+    const reviewed = approval && { ...approval, capability: structuredClone(approval.capability), inputs: structuredClone(approval.inputs ?? {}) }
+    if (reviewed)
+      inputs = structuredClone(inputs)
     const project = await this.projects.get(projectId)
     const capability = (await this.capabilities(projectId)).find(item => item.id === capabilityId)
     if (!capability)
       throw new Error(`Unknown capability: ${capabilityId}`)
     if (capability.kind !== 'command')
       throw new Error('Skills are inspected or handed to an agent; they are not shell commands')
+    if (reviewed)
+      assertCommandRunGuardMatches(reviewed, project, capability, inputs)
     if (capability.availability?.available === false)
       throw new Error(capability.availability.diagnostic ?? `Command is unavailable: ${capability.invocation.command}`)
     if (capability.operation?.kind === 'release') {
@@ -683,7 +774,14 @@ export class CraftHubRuntime {
     }
     const invocation = resolveCommandInvocation(capability, inputs)
     const persistedInvocation = resolvePersistedCommandInvocation(capability, inputs)
-    const handle = await executeCommand(this.store, project, { ...capability, invocation } as CommandCapability, onOutput, persistedInvocation)
+    const handle = await executeCommand(this.store, project, { ...capability, invocation } as CommandCapability, onOutput, persistedInvocation, reviewed && {
+      validate: async () => {
+        const currentCapability = (await this.capabilities(projectId)).find(item => item.id === capabilityId)
+        const currentProject = await this.projects.get(projectId)
+        assertCommandRunGuardMatches(reviewed, currentProject, currentCapability?.kind === 'command' ? currentCapability : undefined, inputs)
+      },
+      assertActive: () => assertCommandRunGuardActive(reviewed),
+    })
     this.activeRuns.set(handle.run.id, handle)
     this.emitRunSummary(projectId)
     void handle.completion.then((run) => {
@@ -754,10 +852,25 @@ export class CraftHubRuntime {
 
   /** Cancel active agent tasks and commands during host shutdown. */
   async close(): Promise<void> {
+    this.integrationForms.close()
     await this.environmentSources.close()
     await this.agentTasks.cancelAll()
     await this.cancelAllRuns()
+    await this.configurationQueue.catch(() => {})
     await this.userConfig.close()
+    await this.settings.close()
+    const lease = await this.profileLease
+    lease?.release()
+    this.profileLease = undefined
+  }
+
+  /** Hold a shared migration barrier for the lifetime of a host or direct CLI operation. */
+  async protectProfile(): Promise<void> {
+    this.profileLease ??= acquireProfileLease([resolve(this.store.dataDir), resolve(this.userConfig.configDir)]).catch((error) => {
+      this.profileLease = undefined
+      throw error
+    })
+    await this.profileLease
   }
 
   private getActiveRun(runId: string): RunHandle {

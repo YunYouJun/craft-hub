@@ -1,6 +1,6 @@
 import Foundation
 
-public struct PaletteProject: Decodable, Identifiable, Sendable {
+public struct PaletteProject: Decodable, Identifiable, Equatable, Sendable {
   public let id: String
   public let name: String
   public let path: String
@@ -15,7 +15,10 @@ public struct PaletteCapability: Decodable, Identifiable, Sendable {
 public struct CaptureList: Codable, Identifiable, Equatable, Sendable {
   public let id: String
   public let title: String
-  public init(id: String, title: String) { self.id = id; self.title = title }
+  public init(id: String, title: String) {
+    self.id = id
+    self.title = title
+  }
 }
 public struct CaptureDraft: Codable, Equatable, Sendable {
   public var title = ""
@@ -40,19 +43,30 @@ public struct CaptureConnection: Decodable {
   public let deviceAuthorization: Authorization?
 }
 public struct CapturePage: Decodable { public let collections: [CaptureList]? }
-public struct CaptureReceipt: Decodable { public let id: String; public let title: String }
+public struct CaptureReceipt: Decodable {
+  public let id: String
+  public let title: String
+}
 public struct AssistantStatus: Decodable { public let available: Bool }
 
 extension RuntimeAPIClient {
   public func projects() async throws -> [PaletteProject] {
-    struct Catalog: Decodable { let projects: [PaletteProject] }
-    let catalog: Catalog = try await fetch(path: "/api/projects")
-    return catalog.projects
+    try await projectCatalog().projects
   }
   public func capabilities(projectID: String) async throws -> [PaletteCapability] {
     struct Discovery: Decodable { let capabilities: [PaletteCapability] }
     let value: Discovery = try await fetch(path: "/api/projects/\(try Self.segment(projectID))/capability-discovery")
     return value.capabilities
+  }
+  /// Read the runtime-resolved pin IDs; semantic reference matching and persistence remain in the shared runtime.
+  public func capabilityPins(projectID: String) async throws -> Set<String> {
+    struct Pins: Decodable {
+      let projectId: String
+      let capabilityIds: [String]
+    }
+    let value: Pins = try await fetch(path: "/api/projects/\(try Self.segment(projectID))/pins")
+    guard value.projectId == projectID else { throw RuntimeAPIError.invalidResponse }
+    return Set(value.capabilityIds)
   }
   public func captureConnection(authorize: Bool = false, locale: String) async throws -> CaptureConnection {
     var input = ["locale": locale]
@@ -64,28 +78,41 @@ extension RuntimeAPIClient {
     return page.collections ?? []
   }
   public func assistantStatus() async throws -> AssistantStatus { try await fetch(path: "/api/work-assistant") }
-  public func previewCapture(text: String, lists: [CaptureList], ai: Bool = false, locale: String) async throws -> CaptureDraft {
+  public func previewCapture(text: String, lists: [CaptureList], ai: Bool = false, locale: String) async throws
+    -> CaptureDraft
+  {
     let encoder = JSONEncoder()
     let encodedLists = try JSONSerialization.jsonObject(with: encoder.encode(lists))
     var input: [String: Any] = ["text": text, "lists": encodedLists, "localNow": CaptureDates.local(Date())]
-    if ai { input["timeZone"] = TimeZone.current.identifier; input["locale"] = locale }
-    return try await fetch(path: "/api/work-assistant/\(ai ? "capture" : "capture-preview")",
-                           body: JSONSerialization.data(withJSONObject: input), timeout: ai ? 100 : 30)
+    if ai {
+      input["timeZone"] = TimeZone.current.identifier
+      input["locale"] = locale
+    }
+    return try await fetch(
+      path: "/api/work-assistant/\(ai ? "capture" : "capture-preview")",
+      body: JSONSerialization.data(withJSONObject: input), timeout: ai ? 100 : 30)
   }
   /// The reviewed fields and durable request ID are passed unchanged to the runtime's idempotent create action.
-  public func saveCapture(payload: [String: String], important: Bool, requestID: String) async throws -> CaptureReceipt {
+  public func saveCapture(payload: [String: String], important: Bool, requestID: String) async throws -> CaptureReceipt
+  {
     var input: [String: Any] = payload
     input["important"] = important
     input["requestId"] = requestID
     return try await todo(action: "create", input: input, confirmed: true)
   }
-  private func todo<Value: Decodable>(action: String, input: [String: Any], confirmed: Bool = false) async throws -> Value {
-    try await fetch(path: "/api/integrations/microsoft-todo/actions/\(action)",
-                    body: JSONSerialization.data(withJSONObject: ["input": input, "confirmed": confirmed]))
+  private func todo<Value: Decodable>(action: String, input: [String: Any], confirmed: Bool = false) async throws
+    -> Value
+  {
+    try await fetch(
+      path: "/api/integrations/microsoft-todo/actions/\(action)",
+      body: JSONSerialization.data(withJSONObject: ["input": input, "confirmed": confirmed]))
   }
-  private static func segment(_ value: String) throws -> String {
+  static func segment(_ value: String) throws -> String {
     guard !value.isEmpty, value != ".", value != "..",
-          let encoded = value.addingPercentEncoding(withAllowedCharacters: .alphanumerics) else { throw RuntimeAPIError.invalidEndpoint }
+      let encoded = value.addingPercentEncoding(
+        withAllowedCharacters: CharacterSet(
+          charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~"))
+    else { throw RuntimeAPIError.invalidEndpoint }
     return encoded
   }
 }
@@ -125,33 +152,46 @@ public struct PalettePage: Sendable {
 extension RuntimeAPIClient {
   public func palettePages(locale: String) async throws -> [PalettePage] {
     struct Integration: Decodable {
-      struct View: Decodable { let id: String; let title: String; let placement: String }
+      struct View: Decodable {
+        let id: String
+        let title: String
+        let placement: String
+      }
       let id: String
       let views: [View]
       let translations: [String: [String: String]]?
     }
     struct Integrations: Decodable { let integrations: [Integration] }
-    struct Workbench: Decodable { let id: String; let pluginId: String; let title: String }
+    struct Workbench: Decodable {
+      let id: String
+      let pluginId: String
+      let title: String
+    }
     async let integrations: Integrations = fetch(path: "/api/integrations")
-    async let workbenches: [Workbench] = fetch(path: "/api/workbenches", query: [URLQueryItem(name: "locale", value: locale)])
+    async let workbenches: [Workbench] = fetch(
+      path: "/api/workbenches", query: [URLQueryItem(name: "locale", value: locale)])
     var pages: [PalettePage] = []
     for contribution in try await integrations.integrations {
       for view in contribution.views where view.placement == "primary-sidebar" {
-        pages.append(PalettePage(id: "integration:\(contribution.id):\(view.id)",
-          title: contribution.translations?[locale]?[view.title] ?? view.title,
-          path: "/integrations/\(try Self.segment(contribution.id))/\(try Self.segment(view.id))"))
+        pages.append(
+          PalettePage(
+            id: "integration:\(contribution.id):\(view.id)",
+            title: contribution.translations?[locale]?[view.title] ?? view.title,
+            path: "/integrations/\(try Self.segment(contribution.id))/\(try Self.segment(view.id))"))
       }
     }
     for workbench in try await workbenches {
-      pages.append(PalettePage(id: "workbench:\(workbench.pluginId):\(workbench.id)", title: workbench.title,
-        path: "/workbenches/\(try Self.segment(workbench.pluginId))/\(try Self.segment(workbench.id))"))
+      pages.append(
+        PalettePage(
+          id: "workbench:\(workbench.pluginId):\(workbench.id)", title: workbench.title,
+          path: "/workbenches/\(try Self.segment(workbench.pluginId))/\(try Self.segment(workbench.id))"))
     }
     return pages
   }
 }
 
 extension RuntimeAPIClient {
-  /// A deliberate host restart must not terminate a running project command or agent task.
+  /// A deliberate host restart checks project work, provider-owned installations and configuration source jobs.
   public func requireIdleRuntime() async throws {
     struct RunSummary: Decodable { let running: Int }
     struct AgentTask: Decodable { let status: String }
@@ -160,6 +200,22 @@ extension RuntimeAPIClient {
     let (summaries, tasks) = try await (runs, agents)
     guard !summaries.contains(where: { $0.running > 0 }), !tasks.contains(where: { $0.status == "running" }) else {
       throw RuntimeAPIError.rejected(409, "Finish active commands and agent tasks before restarting.")
+    }
+    struct SourceJobs: Decodable {
+      struct Job: Decodable { let state: String }
+      let connections: [Job]
+    }
+    let jobs: SourceJobs = try await fetch(path: "/api/environment/sources")
+    guard !jobs.connections.contains(where: { ["connecting", "authentication-required"].contains($0.state) }) else {
+      throw RuntimeAPIError.rejected(409, "Finish or cancel configuration source connections before restarting.")
+    }
+    for source in try await software().sources where source.canManage == true {
+      guard source.supports("runs") else {
+        throw RuntimeAPIError.rejected(503, "Software installation state could not be checked.")
+      }
+      guard try await !softwareRuns(source: source.id).contains(where: \.active) else {
+        throw RuntimeAPIError.rejected(409, "Finish or stop software installations before restarting.")
+      }
     }
   }
 }

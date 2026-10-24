@@ -7,7 +7,7 @@ final class CommandPaletteModel {
   enum Category: String, CaseIterable, Identifiable {
     case all, projects, pages, commands, skills
     var id: String { rawValue }
-    var title: String {
+    @MainActor var title: String {
       let text = L10n.text
       return switch self {
       case .all: text.copy("全部", "All")
@@ -19,7 +19,9 @@ final class CommandPaletteModel {
     }
   }
   enum Action {
-    case destination(Destination), settings, capture, reload, webPath(String)
+    case destination(Destination)
+    case settings, capture, reload
+    case webPath(String)
     case project(String, String?)
   }
   struct Item: Identifiable {
@@ -30,6 +32,7 @@ final class CommandPaletteModel {
     let category: Category
     let action: Action
     var projectName = ""
+    var isPinned = false
   }
   var query = ""
   var category: Category = .all
@@ -39,39 +42,61 @@ final class CommandPaletteModel {
   private(set) var error: String?
   private(set) var catalog: [Item] = []
   private(set) var extraPages: [Item] = []
+  private(set) var isOpen = false
   @ObservationIgnored private var client: RuntimeAPIClient?
   @ObservationIgnored private var generation = 0
   @ObservationIgnored private var task: Task<Void, Never>?
 
   var results: [Item] {
     let text = L10n.text
-    let pages = Destination.allCases.map {
-      Item(id: "page:\($0.id)", title: $0.title, subtitle: text.copy("前往页面", "Go to page"), symbol: $0.symbol, category: .pages, action: .destination($0))
-    } + [
-      Item(id: "capture", title: text.copy("快速记录", "Quick Capture"), subtitle: "⇧⌘Space · Microsoft To Do", symbol: "square.and.pencil", category: .pages, action: .capture),
-      Item(id: "settings", title: text.settings, subtitle: "⌘,", symbol: "gearshape", category: .pages, action: .settings),
-      Item(id: "reload", title: text.reload, subtitle: "⌘R", symbol: "arrow.clockwise", category: .pages, action: .reload),
-    ]
+    let pages =
+      Destination.allCases.map {
+        Item(
+          id: "page:\($0.id)", title: $0.title, subtitle: text.copy("前往页面", "Go to page"), symbol: $0.symbol,
+          category: .pages, action: .destination($0))
+      } + [
+        Item(
+          id: "capture", title: text.copy("快速记录", "Quick Capture"), subtitle: "⇧⌘Space · Microsoft To Do",
+          symbol: "square.and.pencil", category: .pages, action: .capture),
+        Item(
+          id: "settings", title: text.settings, subtitle: "⌘,", symbol: "gearshape", category: .pages, action: .settings
+        ),
+        Item(
+          id: "reload", title: text.reload, subtitle: "⌘R", symbol: "arrow.clockwise", category: .pages, action: .reload
+        ),
+      ]
     var term = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     let commandOnly = term.hasPrefix(">")
-    if commandOnly { term.removeFirst(); term = term.trimmingCharacters(in: .whitespaces) }
+    if commandOnly {
+      term.removeFirst()
+      term = term.trimmingCharacters(in: .whitespaces)
+    }
     let components = term.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
     let projectTerm = components.count == 2 ? String(components[0]) : nil
     let search = components.count == 2 ? String(components[1]) : term
-    return Array((pages + extraPages + catalog).filter { item in
-      guard category == .all || item.category == category else { return false }
-      if commandOnly && item.category != .commands && item.category != .pages { return false }
-      if let projectTerm, item.projectName.isEmpty || !item.projectName.lowercased().contains(projectTerm) { return false }
-      return search.isEmpty || (item.title + " " + item.subtitle).localizedStandardContains(search)
-    }.sorted { a, b in
-      func rank(_ item: Item) -> Int {
-        if item.title.lowercased() == search { return 0 }
-        if item.title.lowercased().hasPrefix(search) { return 1 }
-        return 2
-      }
-      let ar = rank(a), br = rank(b)
-      return ar == br ? a.title.localizedStandardCompare(b.title) == .orderedAscending : ar < br
-    }.prefix(50))
+    return Array(
+      (pages + extraPages + catalog).filter { item in
+        guard category == .all || item.category == category else { return false }
+        if commandOnly && item.category != .commands && item.category != .pages { return false }
+        if let projectTerm, item.projectName.isEmpty || !item.projectName.lowercased().contains(projectTerm) {
+          return false
+        }
+        return search.isEmpty || (item.title + " " + item.subtitle).localizedStandardContains(search)
+      }.sorted { a, b in
+        func rank(_ item: Item) -> Int {
+          if search.isEmpty { return 0 }
+          if item.title.lowercased() == search { return 0 }
+          if item.title.lowercased().hasPrefix(search) { return 1 }
+          if item.title.lowercased().contains(search) { return 2 }
+          return 3
+        }
+        let ar = rank(a)
+        let br = rank(b)
+        if ar != br { return ar < br }
+        if a.isPinned != b.isPinned { return a.isPinned }
+        let titleOrder = a.title.localizedStandardCompare(b.title)
+        return titleOrder == .orderedSame ? a.id < b.id : titleOrder == .orderedAscending
+      }.prefix(50))
   }
   var selected: Item? { results.first { $0.id == selectedID } ?? results.first }
   func move(_ offset: Int) {
@@ -89,8 +114,16 @@ final class CommandPaletteModel {
     loading = false
   }
   func opened(mode: Category = .all) {
-    query = ""; category = mode; selectedID = nil; focus = UUID()
+    isOpen = true
+    query = ""
+    category = mode
+    selectedID = nil
+    focus = UUID()
     refresh()
+  }
+  func closed() { isOpen = false }
+  func invalidate() {
+    if isOpen { refresh() }
   }
   func refresh() {
     task?.cancel()
@@ -109,35 +142,51 @@ final class CommandPaletteModel {
         let projects = try await client.projects()
         guard version == generation, !Task.isCancelled else { return }
         catalog = projects.map { project in
-          Item(id: "project:\(project.id)", title: project.name, subtitle: project.path, symbol: "folder", category: .projects,
-               action: .project(project.id, nil), projectName: project.name)
+          Item(
+            id: "project:\(project.id)", title: project.name, subtitle: project.path, symbol: "folder",
+            category: .projects,
+            action: .project(project.id, nil), projectName: project.name)
         }
         if let pages = try? await pageRequest, version == generation {
-          extraPages = pages.map { Item(id: $0.id, title: $0.title, subtitle: L10n.text.copy("插件页面", "Plugin page"),
-            symbol: "puzzlepiece.extension", category: .pages, action: .webPath($0.path)) }
+          extraPages = pages.map {
+            Item(
+              id: $0.id, title: $0.title, subtitle: L10n.text.copy("插件页面", "Plugin page"),
+              symbol: "puzzlepiece.extension", category: .pages, action: .webPath($0.path))
+          }
         }
         // Read-only discovery, four projects at a time. A broken project does not hide the others.
         for start in stride(from: 0, to: projects.count, by: 4) {
           guard version == generation, !Task.isCancelled else { return }
           let batch = Array(projects[start..<min(start + 4, projects.count)])
-          let values = await withTaskGroup(of: (PaletteProject, [PaletteCapability]?).self) { group in
-            for project in batch { group.addTask { (project, try? await client.capabilities(projectID: project.id)) } }
-            var results: [(PaletteProject, [PaletteCapability]?)] = []
+          let values = await withTaskGroup(of: (PaletteProject, [PaletteCapability]?, Set<String>?).self) { group in
+            for project in batch {
+              group.addTask {
+                async let capabilities = try? client.capabilities(projectID: project.id)
+                async let pins = try? client.capabilityPins(projectID: project.id)
+                return await (project, capabilities, pins)
+              }
+            }
+            var results: [(PaletteProject, [PaletteCapability]?, Set<String>?)] = []
             for await value in group { results.append(value) }
             return results
           }
           guard version == generation, !Task.isCancelled else { return }
-          for (project, capabilities) in values {
+          for (project, capabilities, pins) in values {
             guard let capabilities else {
               error = L10n.text.copy("部分项目发现失败，可刷新重试。", "Some projects could not be discovered. Retry refresh.")
               continue
             }
+            if pins == nil {
+              error = L10n.text.copy("部分项目置顶状态读取失败，可刷新重试。", "Some project pins could not be read. Retry refresh.")
+            }
             catalog += capabilities.map { capability in
-              Item(id: "\(project.id):\(capability.id)", title: capability.name,
-                   subtitle: "\(project.name) · \(capability.description ?? capability.kind)",
-                   symbol: capability.kind == "skill" ? "sparkles" : "terminal",
-                   category: capability.kind == "skill" ? .skills : .commands,
-                   action: .project(project.id, capability.id), projectName: project.name)
+              Item(
+                id: "\(project.id):\(capability.id)", title: capability.name,
+                subtitle: "\(project.name) · \(capability.description ?? capability.kind)",
+                symbol: capability.kind == "skill" ? "sparkles" : "terminal",
+                category: capability.kind == "skill" ? .skills : .commands,
+                action: .project(project.id, capability.id), projectName: project.name,
+                isPinned: pins?.contains(capability.id) == true)
             }
           }
         }

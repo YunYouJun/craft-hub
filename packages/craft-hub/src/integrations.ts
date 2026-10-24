@@ -349,6 +349,16 @@ export class IntegrationConfirmationRequiredError extends Error {
   }
 }
 
+/** A client review can bind the operation/effect so changed declarations cannot reuse its confirmation. */
+export const integrationReviewedActionSchema = z.object({ operation: integrationOperationSchema, effect: integrationEffectSchema }).strict()
+
+export class IntegrationReviewChangedError extends Error {
+  constructor() {
+    super('The integration action changed. Reload and review it again.')
+    this.name = 'IntegrationReviewChangedError'
+  }
+}
+
 const operationSupport: Record<IntegrationOperation, (provider: IntegrationProvider) => boolean> = {
   'configuration.read': provider => Boolean(provider.configurationManagement?.read),
   'configuration.execute': provider => Boolean(provider.configurationManagement?.execute),
