@@ -130,9 +130,11 @@ jobs:
         with:
           node-version: ${{ matrix.runtime-node }}
       - name: Test Swift with built Node dependencies and packaged cloud runtime
+        # Process, Keychain and launch-service fixtures share a small hosted executor.
+        # Keep their bounded lifecycle checks isolated; exercise pipe concurrency separately below.
         run: |
           node --print 'JSON.stringify({ version: process.version, arch: process.arch, executable: process.execPath })'
-          CRAFT_HUB_TEST_NODE="$(command -v node)" CRAFT_HUB_TEST_CLOUD_SIDECAR="$PWD/apps/macos/build/Craft Hub Prototype.app/Contents/Resources/app/apps/desktop/dist/sidecar.mjs" swift test --package-path apps/macos
+          CRAFT_HUB_TEST_NODE="$(command -v node)" CRAFT_HUB_TEST_CLOUD_SIDECAR="$PWD/apps/macos/build/Craft Hub Prototype.app/Contents/Resources/app/apps/desktop/dist/sidecar.mjs" swift test --no-parallel --package-path apps/macos
       - name: Verify private pipe progress with one cooperative worker
         run: |
           LIBDISPATCH_COOPERATIVE_POOL_STRICT=1 CRAFT_HUB_TEST_NODE="$(command -v node)" CRAFT_HUB_TEST_CLOUD_SIDECAR="$PWD/apps/macos/build/Craft Hub Prototype.app/Contents/Resources/app/apps/desktop/dist/sidecar.mjs" swift test --skip-build --package-path apps/macos --filter 'identityMaintenanceInputBoundsFragmentsEOFAndStalledWriters|identityMachMaintenanceAuthenticatesReadyAndEveryTransactionBeforeDispatch|realNodeClientExchangesIdentityOnlyOverPrivatePipesWithAnIsolatedKeychain|realNodeProfileCoordinatorCommitsRecoversAndRollsBackWithAnIsolatedNativeKeychain|packagedSidecarConnectsSyncsAndRevokesThroughTheProductionPipeAndIsolatedKeychain'
