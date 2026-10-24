@@ -179,7 +179,11 @@ try {
     '-Xswiftc',
     '-emit-const-values',
     '-Xswiftc',
+    '-Xfrontend',
+    '-Xswiftc',
     '-const-gather-protocols-list',
+    '-Xswiftc',
+    '-Xfrontend',
     '-Xswiftc',
     intentProtocols,
   ])
