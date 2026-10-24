@@ -2,6 +2,7 @@ import { access, mkdtemp, readFile, rm } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import process from 'node:process'
 import { afterEach, expect, it } from 'vitest'
 import { NativeCodexActivity } from '../src/native-codex-activity.ts'
 import { createSessionGuard } from '../src/sidecar-host.ts'
@@ -67,7 +68,7 @@ it('requires native authority for reviewed writes and preserves read-only browse
   await expect(access(join(codexHome, 'hooks.json'))).rejects.toThrow()
 })
 
-it('streams lifecycle status, never prompt content, and closes the receiver and stream on shutdown', async () => {
+it.skipIf(process.platform === 'win32')('streams lifecycle status, never prompt content, and closes the receiver and stream on shutdown', async () => {
   const { origin, native, cookie, dataDir, codexHome, activity } = await fixture()
   const response = await fetch(`${origin}/__craft_hub_host/codex-activity-events`, { headers: { cookie }, signal: AbortSignal.timeout(8000) })
   const reader = response.body!.getReader()

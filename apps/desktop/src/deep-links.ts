@@ -56,7 +56,7 @@ export function parseDesktopLink(rawUrl: string, acceptedSchemes = [productionDe
     throw new DesktopLinkError('invalid-url')
   }
   const scheme = url.protocol.slice(0, -1)
-  if (url.username || url.password || url.port)
+  if ([url.username, url.password, url.port].some(Boolean))
     throw new DesktopLinkError('invalid-url')
   if (!acceptedSchemes.includes(scheme))
     throw new DesktopLinkError('unexpected-scheme')

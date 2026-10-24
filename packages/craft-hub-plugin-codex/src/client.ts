@@ -2,7 +2,7 @@ import { Buffer } from 'node:buffer'
 import { spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { posix } from 'node:path'
 import process from 'node:process'
 
 /** Query allowlist; an isolated editor session additionally exposes one scoped plugin edit. */
@@ -21,7 +21,7 @@ export function codexExecutable(options: { platform?: NodeJS.Platform, home?: st
   const exists = options.exists ?? existsSync
   if (platform === 'darwin') {
     const home = options.home ?? homedir()
-    for (const path of ['/Applications/ChatGPT.app/Contents/Resources/codex', '/Applications/Codex.app/Contents/Resources/codex', join(home, 'Applications/Codex.app/Contents/Resources/codex'), join(home, '.local/bin/codex'), '/opt/homebrew/bin/codex', '/usr/local/bin/codex']) {
+    for (const path of ['/Applications/ChatGPT.app/Contents/Resources/codex', '/Applications/Codex.app/Contents/Resources/codex', posix.join(home, 'Applications/Codex.app/Contents/Resources/codex'), posix.join(home, '.local/bin/codex'), '/opt/homebrew/bin/codex', '/usr/local/bin/codex']) {
       if (exists(path))
         return path
     }

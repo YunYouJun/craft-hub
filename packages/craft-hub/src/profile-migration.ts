@@ -9,6 +9,7 @@ import process from 'node:process'
 import { parse as parseYaml } from 'yaml'
 import { z } from 'zod'
 import { acquireProfileLease, canonicalProfilePath, clearProfileMigrationGuard, inspectProfileMigrationGuard, setProfileMigrationGuard } from './profile-lease'
+import { syncDirectory } from './sync-directory'
 import { parseJsoncDocument } from './user-config'
 
 /** Explicit local roots. Electron browser profiles are never migration sources. */
@@ -201,13 +202,6 @@ async function snapshot(root: string, select?: (name: string) => boolean): Promi
       await visit(join(root, name))
   }
   return entries
-}
-async function syncDirectory(path: string): Promise<void> {
-  const directory = await open(path, 'r')
-  try {
-    await directory.sync()
-  }
-  finally { await directory.close() }
 }
 async function writePrivate(path: string, data: Uint8Array | string, mode = 0o600): Promise<void> {
   await mkdir(dirname(path), { recursive: true, mode: 0o700 })

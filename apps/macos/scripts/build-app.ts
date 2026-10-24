@@ -181,7 +181,7 @@ try {
     '-Xswiftc',
     '-Xfrontend',
     '-Xswiftc',
-    '-const-gather-protocols-list',
+    '-const-gather-protocols-file',
     '-Xswiftc',
     '-Xfrontend',
     '-Xswiftc',

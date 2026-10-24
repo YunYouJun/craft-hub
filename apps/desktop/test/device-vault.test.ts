@@ -47,7 +47,8 @@ describe('personal cloud device vault', () => {
 
     expect(raw.includes(identity.privateKey)).toBe(false)
     expect(raw).toContain('encryptedPrivateKey')
-    expect((await stat(vault.path)).mode & 0o777).toBe(0o600)
+    if (process.platform !== 'win32')
+      expect((await stat(vault.path)).mode & 0o777).toBe(0o600)
     await expect(vault.load()).resolves.toEqual(registered)
   })
 

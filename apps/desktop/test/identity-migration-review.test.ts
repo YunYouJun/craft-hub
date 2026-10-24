@@ -2,6 +2,7 @@ import type { IdentityMigrationReview } from '../src/identity-migration.ts'
 import { mkdtemp, readFile, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import process from 'node:process'
 import { afterEach, expect, it, vi } from 'vitest'
 import { confirmIdentityMigration, showIdentityMigrationResult } from '../src/identity-migration-review.ts'
 
@@ -38,7 +39,8 @@ it('saves a new private metadata report and requires a fresh explicit confirmati
   const value = review()
   expect(await confirmIdentityMigration(value)).toBe(true)
   expect(JSON.parse(await readFile(filePath, 'utf8'))).toEqual(value)
-  expect((await stat(filePath)).mode & 0o777).toBe(0o600)
+  if (process.platform !== 'win32')
+    expect((await stat(filePath)).mode & 0o777).toBe(0o600)
   expect(native.message).toHaveBeenCalledTimes(2)
   native.message.mockReset().mockResolvedValueOnce({ response: 1 }).mockResolvedValueOnce({ response: 0 }).mockResolvedValueOnce({ response: 0 })
   expect(await confirmIdentityMigration(value)).toBe(false)

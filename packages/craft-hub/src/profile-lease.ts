@@ -6,6 +6,7 @@ import { tmpdir, userInfo } from 'node:os'
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
 import process from 'node:process'
 import { DatabaseSync } from 'node:sqlite'
+import { syncDirectory } from './sync-directory'
 
 /** Kernel-held migration barrier. Active clients share leases; migration requires exclusive ownership. */
 export interface ProfileLease {
@@ -41,11 +42,7 @@ async function guardDirectory(create: boolean): Promise<string> {
       let current = path
       const ancestor = dirname(firstCreated)
       for (;;) {
-        const file = await open(current, 'r')
-        try {
-          await file.sync()
-        }
-        finally { await file.close() }
+        await syncDirectory(current)
         if (current === ancestor)
           break
         current = dirname(current)
@@ -244,11 +241,7 @@ async function writeGuard(directory: string, root: string, transaction: string, 
   else {
     await rm(destination, { force: true })
   }
-  const directoryFile = await open(directory, 'r')
-  try {
-    await directoryFile.sync()
-  }
-  finally { await directoryFile.close() }
+  await syncDirectory(directory)
 }
 
 /** Install/transition a durable interlock while an actual exclusive lease is held. Await before key mutations. */

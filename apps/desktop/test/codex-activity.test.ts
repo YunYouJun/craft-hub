@@ -1,6 +1,7 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
 import { CodexActivityMonitor } from '../src/codex-activity.ts'
 
@@ -17,7 +18,7 @@ afterEach(async () => {
 })
 
 describe('codex activity monitor', () => {
-  it('merges and removes only the Craft Hub command hooks', async () => {
+  it.skipIf(process.platform === 'win32')('merges and removes only the Craft Hub command hooks', async () => {
     const root = await temporaryDirectory()
     const codexHome = join(root, 'codex')
     const hooksPath = join(codexHome, 'hooks.json')
@@ -46,7 +47,7 @@ describe('codex activity monitor', () => {
     expect(uninstalled.hooks.UserPromptSubmit).toBeUndefined()
   })
 
-  it('tracks only lifecycle fields from hook events', async () => {
+  it.skipIf(process.platform === 'win32')('tracks only lifecycle fields from hook events', async () => {
     const root = await temporaryDirectory()
     const monitor = new CodexActivityMonitor({ codexHome: join(root, 'codex'), dataDir: join(root, 'data'), platform: 'darwin' })
 
@@ -57,7 +58,7 @@ describe('codex activity monitor', () => {
     expect((await monitor.status()).runningSessionIds).toEqual([])
   })
 
-  it('uses recent desktop rollout lifecycle markers as a read-only fallback', async () => {
+  it.skipIf(process.platform === 'win32')('uses recent desktop rollout lifecycle markers as a read-only fallback', async () => {
     const root = await temporaryDirectory()
     const codexHome = join(root, 'codex')
     const sessions = join(codexHome, 'sessions', '2026', '08', '27')

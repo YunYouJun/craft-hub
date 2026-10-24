@@ -2,7 +2,7 @@ import type { DeviceIdentity, IdentityTransferEnvelope, IdentityTransferReview }
 import { Buffer } from 'node:buffer'
 import { createHash, createPublicKey, generateKeyPairSync, randomUUID } from 'node:crypto'
 import { constants } from 'node:fs'
-import { mkdir, open, rename, rm, writeFile } from 'node:fs/promises'
+import { lstat, mkdir, open, rename, rm, writeFile } from 'node:fs/promises'
 import { dirname, join, sep } from 'node:path'
 import process from 'node:process'
 import { IdentityTransferError, personalCloudOrigin, sealIdentityTransfer, validateDeviceIdentity, validateIdentityTransferRequest } from '@craft-hub/personal-cloud'
@@ -95,6 +95,15 @@ export class DeviceVault {
   }
 
   private async readSnapshot(): Promise<{ stored: StoredDeviceIdentity, revision: string } | undefined> {
+    // O_NOFOLLOW is unavailable on Windows. Verify the pathname and opened identity on every host.
+    const entry = await lstat(this.path).catch((error: NodeJS.ErrnoException) => {
+      if (error.code !== 'ENOENT')
+        throw error
+    })
+    if (!entry)
+      return undefined
+    if (!entry.isFile() || entry.isSymbolicLink())
+      throw new IdentityTransferError()
     const file = await open(this.path, constants.O_RDONLY | constants.O_NOFOLLOW | (constants.O_NONBLOCK ?? 0)).catch((error: NodeJS.ErrnoException) => {
       if (error.code !== 'ENOENT')
         throw error
@@ -103,12 +112,13 @@ export class DeviceVault {
       return undefined
     try {
       const info = await file.stat()
-      if (!info.isFile() || info.nlink !== 1 || info.size > 16 * 1024 || (process.getuid && info.uid !== process.getuid()))
+      if (!info.isFile() || info.dev !== entry.dev || info.ino !== entry.ino || info.nlink !== 1 || info.size > 16 * 1024 || (process.getuid && info.uid !== process.getuid()))
         throw new IdentityTransferError()
       // Bound the read even if a non-cooperating writer grows the file after stat.
       const buffer = Buffer.alloc(16 * 1024 + 1)
       const { bytesRead } = await file.read(buffer, 0, buffer.length, 0)
-      if (bytesRead > 16 * 1024)
+      const current = await lstat(this.path)
+      if (bytesRead > 16 * 1024 || !current.isFile() || current.isSymbolicLink() || current.dev !== info.dev || current.ino !== info.ino || current.ctimeMs !== info.ctimeMs)
         throw new IdentityTransferError()
       const bytes = buffer.subarray(0, bytesRead)
       const stored = JSON.parse(bytes.toString('utf8')) as StoredDeviceIdentity

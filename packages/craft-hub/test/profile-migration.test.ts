@@ -51,7 +51,8 @@ it('keeps preflight read-only and copies reviewed state with backups, native dra
   expect(JSON.parse(await readFile(join(receipt.transaction, 'source/runtime/projects.json'), 'utf8'))).toEqual(projects)
   expect(JSON.parse(await readFile(join(paths.sourceData, 'projects.json'), 'utf8'))).toEqual(projects)
   await expect(stat(join(paths.target, 'runtime/Cookies'))).rejects.toMatchObject({ code: 'ENOENT' })
-  expect((await stat(join(paths.target, 'runtime/projects.json'))).mode & 0o777).toBe(0o600)
+  if (process.platform !== 'win32')
+    expect((await stat(join(paths.target, 'runtime/projects.json'))).mode & 0o777).toBe(0o600)
   const runtime = new CraftHubRuntime({ dataDir: join(paths.target, 'runtime'), configDir: join(paths.target, 'config') })
   try {
     expect(await runtime.store.listProjects()).toEqual(projects)

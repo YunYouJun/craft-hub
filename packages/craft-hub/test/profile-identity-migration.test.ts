@@ -41,7 +41,7 @@ async function fixture() {
     endpoint: 'https://api.example.com',
     webOrigin: 'https://cloud.example.com',
   }
-  const lockDirectory = join(await realpath('/tmp'), `craft-hub-profile-leases-${process.getuid!()}`)
+  const lockDirectory = join(await realpath(process.platform === 'win32' ? tmpdir() : '/tmp'), `craft-hub-profile-leases-${process.getuid?.() ?? 'user'}`)
   const markers: string[] = []
   for (const path of protectedPaths(paths))
     markers.push(await profileMigrationGuardPath(path), join(lockDirectory, `${createHash('sha256').update(path).digest('hex')}.migration.json`))

@@ -28,7 +28,7 @@ async function fixture() {
   const paths = { sourceData: join(root, 'source'), sourceConfig: join(root, 'portable'), target: join(root, 'native') }
   await Promise.all([paths.sourceData, paths.sourceConfig, join(paths.target, 'runtime')].map(path => mkdir(path, { recursive: true })))
   const roots = [paths.sourceData, paths.sourceConfig, paths.target, join(paths.target, 'runtime'), join(paths.target, 'config')]
-  const legacyLocks = join(await realpath('/tmp'), `craft-hub-profile-leases-${process.getuid!()}`)
+  const legacyLocks = join(await realpath(process.platform === 'win32' ? tmpdir() : '/tmp'), `craft-hub-profile-leases-${process.getuid?.() ?? 'user'}`)
   const markers = (await Promise.all(roots.map(async path => [await profileMigrationGuardPath(path), join(legacyLocks, `${createHash('sha256').update(path).digest('hex')}.migration.json`)]))).flat()
   fixtures.push({ root, markers })
   const projects = [{ id: 'fixture-project', path: join(root, 'project'), name: 'Fixture', trust: 'untrusted', addedAt: '2026-01-01T00:00:00Z' }]
