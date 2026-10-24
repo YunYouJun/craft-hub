@@ -1,0 +1,94 @@
+diff --git a/dist/generated/client.js b/dist/generated/client.js
+index 5e90dd6fd5b41517444c81f58815620fb9ee6c2d..2321ec432e9f940f27be3a7c55b01d7de6f11ab2 100644
+--- a/dist/generated/client.js
++++ b/dist/generated/client.js
+@@ -2002,7 +2002,7 @@ const microsoft_graph_directoryObjectCollectionResponse = z.object({
+   "@odata.nextLink": z.string().nullable(),
+   value: z.array(microsoft_graph_directoryObject)
+ }).partial().passthrough();
+-const ReferenceCreate = z.record(z.object({}).partial().passthrough());
++const ReferenceCreate = z.record(z.string(), z.object({}).partial().passthrough());
+ const microsoft_graph_plannerContainerType = z.enum(["group", "unknownFutureValue", "roster"]);
+ const microsoft_graph_plannerPlanContainer = z.object({
+   containerId: z.string().describe("The identifier of the resource that contains the plan. Optional.").nullish(),
+@@ -7531,7 +7531,7 @@ from the default calendar of a group.`,
+         name: "body",
+         description: `New navigation property ref value`,
+         type: "Body",
+-        schema: z.record(z.object({}).partial().passthrough())
++        schema: z.record(z.string(), z.object({}).partial().passthrough())
+       }
+     ],
+     response: z.void()
+@@ -7619,7 +7619,7 @@ from the default calendar of a group.`,
+         name: "body",
+         description: `New navigation property ref value`,
+         type: "Body",
+-        schema: z.record(z.object({}).partial().passthrough())
++        schema: z.record(z.string(), z.object({}).partial().passthrough())
+       }
+     ],
+     response: z.void()
+diff --git a/dist/graph-tools.js b/dist/graph-tools.js
+index 0d8485da482dc7a7de65670890e73242af371476..31d3275776e3ed59449c2d50f69ccb41f5ac8799 100644
+--- a/dist/graph-tools.js
++++ b/dist/graph-tools.js
+@@ -1586,7 +1586,7 @@ function lenientBodySchema(schema) {
+     return lenientBodySchema(schema.unwrap()).nullable();
+   }
+   if (schema instanceof z.ZodLazy) {
+-    return z.lazy(() => lenientBodySchema(schema.schema));
++    return z.lazy(() => lenientBodySchema(schema.unwrap()));
+   }
+   return schema;
+ }
+@@ -2751,7 +2751,7 @@ function registerDiscoveryTools(server, graphClient, options = {}) {
+     "Execute a Microsoft Graph API tool by name. Workflow: search-tools \u2192 get-tool-schema \u2192 execute-tool. Call get-tool-schema first for any tool you have not seen before \u2014 passing the wrong shape to parameters will fail validation or return a Graph 400. For list endpoints, prefer modest $top plus $select.",
+     {
+       tool_name: z.string().describe('Name of the tool to execute (e.g., "list-mail-messages")'),
+-      parameters: z.record(z.any()).describe(
++      parameters: z.record(z.string(), z.any()).describe(
+         'Parameters shaped per get-tool-schema. Path/query/header params go at the top level; request bodies go under "body".'
+       ).optional()
+     },
+diff --git a/dist/lib/tool-schema.js b/dist/lib/tool-schema.js
+index 7300e37cd6e90b57db4086a9b6e7a81b9288d134..68796611a57c926ed140ee1ce0aeeacc2dc7ce8d 100644
+--- a/dist/lib/tool-schema.js
++++ b/dist/lib/tool-schema.js
+@@ -1,4 +1,4 @@
+-import { zodToJsonSchema } from "zod-to-json-schema";
++import { z } from "zod";
+ import { queryParameterSchema } from "./query-parameter-schema.js";
+ import { isDestructiveOperation } from "./destructive-ops.js";
+ import {
+@@ -15,10 +15,8 @@ import {
+   MEMBER_NAME_PARAM_DESCRIPTION
+ } from "./param-descriptions.js";
+ function unwrapOptional(schema) {
+-  const def = schema._def;
+-  const typeName = def?.typeName;
+-  if (typeName === "ZodOptional" || typeName === "ZodDefault" || typeName === "ZodNullable") {
+-    return { inner: def.innerType, optional: true };
++  if (schema instanceof z.ZodOptional || schema instanceof z.ZodDefault || schema instanceof z.ZodNullable) {
++    return { inner: schema.unwrap(), optional: true };
+   }
+   return { inner: schema, optional: false };
+ }
+@@ -28,7 +26,7 @@ function describeToolSchema(tool, config, ctx = {}) {
+     if (!effectiveSchema) return [];
+     const { inner, optional } = unwrapOptional(effectiveSchema);
+     const isPath = p.type === "Path";
+-    const jsonSchema = zodToJsonSchema(inner, { target: "jsonSchema7", $refStrategy: "none" });
++    const jsonSchema = z.toJSONSchema(inner, { target: "draft-7", io: "input" });
+     const { $schema: _s, ...schema } = jsonSchema;
+     return [
+       {
+@@ -130,7 +128,7 @@ function describeUtilityToolSchema(utility, ctx) {
+   const schemaMap = utility.buildSchema(ctx);
+   const params = Object.entries(schemaMap).map(([name, zodSchema]) => {
+     const { inner, optional } = unwrapOptional(zodSchema);
+-    const jsonSchema = zodToJsonSchema(inner, { target: "jsonSchema7", $refStrategy: "none" });
++    const jsonSchema = z.toJSONSchema(inner, { target: "draft-7", io: "input" });
+     const { $schema: _s, ...schema } = jsonSchema;
+     return {
+       name,

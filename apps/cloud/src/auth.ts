@@ -25,7 +25,15 @@ export async function restoreSession(): Promise<SessionResponse | undefined> {
     })
     const auth = app.auth
     try {
-      const proof = await adoptSsoIdentityProof(auth, authorization, { exchangeUrl: import.meta.env.VITE_YUNLEFUN_SSO_EXCHANGE_URL })
+      const proof = await adoptSsoIdentityProof({
+        signInWithCustomTicket: getTicket => auth.signInWithCustomTicket(getTicket),
+        async getSession() {
+          const { data, error } = await auth.getSession()
+          // The SDK now returns null for a missing session; the SSO adapter expects undefined.
+          const session = data?.session
+          return { error, data: { session: session ? { access_token: session.access_token, user: session.user ?? undefined } : undefined } }
+        },
+      }, authorization, { exchangeUrl: import.meta.env.VITE_YUNLEFUN_SSO_EXCHANGE_URL })
       return await cloudRequest<SessionResponse>('/v1/session/login', { method: 'POST', body: JSON.stringify(proof) })
     }
     finally {

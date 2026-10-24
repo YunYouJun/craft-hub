@@ -57,6 +57,7 @@
     "@electron/fuses": "catalog:",
     "@electron/packager": "catalog:",
     "@types/node": "catalog:",
+    "@typescript/native": "catalog:",
     "@vitejs/plugin-vue": "catalog:",
     "@vitest/browser-playwright": "catalog:",
     "bumpp": "catalog:",

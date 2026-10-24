@@ -64,7 +64,7 @@ export function registerHostExtensionHandlers(options: {
   ipcMain.handle('craft-hub:configure-local-plugin-host', async (event, packageName: unknown) => {
     const window = windowFor(event)
     if (typeof packageName !== 'string')
-      throw new Error('Invalid local plugin')
+      throw new TypeError('Invalid local plugin')
     const path = await options.localPluginPath(packageName)
     const extension = path ? await findLocalHostExtension(manager, path) : undefined
     if (extension)
@@ -74,7 +74,7 @@ export function registerHostExtensionHandlers(options: {
   ipcMain.handle('craft-hub:set-host-extension-enabled', async (event, id: unknown, enabled: unknown) => {
     windowFor(event)
     if (typeof id !== 'string' || typeof enabled !== 'boolean')
-      throw new Error('Invalid host extension state')
+      throw new TypeError('Invalid host extension state')
     if ((await options.optionalBundledExtensions?.() ?? []).some(extension => extension.id === id))
       await manager.setBundledEnabled(id, enabled)
     else
@@ -84,7 +84,7 @@ export function registerHostExtensionHandlers(options: {
   ipcMain.handle('craft-hub:remove-host-extension', async (event, id: unknown) => {
     windowFor(event)
     if (typeof id !== 'string')
-      throw new Error('Invalid host extension id')
+      throw new TypeError('Invalid host extension id')
     await manager.remove(id)
     return status()
   })

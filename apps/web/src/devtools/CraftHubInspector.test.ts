@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+// @vitest-environment-options {"settings":{"enableIframePageLoading":true}}
 /// <reference lib="dom" />
 
 import type { CapabilityDiscoveryResult } from 'craft-hub'

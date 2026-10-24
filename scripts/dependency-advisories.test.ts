@@ -40,23 +40,29 @@ const lockfileResolutionKeys = readLockfileResolutionKeys(readFileSync(new URL('
 // Check every lockfile path, including dev and optional dependencies. Live audit
 // remains necessary for new advisories; these ranges prevent known regressions.
 const vulnerableRanges = [
+  { name: 'katex', range: '>=0.11.0 <0.18.2' },
+  { name: 'vite', range: '>=8.3.0 <=8.3.2' },
+  { name: '@azure/msal-node', range: '>=5.0.0-beta.0 <7.1.0' },
+  { name: 'body-parser', range: '>=1.0.0 <1.20.9 || >=2.0.0 <2.4.0' },
+  { name: 'zod', range: '<4.6.6' },
+  { name: 'hono', range: '>=4.12.4 <4.13.11' },
   { name: '@modelcontextprotocol/client', range: '>=2.0.0 <2.2.0' },
   { name: '@modelcontextprotocol/sdk', range: '>=1.12.0 <1.31.0' },
   { name: '@toon-format/toon', range: '<2.3.1' },
   { name: '@vue/server-renderer', range: '<3.5.42' },
   { name: 'brace-expansion', range: '>=2.0.0 <2.1.7 || >=4.0.0 <5.0.12' },
   { name: 'dompurify', range: '<3.4.17' },
-  { name: 'fast-uri', range: '>=3.0.0 <3.1.8' },
+  { name: 'fast-uri', range: '>=3.0.0 <3.1.9' },
   // The upstream maintainer disputes GHSA-ch52-4w7c-c8xp. Version 4.3.0 is
   // outside its reported range; this is not proof of a max-stale behavior fix.
   { name: 'http-cache-semantics', range: '<=4.2.0' },
-  { name: 'ip-address', range: '<=10.7.0' },
-  { name: 'markdown-it', range: '<14.3.1' },
+  { name: 'ip-address', range: '<=10.7.3' },
+  { name: 'markdown-it', range: '<14.3.3' },
   { name: 'postcss-selector-parser', range: '<7.1.6' },
   { name: 'proxy-addr', range: '>=1.1.0 <2.0.8' },
   { name: 'sharp', range: '<0.35.5' },
   { name: 'source-map-js', range: '>=1.0.0 <1.2.2' },
-  { name: 'undici', range: '>=6.7.0 <6.28.1 || >=7.0.0 <7.29.1' },
+  { name: 'undici', range: '>=6.7.0 <6.29.1 || >=7.0.0 <7.30.1 || >=8.0.0 <8.12.2' },
 ]
 
 describe('dependency advisory regressions', () => {
