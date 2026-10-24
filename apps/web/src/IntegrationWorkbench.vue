@@ -7,6 +7,7 @@ import { api } from './api'
 import { FormSelect } from './components/ui/select'
 import { Badge } from './components/ui/badge'
 import { Button as UiButton } from './components/ui/button'
+import { completionActionId } from './home-work-data'
 import Icon from './NavigationIcon.vue'
 import ConfigurationManager from './ConfigurationManager.vue'
 import { useI18n } from './i18n'
@@ -37,6 +38,9 @@ interface BlockState {
   fetchedAt?: string
   failedCursor?: string
   seenCursors: Set<string>
+  /** Bumped by every in-place entity write so reads can tell which writes they may predate. */
+  writeVersion: number
+  writes: Map<string, { version: number, accountId?: string, entity: IntegrationEntityPage['items'][number] }>
 }
 
 const states = reactive<Record<string, BlockState>>({})
@@ -84,7 +88,7 @@ const diagnostics = computed(() => store.integrationDiagnostics.filter(diagnosti
 
 function stateFor(blockId: string): BlockState {
   if (!states[blockId])
-    states[blockId] = { loading: false, error: '', input: {}, requestId: 0, stale: false, seenCursors: new Set() }
+    states[blockId] = { loading: false, error: '', input: {}, requestId: 0, stale: false, seenCursors: new Set(), writeVersion: 0, writes: new Map() }
   return states[blockId]!
 }
 
@@ -190,6 +194,17 @@ function statusActionsFor(block: WorkbenchIntegrationView['blocks'][number]): {
   }
 }
 
+/** One-step providers (a status write without workflow transitions) complete items from the list. */
+function completionActionsFor(block: WorkbenchIntegrationView['blocks'][number]): { integrationId: string, projectId?: string } | undefined {
+  const current = contribution.value
+  if (!current || listReadOnly(block.id) || !completionActionId(current))
+    return undefined
+  const blockAction = current.actions.find(action => action.id === block.actionId)
+  if (!blockAction || !['work-items.get', 'work-items.list', 'work-items.search'].includes(blockAction.operation))
+    return undefined
+  return { integrationId: current.id, projectId: view.value?.scope === 'global' ? undefined : inspectedProjectId.value || undefined }
+}
+
 function workItemActionsFor(block: WorkbenchIntegrationView['blocks'][number]) {
   const current = contribution.value
   if (listReadOnly(block.id) || !current?.actions.some(action => action.id === block.actionId && ['work-items.list', 'work-items.search'].includes(action.operation)))
@@ -202,9 +217,21 @@ function workItemActionsFor(block: WorkbenchIntegrationView['blocks'][number]) {
 }
 
 function applyEntityUpdate(blockId: string, entity: IntegrationEntityPage['items'][number]): void {
-  const page = entityPage(stateFor(blockId).result)
+  const state = stateFor(blockId)
+  const key = workItemIdentityKey(entity)
+  const page = entityPage(state.result)
+  // A read that started before the write could otherwise restore the previous status.
+  state.writes.set(key, { version: ++state.writeVersion, accountId: page?.currentUser?.id, entity })
   if (page)
-    page.items = page.items.map(item => workItemIdentityKey(item) === workItemIdentityKey(entity) ? entity : item)
+    page.items = page.items.map(item => workItemIdentityKey(item) === key ? entity : item)
+}
+
+/** Re-apply concurrent writes only within the same account; legacy item IDs do not identify an account. */
+function replayWrites(state: BlockState, since: number): void {
+  const page = entityPage(state.result)
+  const writes = new Map([...state.writes].filter(([, write]) => write.version > since && write.accountId === page?.currentUser?.id).map(([key, write]) => [key, write.entity]))
+  if (page && writes.size)
+    page.items = page.items.map(item => writes.get(workItemIdentityKey(item)) ?? item)
 }
 
 function copy(zh: string, en: string): string {
@@ -252,6 +279,7 @@ async function invoke(block: WorkbenchIntegrationView['blocks'][number], extraIn
   const integrationId = props.integrationId
   const generation = contextGeneration
   const requestId = ++state.requestId
+  const writeVersion = state.writeVersion
   const current = (): boolean => generation === contextGeneration && states[block.id] === state && state.requestId === requestId
   const input = extraInput ?? state.input
   if (!append && JSON.stringify(state.input) !== JSON.stringify(input)) {
@@ -278,6 +306,7 @@ async function invoke(block: WorkbenchIntegrationView['blocks'][number], extraIn
         if (!('items' in preview) || preview.items.length) {
           state.result = preview
           state.fetchedAt = entityPage(preview)?.fetchedAt
+          replayWrites(state, writeVersion)
         }
       }
       catch {
@@ -307,6 +336,9 @@ async function invoke(block: WorkbenchIntegrationView['blocks'][number], extraIn
     else {
       state.result = result
     }
+    replayWrites(state, writeVersion)
+    // Every recorded write is now reflected in the current result.
+    state.writes.clear()
     state.fetchedAt = nextPage?.fetchedAt ?? new Date().toISOString()
     state.stale = Boolean(nextPage?.cache)
     if (cursor && !identityChanged)
@@ -502,8 +534,9 @@ defineExpose({ refresh: refresh })
             :assignee-filter="block.assigneeFilter"
             :current-user="entityPage(stateFor(block.id).result)!.currentUser"
             :status-actions="statusActionsFor(block)"
+            :completion-actions="completionActionsFor(block)"
             :work-item-actions="workItemActionsFor(block)"
-            :key="`${integrationId}:${viewId}:${inspectedProjectId}:${locale}:${currentSession()?.cacheKey ?? ''}`"
+            :key="JSON.stringify([integrationId, viewId, inspectedProjectId, locale, currentSession()?.cacheKey, entityPage(stateFor(block.id).result)?.currentUser?.id])"
             :loading="stateFor(block.id).loading"
             :configuration-action-id="contribution?.actions.find(action => action.operation === 'configuration.list' && action.id === block.actionId) ? contribution.actions.find(action => action.operation === 'configuration.update')?.id : undefined"
             @configuration-updated="stateFor(block.id).result = $event"

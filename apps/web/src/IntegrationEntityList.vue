@@ -2,9 +2,10 @@
 import type { IntegrationEntity, IntegrationEntityPage } from 'craft-hub'
 import type { HomeWorkSource } from './personal-workbench'
 import { isActiveWorkItem, isPersonalWorkItem, workItemIdentityKey, workItemSourceRefSchema } from 'craft-hub/work-items'
-import { computed, ref, useId, watch } from 'vue'
+import { computed, onUnmounted, ref, useId, watch } from 'vue'
 import { Button as UiButton } from './components/ui/button'
 import { FormSelect } from './components/ui/select'
+import { useHomeWorkDataStore } from './home-work-data'
 import IntegrationEntityStatus from './IntegrationEntityStatus.vue'
 import IntegrationEntityMetadata from './IntegrationEntityMetadata.vue'
 import { Icon } from './icons'
@@ -23,7 +24,13 @@ interface IntegrationStatusActions {
   updateActionId: string
 }
 
-const props = defineProps<{ readOnly?: boolean, filterState?: { query: string, status: string, assignee: string }, items: IntegrationEntity[], statusFilter?: 'active' | 'all', assigneeFilter?: 'current-user' | 'all', currentUser?: IntegrationEntityPage['currentUser'], selectable?: boolean, workItemActions?: { integrationId: string, projectId?: string, detailActionId?: string }, configurationActionId?: string, loading?: boolean, statusActions?: IntegrationStatusActions, sourceContext?: { integrationId: string, actionId: string, projectId?: string } }>()
+/** A one-step status provider: clicking the circle completes an item, Undo reopens it. */
+interface IntegrationCompletionActions {
+  integrationId: string
+  projectId?: string
+}
+
+const props = defineProps<{ readOnly?: boolean, filterState?: { query: string, status: string, assignee: string }, items: IntegrationEntity[], statusFilter?: 'active' | 'all', assigneeFilter?: 'current-user' | 'all', currentUser?: IntegrationEntityPage['currentUser'], selectable?: boolean, workItemActions?: { integrationId: string, projectId?: string, detailActionId?: string }, configurationActionId?: string, loading?: boolean, statusActions?: IntegrationStatusActions, completionActions?: IntegrationCompletionActions, sourceContext?: { integrationId: string, actionId: string, projectId?: string } }>()
 const emit = defineEmits<{ filtersChanged: [filters: { query: string, status: string, assignee: string }], selected: [entity: IntegrationEntity], updated: [entity: IntegrationEntity], configurationUpdated: [page: IntegrationEntityPage] }>()
 const store = useWorkbenchStore()
 const { t, locale } = useI18n()
@@ -128,6 +135,56 @@ async function openSource(event: MouseEvent, entityId: string, detailIndex: numb
   }
 }
 
+const workData = useHomeWorkDataStore()
+const completing = ref(new Set<string>())
+const completion = ref<{ previous: IntegrationEntity, undoing?: boolean }>()
+const completionError = ref('')
+let completionTimer: ReturnType<typeof setTimeout> | undefined
+onUnmounted(() => clearTimeout(completionTimer))
+function canComplete(item: IntegrationEntity): boolean {
+  return Boolean(props.completionActions && !props.readOnly && item.statusUpdateAvailable === true && isActiveWorkItem(item))
+}
+function completionFailure(title: string, caught: unknown): void {
+  const reason = caught instanceof Error ? caught.message : String(caught)
+  completionError.value = `${copy(`未能更新「${title}」`, `Could not update “${title}”`)}: ${reason}`
+}
+async function setCompletion(item: IntegrationEntity, done: boolean): Promise<void> {
+  const { integrationId, projectId } = props.completionActions!
+  const result = await workData.setCompletion({ integrationId }, item, done, projectId)
+  emit('updated', { ...item, ...result, metadata: result.metadata ?? item.metadata })
+}
+/** Clicking the circle is the explicit confirmation for this single, reversible task write. */
+async function complete(item: IntegrationEntity): Promise<void> {
+  const key = entityKey(item)
+  if (completing.value.has(key) || !props.completionActions)
+    return
+  completing.value.add(key)
+  completionError.value = ''
+  try {
+    await setCompletion(item, true)
+    clearTimeout(completionTimer)
+    completion.value = { previous: item }
+    completionTimer = setTimeout(() => { completion.value = undefined }, 8000)
+  }
+  catch (caught) { completionFailure(item.title, caught) }
+  finally { completing.value.delete(key) }
+}
+async function undoCompletion(): Promise<void> {
+  const current = completion.value
+  if (!current || current.undoing || !props.completionActions)
+    return
+  clearTimeout(completionTimer)
+  completion.value = { ...current, undoing: true }
+  completionError.value = ''
+  try {
+    await setCompletion(current.previous, false)
+    completion.value = undefined
+  }
+  catch (caught) {
+    completion.value = current
+    completionFailure(current.previous.title, caught)
+  }
+}
 function statusKey(item: IntegrationEntity): string {
   if (item.archived)
     return 'archived'
@@ -305,6 +362,11 @@ function updatedTime(item: IntegrationEntity): { date: string, time: string, raw
 
     <p v-if="assigneeFilter && items.length && !currentUser" :id="identityHintId" class="integration-filter-hint" role="status">{{ t('integrationCurrentUserUnavailable') }}</p>
     <p v-if="sourceError" class="integration-inline-error" role="alert">{{ sourceError }}</p>
+    <div v-if="completion" class="integration-completion" role="status">
+      <span><Icon name="check" />{{ copy(`已完成「${completion.previous.title}」`, `Completed “${completion.previous.title}”`) }}</span>
+      <UiButton variant="ghost" size="compact" :disabled="completion.undoing" @click="undoCompletion">{{ completion.undoing ? copy('正在撤销…', 'Undoing…') : copy('撤销', 'Undo') }}</UiButton>
+    </div>
+    <p v-if="completionError" class="integration-inline-error" role="alert">{{ completionError }}</p>
     <p v-if="!items.length" class="integration-empty-copy">{{ t('integrationNoResults') }}</p>
     <p v-else-if="!visibleItems.length" class="integration-empty-copy">{{ t('integrationNoFilteredResults') }}</p>
     <div v-else class="integration-entities" :class="{ 'has-updated-column': showUpdatedAt, 'has-priority-column': showPriority, 'integration-configuration-list': configurationActionId }">
@@ -320,19 +382,20 @@ function updatedTime(item: IntegrationEntity): { date: string, time: string, raw
           v-for="{ item, context, depth, key, childCount, expanded } in hierarchyRows"
           :key="key"
           class="integration-entity"
-          :class="{ 'integration-hierarchy-context': context, 'integration-hierarchy-child': depth > 0 }"
+          :class="{ 'integration-hierarchy-context': context, 'integration-hierarchy-child': depth > 0, 'is-completing': completing.has(key) }"
           :style="{ '--hierarchy-depth': Math.min(depth, 4) }"
           :aria-level="depth + 1"
           role="listitem"
         >
           <div class="integration-entity-main">
-            <div v-if="!configurationActionId || childCount || depth > 0" class="integration-hierarchy-control">
+            <div v-if="(!configurationActionId && (context || !canComplete(item))) || childCount || depth > 0" class="integration-hierarchy-control">
               <button v-if="childCount" type="button" class="integration-hierarchy-toggle" :aria-expanded="expanded" :aria-label="t(expanded ? 'integrationCollapseChildren' : 'integrationExpandChildren', { title: item.title })" @click="toggleBranch(key)">
                 <span class="app-icon" :class="expanded ? 'i-lucide-chevron-down' : 'i-lucide-chevron-right'" aria-hidden="true" />
               </button>
               <span v-else-if="depth > 0" class="integration-hierarchy-branch app-icon i-lucide-corner-down-right" aria-hidden="true" />
             </div>
-            <span v-if="item.icon || configurationActionId" class="integration-entity-icon" aria-hidden="true">
+            <button v-if="!context && canComplete(item)" type="button" role="checkbox" class="integration-complete" :aria-checked="completing.has(key)" :aria-label="`${copy('完成', 'Complete')} ${item.title}`" :title="copy('标记为已完成', 'Mark as completed')" :disabled="completing.has(key)" @click="complete(item)"><Icon :name="completing.has(key) ? 'check' : 'pending'" /></button>
+            <span v-else-if="item.icon || configurationActionId" class="integration-entity-icon" aria-hidden="true">
               <VisualIcon v-if="item.icon" :icon="item.icon" fallback="package" />
               <span v-else class="app-icon i-ri-puzzle-line" />
             </span>
@@ -443,6 +506,18 @@ function updatedTime(item: IntegrationEntity): { date: string, time: string, raw
 .integration-hierarchy-toggle:hover { background: var(--surface-hover); color: var(--text); }
 .integration-hierarchy-toggle .app-icon, .integration-hierarchy-branch { width: 14px; height: 14px; }
 .integration-hierarchy-branch { margin-top: 5px; color: var(--muted); }
+.integration-complete { display: grid; flex: 0 0 24px; place-items: center; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--text-secondary); cursor: pointer; }
+.integration-complete > .app-icon { width: 18px; height: 18px; }
+.integration-complete:hover, .integration-complete[aria-checked='true'] { color: var(--accent); }
+.integration-complete:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+.integration-complete:disabled { cursor: progress; }
+.is-completing .integration-entity-title strong { color: var(--text-secondary); text-decoration: line-through; }
+.integration-completion { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2); padding: var(--space-2) var(--integration-row-padding-inline); border-bottom: 1px solid var(--integration-card-border); background: var(--surface-subtle); font-size: var(--font-size-control); }
+.integration-completion > span { display: inline-flex; align-items: center; gap: var(--space-2); min-width: 0; overflow-wrap: anywhere; }
+.integration-completion .app-icon { flex: none; width: 16px; height: 16px; color: var(--success); }
+@media (max-width: 760px), (pointer: coarse) {
+  .integration-complete { flex-basis: 44px; width: 44px; height: 44px; margin: -10px; }
+}
 .integration-hierarchy-context { background: var(--surface-subtle); }
 .integration-hierarchy-context strong { color: var(--text-secondary); font-weight: 500; }
 .integration-entity:has(.integration-entity-link[href]):hover { background: var(--surface-hover); }
