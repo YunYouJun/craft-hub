@@ -6,7 +6,7 @@ import { tmpdir, userInfo } from 'node:os'
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
 import process from 'node:process'
 import { DatabaseSync } from 'node:sqlite'
-import { syncDirectory } from './sync-directory'
+import { syncDirectory, syncDirectoryAncestors } from './sync-directory'
 
 /** Kernel-held migration barrier. Active clients share leases; migration requires exclusive ownership. */
 export interface ProfileLease {
@@ -39,14 +39,7 @@ async function guardDirectory(create: boolean): Promise<string> {
     const firstCreated = await mkdir(path, { recursive: true, mode: 0o700 })
     if (firstCreated) {
       // Persist the newly created directory links as well as the eventual marker file itself.
-      let current = path
-      const ancestor = dirname(firstCreated)
-      for (;;) {
-        await syncDirectory(current)
-        if (current === ancestor)
-          break
-        current = dirname(current)
-      }
+      await syncDirectoryAncestors(path, dirname(firstCreated))
     }
   }
   const info = await lstat(path).catch((error: NodeJS.ErrnoException) => {
