@@ -28,6 +28,7 @@ function sameSecret(value: string | null | undefined, secret: string): boolean {
  * Accept one bootstrap request carrying the secret, then only requests on the loopback origin that present the
  * HttpOnly session cookie it set. The native client receives a separate API-only bearer token over the parent pipe;
  * it never enters a URL, web content, persistent storage, or a cookie. Both credentials expire with this process.
+ * The exact agent-access endpoint authenticates its own revocable read grant, independently of the native session.
  */
 export function createSessionGuard(secret: string, nativeApiToken?: string): SidecarSessionGuard {
   let origin: string | undefined
@@ -44,6 +45,13 @@ export function createSessionGuard(secret: string, nativeApiToken?: string): Sid
         return false
       if (request.headers.origin && request.headers.origin !== origin)
         return false
+      if (request.url === '/api/agent-access' && request.method === 'POST'
+        && !request.headers.origin && !request.headers['sec-fetch-site']
+        && request.headers['content-type']?.split(';')[0]?.trim() === 'application/json'
+        && /^Bearer [a-f\d]{64}$/.test(request.headers.authorization ?? '')) {
+        // Only route to the credential-protected read handler; this is not a host session grant.
+        return true
+      }
       if (request.headers.authorization !== undefined) {
         // A native token cannot bootstrap a browser session or reach host actions/static assets.
         const pathname = new URL(request.url ?? '/', origin).pathname
@@ -178,7 +186,7 @@ export function createSidecarRequestHandler(
         else if (request.method === 'PUT' && request.headers['content-type'] === 'application/json') {
           const input = await inputBody(request)
           if (typeof input.id !== 'string' || typeof input.enabled !== 'boolean')
-            throw new Error('A bundled extension identifier and boolean state are required')
+            throw new TypeError('A bundled extension identifier and boolean state are required')
           send(response, 200, await bundledExtensions.setEnabled(input.id, input.enabled))
         }
         else {
@@ -235,7 +243,7 @@ export function createSidecarRequestHandler(
         }
         case 'open-workbench-tool': {
           if (typeof input.toolId !== 'string')
-            throw new Error('Workbench tool identifier is required')
+            throw new TypeError('Workbench tool identifier is required')
           const home = (await getRuntime().settings.get()).settings['workbench.home']
           const tool = home.tools.find(tool => tool.id === input.toolId)
           if (!tool)
