@@ -449,6 +449,79 @@ describe('integration workbench', () => {
       wrapper.unmount()
     })
 
+    it('keeps a completion when a list read that started before the write resolves with the old status', async () => {
+      completionSource()
+      let lists = 0
+      let settleList!: () => void
+      vi.spyOn(api, 'invokeIntegrationAction').mockImplementation(async (_id, action) => {
+        if (action !== 'list')
+          return { ...todo('Take medicine'), status: 'completed', statusLabel: 'Completed', statusCategory: 'done' }
+        if (lists++) {
+          await new Promise<void>((resolve) => {
+            settleList = resolve
+          })
+        }
+        return { currentUser: { id: 'me' }, items: [todo('Take medicine'), todo('Dentist')] }
+      })
+      const wrapper = mount(IntegrationWorkbench, { props: { integrationId: 'tasks', viewId: 'work' }, global: { plugins: [pinia] } })
+      await flushPromises()
+      const reload = wrapper.get('[data-testid="integration-block-tasks"] .integration-block-heading button')
+      await reload.trigger('click')
+      expect(reload.attributes('disabled')).toBeDefined()
+
+      await wrapper.get('[role="checkbox"][aria-label="Complete Take medicine"]').trigger('click')
+      await flushPromises()
+      expect(titles(wrapper)).toEqual(['Dentist'])
+      settleList()
+      await flushPromises()
+      expect(titles(wrapper)).toEqual(['Dentist'])
+      expect(reload.attributes('disabled')).toBeUndefined()
+
+      // Once a read has settled, a later read is authoritative again.
+      await reload.trigger('click')
+      settleList()
+      await flushPromises()
+      expect(titles(wrapper)).toEqual(['Take medicine', 'Dentist'])
+      wrapper.unmount()
+    })
+
+    it.each(['before', 'after'] as const)('discards old-account completion and undo when the write settles %s an account-changing refresh', async (order) => {
+      completionSource()
+      const previous = todo('shared-id', { title: 'Old account task', sourceRef: undefined, personalMembership: undefined })
+      const next = { ...previous, title: 'New account task' }
+      let reads = 0
+      let finishRead!: (page: IntegrationEntityPage) => void
+      let finishWrite!: () => void
+      vi.spyOn(api, 'invokeIntegrationAction').mockImplementation(async (_id, action) => {
+        if (action !== 'list') {
+          if (order === 'after')
+            await new Promise<void>((resolve) => { finishWrite = resolve })
+          return { ...previous, status: 'completed', statusCategory: 'done' }
+        }
+        if (reads++)
+          return new Promise<IntegrationEntityPage>((resolve) => { finishRead = resolve })
+        return { currentUser: { id: 'old-account' }, items: [previous] }
+      })
+      const wrapper = mount(IntegrationWorkbench, { props: { integrationId: 'tasks', viewId: 'work' }, global: { plugins: [pinia] } })
+      try {
+        await flushPromises()
+        await wrapper.get('[data-testid="integration-block-tasks"] .integration-block-heading button').trigger('click')
+        await wrapper.get('[role="checkbox"]').trigger('click')
+        await flushPromises()
+        if (order === 'before')
+          expect(wrapper.find('.integration-completion').exists()).toBe(true)
+        finishRead({ currentUser: { id: 'new-account' }, items: [next] })
+        await flushPromises()
+        if (order === 'after') {
+          finishWrite()
+          await flushPromises()
+        }
+        expect(titles(wrapper)).toEqual(['New account task'])
+        expect(wrapper.find('.integration-completion').exists()).toBe(false)
+      }
+      finally { wrapper.unmount() }
+    })
+
     it('keeps the task and explains a failed write', async () => {
       completionSource()
       vi.spyOn(api, 'invokeIntegrationAction').mockImplementation(async (_id, action) => {
