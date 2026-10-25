@@ -14,6 +14,8 @@ final class WorkbenchModel {
   let settings = NativeSettingsModel()
   let plugins = PluginsModel()
   let diagnostics = DiagnosticsModel()
+  let websiteNavigation = WebsiteNavigationModel()
+  private(set) var toolsPage: ToolsPage
   let cloud = NativeCloudModel()
   let codexActivity = CodexActivityModel()
   private(set) var connectionGeneration = UUID()
@@ -42,9 +44,11 @@ final class WorkbenchModel {
   @ObservationIgnored private var configurationNavigation = UUID()
   @ObservationIgnored private let defaults: UserDefaults
   private static let lastDestinationKey = "lastDestination"
+  private static let toolsPageKey = "toolsPage"
 
   init(defaults: UserDefaults = NativeStorage.defaults) {
     self.defaults = defaults
+    toolsPage = defaults.string(forKey: Self.toolsPageKey).flatMap(ToolsPage.init(rawValue:)) ?? .favorites
     recentProjectIDs = defaults.stringArray(forKey: "recentProjects") ?? []
   }
 
@@ -79,6 +83,7 @@ final class WorkbenchModel {
     codexActivity.connect(preferencesClient)
     plugins.connect(preferencesClient)
     diagnostics.connect(preferencesClient)
+    websiteNavigation.connect(preferencesClient)
     integrations.connect(preferencesClient)
     NativePreferences.shared.refresh(preferencesClient)
     observation.connect(connection)
@@ -99,6 +104,7 @@ final class WorkbenchModel {
     projects.invalidate(changes)
     plugins.invalidate(changes)
     diagnostics.invalidate(changes)
+    websiteNavigation.invalidate(changes)
     integrations.invalidate(changes)
     if !changes.isDisjoint(with: [.settings, .plugins, .pluginUpdate, .userConfig, .configurationSync, .integrations]) {
       today.invalidate()
@@ -122,12 +128,22 @@ final class WorkbenchModel {
         await machine.loadSoftware()
         await machine.softwareSources.load()
       }
+      if destination == .tools {
+        if toolsPage == .navigation {
+          await websiteNavigation.load(locale: L10n.text.chinese ? "zh-CN" : "en")
+        } else {
+          await machine.favorites.load()
+        }
+      }
     }
   }
 
   func showWebWorkbench() {
     showsWebContent = true
-    if let selection { evaluate("window.__craftHubNavigate?.(\(Self.jsonString(selection.path)))") }
+    if let selection {
+      let path = selection == .tools ? toolsPage.path : selection.path
+      evaluate("window.__craftHubNavigate?.(\(Self.jsonString(path)))")
+    }
   }
 
   func routeChanged(_ path: String) {
@@ -145,6 +161,10 @@ final class WorkbenchModel {
     }
     // The hidden web page may finish an earlier navigation while a native page is already selected.
     guard !presentsNativeContent else { return }
+    if let page = ToolsPage(path: path) {
+      showTools(page)
+      return
+    }
     if let plugin = PluginRoute(path: path) {
       openNativePlugin(package: plugin.package, source: plugin.source)
       return
@@ -161,7 +181,9 @@ final class WorkbenchModel {
   func goBack() { webView?.goBack() }
   func goForward() { webView?.goForward() }
   func find() {
-    if presentsNativeContent && [.projects, .software, .workbenches, .marketplace, .diagnostics].contains(selection) {
+    if presentsNativeContent
+      && [.projects, .tools, .software, .workbenches, .marketplace, .diagnostics].contains(selection)
+    {
       findRequest += 1
     } else {
       run("palette")
@@ -218,6 +240,13 @@ final class WorkbenchModel {
         if selection == .overview { await today.load(force: true) }
         if selection == .environment { await machine?.loadEnvironment(force: true) }
         if selection == .software { await machine?.loadSoftware(force: true) }
+        if selection == .tools {
+          if toolsPage == .navigation {
+            await websiteNavigation.load(locale: L10n.text.chinese ? "zh-CN" : "en", force: true)
+          } else {
+            await machine?.favorites.load(force: true)
+          }
+        }
       }
     } else {
       webView?.reload()
@@ -285,6 +314,10 @@ final class WorkbenchModel {
 
   func navigateToWebPath(_ path: String) {
     configurationNavigation = UUID()
+    if let page = ToolsPage(path: path) {
+      showTools(page)
+      return
+    }
     if let plugin = PluginRoute(path: path) {
       openNativePlugin(package: plugin.package, source: plugin.source)
       return
@@ -295,7 +328,9 @@ final class WorkbenchModel {
       select(.environment)
       return
     }
-    if path == "/marketplace" || path == "/diagnostics", let destination = Destination.matching(path: path) {
+    if ["/marketplace", "/diagnostics", "/tools", "/software"].contains(path),
+      let destination = Destination.matching(path: path)
+    {
       selection = destination
       select(destination)
       return
@@ -325,6 +360,13 @@ final class WorkbenchModel {
       return
     }
     showIntegrationWeb(path)
+  }
+  private func showTools(_ page: ToolsPage) {
+    toolsPage = page
+    defaults.set(page.rawValue, forKey: Self.toolsPageKey)
+    pendingSelection = nil
+    selection = .tools
+    select(.tools)
   }
   private func openNativePlugin(package: String?, source: String?) {
     selection = .marketplace

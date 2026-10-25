@@ -126,6 +126,12 @@ struct ContentView: View {
                 openConfiguration: model.openConfiguration
               )
               .onAppear { PerformanceTrace.mark(.nativePageAppeared) }
+            } else if model.selection == .tools, let machine = model.machine {
+              ToolsView(
+                model: machine.favorites, navigation: model.websiteNavigation, page: model.toolsPage,
+                findRequest: model.findRequest, navigate: model.navigateToWebPath
+              )
+              .onAppear { PerformanceTrace.mark(.nativePageAppeared) }
             } else if let machine = model.machine {
               SoftwareView(machine: machine, findRequest: model.findRequest, showWorkbench: model.showWebWorkbench)
                 .onAppear { PerformanceTrace.mark(.nativePageAppeared) }
