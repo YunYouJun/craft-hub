@@ -58,7 +58,14 @@ struct EnvironmentView: View {
       if let snapshot = machine.environment {
         List {
           Section(text.copy("当前运行时", "Active Runtime")) {
-            LabeledContent("Node", value: snapshot.runtime.version)
+            LabeledContent {
+              Text(snapshot.runtime.version).foregroundStyle(.secondary)
+            } label: {
+              HStack(spacing: 8) {
+                EnvironmentToolIconView(toolID: "node", size: 20)
+                Text("Node")
+              }
+            }
             LabeledContent(text.copy("可执行文件", "Executable")) {
               Text(snapshot.runtime.executablePath).textSelection(.enabled).foregroundStyle(.secondary)
             }
@@ -69,9 +76,8 @@ struct EnvironmentView: View {
           Section(text.copy("开发工具", "Developer Tools")) {
             ForEach(snapshot.tools) { tool in
               HStack(alignment: .top, spacing: 12) {
-                Image(systemName: tool.status == "available" ? "checkmark.circle.fill" : "exclamationmark.circle")
-                  .foregroundStyle(tool.status == "available" ? Color.green : Color.secondary)
-                  .accessibilityHidden(true)
+                EnvironmentToolIconView(toolID: tool.id)
+                  .padding(.top, 2)
                 VStack(alignment: .leading, spacing: 4) {
                   Text(tool.name).fontWeight(.medium)
                   if let path = tool.executablePath {
@@ -81,7 +87,12 @@ struct EnvironmentView: View {
                 }
                 Spacer()
                 VStack(alignment: .trailing, spacing: 4) {
-                  Text(text.toolStatus(tool.status))
+                  HStack(spacing: 5) {
+                    Image(systemName: tool.status == "available" ? "checkmark.circle.fill" : "exclamationmark.circle")
+                      .foregroundStyle(tool.status == "available" ? Color.green : Color.secondary)
+                      .accessibilityHidden(true)
+                    Text(text.toolStatus(tool.status))
+                  }
                   if let version = tool.version { Text(version).font(.caption).foregroundStyle(.secondary) }
                 }
               }

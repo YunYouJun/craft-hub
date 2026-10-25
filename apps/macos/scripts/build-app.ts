@@ -199,6 +199,7 @@ finally {
 const binDirectory = await step('Locating the build products', 'swift', [...swiftBuildArguments, '--show-bin-path'])
 const executable = resolve(contents, 'MacOS/CraftHubMac')
 await cp(join(binDirectory, 'CraftHubMac'), executable)
+await cp(join(binDirectory, 'CraftHubMac_CraftHubMac.bundle'), resolve(contents, 'Resources/CraftHubMac_CraftHubMac.bundle'), { recursive: true })
 const executableArchitecture = (await run('lipo', ['-archs', executable])).stdout.trim()
 if (executableArchitecture !== swiftArchitecture)
   throw new Error(`Native executable architecture ${executableArchitecture} does not match packaged ${architecture} dependencies`)
