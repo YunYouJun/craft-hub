@@ -436,7 +436,7 @@ async function startProtectedServer(options: CraftHubServerOptions, runtime: Cra
           || request.headers['content-type']?.split(';')[0]?.trim().toLowerCase() !== 'application/json') {
           return sendJson(response, 403, { error: 'Favorites require a same-origin local JSON request' })
         }
-        return sendJson(response, 200, await runtime.updateSoftwareFavorite(await jsonBody(request, 4096)))
+        return sendJson(response, 200, await runtime.updateSoftwareFavorite(await jsonBody(request, 4 * 1024 * 1024)))
       }
 
       if (parts[0] === 'api' && parts[1] === 'software' && parts.length >= 3) {

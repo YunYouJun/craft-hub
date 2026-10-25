@@ -311,14 +311,14 @@ export class CraftHubRuntime {
     return { ...catalog, favorites: softwareFavoritesSnapshot(catalog, await this.settings.get()) }
   }
 
-  /** Change one favorite while preserving all other home settings, with the caller's inspected revision. */
+  /** Change favorites while preserving all other home settings, with the caller's inspected revision. */
   async updateSoftwareFavorite(request: unknown): Promise<SoftwareFavoritesSnapshot> {
     this.assertLocalSoftwareManagement()
     const input = softwareFavoriteRequestSchema.parse(request)
     const current = await this.settings.get()
     if (input.revision !== current.revision)
       throw new SettingsConflictError(input.revision, current.revision)
-    const catalog = await this.softwareCatalogSnapshot()
+    const catalog = await this.softwareCatalogSnapshot({ localDiscovery: input.action === 'add' })
     const home = current.settings['workbench.home']
     let tools = home.tools
     if (input.action === 'add') {
@@ -327,6 +327,9 @@ export class CraftHubRuntime {
         throw new SoftwareOperationError(404, 'Software is no longer in the catalog. Reload before saving a favorite.')
       if (!findSoftwareFavorite(tools, item))
         tools = [...tools, createSoftwareFavorite(item, input.locale, `software:${randomUUID()}`)]
+    }
+    else if (input.action === 'replace') {
+      tools = input.tools
     }
     else {
       tools = tools.filter(tool => tool.id !== input.toolId)

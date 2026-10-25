@@ -32,8 +32,9 @@ public final class RuntimeAPIClient {
     return result
   }
 
-  public func software() async throws -> SoftwareSnapshot {
-    let result: SoftwareSnapshot = try await fetch(path: "/api/software")
+  public func software(localDiscovery: Bool = true) async throws -> SoftwareSnapshot {
+    let result: SoftwareSnapshot = try await fetch(
+      path: "/api/software", query: localDiscovery ? [] : [URLQueryItem(name: "discovery", value: "none")])
     guard result.version == 1 else { throw RuntimeAPIError.incompatibleVersion }
     return result
   }

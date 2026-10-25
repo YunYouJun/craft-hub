@@ -1,6 +1,20 @@
 import CraftHubMacCore
 import Foundation
 
+/// The two native pages under Tools retain their own route across navigation and restarts.
+enum ToolsPage: String {
+  case favorites, navigation
+
+  init?(path: String) {
+    switch path {
+    case "/tools": self = .favorites
+    case "/navigation": self = .navigation
+    default: return nil
+    }
+  }
+  var path: String { self == .navigation ? "/navigation" : "/tools" }
+}
+
 /// A primary workbench destination shown in the native sidebar, mapped to a web route.
 enum Destination: String, CaseIterable, Identifiable {
   case overview, projects, tools, software, environment, workbenches, marketplace, diagnostics
@@ -39,12 +53,13 @@ enum Destination: String, CaseIterable, Identifiable {
   @MainActor var title: String { L10n.text.destination(self) }
 
   var isNative: Bool {
-    [.overview, .projects, .environment, .software, .workbenches, .marketplace, .diagnostics].contains(self)
+    [.overview, .projects, .tools, .environment, .software, .workbenches, .marketplace, .diagnostics].contains(self)
   }
 
   /// The destination a web route belongs to, so the sidebar follows in-page navigation.
   static func matching(path: String) -> Destination? {
     if path == "/" { return .projects }
+    if path == "/navigation" { return .tools }
     if path.hasPrefix("/integrations/") { return .workbenches }
     return
       allCases

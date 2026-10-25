@@ -55,7 +55,7 @@ open -n "$PWD/apps/macos/build/Craft Hub Prototype.app" \
 | C：命令面板、快速记录、草稿 | 原生面板及恢复测试；2026-10-22 真实快捷键和未信任命令审阅；当前候选 ⌘K/焦点/回车、Escape、草稿跨退出重启已复验 | 输入法、完整焦点顺序、后台全局快捷键的新采样及显示器切换 |
 | C：窗口、深链接、通知、App Intents | 几何恢复测试；系统菜单全屏进入/返回走查；实例/Launch Services 验证器；通知授权状态测试、拒绝提示及标准入口副本授权/重启、卡片默认点击和“查看项目”按钮走查；开发签名副本的 Shortcuts 注册、动作执行与窗口重开见下文 | 多显示器、键盘全屏、减少动态效果/透明度、高对比度；最新包等待授权提示、失败通知及其他通知场景；Spotlight 和正式签名包的系统入口 |
 | D：插件、诊断与宿主扩展 | [管理指南](native-management.md)；`test:macos-management`、`test:macos-host-extensions`；普通页面走查；旧 Links 副本及最新收尾候选的 XCTest 证据；新包已完成安装/移除确认、取消/Escape、计划变化重新审阅、诊断详情与处理跳转，截图确认 README 和权限 | 完整焦点/组合输入和 VoiceOver、其他诊断处理目标及权限组合；本轮具体范围见工程收尾记录 |
-| D：软件、环境、配置、声明式集成 | 原生来源、收藏、安装审阅、配置计划、加密备份、账号/动作/资源表单；`test:macos-configuration` 与模型/HTTP 测试 | 真实安装器和集成账号、文件选择器、敏感字段与未知回执恢复的系统走查；自定义工具编辑等保留网页流程 |
+| D：软件、环境、配置、声明式集成 | 原生来源、收藏、安装审阅、配置计划、加密备份、账号/动作/资源表单；`test:macos-configuration` 与模型/HTTP 测试 | 真实安装器和集成账号、文件选择器、敏感字段与未知回执恢复的系统走查；[自定义工具编辑与网站导航已原生化](native-tools.md) |
 | D：无 Node 启动 | [Node 引导指南](native-node-runtime.md)；x64/Rosetta 真实下载与重启；当前 arm64 候选已实测无 Node 引导、登录 PATH、文件选择与失效路径回退，并完成私有版本恢复、取消、重启和缺失文件恢复 | 完整辅助功能、最低系统与真实 Intel；网络下载测试需单独启用 |
 | D：Codex 活动、个人云和 Keychain | [活动指南](native-codex-activity.md) 已有系统审阅及事件走查；[私有通道](native-secure-storage.md) 的真实 Node/Swift/临时 Keychain/本地云替身演练 | 正式云网页的候选 callback 配套、真实账号授权、系统 Keychain 提示、正式签名更新后的访问 |
 | E：普通资料复制与回退 | [迁移指南](native-profile-migration.md)；包内 CLI/sidecar 的复制、重复应用、竞争、恢复和保留后续编辑的回退；系统向导报告保存及活动宿主拒绝已走查 | 日用宿主停止后的正向 GUI 复制；真实资料仍有未知条目和未完成运行，不能直接应用 |

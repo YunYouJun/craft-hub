@@ -37,7 +37,11 @@ final class MachineModel {
     environmentSources = EnvironmentSourcesModel(client: client)
     configuration = ConfigurationModel(client: client)
     favorites = SoftwareFavoritesModel(client: client)
-    favorites.changed = { [weak self] in Task { await self?.loadSoftware(force: true) } }
+    favorites.changed = { [weak self] in
+      guard let self else { return }
+      softwareRevision += 1
+      if !favorites.uncertain { Task { await self.favorites.load() } }
+    }
     configuration.changed = { [weak self] in self?.environmentProfile.invalidate() }
     environmentSources.connected = { [weak self] in self?.environmentProfile.invalidate() }
     installations.detectionChanged = { [weak self] in await self?.loadSoftware(force: true) }
@@ -107,7 +111,7 @@ final class MachineModel {
         let result = try await client.software()
         guard !Task.isCancelled else { return }
         software = result
-        if revision == softwareRevision { favorites.receive(result.favorites, version: favoritesVersion) }
+        if revision == softwareRevision { favorites.receiveCatalog(result, version: favoritesVersion) }
         installations.updateSources(result.sources)
         loadedSoftwareRevision = revision
         softwareError = nil

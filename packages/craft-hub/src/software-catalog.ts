@@ -2,7 +2,7 @@ import type { PersonalWorkbenchTool } from './personal-workbench'
 import type { SoftwareSource } from './software-sources'
 import { z } from 'zod'
 import { operationSupportSchema } from './configuration-management'
-import { personalWorkbenchToolSchema } from './personal-workbench'
+import { personalWorkbenchHomeSchema, personalWorkbenchToolSchema } from './personal-workbench'
 
 const httpsUrl = personalWorkbenchToolSchema.shape.url
 const localizedText = z.object({ en: z.string().trim().min(1).max(256), zh: z.string().trim().min(1).max(256).optional() }).strict()
@@ -17,10 +17,11 @@ export const softwareInstallationConfirmationSchema = z.object({ planId: identif
 /** Only a trusted catalog application can be opened. */
 export const softwareApplicationRequestSchema = z.object({ softwareId: identifier }).strict()
 
-/** Favorites select published metadata or an existing favorite, never client-authored executable content. */
+/** Favorites accept catalog IDs or validated shortcuts, never executable recipes or arbitrary launch paths. */
 export const softwareFavoriteRequestSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('add'), revision: identifier, sourceId: identifier, softwareId: identifier, locale: z.enum(['en', 'zh-CN']) }).strict(),
   z.object({ action: z.literal('remove'), revision: identifier, toolId: identifier }).strict(),
+  z.object({ action: z.literal('replace'), revision: identifier, tools: personalWorkbenchHomeSchema.shape.tools }).strict(),
 ])
 /** Runtime-derived favorite state, shared with the personal workbench settings. */
 export interface SoftwareFavoritesSnapshot {

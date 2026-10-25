@@ -138,3 +138,55 @@ import Testing
   try model.openPluginManagement(catalogURL: nil)
   #expect(model.plugins.sourceCatalogURL == "https://example.com/catalog.json")
 }
+
+@MainActor @Test func toolsNavigationUsesNativeFavoritesAndWebsiteDirectory() {
+  let suite = "craft-hub-tools-navigation-\(UUID())"
+  let defaults = UserDefaults(suiteName: suite)!
+  defer { defaults.removePersistentDomain(forName: suite) }
+  let model = WorkbenchModel(defaults: defaults)
+  model.routeChanged("/overview")
+  model.navigateToWebPath("/tools")
+  #expect(model.selection == .tools && model.presentsNativeContent)
+  let request = model.findRequest
+  model.find()
+  #expect(model.findRequest == request + 1)
+  model.navigateToWebPath("/navigation")
+  model.routeChanged("/navigation")
+  #expect(model.selection == .tools && model.presentsNativeContent && model.toolsPage == .navigation)
+  model.navigateToWebPath("/tools")
+  #expect(model.toolsPage == .favorites)
+  model.select(.tools)
+  #expect(model.presentsNativeContent)
+  model.navigateToWebPath("/software")
+  #expect(model.selection == .software && model.presentsNativeContent)
+}
+
+@MainActor @Test func websiteDirectoryRestoresAfterRestartAndAdoptsWebAndPaletteRoutes() {
+  let suite = "craft-hub-directory-navigation-\(UUID())"
+  let defaults = UserDefaults(suiteName: suite)!
+  defer { defaults.removePersistentDomain(forName: suite) }
+  let original = WorkbenchModel(defaults: defaults)
+  original.routeChanged("/overview")
+  original.navigateToWebPath("/navigation")
+  #expect(original.toolsPage == .navigation && original.presentsNativeContent)
+  original.navigateToWebPath("/marketplace")
+  #expect(original.selection == .marketplace)
+  original.selection = .tools
+  original.select(.tools)
+  #expect(original.toolsPage == .navigation && original.presentsNativeContent)
+  let reopened = WorkbenchModel(defaults: defaults)
+  reopened.routeChanged("/overview")
+  #expect(reopened.selection == .tools && reopened.toolsPage == .navigation && reopened.presentsNativeContent)
+  reopened.showIntegrationWeb("/integrations/fixture/view")
+  reopened.routeChanged("/tools")
+  #expect(reopened.toolsPage == .favorites && reopened.presentsNativeContent)
+  // A hidden web navigation must not steal the active native subpage.
+  reopened.routeChanged("/navigation")
+  #expect(reopened.toolsPage == .favorites)
+  reopened.showIntegrationWeb("/integrations/fixture/view")
+  reopened.routeChanged("/navigation")
+  #expect(reopened.toolsPage == .navigation && reopened.presentsNativeContent)
+  let request = reopened.findRequest
+  reopened.find()
+  #expect(reopened.findRequest == request + 1)
+}
