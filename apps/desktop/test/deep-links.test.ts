@@ -11,6 +11,10 @@ const rejectedLinks: Array<[string, DesktopLinkErrorCode]> = [
   ['craft-hub://open?v=2', 'unexpected-version'],
   ['craft-hub://open?v=1&view=capabilities', 'unexpected-view'],
   ['craft-hub://open?v=1&v=1', 'repeated-parameter'],
+  ['craft-hub://software?v=1&bundleId=com.example.app&path=/tmp/app', 'unexpected-parameter'],
+  ['craft-hub://software?v=1&bundleId=com.example.app%0A', 'unexpected-parameter'],
+  ['craft-hub://software?v=1&bundleId=../app', 'unexpected-parameter'],
+  ['craft-hub://software?v=1&bundleId=com.example.app&bundleId=com.example.other', 'repeated-parameter'],
   ['craft-hub://workspace?v=1&id=%00', 'unexpected-parameter'],
   ['craft-hub://project?v=1&repo=file%3A%2F%2F%2Ftmp%2Fproject', 'unsafe-repository'],
   ['craft-hub://project?v=1&repo=https%3A%2F%2Fexample.com%2Frepo&subdir=..%2Foutside', 'unsafe-repository'],
@@ -20,6 +24,8 @@ const rejectedLinks: Array<[string, DesktopLinkErrorCode]> = [
 describe('desktop links', () => {
   it.each([
     ['craft-hub://open?v=1', { kind: 'navigation', navigation: { kind: 'home' } }],
+    ['craft-hub://software?v=1', { kind: 'navigation', navigation: { kind: 'software' } }],
+    ['craft-hub://software?v=1&bundleId=com.example.Editor', { kind: 'navigation', navigation: { kind: 'software', bundleId: 'com.example.Editor' } }],
     ['craft-hub://open?v=1&view=marketplace', { kind: 'navigation', navigation: { kind: 'marketplace' } }],
     ['craft-hub://open?v=1&view=settings', { kind: 'navigation', navigation: { kind: 'settings' } }],
     ['craft-hub://celebrate?v=1', { kind: 'celebration' }],

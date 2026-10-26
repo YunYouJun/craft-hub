@@ -93,6 +93,47 @@ Groups require `id`, localized `label`, and `items`. Items require `id`, localiz
 Application paths and `installCommand` never enter the browser catalog. IDs must
 be unique. Files are bounded to 2 MiB and catalogs to 1,000 applications.
 
+## Uninstall guidance
+
+Open **Software center → Uninstall guidance** to inspect applications under
+`/Applications` and `~/Applications` on the local Mac. This works without an
+installation plugin. Scans have bounded nesting and item counts; unreadable
+locations are reported, and user data and other disks are not scanned.
+
+Applications with the same bundle ID remain separate entries with their actual
+paths. Selecting an application searches its package and, for applications inside
+a vendor folder, that enclosing folder for uninstall-related filenames. These
+are **unverified candidates**, with their location shown as evidence. **Show in
+Finder** reveals the current file; the workbench never executes a candidate or
+deletes anything. A missing candidate does not prove there is no uninstall menu
+inside the application.
+
+Catalog authors can add optional literal metadata to the original source:
+
+```ts
+export const uninstallMetadata = {
+  macosBundleId: 'com.example.editor',
+  uninstallUrl: 'https://example.com/support/uninstall',
+}
+```
+
+Check the vendor's documentation before publishing the URL. The bundle ID must
+match the installed application; names are not used to guess identity. The UI
+attributes documentation to its catalog source. When no documentation is
+configured, it offers the general operating-system guide and an explicitly
+unverified web search. This does not claim to discover every official uninstaller.
+
+Desktop Links `craft-hub://software?v=1&bundleId=com.example.editor` and
+`craft-hub-native://software?v=1&bundleId=com.example.editor` navigate to the same
+guidance, filtered by bundle ID. Omit `bundleId` to browse all applications. Links
+cannot contain file paths, commands or uninstall instructions. Augma uses this
+navigation contract; an Agent connection is not required.
+
+Local HTTP routes `/api/application-maintenance`,
+`/api/application-maintenance/:id` and the JSON POST
+`/api/application-maintenance/:id/reveal` use freshly discovered, server-owned
+identifiers. Hosted workbenches cannot inspect local applications or reveal files.
+
 ## Supported platforms
 
 Set optional `platforms` to a nonempty, unique array of `macos`, `windows`

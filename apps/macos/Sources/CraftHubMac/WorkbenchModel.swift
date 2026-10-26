@@ -40,6 +40,7 @@ final class WorkbenchModel {
   @ObservationIgnored private var webDataStore: WKWebsiteDataStore?
   @ObservationIgnored private var pendingSelection: String?
   @ObservationIgnored private var desktopLinks = DesktopLinkInbox()
+  @ObservationIgnored private var pendingApplicationMaintenance: ApplicationMaintenanceLink?
   @ObservationIgnored private var restoredLastDestination = false
   @ObservationIgnored private var configurationNavigation = UUID()
   @ObservationIgnored private let defaults: UserDefaults
@@ -97,6 +98,7 @@ final class WorkbenchModel {
     restoredLastDestination = false
     canGoBack = false
     canGoForward = false
+    if let link = pendingApplicationMaintenance { openApplicationMaintenance(link) }
   }
 
   func invalidate(_ changes: Set<RuntimeChange>) {
@@ -191,6 +193,10 @@ final class WorkbenchModel {
   }
 
   func acceptDesktopLink(_ url: URL) {
+    if let link = ApplicationMaintenanceLink(url: url) {
+      openApplicationMaintenance(link)
+      return
+    }
     if url.host?.lowercased() == "cloud" {
       presentSettings?()
       Task { await cloud.adopt(url) }
@@ -203,6 +209,30 @@ final class WorkbenchModel {
     navigationError = nil
     restoredLastDestination = true
     deliverDesktopLinks()
+  }
+
+  private func openApplicationMaintenance(_ link: ApplicationMaintenanceLink) {
+    restoredLastDestination = true
+    showsWebContent = false
+    selection = .software
+    navigationError = nil
+    guard let machine else {
+      pendingApplicationMaintenance = link
+      return
+    }
+    pendingApplicationMaintenance = nil
+    machine.softwareTab = "uninstall"
+    let model = machine.applicationMaintenance
+    model.bundleId = link.bundleId
+    model.query = ""
+    model.selection = nil
+    Task {
+      await model.load()
+      guard self.machine === machine, machine.softwareTab == "uninstall", model.bundleId == link.bundleId else {
+        return
+      }
+      model.selection = model.applications.first?.id
+    }
   }
 
   private func deliverDesktopLinks() {

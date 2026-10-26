@@ -46,6 +46,10 @@ export const softwareMetadataSchema = z.object({
   description: z.string().max(1024).optional(),
   /** Explicit product support, independent of local installation capability. Omitted means unknown. */
   platforms: z.array(z.enum(['macos', 'windows', 'linux'])).min(1).max(3).refine(platforms => new Set(platforms).size === platforms.length, 'Platforms must be unique').optional(),
+  /** Explicit macOS identity used to associate documentation with an installed application. */
+  macosBundleId: z.string().min(3).max(255).regex(/^[a-z0-9-]+(?:\.[a-z0-9-]+)+$/i).optional(),
+  /** Maintainer-reviewed vendor documentation; metadata never authorizes local execution. */
+  uninstallUrl: httpsUrl.optional(),
   installation,
 }).strict()
 

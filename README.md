@@ -18,6 +18,7 @@ Use Orca or your preferred coding workbench for daily coding, agent sessions, wo
 - Pin commonly used projects locally and open their existing project workbench
 - Enter installed plugin navigation and integration views from the overview
 - Browse the [bundled software catalog](docs/guide/software-catalog.md) in **Software center** (`/software`) even without Workstation installed; connect the local plugin to review missing-app installations, follow progress, retry unfinished items and open detected macOS apps
+- Inspect local macOS applications in **Software center → Uninstall guidance**, view attributed documentation and reveal unverified uninstaller candidates in Finder. This read-only discovery works without an installation plugin; it never runs an uninstaller or deletes files. See the [delivery plan](docs/plans/application-uninstall-guidance.md).
 - Inspect Git, Node.js, pnpm, fnm, Homebrew and Workstation in **Local environment** (`/environment`), with version, path, probe status and search locations; the backend's bundled Node is reported separately
 - Preview real provider work items through configured, read-only `work-items.list` actions
 - Connect Microsoft To Do in the desktop app to preview personal lists and unfinished tasks, filter by list, inspect authorization status and refresh from the overview

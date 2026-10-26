@@ -4,6 +4,7 @@ import { createSoftwareFavorite, findSoftwareFavorite, personalWorkbenchHomeSche
 import { computed, inject, onMounted, onUnmounted, ref, watch } from 'vue'
 import { routeLocationKey, RouterLink } from 'vue-router'
 import { api } from './api'
+import ApplicationUninstallGuidance from './ApplicationUninstallGuidance.vue'
 import { Alert } from './components/ui/alert'
 import { Badge } from './components/ui/badge'
 import { Button as UiButton } from './components/ui/button'
@@ -19,6 +20,8 @@ import WorkbenchViewFrame from './WorkbenchViewFrame.vue'
 
 const store = useWorkbenchStore()
 const route = inject(routeLocationKey, undefined)
+const maintenanceTab = ref(route?.query.tab === 'uninstall')
+watch(() => route?.query.tab, value => { maintenanceTab.value = value === 'uninstall' })
 const { locale } = useI18n()
 const zh = computed(() => locale.value === 'zh-CN')
 const copy = (chinese: string, english: string) => zh.value ? chinese : english
@@ -475,8 +478,12 @@ defineExpose({ refresh: loadCatalog })
 <template>
   <WorkbenchViewFrame class="software-center" :title="copy('软件中心', 'Software center')" :description="copy('浏览和收藏软件，连接本机插件后可检测、安装和打开应用。', 'Browse and favorite software. Connect a local plugin to detect, install and open applications.')" icon="builtin:package">
     <template #actions>
-      <UiButton size="compact" :disabled="loading" data-testid="refresh-software" @click="loadCatalog"><Icon :name="loading ? 'loading' : 'refresh'" />{{ copy('刷新', 'Refresh') }}</UiButton>
+      <UiButton v-if="!maintenanceTab" size="compact" :disabled="loading" data-testid="refresh-software" @click="loadCatalog"><Icon :name="loading ? 'loading' : 'refresh'" />{{ copy('刷新', 'Refresh') }}</UiButton>
     </template>
+    <nav class="software-mode" :aria-label="copy('软件页面', 'Software page')"><button :aria-pressed="!maintenanceTab" @click="maintenanceTab = false">{{ copy('软件目录', 'Catalog') }}</button><button :aria-pressed="maintenanceTab" @click="maintenanceTab = true">{{ copy('卸载指引', 'Uninstall guidance') }}</button></nav>
+    <ApplicationUninstallGuidance v-if="maintenanceTab" :bundle-id="typeof route?.query.bundleId === 'string' ? route.query.bundleId : undefined" />
+    <template v-else>
+
     <p v-if="route?.query.setup === '1'" class="software-note"><RouterLink to="/environment/setup">{{ copy('返回我的环境方案', 'Back to my environment profile') }}</RouterLink> · {{ copy('已选择方案中可安装的缺失软件，请审阅后安装。', 'Missing, installable software from your profile is selected for review.') }}</p>
     <p v-for="source in snapshot?.sources.filter(source => source.operationSupport)" :key="`support-${source.id}`" class="software-note" data-testid="software-operation-support">{{ source.title }} · {{ source.operationSupport?.platform }}<template v-if="source.operationSupport?.cliVersion"> · CLI {{ source.operationSupport.cliVersion }}</template><template v-if="supportReason(source.id, 'install')"> · {{ supportReason(source.id, 'install') }}</template></p>
     <p v-if="snapshot?.sources.some(source => source.bundled)" class="software-note" data-testid="software-bundled-note">{{ copy('正在浏览内置目录，尚未检测本机安装状态。官网、下载和收藏可用；本机检测与自动安装需要本地软件管理插件。', 'Browsing the bundled catalog without local installation checks. Website, download and favorites are available; local detection and automatic installation require a local software management plugin.') }}</p>
@@ -575,10 +582,14 @@ defineExpose({ refresh: loadCatalog })
       </template>
       <template #footer><UiButton size="compact" :disabled="installing" @click="planOpen = false">{{ copy('取消', 'Cancel') }}</UiButton><UiButton size="compact" variant="primary" :disabled="installing || installationUncertain || !planInstallCount || !!installationPlan?.prerequisites.length || !supports(installationPlan!.sourceId, 'install')" :title="planSupportReason" data-testid="confirm-software-installation" @click="confirmInstallation"><Icon v-if="installing" name="loading" />{{ installing ? copy('正在开始安装…', 'Starting installation…') : copy(`确认安装 ${planInstallCount} 项`, `Confirm installation of ${planInstallCount} ${planInstallCount === 1 ? 'item' : 'items'}`) }}</UiButton></template>
     </DialogShell>
+    </template>
   </WorkbenchViewFrame>
 </template>
 
 <style scoped>
+.software-mode { display: flex; gap: 8px; margin-bottom: 20px; }
+.software-mode button { padding: 7px 12px; border: 1px solid var(--border); border-radius: var(--control-radius); color: var(--text); background: var(--surface); cursor: pointer; }
+.software-mode button[aria-pressed="true"] { color: var(--accent); background: var(--accent-soft); }
 .software-installations { display: grid; gap: var(--space-3); margin-bottom: var(--space-5); }
 .software-installations-header, .software-installation-run > header, .software-installation-run > header > div, .software-installation-item-title, .software-selection, .software-install-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
 .software-installations-header, .software-installation-run > header { justify-content: space-between; }

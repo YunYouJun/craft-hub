@@ -371,6 +371,10 @@ async function openDesktopNavigation(navigation: DesktopNavigation): Promise<voi
   onboardingOpen.value = false
   settingsOpen.value = false
   desktopNavigationOpen.value = false
+  if (navigation.kind === 'software') {
+    await router.push({ path: '/software', query: { tab: 'uninstall', ...(navigation.bundleId ? { bundleId: navigation.bundleId } : {}) } })
+    return
+  }
   if (navigation.kind === 'marketplace') {
     await openMarketplace()
     return

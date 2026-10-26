@@ -13,6 +13,8 @@ final class MachineModel {
   let environmentSources: EnvironmentSourcesModel
   let configuration: ConfigurationModel
   let favorites: SoftwareFavoritesModel
+  let applicationMaintenance: ApplicationMaintenanceModel
+  var softwareTab = "catalog"
   var environmentTab = "inspection"
   private(set) var environment: EnvironmentSnapshot?
   private(set) var software: SoftwareSnapshot?
@@ -37,6 +39,7 @@ final class MachineModel {
     environmentSources = EnvironmentSourcesModel(client: client)
     configuration = ConfigurationModel(client: client)
     favorites = SoftwareFavoritesModel(client: client)
+    applicationMaintenance = ApplicationMaintenanceModel(client: client)
     favorites.changed = { [weak self] in
       guard let self else { return }
       softwareRevision += 1
@@ -49,6 +52,7 @@ final class MachineModel {
   }
 
   func disconnect() {
+    applicationMaintenance.disconnect()
     installations.disconnect()
     softwareSources.disconnect()
     environmentProfile.disconnect()
