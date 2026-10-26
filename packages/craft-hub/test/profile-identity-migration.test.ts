@@ -13,6 +13,8 @@ import { stopMigrationFixture, waitForMigrationCheckpoint } from './fixtures/mig
 import { fixtureIdentityParticipant } from './fixtures/profile-identity-participant'
 
 const fixtures: Array<{ root: string, markers: string[] }> = []
+// Complete durable filesystem transactions can exceed the default deadline on hosted Windows disks.
+const transactionTimeout = process.platform === 'win32' ? 15_000 : 5000
 const protectedPaths = (paths: ProfileMigrationPaths) => [paths.sourceData, paths.sourceConfig, paths.target, join(paths.target, 'runtime'), join(paths.target, 'config')]
 async function stopped() {}
 afterEach(async () => {
@@ -50,7 +52,7 @@ async function fixture() {
   return { root, paths, identity, participant, stateFile, projects, ciphertext, markers }
 }
 
-it('commits data and identity together, retains the source gate, repeats safely and rolls back reviewed later edits', async () => {
+it('commits data and identity together, retains the source gate, repeats safely and rolls back reviewed later edits', { timeout: transactionTimeout }, async () => {
   const f = await fixture()
   const preview = await previewProfileMigration(f.paths)
   await expect(applyProfileMigration(f.paths, preview.revision, stopped)).rejects.toThrow('unresolved blockers')
@@ -84,7 +86,7 @@ it('commits data and identity together, retains the source gate, repeats safely 
     expect(await inspectProfileMigrationGuard(path)).toBeUndefined()
 })
 
-it('invalidates an interactive recovery approval when its journal changes even if the candidate hash stays the same', async () => {
+it('invalidates an interactive recovery approval when its journal changes even if the candidate hash stays the same', { timeout: transactionTimeout }, async () => {
   const f = await fixture()
   const preview = await previewProfileMigration(f.paths)
   const receipt = await applyIdentityProfileMigration(f.paths, preview.revision, f.identity, f.participant, stopped)

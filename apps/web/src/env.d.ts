@@ -2,6 +2,7 @@
 
 type DesktopNavigation
   = | { kind: 'home' }
+    | { kind: 'software', bundleId?: string }
     | { kind: 'marketplace' }
     | { kind: 'settings' }
     | { kind: 'workspace', workspaceId: string, ownerScopeId?: string }

@@ -7,19 +7,20 @@ struct SoftwareView: View {
   @Bindable var machine: MachineModel
   let findRequest: Int
   @FocusState private var searchFocused: Bool
-  @State private var tab = "catalog"
+  private var tab: String { machine.softwareTab }
   let showWorkbench: () -> Void
   private var text: L10n { L10n.text }
 
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
       header
-      Picker(text.copy("软件页面", "Software Page"), selection: $tab) {
+      Picker(text.copy("软件页面", "Software Page"), selection: $machine.softwareTab) {
         Text(text.copy("软件目录", "Catalog")).tag("catalog")
         Text(text.copy("常用工具", "Favorites")).tag("favorites")
         Text(text.copy("安装记录", "Installations")).tag("installations")
         Text(text.copy("来源", "Sources")).tag("sources")
-      }.pickerStyle(.segmented).labelsHidden().frame(maxWidth: 440, alignment: .leading)
+        Text(text.copy("卸载指引", "Uninstall Guidance")).tag("uninstall")
+      }.pickerStyle(.segmented).labelsHidden().frame(maxWidth: 560, alignment: .leading)
         .padding(.horizontal, 20).padding(.bottom, 16)
       if tab != "favorites", let error = machine.favorites.error {
         NativeErrorView(message: error).padding(.horizontal, 24)
@@ -32,14 +33,16 @@ struct SoftwareView: View {
           .secondary
         ).padding(.horizontal, 24)
       }
-      if tab == "catalog" {
+      if tab == "uninstall" {
+        ApplicationUninstallGuidanceView(model: machine.applicationMaintenance)
+      } else if tab == "catalog" {
         SoftwareCatalogView(machine: machine, searchFocused: $searchFocused)
       } else if tab == "favorites" {
         SoftwareFavoritesView(model: machine.favorites, findRequest: findRequest)
       } else if tab == "installations" {
         SoftwareInstallationsView(
           model: machine.installations, sources: machine.software?.sources ?? [],
-          searchFocused: $searchFocused, showCatalog: { tab = "catalog" })
+          searchFocused: $searchFocused, showCatalog: { machine.softwareTab = "catalog" })
       } else {
         SoftwareSourcesView(model: machine.softwareSources, searchFocused: $searchFocused)
       }

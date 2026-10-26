@@ -18,6 +18,7 @@ import process from 'node:process'
 import { AccountSyncService } from './account-sync'
 import { AgentActionService } from './agent-actions'
 import { AgentTaskManager } from './agent-tasks'
+import { ApplicationMaintenanceService } from './application-maintenance'
 import { bundledSoftwareCatalog } from './bundled-software-catalog'
 import { resolveCommandContributions } from './command-contributions'
 import { resolveCommandInvocation, resolvePersistedCommandInvocation } from './command-inputs'
@@ -67,6 +68,8 @@ import { WorkspaceSubscriptionService } from './workspace-subscriptions'
 import { WorkspaceService } from './workspaces'
 
 export class CraftHubRuntime {
+  /** Host-local read-only application discovery; does not require an installation plugin. */
+  readonly applicationMaintenance = new ApplicationMaintenanceService({ catalog: () => this.softwareCatalogSnapshot({ localDiscovery: false }) })
   /** One-use native form reviews share the runtime's declaration, project and invocation boundaries. */
   readonly integrationForms = new IntegrationFormService({
     catalog: () => this.integrationContributions(),

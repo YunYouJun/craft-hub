@@ -10,6 +10,7 @@ export type DesktopNavigationRequest
   = | { kind: 'home' }
     | { kind: 'marketplace' }
     | { kind: 'settings' }
+    | { kind: 'software', bundleId?: string }
     | { kind: 'workspace', workspaceId: string, ownerScopeId?: string }
     | { kind: 'project', reference: ProjectReference, capabilityId?: string }
 
@@ -88,6 +89,14 @@ export function parseDesktopLink(rawUrl: string, acceptedSchemes = [productionDe
     if (view !== 'home' && view !== 'marketplace' && view !== 'settings')
       throw new DesktopLinkError('unexpected-view')
     return { kind: 'navigation', navigation: { kind: view } }
+  }
+  if (url.host === 'software') {
+    assertParameters(url, ['v'], ['v', 'bundleId'])
+    assertVersion(url)
+    const bundleId = url.searchParams.get('bundleId')
+    if (bundleId !== null && (bundleId.length > 255 || !/^[a-z0-9-]+(?:\.[a-z0-9-]+)+$/i.test(bundleId)))
+      throw new DesktopLinkError('unexpected-parameter')
+    return { kind: 'navigation', navigation: { kind: 'software', ...(bundleId ? { bundleId } : {}) } }
   }
   if (url.host === 'workspace') {
     assertParameters(url, ['id', 'v'], ['id', 'scope', 'v'])

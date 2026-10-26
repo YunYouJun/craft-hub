@@ -11,6 +11,8 @@ import { startCraftHubServer } from '../src/server'
 import { stopMigrationFixture, waitForMigrationCheckpoint } from './fixtures/migration-process'
 
 const roots: string[] = []
+// Complete durable filesystem transactions can exceed the default deadline on hosted Windows disks.
+const transactionTimeout = process.platform === 'win32' ? 15_000 : 5000
 async function stopped() {}
 afterEach(async () => {
   await Promise.all(roots.splice(0).map(path => rm(path, { recursive: true, force: true })))
@@ -223,7 +225,7 @@ it('returns an explicit retained recovery path when copying fails after journal 
   expect(await readFile(join(paths.target, 'runtime/projects.json'), 'utf8')).toBe('[]')
 })
 
-it('refuses identity journals before offering a data-only recovery review', async () => {
+it('refuses identity journals before offering a data-only recovery review', { timeout: transactionTimeout }, async () => {
   const { paths } = await fixture()
   const review = await previewProfileMigration(paths)
   const receipt = await applyProfileMigration(paths, review.revision, stopped)

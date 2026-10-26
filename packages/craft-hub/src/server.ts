@@ -15,6 +15,7 @@ import { z, ZodError } from 'zod'
 import { handleAccountRequest } from './accounts'
 import { AgentConnectionService } from './agent-connection'
 import { handleAgentConnectionRequest } from './agent-connection-http'
+import { applicationRevealRequestSchema } from './application-maintenance'
 import { CommandInputValidationError } from './command-inputs'
 import { projectConfigSchemaRevision } from './config'
 import { startDeliveryConnection } from './delivery/connection'
@@ -418,6 +419,28 @@ async function startProtectedServer(options: CraftHubServerOptions, runtime: Cra
         if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).length)
           return sendJson(response, 400, { error: 'Application shortcuts accept no body parameters' })
         return sendJson(response, 200, await openMicrosoftTodo({ launch: options.applicationLauncher }))
+      }
+
+      if (parts[0] === 'api' && parts[1] === 'application-maintenance') {
+        if (runtime.hostEnvironment.kind !== 'local')
+          return sendJson(response, 403, { error: 'Application inspection is unavailable on this host' })
+        if (!addressesThisSocket(request.headers.host ?? '', request) || request.headers['sec-fetch-site'] === 'cross-site'
+          || (request.headers.origin && request.headers.origin !== `http://${request.headers.host}`)) {
+          return sendJson(response, 403, { error: 'Application inspection requires a same-origin local request' })
+        }
+        if (url.search)
+          return sendJson(response, 400, { error: 'Application inspection accepts no query parameters' })
+        if (request.method === 'GET' && parts.length === 2)
+          return sendJson(response, 200, await runtime.applicationMaintenance.snapshot())
+        if (request.method === 'GET' && parts.length === 3)
+          return sendJson(response, 200, await runtime.applicationMaintenance.guidance(parts[2]))
+        if (request.method === 'POST' && parts.length === 4 && parts[3] === 'reveal') {
+          if (request.headers['content-type']?.split(';')[0]?.trim().toLowerCase() !== 'application/json')
+            return sendJson(response, 403, { error: 'Finder requests require JSON' })
+          const { candidateId } = applicationRevealRequestSchema.parse(await jsonBody(request, 1024))
+          return sendJson(response, 200, await runtime.applicationMaintenance.reveal(parts[2], candidateId))
+        }
+        return sendJson(response, 405, { error: 'Unsupported application inspection request' })
       }
 
       if (request.method === 'GET' && url.pathname === '/api/software') {
