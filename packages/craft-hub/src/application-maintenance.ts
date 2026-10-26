@@ -3,7 +3,7 @@ import { execFile } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { lstat, readdir, realpath } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { basename, join, relative } from 'node:path'
+import { basename, dirname, isAbsolute, join, relative, sep } from 'node:path'
 import process from 'node:process'
 import { promisify } from 'node:util'
 import { z } from 'zod'
@@ -60,7 +60,7 @@ const fileID = (path: string): string => createHash('sha256').update(path).diges
 const safeName = (value: unknown): value is string => typeof value === 'string' && value.length > 0 && value.length <= 255 && ![...value].some(character => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127)
 function inside(root: string, path: string): boolean {
   const suffix = relative(root, path)
-  return suffix !== '..' && !suffix.startsWith('../') && !suffix.startsWith('/')
+  return suffix !== '..' && !suffix.startsWith(`..${sep}`) && !isAbsolute(suffix)
 }
 const candidateName = (name: string): boolean => /(?:^|[\s._-])uninstall(?:er)?(?:$|[\s._-])|卸载/i.test(name)
 
@@ -141,7 +141,7 @@ export class ApplicationMaintenanceService {
     let incomplete = false
     // Never recurse into another app's package or follow a symlink to an unrelated location.
     const directories: { path: string, evidence: UninstallerCandidate['evidence'] }[] = ['Contents', 'Contents/Helpers', 'Contents/Resources', 'Contents/MacOS'].map(path => ({ path: join(application.path, path), evidence: 'inside-application' }))
-    const parent = application.path.slice(0, application.path.lastIndexOf('/'))
+    const parent = dirname(application.path)
     // A vendor-specific enclosing folder is useful; the shared Applications folder is ambiguous.
     if (!this.roots.includes(parent))
       directories.push({ path: parent, evidence: 'adjacent-to-application' })
