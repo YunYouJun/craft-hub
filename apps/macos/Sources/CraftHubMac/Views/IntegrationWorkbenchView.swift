@@ -8,6 +8,7 @@ struct IntegrationWorkbenchView: View {
   let findRequest: Int
   let openWeb: (String) -> Void
   let openConfiguration: (String) -> Void
+  let workItemActions: WorkItemQuickActionsModel
   @FocusState private var searchFocused: Bool
   private var text: L10n { .text }
   var body: some View {
@@ -252,14 +253,31 @@ struct IntegrationWorkbenchView: View {
           ForEach(state.visibleItems, id: \.key) { item in
             VStack(alignment: .leading, spacing: 6) {
               HStack {
-                Text(item.title).fontWeight(.medium)
+                if isWorkItemBlock(entry, block: block) {
+                  PluginIconView(icon: entry.view.icon, fallbackSymbol: "checklist", size: 20)
+                  Button {
+                    Task { await workItemActions.open(actionTarget(item, entry: entry, state: state), mode: .detail) }
+                  } label: {
+                    Text(item.title).fontWeight(.medium)
+                  }
+                  .buttonStyle(.plain).help(text.copy("查看详情", "View Details"))
+                } else {
+                  Text(item.title).fontWeight(.medium)
+                }
                 Spacer()
-                if let status = item.statusLabel ?? item.status { Text(entry.text(status)).foregroundStyle(.secondary) }
+                if !isWorkItemBlock(entry, block: block), let status = item.statusLabel ?? item.status {
+                  Text(entry.text(status)).foregroundStyle(.secondary)
+                }
+                if isWorkItemBlock(entry, block: block) {
+                  WorkItemQuickActions(target: actionTarget(item, entry: entry, state: state), model: workItemActions)
+                }
                 if let url = DesktopBridge.externalURL(item.url) {
                   Link(text.copy("打开原文", "Open Original"), destination: url)
                 }
               }
-              if let description = item.description { Text(description).font(.callout).foregroundStyle(.secondary) }
+              if let description = item.description {
+                Text(WorkItemText.plainDescription(description)).font(.callout).foregroundStyle(.secondary).lineLimit(3)
+              }
               if let details = item.details, !details.isEmpty {
                 DisclosureGroup(text.copy("详情", "Details")) {
                   ForEach(Array(details.enumerated()), id: \.offset) { _, detail in
@@ -298,5 +316,22 @@ struct IntegrationWorkbenchView: View {
         }
       }.frame(maxWidth: .infinity, alignment: .leading).padding(8)
     }
+  }
+
+  private func isWorkItemBlock(_ entry: IntegrationWorkbenchModel.Entry, block: NativeIntegrationCatalog.Block) -> Bool
+  {
+    entry.action(block)?.operation.hasPrefix("work-items.") == true
+  }
+
+  private func actionTarget(
+    _ item: IntegrationPresentation.Entity, entry: IntegrationWorkbenchModel.Entry, state: IntegrationBlockState
+  ) -> WorkItemActionTarget {
+    let connectionBlock = entry.view.blocks.first { $0.type == "connection-status" }
+    let connection = connectionBlock.flatMap { model.state($0).connection }
+    return WorkItemActionTarget(
+      integrationId: entry.contribution.id, projectId: model.project, item: item,
+      readOnly: state.stale || state.page?.cache != nil,
+      connectionCacheKey: connection?.session?.cacheKey,
+      connectionInput: connectionBlock?.input ?? [:])
   }
 }

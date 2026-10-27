@@ -20,6 +20,7 @@ final class WorkbenchModel {
   let codexActivity = CodexActivityModel()
   private(set) var connectionGeneration = UUID()
   let integrations = IntegrationWorkbenchModel()
+  let workItemActions = WorkItemQuickActionsModel()
   private(set) var recentProjectIDs: [String]
   let observation = RuntimeObservation()
   private(set) var showsWebContent = false
@@ -58,6 +59,7 @@ final class WorkbenchModel {
   }
 
   func select(_ destination: Destination?) {
+    workItemActions.close()
     configurationNavigation = UUID()
     if destination != .marketplace { plugins.cancelNavigation() }
     guard let destination else { return }
@@ -86,6 +88,12 @@ final class WorkbenchModel {
     diagnostics.connect(preferencesClient)
     websiteNavigation.connect(preferencesClient)
     integrations.connect(preferencesClient)
+    workItemActions.connect(preferencesClient)
+    workItemActions.completed = { [weak self] _ in
+      guard let self else { return }
+      await self.today.refreshWorkItems()
+      await self.integrations.refresh()
+    }
     NativePreferences.shared.refresh(preferencesClient)
     observation.connect(connection)
     if connection != nil {
@@ -102,6 +110,9 @@ final class WorkbenchModel {
   }
 
   func invalidate(_ changes: Set<RuntimeChange>) {
+    if !changes.isDisjoint(with: [.settings, .plugins, .pluginUpdate, .userConfig, .projects]) {
+      workItemActions.invalidate()
+    }
     if changes.contains(.settings) { NativePreferences.shared.refresh(preferencesClient) }
     projects.invalidate(changes)
     plugins.invalidate(changes)
@@ -109,7 +120,11 @@ final class WorkbenchModel {
     websiteNavigation.invalidate(changes)
     integrations.invalidate(changes)
     if !changes.isDisjoint(with: [.settings, .plugins, .pluginUpdate, .userConfig, .configurationSync, .integrations]) {
-      today.invalidate()
+      if changes.isSubset(of: [.integrations, .configurationSync]) {
+        today.markWorkItemsStale()
+      } else {
+        today.invalidate()
+      }
       Task { await today.load() }
     }
     Task { await projects.load() }

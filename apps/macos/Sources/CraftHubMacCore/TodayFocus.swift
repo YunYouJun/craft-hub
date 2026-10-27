@@ -11,16 +11,22 @@ public struct TodayFocusSnapshot: Decodable, Sendable {
     public let complete: Bool
     public let cached: Bool
     public let count: Int
+    public let icon: String?
+    public let accountLabel: String?
+    public let browser: TodayWorkBrowser?
     public var id: String { key }
   }
   public struct Item: Decodable, Identifiable, Sendable {
     public let key: String
     public let title: String
     public let sourceTitle: String
+    public let sourceKey: String?
     public let path: String
     public let reasons: [String]
     public let status: String?
+    public let statusCategory: String?
     public let project: String?
+    public let actionTarget: WorkItemActionTarget?
     public var id: String { key }
   }
   public struct Candidate: Codable, Sendable {
@@ -44,6 +50,32 @@ public struct TodayFocusSnapshot: Decodable, Sendable {
   /// Describe loaded coverage explicitly instead of presenting a bounded page as the whole account.
   public var loadedSourceCount: Int { sources.filter { $0.state == "loaded" }.count }
   public var completeSourceCount: Int { sources.filter { $0.state == "loaded" && $0.complete }.count }
+}
+
+/// Read-only presentation of the same personal tasks and classifications used by the web client.
+public struct TodayWorkBrowser: Decodable, Sendable {
+  public struct Collection: Decodable, Identifiable, Sendable {
+    public let key: String
+    public let title: String
+    public var id: String { key }
+  }
+  public struct Item: Decodable, Identifiable, Sendable {
+    public let key: String
+    public let title: String
+    public let collectionKey: String?
+    public let status: String?
+    public let type: String?
+    public let url: String?
+    public let due: String?
+    public let actionTarget: WorkItemActionTarget?
+    public let categories: [String]
+    public var id: String { key }
+  }
+  public let collections: [Collection]
+  public let accountKey: String?
+  public let projectMode: Bool
+  public let fetchedAt: String?
+  public let items: [Item]
 }
 
 public struct TodayFocusAnalysis: Decodable, Sendable {

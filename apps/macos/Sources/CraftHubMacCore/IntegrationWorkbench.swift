@@ -1,11 +1,13 @@
 import Foundation
 
 /// Inert declaration inputs. Native clients never turn these values into executable code.
-public enum IntegrationValue: Codable, Sendable, Equatable {
+public indirect enum IntegrationValue: Codable, Sendable, Equatable {
   case string(String)
   case number(Double)
   case bool(Bool)
   case null
+  case object([String: IntegrationValue])
+  case array([IntegrationValue])
   public init(from decoder: Decoder) throws {
     let value = try decoder.singleValueContainer()
     if value.decodeNil() {
@@ -14,6 +16,10 @@ public enum IntegrationValue: Codable, Sendable, Equatable {
       self = .bool(bool)
     } else if let number = try? value.decode(Double.self) {
       self = .number(number)
+    } else if let object = try? value.decode([String: IntegrationValue].self) {
+      self = .object(object)
+    } else if let array = try? value.decode([IntegrationValue].self) {
+      self = .array(array)
     } else {
       self = .string(try value.decode(String.self))
     }
@@ -25,6 +31,8 @@ public enum IntegrationValue: Codable, Sendable, Equatable {
     case .number(let number): try value.encode(number)
     case .bool(let flag): try value.encode(flag)
     case .null: try value.encodeNil()
+    case .object(let object): try value.encode(object)
+    case .array(let array): try value.encode(array)
     }
   }
 }
@@ -98,7 +106,7 @@ public struct IntegrationPresentation: Decodable, Sendable {
     }
     public struct User: Decodable, Sendable { public let id: String }
   }
-  public struct Entity: Decodable, Identifiable, Sendable {
+  public struct Entity: Decodable, Identifiable, Sendable, Equatable {
     public let key: String
     public let id: String
     public let title: String
@@ -108,17 +116,61 @@ public struct IntegrationPresentation: Decodable, Sendable {
     public let description: String?
     public let status: String?
     public let statusLabel: String?
+    public let statusCategory: String?
+    public let statusUpdateAvailable: Bool?
+    public let archived: Bool?
+    public let sourceRef: WorkItemSourceReference?
+    public let metadata: [String: IntegrationValue]?
     public let details: [Detail]?
     public let configurationToggle: ConfigurationToggle?
-    public struct Detail: Decodable, Sendable {
+    public struct Detail: Decodable, Sendable, Equatable {
       public let label: String
       public let value: String
     }
-    public struct ConfigurationToggle: Decodable, Sendable {
+    public struct ConfigurationToggle: Decodable, Sendable, Equatable {
       public let enabled: Bool
       public let inherited: Bool
       public let revision: String
       public let scope: String
+    }
+
+    /// Build action targets from already loaded presentations, preserving the complete native identity.
+    public init(
+      key: String, id: String, title: String, active: Bool, personal: Bool, url: String? = nil,
+      description: String? = nil, status: String? = nil, statusLabel: String? = nil,
+      statusCategory: String? = nil, statusUpdateAvailable: Bool? = nil, archived: Bool? = nil,
+      sourceRef: WorkItemSourceReference? = nil, metadata: [String: IntegrationValue]? = nil,
+      details: [Detail]? = nil, configurationToggle: ConfigurationToggle? = nil
+    ) {
+      self.key = key
+      self.id = id
+      self.title = title
+      self.active = active
+      self.personal = personal
+      self.url = url
+      self.description = description
+      self.status = status
+      self.statusLabel = statusLabel
+      self.statusCategory = statusCategory
+      self.statusUpdateAvailable = statusUpdateAvailable
+      self.archived = archived
+      self.sourceRef = sourceRef
+      self.metadata = metadata
+      self.details = details
+      self.configurationToggle = configurationToggle
+    }
+
+    /// Provider write receipts may omit source and display fields; retain them only for the same exact item.
+    public func merging(_ next: Self) -> Self {
+      Self(
+        key: key, id: id, title: next.title, active: next.active, personal: personal,
+        url: next.url ?? url, description: next.description ?? description, status: next.status ?? status,
+        statusLabel: next.statusLabel ?? (next.status == nil || next.status == status ? statusLabel : nil),
+        statusCategory: next.statusCategory ?? (next.status == nil || next.status == status ? statusCategory : nil),
+        statusUpdateAvailable: next.statusUpdateAvailable ?? statusUpdateAvailable, archived: next.archived ?? archived,
+        sourceRef: next.sourceRef ?? sourceRef,
+        metadata: metadata.map { $0.merging(next.metadata ?? [:]) { _, next in next } } ?? next.metadata,
+        details: next.details ?? details, configurationToggle: next.configurationToggle ?? configurationToggle)
     }
   }
 }

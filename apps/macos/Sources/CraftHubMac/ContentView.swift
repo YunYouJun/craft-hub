@@ -50,6 +50,13 @@ struct ContentView: View {
     } message: {
       Text(model.navigationError ?? "")
     }
+    .sheet(
+      isPresented: Binding(
+        get: { model.workItemActions.target != nil },
+        set: { if !$0 { model.workItemActions.close() } })
+    ) {
+      WorkItemQuickActionsSheet(model: model.workItemActions)
+    }
   }
 
   @ViewBuilder private var detail: some View {
@@ -87,7 +94,7 @@ struct ContentView: View {
             if model.selection == .overview {
               TodayFocusView(
                 today: model.today, capture: { model.run("capture") }, navigate: model.navigateToWebPath,
-                showWorkbench: model.showWebWorkbench
+                showWorkbench: model.showWebWorkbench, workItemActions: model.workItemActions
               )
               .onAppear { PerformanceTrace.mark(.nativePageAppeared) }
             } else if model.selection == .projects {
@@ -113,7 +120,8 @@ struct ContentView: View {
             } else if model.selection == .workbenches {
               IntegrationWorkbenchView(
                 model: model.integrations, projects: model.projects.projects, findRequest: model.findRequest,
-                openWeb: model.showIntegrationWeb, openConfiguration: model.openConfiguration
+                openWeb: model.showIntegrationWeb, openConfiguration: model.openConfiguration,
+                workItemActions: model.workItemActions
               )
               .onAppear { PerformanceTrace.mark(.nativePageAppeared) }
             } else if model.selection == .environment, let machine = model.machine {
