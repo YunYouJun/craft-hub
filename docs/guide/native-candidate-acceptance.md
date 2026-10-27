@@ -46,10 +46,12 @@ open -n "$PWD/apps/macos/build/Craft Hub Prototype.app" \
 
 下表的“证据入口”指可执行验证或真实走查记录。单元测试、源码和声明文件不代替系统交互验证。
 
+当前 CI 策略（2026-10-27）：保留跨平台构建/测试和 Node 26 兼容任务，移除日常原生 macOS 任务及 Node 22/24 兼容任务。Node 22/24/26 支持范围不变，原生检查和跨版本复验继续在本机完成；`native-v*` 发布工作流保留。下文带日期的 CI 矩阵描述记录当时配置。
+
 | 阶段 / 要求 | 当前实现与证据入口 | 尚需验证 |
 | --- | --- | --- |
-| A：运行时边界、信任与桥接 | 共享 `packages/craft-hub` / `createDesktopHostRuntime`；[桥接清单](desktop-bridge.md)、桥接合同测试、运行时信任与执行测试 | 浏览器、Windows/Linux 和 Node 22/24/26 的托管 CI 运行结果；配置存在不等于 CI 已通过 |
-| A：最低系统、Node 合同 | ADR 0012；Swift/TypeScript 共用 `node-host-contract.json`；当前候选 Node 22/24/26 的本地测试、真实探测及包内验证见下文；原生 CI 已配置三版本矩阵 | 托管 CI、macOS 15、真实 Intel 硬件；本机 Xcode 的 arm64 Swift 测试加载器不能运行 x64 测试包 |
+| A：运行时边界、信任与桥接 | 共享 `packages/craft-hub` / `createDesktopHostRuntime`；[桥接清单](desktop-bridge.md)、桥接合同测试、运行时信任与执行测试 | 浏览器、Windows/Linux 和 Node 26 的托管 CI 运行结果；Node 22/24 的本机复验；配置存在不等于 CI 已通过 |
+| A：最低系统、Node 合同 | ADR 0012；Swift/TypeScript 共用 `node-host-contract.json`；当前候选 Node 22/24/26 的本地测试、真实探测及包内验证见下文；原生检查继续本机执行 | macOS 15、真实 Intel 硬件；本机 Xcode 的 arm64 Swift 测试加载器不能运行 x64 测试包 |
 | B：工具启动、显示设置与公共事件流 | 两端共用 `project-launch.ts`；原生事件流、真实 loopback socket、迟到响应和重连测试；当前候选的主题/语言保存、原生与网页同步和重启恢复已实测 | 维护者实际编辑器、终端及外部工具的日用交接 |
 | C：项目、今日重点、菜单栏 | SwiftUI 项目目录、共享今日重点快照、菜单栏入口；模型和 API 测试；当前候选侧栏上下键及各原生页面已走查 | 完整键盘、组合输入、VoiceOver；菜单栏和 Dock 逐项系统复验 |
 | C：命令面板、快速记录、草稿 | 原生面板及恢复测试；2026-10-22 真实快捷键和未信任命令审阅；当前候选 ⌘K/焦点/回车、Escape、草稿跨退出重启已复验 | 输入法、完整焦点顺序、后台全局快捷键的新采样及显示器切换 |
