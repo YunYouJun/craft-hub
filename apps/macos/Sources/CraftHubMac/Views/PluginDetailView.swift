@@ -22,6 +22,10 @@ struct PluginDetailView: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
       HStack(alignment: .top) {
+        PluginIconView(
+          artwork: PluginArtwork(
+            icon: metadata?.icon, sourceID: detail.source, package: detail.package, version: version),
+          client: model.iconClient, revision: model.iconRevision, size: 44)
         VStack(alignment: .leading, spacing: 4) {
           Text(metadata?.name(chinese: text.chinese) ?? detail.package).font(.title2.bold())
           Text(detail.package).font(.caption.monospaced()).foregroundStyle(.secondary).textSelection(.enabled)

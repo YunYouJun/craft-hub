@@ -20,6 +20,7 @@ public struct PluginMetadata: Decodable, Sendable {
   public struct Contribution: Decodable, Sendable {}
   public let displayName: String
   public let description: String?
+  public let icon: String?
   public let permissions: [String]
   public let permissionReasons: [String: String]?
   public let localizations: [String: Localization]?
@@ -48,6 +49,9 @@ public struct CatalogPlugin: Decodable, Identifiable, Sendable {
   public let included: Bool
   public let metadata: PluginMetadata
   public var id: String { "\(sourceId):\(package):\(version)" }
+  public var artwork: PluginArtwork {
+    PluginArtwork(icon: metadata.icon, sourceID: sourceId, package: package, version: version)
+  }
   enum CodingKeys: CodingKey {
     case package, version, sourceId, sourceName, sourceKind, status, statusReason, publisher, action, preferred,
       included
@@ -80,6 +84,9 @@ public struct InstalledPlugin: Decodable, Identifiable, Sendable {
   public let error: String?
   public var id: String { package }
   public var local: Bool { origin == "local" }
+  public var artwork: PluginArtwork {
+    PluginArtwork(icon: manifest.icon, sourceID: sourceId, package: package, version: version)
+  }
 }
 public struct PluginSourceVerification: Decodable, Sendable {
   public let organization: String
@@ -275,6 +282,17 @@ extension RuntimeAPIClient {
         .init(name: "sourceId", value: source), .init(name: "package", value: package),
         .init(name: "version", value: version),
       ])
+  }
+  /// Reads only the package's declared artwork through the authenticated, isolated runtime endpoint.
+  public func pluginIcon(_ reference: PluginIconReference) async throws -> Data {
+    var query = [
+      URLQueryItem(name: "sourceId", value: reference.sourceID),
+      URLQueryItem(name: "package", value: reference.package),
+    ]
+    if let version = reference.version { query.append(.init(name: "version", value: version)) }
+    return try await fetchAsset(
+      path: "/api/plugins/icon", query: query, maximumBytes: 128_000,
+      contentTypes: ["image/png", "image/jpeg", "image/gif", "image/webp", "image/avif", "image/svg+xml"])
   }
   public func hostExtensions() async throws -> NativeHostExtensions {
     try await fetch(path: "/api/native-host/extensions")

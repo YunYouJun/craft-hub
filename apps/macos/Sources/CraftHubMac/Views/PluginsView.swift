@@ -143,9 +143,9 @@ struct PluginsView: View {
     List(selection: $selectedCatalogID) {
       ForEach(model.catalog) { plugin in
         HStack(alignment: .top, spacing: 16) {
-          Image(systemName: plugin.metadata.includesPlugins.isEmpty ? "puzzlepiece.extension" : "shippingbox").font(
-            .title2
-          ).foregroundStyle(.tint).frame(width: 32)
+          PluginIconView(
+            artwork: plugin.artwork, client: model.iconClient, revision: model.iconRevision,
+            fallbackSymbol: plugin.metadata.includesPlugins.isEmpty ? "puzzlepiece.extension" : "shippingbox")
           VStack(alignment: .leading, spacing: 5) {
             Button {
               model.detail = .init(source: plugin.sourceId, package: plugin.package, version: plugin.version)
@@ -192,6 +192,9 @@ struct PluginsView: View {
       ForEach(model.installed) { plugin in
         VStack(alignment: .leading, spacing: 8) {
           HStack(alignment: .top) {
+            PluginIconView(
+              artwork: plugin.artwork, client: model.iconClient, revision: model.iconRevision,
+              fallbackSymbol: plugin.manifest.includesPlugins.isEmpty ? "puzzlepiece.extension" : "shippingbox")
             VStack(alignment: .leading, spacing: 4) {
               Button {
                 model.detail = .init(source: plugin.sourceId, package: plugin.package, version: plugin.version)

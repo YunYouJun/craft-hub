@@ -28,7 +28,7 @@ async function fixture() {
     coverage: 'partial',
     nextCursor: 'next-private-cursor',
     items: [
-      { id: 'urgent', title: 'Review proposal', important: true, assignees: [{ id: 'me', label: 'Me' }] },
+      { id: 'urgent', title: 'Review proposal', important: true, statusCategory: 'open', assignees: [{ id: 'me', label: 'Me' }] },
       { id: 'done', title: 'Completed', statusCategory: 'done', assignees: [{ id: 'me', label: 'Me' }] },
       { id: 'other', title: 'Another account', assignees: [{ id: 'other', label: 'Other' }] },
     ],
@@ -72,6 +72,12 @@ it('shares web ranking and personal-account filtering while keeping source input
   expect(snapshot.candidates[0]!.reasons).toEqual(focusCandidates(webRanked)[0]!.reasons)
   expect(snapshot.items[0]!.key).toBe(snapshot.candidates[0]!.key)
   expect(snapshot.items[0]!.key).toMatch(/^[a-f0-9]{64}$/)
+  expect(snapshot.items[0]).toMatchObject({ sourceKey: snapshot.sources[0]!.key, statusCategory: 'open' })
+  expect(snapshot.sources[0]!.browser).toMatchObject({ projectMode: false, items: [{ title: 'Review proposal', categories: ['important'] }] })
+  expect(snapshot.sources[0]!.browser!.items[0]!.key).toMatch(/^[a-f0-9]{64}$/)
+  expect(snapshot.items[0]!.actionTarget).toMatchObject({ integrationId: 'tasks', readOnly: false, item: { id: 'urgent', statusCategory: 'open' } })
+  expect(snapshot.items[0]!.actionTarget).toEqual(snapshot.sources[0]!.browser!.items[0]!.actionTarget)
+  expect(snapshot.candidates[0]).not.toHaveProperty('actionTarget')
   expect(JSON.stringify(snapshot)).not.toMatch(/private-source-query|next-private-cursor|Another account|Completed/)
   expect(f.list).toHaveBeenCalledTimes(1)
   expect(f.write).not.toHaveBeenCalled()
@@ -85,6 +91,7 @@ it('does not read a disconnected source and does not retain a previous account s
   f.disconnect()
   const snapshot = await todayFocusSnapshot(f.runtime, 'en')
   expect(snapshot).toMatchObject({ total: 0, items: [], candidates: [], sources: [{ state: 'disconnected', count: 0 }] })
+  expect(snapshot.sources[0]!.browser).toBeUndefined()
   expect(f.list).toHaveBeenCalledTimes(1)
 })
 

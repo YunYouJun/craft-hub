@@ -16,7 +16,10 @@ final class TodayFocusModel {
   @ObservationIgnored private var analysisTask: Task<Void, Never>?
   @ObservationIgnored private var loadedAt: Date?
   @ObservationIgnored private var loadedLocale: String?
+  @ObservationIgnored private let now: () -> Date
   private var locale: String { NativePreferences.shared.language.rawValue }
+
+  init(now: @escaping () -> Date = Date.init) { self.now = now }
 
   func connect(_ client: RuntimeAPIClient?) {
     invalidate()
@@ -45,13 +48,13 @@ final class TodayFocusModel {
       return
     }
     guard let client else { return }
-    if loadedLocale == locale, let loadedAt, Date().timeIntervalSince(loadedAt) < 60 { return }
+    if loadedLocale == locale, let loadedAt, now().timeIntervalSince(loadedAt) < 60 { return }
     generation = UUID()
     analysisTask?.cancel()
     analysisTask = nil
     analyzing = false
     analysis = nil
-    snapshot = nil
+    // Keep the browser's selection and search stable during the periodic read. Explicit invalidation still clears accounts.
     let attempt = generation
     let language = locale
     loading = true
@@ -71,13 +74,22 @@ final class TodayFocusModel {
         assistantAvailable = availability
         analysis = nil
         error = nil
-        loadedAt = Date()
+        loadedAt = now()
         loadedLocale = language
       } catch {
         if attempt == generation { self.error = error.localizedDescription }
       }
     }
     await readTask?.value
+  }
+
+  /// Keep the browser's filters and selection while refreshing a confirmed item receipt.
+  func markWorkItemsStale() { loadedAt = nil }
+
+  func refreshWorkItems() async {
+    if let readTask { await readTask.value }
+    markWorkItemsStale()
+    await load()
   }
 
   func analyze() async {

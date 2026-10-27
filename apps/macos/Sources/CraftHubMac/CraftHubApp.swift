@@ -392,7 +392,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       || model.machine?.configuration.busy == true || model.machine?.configuration.uncertain != nil
       || model.machine?.favorites.busy == true || model.machine?.favorites.uncertain == true
       || model.integrations.busy || model.integrations.uncertain != nil || model.integrations.connections.uncertain
-      || model.integrations.forms.uncertain
+      || model.integrations.forms.uncertain || model.workItemActions.pending
   }
 
   func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {

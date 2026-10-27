@@ -23,6 +23,7 @@ public struct NativeIntegrationCatalog: Decodable, Sendable {
   }
   public struct View: Decodable, Identifiable, Sendable {
     public let id: String
+    public let icon: String?
     public let title: String
     public let scope: String
     public let blocks: [Block]

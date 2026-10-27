@@ -1,13 +1,17 @@
 import type { HomeWorkSource } from './home-work-sources'
-import type { IntegrationEntityPage } from './integrations'
+import type { IntegrationEntity, IntegrationEntityPage } from './integrations'
 import type { CraftHubRuntime } from './runtime'
 import type { WorkbenchLocale } from './settings'
 import type { FocusEntry } from './today-focus'
+import type { TodayWorkBrowser } from './today-work-browser'
 import type { FocusCandidate } from './work-assistant'
+import type { WorkItemActionTarget } from './work-item-action-target'
 import { createHash } from 'node:crypto'
 import { homeWorkSources } from './home-work-sources'
 import { focusCandidates, rankTodayFocus } from './today-focus'
-import { personalActiveWork } from './work-items'
+import { todayWorkBrowser } from './today-work-browser'
+import { workItemActionTarget } from './work-item-action-target'
+import { personalActiveWork, workItemIdentityKey } from './work-items'
 
 /** Read coverage for one declared global source; a missing account never becomes an empty success. */
 export interface TodayFocusSource {
@@ -19,6 +23,9 @@ export interface TodayFocusSource {
   complete: boolean
   cached: boolean
   count: number
+  icon?: string
+  accountLabel?: string
+  browser?: TodayWorkBrowser
 }
 
 /** Small, read-only projection for native clients; source credentials, query inputs and local paths stay private. */
@@ -32,10 +39,13 @@ export interface TodayFocusSnapshot {
     key: string
     title: string
     sourceTitle: string
+    sourceKey: string
     path: string
     reasons: string[]
     status?: string
+    statusCategory?: IntegrationEntity['statusCategory']
     project?: string
+    actionTarget?: WorkItemActionTarget
   }[]
   candidates: FocusCandidate[]
 }
@@ -59,21 +69,31 @@ export async function todayFocusSnapshot(runtime: FocusRuntime, locale: Workbenc
   const catalog = homeWorkSources(integrations, locale)
   const sources: TodayFocusSource[] = []
   const entries: FocusEntry[] = []
+  const actionTargets = new Map<string, WorkItemActionTarget>()
   const read = async (source: HomeWorkSource): Promise<{ status: TodayFocusSource, entries: FocusEntry[] }> => {
-    const status: TodayFocusSource = { key: opaqueKey(source.key), title: source.title, sectionTitle: source.sectionTitle, path: sourcePath(source), state: 'error', complete: false, cached: false, count: 0 }
+    const status: TodayFocusSource = { key: opaqueKey(source.key), title: source.title, icon: source.icon, sectionTitle: source.sectionTitle, path: sourcePath(source), state: 'error', complete: false, cached: false, count: 0 }
     try {
+      let connectionCacheKey: string | undefined
       if (source.connection) {
         const connection = await runtime.invokeIntegrationAction({ integrationId: source.integrationId, actionId: source.connection.actionId, input: source.connection.input })
         if ('connected' in connection && connection.connected === false)
           return { status: { ...status, state: 'disconnected' }, entries: [] }
+        if ('connected' in connection && connection.accountLabel)
+          status.accountLabel = connection.accountLabel
+        if ('connected' in connection)
+          connectionCacheKey = connection.session?.cacheKey
       }
       const result = await runtime.invokeIntegrationAction({ integrationId: source.integrationId, actionId: source.actionId, input: source.input })
       if (!('items' in result) || !Array.isArray(result.items) || 'configuration' in result)
         return { status, entries: [] }
       const page = result as IntegrationEntityPage
       const items = personalActiveWork(page)
+      const context = { integrationId: source.integrationId, ...(connectionCacheKey ? { connectionCacheKey } : {}) }
+      const browser = todayWorkBrowser(page, now, context)
+      for (const item of items)
+        actionTargets.set(`${source.key}:${workItemIdentityKey(item)}`, workItemActionTarget(item, page, context))
       return {
-        status: { ...status, state: 'loaded', complete: page.coverage === 'complete' && !page.nextCursor, cached: Boolean(page.cache), count: items.length },
+        status: { ...status, state: 'loaded', complete: page.coverage === 'complete' && !page.nextCursor, cached: Boolean(page.cache), count: items.length, browser },
         entries: items.map(item => ({ source, item })),
       }
     }
@@ -103,10 +123,13 @@ export async function todayFocusSnapshot(runtime: FocusRuntime, locale: Workbenc
       key: opaqueKey(key),
       title: item.title,
       sourceTitle: source.title,
+      sourceKey: opaqueKey(source.key),
       path: sourcePath(source),
       reasons,
       ...(item.statusLabel ? { status: item.statusLabel } : {}),
+      ...(item.statusCategory ? { statusCategory: item.statusCategory } : {}),
       ...(item.project ? { project: item.project.title } : {}),
+      actionTarget: actionTargets.get(`${source.key}:${workItemIdentityKey(item)}`),
     })),
     candidates: candidates.map(candidate => ({ ...candidate, key: opaqueKey(candidate.key) })),
   }
