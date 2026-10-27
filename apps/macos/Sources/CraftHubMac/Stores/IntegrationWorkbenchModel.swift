@@ -7,7 +7,41 @@ import Observation
     let input: [String: IntegrationValue]
     let project: String?
   }
-  var page: IntegrationPresentation.Page?
+  var page: IntegrationPresentation.Page? {
+    didSet { rebuildDescriptionPreviews(reusing: page?.currentUser?.id == oldValue?.currentUser?.id) }
+  }
+  private struct DescriptionPreview {
+    let source: String
+    let text: String?
+  }
+  @ObservationIgnored private var descriptionPreviews: [String: DescriptionPreview] = [:]
+  @ObservationIgnored private let renderDescription: (String) -> String
+
+  init(renderDescription: @escaping (String) -> String = WorkItemText.plainDescription) {
+    self.renderDescription = renderDescription
+  }
+
+  /// Convert only changed descriptions when data arrives; scrolling reads a bounded, inert preview.
+  func descriptionPreview(for item: IntegrationPresentation.Entity) -> String? {
+    guard let cached = descriptionPreviews[item.key], cached.source == item.description else { return nil }
+    return cached.text
+  }
+
+  private func rebuildDescriptionPreviews(reusing: Bool) {
+    var next: [String: DescriptionPreview] = [:]
+    for item in page?.items ?? [] {
+      guard let source = item.description else { continue }
+      if reusing, let cached = descriptionPreviews[item.key], cached.source == source {
+        next[item.key] = cached
+      } else {
+        // List rows need a short preview. Keep the complete source on the entity for search and details.
+        let plain = renderDescription(String(source.prefix(32_768)))
+        let preview = plain.count > 512 ? String(plain.prefix(511)) + "…" : plain
+        next[item.key] = DescriptionPreview(source: source, text: preview.isEmpty ? nil : preview)
+      }
+    }
+    descriptionPreviews = next
+  }
   var resourcePage: IntegrationResourcePage?
   var resourceLocation: ResourceLocation?
   var resourceHistory: [ResourceLocation] = []

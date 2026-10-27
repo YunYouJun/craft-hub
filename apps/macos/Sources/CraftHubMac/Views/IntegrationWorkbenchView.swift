@@ -69,13 +69,16 @@ struct IntegrationWorkbenchView: View {
         if model.requiresProject {
           ContentUnavailableView(text.copy("请选择一个项目", "Choose a Project"), systemImage: "folder")
         } else {
-          ScrollView {
-            LazyVStack(alignment: .leading, spacing: 16) {
-              ForEach(entry.view.blocks, id: \.id) { block in
-                blockView(entry, block: block, state: model.state(block))
-              }
-            }.padding(.bottom)
+          // Each entity must be a list row. A lazy stack of entire, variable-height blocks can
+          // repeatedly invalidate placement when a block is taller than the scrolling viewport.
+          List {
+            ForEach(entry.view.blocks, id: \.id) { block in
+              blockView(entry, block: block, state: model.state(block))
+            }
           }
+          .listStyle(.inset)
+          .scrollContentBackground(.hidden)
+          .buttonStyle(.borderless)
         }
       } else {
         List(model.visibleEntries) { entry in
@@ -158,163 +161,163 @@ struct IntegrationWorkbenchView: View {
   @ViewBuilder private func blockView(
     _ entry: IntegrationWorkbenchModel.Entry, block: NativeIntegrationCatalog.Block, state: IntegrationBlockState
   ) -> some View {
-    GroupBox {
-      VStack(alignment: .leading, spacing: 10) {
+    Section {
+      HStack {
+        Text(entry.text(block.title ?? entry.action(block)?.title ?? block.id)).font(.headline)
+        Spacer()
+        if state.loading { ProgressView().controlSize(.small) }
+        if model.readable(block) {
+          Button(text.copy("刷新", "Refresh")) {
+            Task { if block.type == "connection-status" { await model.refresh() } else { await model.read(block) } }
+          }
+          .disabled(state.loading || model.busy)
+        }
+      }
+      if let description = block.description { Text(entry.text(description)).foregroundStyle(.secondary) }
+      if let error = state.error { NativeErrorView(message: entry.text(error)) }
+      if block.type == "action-form" {
+        Button(text.copy("打开表单…", "Open Form…")) { Task { await model.openForm(block) } }.disabled(
+          !model.canChangeContext)
+      }
+      if block.type == "resource-browser", model.readable(block) {
+        IntegrationResourceBrowserView(model: model, block: block, state: state, projects: projects) { project in
+          openWeb(webPath(entry, project: project))
+        }
+      }
+      if let connection = state.connection {
+        Label(
+          connection.connected ? text.copy("已连接", "Connected") : text.copy("未连接", "Disconnected"),
+          systemImage: connection.connected ? "checkmark.circle" : "link")
+        if let account = connection.accountLabel { Text(account) }
+        if let message = connection.message { Text(entry.text(message)).foregroundStyle(.secondary) }
+        if let expires = connection.session?.expiresAt {
+          Text(text.copy("授权到期：", "Authorization expires: ") + expires).font(.caption)
+        }
+        if state.stale { Text(text.copy("连接状态已过期，请刷新。", "Connection status is stale. Refresh to verify.")) }
+        if model.canManageConnection(block) {
+          Button(text.copy("管理连接…", "Manage Connection…")) { Task { await model.manageConnection(block) } }
+            .disabled(!model.canChangeContext)
+        } else {
+          Button(text.copy("管理连接…", "Manage Connection…")) { openWeb(webPath(entry)) }
+        }
+      }
+      if block.type == "entity-search" {
         HStack {
-          Text(entry.text(block.title ?? entry.action(block)?.title ?? block.id)).font(.headline)
-          Spacer()
-          if state.loading { ProgressView().controlSize(.small) }
-          if model.readable(block) {
-            Button(text.copy("刷新", "Refresh")) {
-              Task { if block.type == "connection-status" { await model.refresh() } else { await model.read(block) } }
-            }
-            .disabled(state.loading || model.busy)
+          TextField(
+            text.copy("搜索来源内容", "Search Source"), text: Binding(get: { state.query }, set: { state.query = $0 })
+          ).textFieldStyle(.roundedBorder)
+          Button(text.copy("搜索", "Search")) {
+            Task { await model.read(block, keyword: state.query.trimmingCharacters(in: .whitespacesAndNewlines)) }
+          }.disabled(state.loading || model.busy)
+        }
+      }
+      if let page = state.page {
+        if block.type != "entity-search" {
+          TextField(
+            text.copy("筛选已加载内容", "Filter Loaded Items"),
+            text: Binding(get: { state.query }, set: { state.query = $0 })
+          ).textFieldStyle(.roundedBorder)
+        }
+        HStack {
+          if block.statusFilter != nil {
+            Toggle(
+              text.copy("仅未完成", "Unfinished Only"),
+              isOn: Binding(get: { state.activeOnly }, set: { state.activeOnly = $0 }))
+          }
+          if block.assigneeFilter != nil {
+            Toggle(
+              text.copy("仅与我相关", "Personal Only"),
+              isOn: Binding(get: { state.personalOnly }, set: { state.personalOnly = $0 }))
           }
         }
-        if let description = block.description { Text(entry.text(description)).foregroundStyle(.secondary) }
-        if let error = state.error { NativeErrorView(message: entry.text(error)) }
-        if block.type == "action-form" {
-          Button(text.copy("打开表单…", "Open Form…")) { Task { await model.openForm(block) } }.disabled(
-            !model.canChangeContext)
-        }
-        if block.type == "resource-browser", model.readable(block) {
-          IntegrationResourceBrowserView(model: model, block: block, state: state, projects: projects) { project in
-            openWeb(webPath(entry, project: project))
-          }
-        }
-        if let connection = state.connection {
-          Label(
-            connection.connected ? text.copy("已连接", "Connected") : text.copy("未连接", "Disconnected"),
-            systemImage: connection.connected ? "checkmark.circle" : "link")
-          if let account = connection.accountLabel { Text(account) }
-          if let message = connection.message { Text(entry.text(message)).foregroundStyle(.secondary) }
-          if let expires = connection.session?.expiresAt {
-            Text(text.copy("授权到期：", "Authorization expires: ") + expires).font(.caption)
-          }
-          if state.stale { Text(text.copy("连接状态已过期，请刷新。", "Connection status is stale. Refresh to verify.")) }
-          if model.canManageConnection(block) {
-            Button(text.copy("管理连接…", "Manage Connection…")) { Task { await model.manageConnection(block) } }
-              .disabled(!model.canChangeContext)
-          } else {
-            Button(text.copy("管理连接…", "Manage Connection…")) { openWeb(webPath(entry)) }
-          }
-        }
-        if block.type == "entity-search" {
-          HStack {
-            TextField(
-              text.copy("搜索来源内容", "Search Source"), text: Binding(get: { state.query }, set: { state.query = $0 })
-            ).textFieldStyle(.roundedBorder)
-            Button(text.copy("搜索", "Search")) {
-              Task { await model.read(block, keyword: state.query.trimmingCharacters(in: .whitespacesAndNewlines)) }
-            }.disabled(state.loading || model.busy)
-          }
-        }
-        if let page = state.page {
-          if block.type != "entity-search" {
-            TextField(
-              text.copy("筛选已加载内容", "Filter Loaded Items"),
-              text: Binding(get: { state.query }, set: { state.query = $0 })
-            ).textFieldStyle(.roundedBorder)
-          }
-          HStack {
-            if block.statusFilter != nil {
-              Toggle(
-                text.copy("仅未完成", "Unfinished Only"),
-                isOn: Binding(get: { state.activeOnly }, set: { state.activeOnly = $0 }))
-            }
-            if block.assigneeFilter != nil {
-              Toggle(
-                text.copy("仅与我相关", "Personal Only"),
-                isOn: Binding(get: { state.personalOnly }, set: { state.personalOnly = $0 }))
-            }
-          }
-          if state.personalOnly && page.currentUser == nil {
-            Text(
-              text.copy(
-                "来源未提供当前账号身份；可取消“仅与我相关”查看已加载内容。",
-                "The source did not identify the current account. Turn off Personal Only to view loaded items.")
-            ).font(.caption).foregroundStyle(.secondary)
-          }
+        if state.personalOnly && page.currentUser == nil {
           Text(
-            page.nextCursor != nil || page.coverage == "partial"
-              ? text.copy("已加载部分内容", "Partially Loaded")
-              : page.coverage == "complete"
-                ? text.copy("当前范围已完整读取", "Current Scope Fully Loaded")
-                : text.copy("已加载内容，总范围未知", "Loaded Items; Total Coverage Unknown")
+            text.copy(
+              "来源未提供当前账号身份；可取消“仅与我相关”查看已加载内容。",
+              "The source did not identify the current account. Turn off Personal Only to view loaded items.")
           ).font(.caption).foregroundStyle(.secondary)
-          if state.stale || page.cache != nil {
-            Text(
-              text.copy(
-                "显示缓存或上次读取结果，配置修改暂不可用。", "Showing cached or previous results; configuration changes are unavailable.")
-            ).foregroundStyle(.secondary)
-          }
-          if let date = page.fetchedAt { Text(date).font(.caption).foregroundStyle(.secondary) }
-          if state.visibleItems.isEmpty { Text(text.copy("没有匹配的内容", "No Matching Items")).foregroundStyle(.secondary) }
-          ForEach(state.visibleItems, id: \.key) { item in
-            VStack(alignment: .leading, spacing: 6) {
-              HStack {
-                if isWorkItemBlock(entry, block: block) {
-                  PluginIconView(icon: entry.view.icon, fallbackSymbol: "checklist", size: 20)
-                  Button {
-                    Task { await workItemActions.open(actionTarget(item, entry: entry, state: state), mode: .detail) }
-                  } label: {
-                    Text(item.title).fontWeight(.medium)
-                  }
-                  .buttonStyle(.plain).help(text.copy("查看详情", "View Details"))
-                } else {
+        }
+        Text(
+          page.nextCursor != nil || page.coverage == "partial"
+            ? text.copy("已加载部分内容", "Partially Loaded")
+            : page.coverage == "complete"
+              ? text.copy("当前范围已完整读取", "Current Scope Fully Loaded")
+              : text.copy("已加载内容，总范围未知", "Loaded Items; Total Coverage Unknown")
+        ).font(.caption).foregroundStyle(.secondary)
+        if state.stale || page.cache != nil {
+          Text(
+            text.copy(
+              "显示缓存或上次读取结果，配置修改暂不可用。", "Showing cached or previous results; configuration changes are unavailable.")
+          ).foregroundStyle(.secondary)
+        }
+        if let date = page.fetchedAt { Text(date).font(.caption).foregroundStyle(.secondary) }
+        if state.visibleItems.isEmpty { Text(text.copy("没有匹配的内容", "No Matching Items")).foregroundStyle(.secondary) }
+        ForEach(state.visibleItems, id: \.key) { item in
+          VStack(alignment: .leading, spacing: 6) {
+            HStack {
+              if isWorkItemBlock(entry, block: block) {
+                PluginIconView(icon: entry.view.icon, fallbackSymbol: "checklist", size: 20)
+                Button {
+                  Task { await workItemActions.open(actionTarget(item, entry: entry, state: state), mode: .detail) }
+                } label: {
                   Text(item.title).fontWeight(.medium)
                 }
-                Spacer()
-                if !isWorkItemBlock(entry, block: block), let status = item.statusLabel ?? item.status {
-                  Text(entry.text(status)).foregroundStyle(.secondary)
+                .buttonStyle(.plain).help(text.copy("查看详情", "View Details"))
+              } else {
+                Text(item.title).fontWeight(.medium)
+              }
+              Spacer()
+              if !isWorkItemBlock(entry, block: block), let status = item.statusLabel ?? item.status {
+                Text(entry.text(status)).foregroundStyle(.secondary)
+              }
+              if isWorkItemBlock(entry, block: block) {
+                WorkItemQuickActions(target: actionTarget(item, entry: entry, state: state), model: workItemActions)
+              }
+              if let url = DesktopBridge.externalURL(item.url) {
+                Link(text.copy("打开原文", "Open Original"), destination: url)
+              }
+            }
+            if let description = state.descriptionPreview(for: item) {
+              Text(description).font(.callout).foregroundStyle(.secondary).lineLimit(3)
+            }
+            if let details = item.details, !details.isEmpty {
+              DisclosureGroup(text.copy("详情", "Details")) {
+                ForEach(Array(details.enumerated()), id: \.offset) { _, detail in
+                  LabeledContent(entry.text(detail.label), value: entry.text(detail.value))
                 }
-                if isWorkItemBlock(entry, block: block) {
-                  WorkItemQuickActions(target: actionTarget(item, entry: entry, state: state), model: workItemActions)
+              }.font(.callout)
+            }
+            if let toggle = item.configurationToggle {
+              HStack {
+                Button(toggle.enabled ? text.copy("停用…", "Disable…") : text.copy("启用…", "Enable…")) {
+                  model.prepareToggle(block, item: item, enabled: !toggle.enabled)
                 }
-                if let url = DesktopBridge.externalURL(item.url) {
-                  Link(text.copy("打开原文", "Open Original"), destination: url)
+                if toggle.scope == "project" && !toggle.inherited {
+                  Button(text.copy("恢复继承…", "Inherit…")) { model.prepareToggle(block, item: item, enabled: nil) }
                 }
-              }
-              if let description = item.description {
-                Text(WorkItemText.plainDescription(description)).font(.callout).foregroundStyle(.secondary).lineLimit(3)
-              }
-              if let details = item.details, !details.isEmpty {
-                DisclosureGroup(text.copy("详情", "Details")) {
-                  ForEach(Array(details.enumerated()), id: \.offset) { _, detail in
-                    LabeledContent(entry.text(detail.label), value: entry.text(detail.value))
-                  }
-                }.font(.callout)
-              }
-              if let toggle = item.configurationToggle {
-                HStack {
-                  Button(toggle.enabled ? text.copy("停用…", "Disable…") : text.copy("启用…", "Enable…")) {
-                    model.prepareToggle(block, item: item, enabled: !toggle.enabled)
-                  }
-                  if toggle.scope == "project" && !toggle.inherited {
-                    Button(text.copy("恢复继承…", "Inherit…")) { model.prepareToggle(block, item: item, enabled: nil) }
-                  }
-                  if toggle.inherited {
-                    Text(text.copy("继承父级配置", "Inherited Configuration")).foregroundStyle(.secondary)
-                  }
-                }.disabled(!model.canToggle(block, item))
-              }
-              Divider()
-            }.textSelection(.enabled)
+                if toggle.inherited {
+                  Text(text.copy("继承父级配置", "Inherited Configuration")).foregroundStyle(.secondary)
+                }
+              }.disabled(!model.canToggle(block, item))
+            }
           }
-          if page.nextCursor != nil {
-            Button(text.copy("加载更多", "Load More")) { Task { await model.read(block, append: true) } }.disabled(
-              state.loading || state.stale || model.busy)
-          }
+          .textSelection(.enabled)
+          .listRowSeparator(.visible)
+          .alignmentGuide(.listRowSeparatorLeading) { _ in 0 }
         }
-        if (!model.readable(block) && block.type != "action-form") || state.unsupported {
-          if block.type == "configuration-manager" && model.project == nil {
-            Button(text.copy("打开原生配置管理…", "Open Native Configuration…")) { openConfiguration(entry.path) }
-          } else {
-            Text(text.copy("此业务块使用完整页面。", "This block uses the full page.")).foregroundStyle(.secondary)
-            Button(text.copy("打开完整页面…", "Open Full Page…")) { openWeb(webPath(entry)) }
-          }
+        if page.nextCursor != nil {
+          Button(text.copy("加载更多", "Load More")) { Task { await model.read(block, append: true) } }.disabled(
+            state.loading || state.stale || model.busy)
         }
-      }.frame(maxWidth: .infinity, alignment: .leading).padding(8)
+      }
+      if (!model.readable(block) && block.type != "action-form") || state.unsupported {
+        if block.type == "configuration-manager" && model.project == nil {
+          Button(text.copy("打开原生配置管理…", "Open Native Configuration…")) { openConfiguration(entry.path) }
+        } else {
+          Text(text.copy("此业务块使用完整页面。", "This block uses the full page.")).foregroundStyle(.secondary)
+          Button(text.copy("打开完整页面…", "Open Full Page…")) { openWeb(webPath(entry)) }
+        }
+      }
     }
   }
 
