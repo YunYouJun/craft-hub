@@ -87,16 +87,7 @@ struct WorkItemsOverviewView: View {
     }.frame(maxWidth: .infinity, maxHeight: .infinity)
   }
 
-  @ViewBuilder private func sourcePicker(segmented: Bool) -> some View {
-    let picker = Picker(text.copy("工作来源", "Work Source"), selection: sourceSelection) {
-      ForEach(snapshot.sources) { source in
-        Text("\(source.title) (\(source.count))").tag(source.key)
-      }
-    }.labelsHidden()
-    if segmented {
-      picker.pickerStyle(.segmented).fixedSize(horizontal: true, vertical: false)
-    } else {
-      picker.pickerStyle(.menu)
-    }
+  private func sourcePicker(segmented: Bool) -> some View {
+    WorkSourcePicker(sources: snapshot.sources, selection: sourceSelection, segmented: segmented)
   }
 }
