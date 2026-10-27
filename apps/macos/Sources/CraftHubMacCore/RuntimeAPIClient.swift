@@ -73,6 +73,28 @@ public final class RuntimeAPIClient {
     }
     return try JSONDecoder().decode(Value.self, from: data)
   }
+
+  /// Binary assets use the same origin and redirect policy as JSON, with a separate bounded image contract.
+  func fetchAsset(path: String, query: [URLQueryItem], maximumBytes: Int, contentTypes: Set<String>) async throws
+    -> Data
+  {
+    var request = try connection.request(path: path, query: query)
+    request.timeoutInterval = 12
+    request.httpShouldHandleCookies = false
+    request.setValue(contentTypes.sorted().joined(separator: ", "), forHTTPHeaderField: "Accept")
+    let (data, response) = try await transport(request)
+    guard let response = response as? HTTPURLResponse, response.url == request.url,
+      data.count <= maximumBytes
+    else { throw RuntimeAPIError.invalidResponse }
+    guard (200..<300).contains(response.statusCode) else {
+      let message = (try? JSONDecoder().decode(Failure.self, from: data).error) ?? "Runtime asset request failed"
+      throw RuntimeAPIError.rejected(response.statusCode, String(message.prefix(500)))
+    }
+    guard let type = response.mimeType?.lowercased(), contentTypes.contains(type),
+      response.expectedContentLength <= Int64(maximumBytes)
+    else { throw RuntimeAPIError.invalidResponse }
+    return data
+  }
 }
 
 /// Even a same-origin redirect is unexpected for API endpoints. Never send the bearer credential onward.

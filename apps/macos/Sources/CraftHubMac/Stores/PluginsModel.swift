@@ -56,6 +56,8 @@ import Observation
   private(set) var documentError: String?
   private(set) var documentLoading = false
   @ObservationIgnored private var client: RuntimeAPIClient?
+  var iconClient: RuntimeAPIClient? { client }
+  var iconRevision: Int { loadedRevision }
   @ObservationIgnored private var generation = UUID()
   @ObservationIgnored private var previewGeneration = UUID()
   @ObservationIgnored private var documentGeneration = UUID()

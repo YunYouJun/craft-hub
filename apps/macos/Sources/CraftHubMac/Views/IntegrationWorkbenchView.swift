@@ -48,7 +48,10 @@ struct IntegrationWorkbenchView: View {
       }
       if let entry = model.entry, model.search.isEmpty {
         HStack {
-          Text(entry.text(entry.view.title)).font(.title2)
+          HStack(spacing: 8) {
+            PluginIconView(icon: entry.view.icon, size: 24)
+            Text(entry.text(entry.view.title)).font(.title2)
+          }
           Spacer()
           if entry.view.scope != "global" {
             Picker(
@@ -79,7 +82,10 @@ struct IntegrationWorkbenchView: View {
             Task { await model.select(entry.id) }
           } label: {
             HStack {
-              Label(entry.text(entry.view.title), systemImage: "puzzlepiece.extension")
+              HStack(spacing: 8) {
+                PluginIconView(icon: entry.view.icon, size: 20)
+                Text(entry.text(entry.view.title))
+              }
               Spacer()
               Text(entry.contribution.id).foregroundStyle(.secondary)
             }
