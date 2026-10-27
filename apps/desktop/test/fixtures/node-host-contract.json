@@ -1,6 +1,6 @@
 {
   "engines": "^22.18.0 || ^24.11.0 || ^26.0.0",
-  "supportedMajors": [
+  "ciMajors": [
     22,
     24,
     26

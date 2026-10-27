@@ -16,20 +16,13 @@ describe('runtime Node compatibility contract', () => {
     expect(satisfies(value, runtime.engines.node)).toBe(supported)
   })
 
-  it('covers every supported major in the shared host fixtures', () => {
-    const supported = new Set(contract.supportedMajors)
+  it('tests every supported major in CI', async () => {
+    const ci = parse(await readFile(new URL('../../../.github/workflows/ci.yml', import.meta.url), 'utf8'))
+    expect(ci.jobs['node-compatibility'].strategy.matrix.node).toEqual(contract.ciMajors)
+    const tested = new Set(contract.ciMajors)
     for (let major = 0; major < 100; major++) {
       // Include a high minor to cover majors whose supported range starts above x.0.0.
-      expect(supported.has(major)).toBe(satisfies(`${major}.999.0`, runtime.engines.node))
-    }
-  })
-
-  it('runs compatibility CI on supported Node majors', async () => {
-    const ci = parse(await readFile(new URL('../../../.github/workflows/ci.yml', import.meta.url), 'utf8'))
-    const testedMajors = ci.jobs['node-compatibility'].strategy.matrix.node
-    expect(testedMajors.length).toBeGreaterThan(0)
-    for (const major of testedMajors) {
-      expect(contract.supportedMajors).toContain(major)
+      expect(tested.has(major)).toBe(satisfies(`${major}.999.0`, runtime.engines.node))
     }
   })
 })

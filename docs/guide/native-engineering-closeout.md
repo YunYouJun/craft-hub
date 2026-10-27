@@ -49,7 +49,7 @@ python3 apps/macos/build/closeout-ui-20261024/run-approved.py --explicit-user-au
 
 | 阶段 | 可审阅交付与验证入口 |
 | --- | --- |
-| A | [桥接清单](desktop-bridge.md)、ADR 0012、共享 Node 合同、Swift/Node 本机检查；跨版本历史记录可复验，当前 CI 策略见[候选验收清单](native-candidate-acceptance.md#工程能力与验证边界)，最低系统另列 |
+| A | [桥接清单](desktop-bridge.md)、ADR 0012、共享 Node 合同、Swift/Node CI 配置；本地检查与跨版本历史记录可复验，托管 CI 和最低系统另列 |
 | B | 共享宿主启动服务、公共事件流、重连和迟到响应隔离；模型/HTTP 测试及历史 Release 重连、主题/语言与工具入口记录 |
 | C | 原生首页/项目/面板/菜单与系统入口已实现；深链接和通知保持只导航；[候选矩阵](native-candidate-acceptance.md#工程能力与验证边界) 明列每项系统验收范围 |
 | D | 管理页、声明式块、账户/密钥适配及无 Node 引导已交付；本轮包内专项和上述 XCTest 补齐指定关键流程；网页回退范围明确 |
@@ -64,7 +64,7 @@ python3 apps/macos/build/closeout-ui-20261024/run-approved.py --explicit-user-au
 
 | 待办 | 所需条件 / 完成证据 |
 | --- | --- |
-| 最低系统及跨平台 | macOS 15、真实 Intel、可运行 x64 测试的工具链；Node 22/24 本机复验、Node 26 及 Windows/Linux 的托管 CI 结果 |
+| 最低系统及跨平台 | macOS 15、真实 Intel、可运行 x64 测试的工具链；Node 22/24/26 和 Windows/Linux 的托管 CI 结果 |
 | 真实账户与安全存储 | 云网页候选 callback 配套、真实账号授权、系统 Keychain 提示及正式签名升级后的访问 |
 | 真实资料与设备身份迁移 | 停止实际写入者、解决预检中的未知条目/未完成运行；Developer ID 双宿主迁移、恢复及回退证据 |
 | 正式分发与更新 | Alpha 6 → Alpha 7 的凭据、签名公证与公开更新已有[独立验收记录](../research/native-macos-update-acceptance.md)；当前工程整合版本仍需发布产物、Gatekeeper 和更新复验 |

@@ -4,8 +4,6 @@ Date: 2026-10-22. Status: accepted for implementation. The maintainer's native-c
 
 Update, 2026-10-22: the `apps/macos` prototype (M1) runs the shared runtime sidecar from `apps/desktop/src/sidecar.ts`, which Electron and the native host compose through `createDesktopHostRuntime`. The Tauri trial is retired and removed (question 9). Native environment inspection and software browsing now consume the public API through a separate per-process bearer token delivered over the parent pipe. Configuration and installation remain in the embedded workbench; this does not complete the M0 decisions or M1 daily-use acceptance.
 
-Update, 2026-10-27: routine CI retains cross-platform Electron/runtime build and test jobs and a Node 26 compatibility job. Native macOS jobs and the standalone Node 22/24 compatibility jobs are removed to reduce repeated CI runs; other jobs continue using `.node-version`. The supported Node range remains 22, 24 and 26; native formatting, Swift/Node interoperability, packaged app and signature checks remain local acceptance requirements. The `native-v*` release workflow is retained. This supersedes the routine CI and native formatting scheduling described below; dated validation evidence remains unchanged.
-
 ## M0 implementation decisions (2026-10-22)
 
 - **Node support:** bound the published range to majors 22, 24 and 26, with the existing minimums 22.18 and 24.11. The Node compatibility CI job tests all three majors; local and hosted results are recorded separately. New majors are added with evidence rather than accepted automatically. The [official release schedule](https://github.com/nodejs/Release/blob/main/schedule.json) currently places Node 27 in a future release phase.
