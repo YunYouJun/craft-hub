@@ -69,30 +69,35 @@ struct IntegrationResourceBrowserView: View {
           }.textSelection(.enabled)
         }
         ForEach(Array((page.documents ?? []).enumerated()), id: \.offset) { _, document in
-          DisclosureGroup(document.title) {
-            VStack(alignment: .leading, spacing: 8) {
-              HStack {
-                Button(text.copy("复制内容", "Copy Contents")) {
-                  NSPasteboard.general.clearContents()
-                  NSPasteboard.general.setString(document.content, forType: .string)
-                }
+          VStack(alignment: .leading, spacing: 8) {
+            HStack {
+              Text(document.title).font(.headline)
+              Spacer()
+              Button(text.copy("复制内容", "Copy Contents"), systemImage: "doc.on.doc") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(document.content, forType: .string)
+              }
+              .accessibilityLabel(text.copy("复制 \(document.title)", "Copy \(document.title)"))
+            }
+            DisclosureGroup(text.copy("预览内容", "Preview Contents")) {
+              VStack(alignment: .leading, spacing: 8) {
                 Button(text.copy("另存为…", "Save As…")) {
                   exportName = URL(fileURLWithPath: document.filename ?? "document.txt").lastPathComponent
                   if exportName.isEmpty { exportName = "document.txt" }
                   exportDocument = ResourceTextDocument(content: document.content)
                   exporting = true
                 }
-              }
-              documentText(document.content)
-              if let comparison = document.compareWith {
-                Text(text.copy("对照内容", "Comparison")).font(.caption).foregroundStyle(.secondary)
-                documentText(comparison)
-              }
-              if document.agentPrompt != nil {
-                Text(text.copy("可在完整页面审阅 Agent 交接。", "Review the agent handoff in the full page."))
-                  .font(.caption).foregroundStyle(.secondary)
-              }
-            }.padding(.top, 8)
+                documentText(document.content)
+                if let comparison = document.compareWith {
+                  Text(text.copy("对照内容", "Comparison")).font(.caption).foregroundStyle(.secondary)
+                  documentText(comparison)
+                }
+                if document.agentPrompt != nil {
+                  Text(text.copy("可在完整页面审阅 Agent 交接。", "Review the agent handoff in the full page."))
+                    .font(.caption).foregroundStyle(.secondary)
+                }
+              }.padding(.top, 8)
+            }
           }
         }
         if let forms = page.forms, !forms.isEmpty {
