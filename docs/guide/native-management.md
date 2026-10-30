@@ -2,6 +2,15 @@
 
 macOS 候选版的侧栏使用 SwiftUI 显示插件管理和诊断中心，两页消费共享运行时 API。插件版本、权限、依赖、来源策略和项目执行权限仍由 TypeScript 运行时决定。
 
+## 系统侧栏
+
+主侧栏默认使用 `NavigationSplitView`、`List(selection:)` 的 `.sidebar` 样式和标准 `Label`。
+选中背景、文字与 SF Symbols 的颜色、窗口及列表焦点强调、行间距和辅助功能外观均交给 macOS。
+不固定标签前景色，不覆盖 `NSTableRowView.isEmphasized`，不为系统图标指定单色 tint。
+插件侧栏图标按系统模板图像呈现，沿用原图轮廓并跟随标签的前景色，避免蓝色品牌图标融入蓝色选中背景。
+缺失时使用跟随系统选中态的 SF Symbol；共享图像缓存和插件详情等位置保留原始图像色彩。
+系统外观随支持的 macOS 版本自然变化，参见 Apple 的 [NavigationSplitView](https://developer.apple.com/documentation/swiftui/navigationsplitview) 和 [SidebarListStyle](https://developer.apple.com/documentation/swiftui/sidebarliststyle)。
+
 ## 页面内容宽度
 
 原生主页面使用 `NativePageLayout` 统一布局。页面标题、筛选、提示、滚动内容和底栏左右留白均为 20pt；
