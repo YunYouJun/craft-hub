@@ -131,7 +131,7 @@ export default defineComponent({
     color: var(--text);
   }
 
-  .ui-navigation-item[data-variant='sidebar']:hover .visual-icon img {
+  .ui-navigation-item[data-variant='sidebar']:hover .visual-icon:not(.visual-icon-mask) img {
     opacity: 1;
   }
 }
@@ -177,16 +177,16 @@ export default defineComponent({
   height: 100%;
 }
 
-.ui-navigation-item[data-variant='sidebar'] .visual-icon img {
+.ui-navigation-item[data-variant='sidebar'] .visual-icon:not(.visual-icon-mask) img {
   filter: grayscale(1);
   opacity: .65;
 }
 
-.ui-navigation-item[data-variant='sidebar']:focus-visible .visual-icon img {
+.ui-navigation-item[data-variant='sidebar']:focus-visible .visual-icon:not(.visual-icon-mask) img {
   opacity: 1;
 }
 
-.ui-navigation-item[data-variant='sidebar']:is([data-state='active'], [aria-selected='true'], [aria-current='page'], .active) .visual-icon img {
+.ui-navigation-item[data-variant='sidebar']:is([data-state='active'], [aria-selected='true'], [aria-current='page'], .active) .visual-icon:not(.visual-icon-mask) img {
   filter: none;
   opacity: 1;
 }

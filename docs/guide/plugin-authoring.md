@@ -124,6 +124,8 @@ Use contribution `translations` for view/action titles and display messages. Sto
 
 Integration views may declare a package-relative image such as `"icon": "assets/icon.svg"`. Active Marketplace Plugins resolve these bounded assets inside their own package, including symlink containment checks. The host renders SVG through an isolated image element, never by injecting markup; the sidebar, workbench tabs, and page header share the image. Missing or failed images use the renderer's fallback icon. Keep brand assets and their source attribution in the plugin package.
 
+The web renderer displays inline SVG artwork with a single neutral ink (including muted gray or `currentColor`) in the surrounding theme's foreground color. Colored artwork and SVGs with contrasting light and dark details retain their original colors, as do raster and remote images.
+
 An `action-form` block can set `collapsible: true` to start as a closed disclosure within its existing view, and `requiresProject: true` to show a project-selection prompt until that view has a project scope. These options let repository actions live alongside repository lists without creating a separate page. Opening the disclosure never invokes the action; the normal execution trust and confirmation rules still apply. Other block types do not accept these form options.
 
 ## Resource pages (unreleased)
