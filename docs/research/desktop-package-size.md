@@ -26,8 +26,8 @@ node-pty 仍有构建源文件、测试与 Windows ConPTY 源资源，已在部�
 ```sh
 MACOS_ARCHES=arm64 pnpm package:mac
 
-# 构建、替换本机应用并打开
-pnpm reinstall:mac
+# 构建、替换 Electron 备用应用并打开
+pnpm reinstall:electron:mac
 
 # 兼容分发可以显式选择内置 CLI
 MACOS_ARCHES=arm64 CRAFT_HUB_DESKTOP_CODEX_MODE=bundled pnpm package:mac

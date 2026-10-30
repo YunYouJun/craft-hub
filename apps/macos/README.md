@@ -41,10 +41,14 @@ Instance follow-up (2026-10-23): workspace checks passed with 6139 tests across 
 Requires Xcode 26 or later, the repository's pnpm dependencies, and a compatible Node (22 ≥22.18, 24 ≥24.11, or 26) on the machine.
 
 ```sh
-./script/build_and_run.sh --verify
+pnpm reinstall:macos
 ```
 
-The Codex Run action uses the same script. It stops the previous native app, builds the bundle and opens it with Launch Services. Use `--logs` for process logs, `--telemetry` for readiness markers, or `pnpm build:macos` to build without launching. `pnpm lint:macos` checks Swift style; `pnpm format:macos` applies it.
+`pnpm reinstall:macos`, `pnpm reinstall:mac` and the Codex Run action (`./script/build_and_run.sh`) use the same local workflow: build a fresh Release candidate, verify and stage it, request a normal quit of the installed app, replace `~/Applications/Craft Hub Prototype.app`, then open and verify that exact executable and its bundled sidecar. Existing Craft Hub Dock entries are refreshed to this stable installed location, clearing stale bookmarks and retaining their position. The previous Dock entries are saved with the app backup; no icon is added when none was pinned. Build failure leaves the running app untouched; quit guards remain active, and the workflow never force-stops processes by name. Independent candidate copies are left alone. If another copy owns the daily profile, startup verification fails and restores the prior installation instead of reporting a stale process as success.
+
+Previous bundles and installation receipts stay in `.craft-hub-native-install-*` directories beside the installed app. Failed replacement/startup restores the previous bundle and restarts it if it was running; a recovery failure reports the retained bundles' location. User data and drafts remain in the existing native profile. `CRAFT_HUB_NATIVE_INSTALL_DIR` can select another application directory. `CRAFT_HUB_NATIVE_DATA_DIR`, `CRAFT_HUB_NATIVE_OUTPUT_DIR` and release-mode overrides are rejected by the daily-use installer; use the separate candidate/release workflows for them.
+
+`./script/build_and_run.sh --verify` uses the same installation and startup verification. Use `--logs` for logs from the new PID or `--telemetry` for its performance markers. `pnpm build:macos` only builds a candidate and never installs or launches it. Local packages have automatic updates disabled: rerun `pnpm reinstall:macos` after source changes. Electron reinstall remains explicitly available as `pnpm reinstall:electron:mac`. `pnpm lint:macos` checks Swift style; `pnpm format:macos` applies it.
 
 `build:macos` builds the desktop/web workspace dependency closure before packaging, including shared personal-cloud and plugin packages. Native builds, Swift interoperability, packaged management, host-extension, migration, instance, identity and signature checks run locally as part of candidate acceptance. Build with the workspace's pinned Node, then select the supported runtime Node for interoperability and packaged checks. The verifiers invoke that selected Node directly. Routine CI retains cross-platform build/test jobs and Node 26 compatibility; the tagged native release workflow remains available.
 
@@ -61,6 +65,14 @@ The latest architecture-fix candidate has separate arm64 and x64 artifacts; Rose
 `apps/desktop/test/fixtures/node-host-contract.json` is shared by Swift and TypeScript tests. It covers the published Node range and fixed GUI search order, including pnpm and fnm. Supporting a new Node major requires compatibility evidence and matching updates to the bounded engines range and shared fixtures. Node 22, 24 and 26 remain supported; native checks and the full runtime matrix remain local acceptance work, while the compatibility CI job covers Node 26 and other jobs use `.node-version`. Current-candidate local 22.23.1/26.0.0 suites each passed 1155 runtime/host tests (three skips) and 234 Swift tests (one optional network skip), plus packaged management, configuration, migration and instance checks. See the [versioned evidence](../../docs/guide/native-candidate-acceptance.md#当前候选-node-兼容复验2026-10-23). The linked dated records describe the CI configuration at the time of that validation.
 
 The [desktop bridge v1 inventory](../../docs/guide/desktop-bridge.md) records every method, its owner and current host support. Both hosts expose `bridgeVersion: 1`; unsupported methods remain absent so the browser and web fallbacks continue to work.
+
+## Node socket compatibility (2026-10-28)
+
+On macOS, affected Node/Undici versions can throw `setTypeOfService EINVAL` from the HTTP socket callback, outside the request Promise rejection path. The installed Node 24.18.0 (Undici 7.28.0) and this checkout's Electron 45.0.0 (Node 24.22.0 / Undici 7.29.1) contain that path. See the [upstream report](https://github.com/nodejs/undici/issues/5544) and [fix](https://github.com/nodejs/undici/pull/5547). An Electron error dialog alone does not identify its owning application; the supplied screenshot's exact instance was not established.
+
+The desktop and sidecar entrypoints install a small Darwin-only socket guard before runtime modules evaluate. It ignores only `EINVAL` whose syscall is `setTypeOfService`, preserves the socket receiver and other errors, and does nothing when the API is absent. The fixed To Do connector subprocesses receive the same compiled, host-owned bootstrap through an explicit `--import` argument. This does not set `NODE_OPTIONS` or preload code into user commands or Workstation backends. Development To Do processes also use the built JavaScript bootstrap, so build the desktop workspace before using those connectors.
+
+A local fault-injection regression reaches the real built-in `fetch` / Undici write callback: the affected runtime exits with the same uncaught error without protection and completes the request with protection. Normal IPv4/IPv6 requests did not reproduce the original kernel failure; the test does not claim otherwise. The fixture also accepts an already-fixed upstream implementation. Tests cover other error objects, fluent socket return values, duplicate-module idempotence, missing APIs, connector argument order and environment isolation. Compiled-bootstrap probes passed in both Node and Electron's Node mode; evidence is retained under the ignored `build/socket-tos-20261028/` directory.
 
 ## How it works
 
@@ -181,7 +193,11 @@ The final Release passed independent ad hoc signature verification and occupies 
 
 ## 原生项目、今日重点与菜单栏（验收进行中）
 
-项目页直接读取公共项目目录，支持搜索、批量选目录和拖放；新项目的信任状态由运行时决定，查看能力仍进入现有审阅页面。今日重点通过 `/api/workbench/today` 读取共享来源筛选与排序的结果，显示未连接、失败、缓存与分页范围；AI 分析只在点击后执行。菜单栏读取相同快照并保留最近项目与快速记录入口。
+项目页直接读取公共项目目录，支持搜索、批量选目录和拖放；选择项目后原生展示路径、信任状态、包信息、命令、技能与发现提示，支持来源搜索和类型/包筛选。普通命令的参数、一次性执行审阅、显式项目信任、运行与停止，以及 AppKit PTY 终端使用原生页面，不启动 WKWebView；技能、发布计划、README 完整排版和项目配置仍可进入完整项目。执行前由共享运行时重新验证审阅内容。详见 [原生项目与插件渲染](../../docs/guide/native-projects.md)。今日重点通过 `/api/workbench/today` 读取共享来源筛选与排序的结果，显示未连接、失败、缓存与分页范围；AI 分析只在点击后执行。菜单栏读取相同快照并保留最近项目与快速记录入口。
+
+内嵌终端使用固定版本 SwiftTerm 1.19.0 的 AppKit `TerminalView`，替换自写解析/渲染层；其资源与 MIT 许可随包分发，进程仍由共享运行时的 PTY 管理。原始输入字节通过兼容的 Base64 API 发送，终端状态在页面切换时保留，历史回放不回复旧控制查询。原生项目页和命令页还可选择独立终端，分别打开项目根目录与命令工作目录；偏好按原生资料隔离，不自动执行命令或转移现有会话。详见[项目与终端指南](../../docs/guide/native-projects.md)。
+
+运行历史按时间倒序；实时输出保留接收顺序，历史 stdout/stderr 分别保存，重新读取不能恢复交错顺序。连接中断后需核对记录，不会自动重跑或重接输出流；输入送达不确定时需检查输出后明确恢复。单元验证不代表真实输入法、VoiceOver 或所有终端程序已经通过 Release 验收；具体产物和系统走查范围按指南逐批记录。
 
 编辑器、终端、Codex 和设置文件入口复用 Electron 的 `project-launch.ts`。原生外观和语言跟随公共设置快照与事件流。解锁后已在隔离 Release 副本中走查插件链接/启停/搜索、来源预览取消、宿主组件开关、诊断筛选及真实超时恢复。2026-10-24 经明确授权改用 XCTest，在既有 Links Test 副本中确认插件详情的中文 README、commands 权限展示及 Escape 关闭，临时 App/sidecar/运行器均已清理。安装/移除确认、诊断详情与处理跳转、完整焦点、组合输入和 VoiceOver 仍待验收；源码和模型测试不能替代这些检查，详情见 `docs/guide/native-management.md`。
 
