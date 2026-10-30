@@ -148,12 +148,16 @@ private func held(_ fixture: ProfileFixture) async throws {
   #expect(model.stale && model.review == nil && model.setup == nil)
 }
 
-@MainActor @Test func environmentInvalidationAndDisconnectDiscardLateObservations() async throws {
+@MainActor @Test(arguments: [Duration.zero, .seconds(1)])
+func environmentInvalidationAndDisconnectDiscardLateObservations(requestDelay: Duration) async throws {
   let fixture = ProfileFixture()
   let model = EnvironmentProfileModel(client: try profileClient(fixture))
   await model.load()
   await fixture.configure(hold: "setup")
-  let checking = Task { await model.check() }
+  let checking = Task {
+    try? await Task.sleep(for: requestDelay)
+    await model.check()
+  }
   try await held(fixture)
   model.invalidate()
   await fixture.release()

@@ -53,7 +53,7 @@ enum Destination: String, CaseIterable, Identifiable {
   @MainActor var title: String { L10n.text.destination(self) }
 
   var isNative: Bool {
-    [.overview, .projects, .tools, .environment, .software, .workbenches, .marketplace, .diagnostics].contains(self)
+    [.overview, .projects, .tools, .environment, .software, .marketplace, .diagnostics].contains(self)
   }
 
   /// The destination a web route belongs to, so the sidebar follows in-page navigation.

@@ -1,14 +1,14 @@
 <script setup lang="ts">
 import type { ResourceInput, ResourcePage } from 'craft-hub'
 import type { ResourceDesktopContext, ResourceDesktopSession } from './resource-desktop'
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { copyText } from './clipboard'
 import { Button } from './components/ui/button'
 import { Checkbox } from './components/ui/checkbox'
 import Input from './components/ui/input/Input.vue'
 import { FormSelect } from './components/ui/select'
 import DataTable from './components/ui/table/DataTable.vue'
-import ActionToast from './components/ui/toast/ActionToast.vue'
+import { ActionToast, useActionToast } from './components/ui/toast'
 import { useI18n } from './i18n'
 import Icon from './NavigationIcon.vue'
 import ResourceSecretCell from './ResourceSecretCell.vue'
@@ -20,17 +20,14 @@ const label = (zh: string, en: string): string => locale.value === 'zh-CN' ? zh 
 const collection = computed(() => props.page.collection!)
 const fields = computed(() => props.page.forms?.find(form => form.id === collection.value.filterFormId)?.fields ?? [])
 const selected = ref(new Set<string>())
-const feedback = ref<{ id: number, title: string, error?: boolean }>()
+const { message: feedback, notify } = useActionToast()
 const session = ref<ResourceDesktopSession>()
 const nativeError = ref(false)
 const pendingInput = ref(false)
 const importing = ref(false)
 const nativeAvailable = !!window.craftHubDesktop?.openResourceSession && !!window.craftHubDesktop.resourceCredential && !!window.craftHubDesktop.importResourceAccounts
 let sessionGeneration = 0
-function notify(title: string, error = false): void {
-  feedback.value = { id: (feedback.value?.id ?? 0) + 1, title, error }
-}
-watch(() => [props.page, props.nativeContext] as const, async () => {
+async function connectNative(): Promise<void> {
   const stamp = ++sessionGeneration
   session.value = undefined
   nativeError.value = false
@@ -45,7 +42,9 @@ watch(() => [props.page, props.nativeContext] as const, async () => {
     if (stamp === sessionGeneration)
       nativeError.value = true
   }
-}, { immediate: true })
+}
+watch(() => [props.page, props.nativeContext] as const, connectNative, { immediate: true })
+onMounted(() => window.addEventListener('craft-hub-resource-resume', connectNative))
 async function importAccounts(): Promise<void> {
   if (!session.value)
     return
@@ -115,6 +114,7 @@ async function copy(value: string): Promise<void> {
   catch { notify(label('复制失败，可选择文本手动复制', 'Copy failed. Select the text to copy manually.'), true) }
 }
 onBeforeUnmount(() => {
+  window.removeEventListener('craft-hub-resource-resume', connectNative)
   sessionGeneration++
   clearTimeout(timer)
   if (session.value && window.craftHubDesktop?.closeResourceSession)

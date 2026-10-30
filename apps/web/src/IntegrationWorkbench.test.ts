@@ -6,7 +6,9 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { api } from './api'
+import { FormSelect } from './components/ui/select'
 import { useI18n } from './i18n'
+import { withIntegrationMutation } from './integration-mutations'
 import IntegrationActionForm from './IntegrationActionForm.vue'
 import IntegrationEntityList from './IntegrationEntityList.vue'
 import IntegrationStatusTransitionControl from './IntegrationStatusTransitionControl.vue'
@@ -41,6 +43,34 @@ describe('integration workbench', () => {
   function task(containerId: string, title: string, accountId = 'me'): IntegrationEntity {
     return { id: '1', title, sourceRef: { providerId: 'tasks', instanceId: 'tasks', accountId, containerId, kind: 'task', itemId: '1' }, personalMembership: { accountId, relation: 'owned' } }
   }
+
+  it('keeps the reviewed project scope fixed while a confirmed operation is pending', async () => {
+    const store = workSource()
+    store.projects = [{ id: 'project', name: 'Project', path: '/fixture/project', trust: 'untrusted', addedAt: '2026-01-01T00:00:00.000Z' }]
+    const invoke = vi.spyOn(api, 'invokeIntegrationAction').mockResolvedValue({ items: [] })
+    const wrapper = mount(IntegrationWorkbench, { props: { integrationId: 'tasks', viewId: 'work', initialScope: 'global' }, global: { plugins: [pinia] } })
+    await flushPromises()
+    let release!: () => void
+    const pending = withIntegrationMutation(() => new Promise<void>((resolve) => {
+      release = resolve
+    }))
+    try {
+      await flushPromises()
+      const scope = wrapper.findComponent(FormSelect)
+      expect(scope.props('disabled')).toBe(true)
+      scope.vm.$emit('update:modelValue', 'project')
+      await flushPromises()
+      expect(scope.props('modelValue')).toBe('global')
+      expect(invoke).toHaveBeenCalledTimes(1)
+    }
+    finally {
+      release()
+      await pending
+      await flushPromises()
+    }
+    expect(wrapper.findComponent(FormSelect).props('disabled')).toBe(false)
+    wrapper.unmount()
+  })
 
   it('preserves an explicit native fallback scope without silently borrowing the selected project', async () => {
     const store = workSource()

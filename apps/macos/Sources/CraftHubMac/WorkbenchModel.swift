@@ -32,10 +32,10 @@ final class WorkbenchModel {
   let codexActivity = CodexActivityModel()
   private(set) var connectionGeneration = UUID()
   let resourceBridge = ResourceDesktopBridge()
-  let integrations = IntegrationWorkbenchModel()
   let workItemActions = WorkItemQuickActionsModel()
   private(set) var recentProjectIDs: [String]
   let observation = RuntimeObservation()
+  private(set) var webOperationPending = false
   private(set) var showsWebContent = false
   /// Once requested, keep the browser alive for this runtime session, including when its window closes.
   private(set) var webContentRequested = false
@@ -76,7 +76,11 @@ final class WorkbenchModel {
     Array(recentProjectIDs.compactMap { id in projects.projects.first { $0.id == id } }.prefix(8))
   }
 
-  func select(_ destination: Destination?) {
+  func select(_ destination: Destination?, path: String? = nil) {
+    guard canLeaveWebOperation() else {
+      selection = Destination.matching(path: route)
+      return
+    }
     guard projectCommand.canChangeContext else {
       selection = .projects
       navigationError = L10n.text.copy("请先核对当前命令操作的结果。", "Review the current command operation before leaving.")
@@ -86,6 +90,7 @@ final class WorkbenchModel {
     configurationNavigation = UUID()
     if destination != .marketplace { plugins.cancelNavigation() }
     guard let destination else { return }
+    selection = destination
     resourceBridge.invalidate()
     webView?.evaluateJavaScript("window.dispatchEvent(new Event('craft-hub-conceal'))", completionHandler: nil)
     pluginWorkbenchPath = nil
@@ -97,21 +102,19 @@ final class WorkbenchModel {
     pendingSelection = nil
     defaults.set(destination.rawValue, forKey: Self.lastDestinationKey)
     guard !destination.isNative else { return }
-    guard Destination.matching(path: route) != destination else { return }
-    requestWebContent("window.__craftHubNavigate?.(\(Self.jsonString(destination.path)))")
+    requestWebContent("window.__craftHubNavigate?.(\(Self.jsonString(path ?? destination.path)))")
   }
 
   func selectSidebar(_ destination: SidebarDestination?) {
+    guard canLeaveWebOperation() else { return }
     switch destination {
     case .builtin(let destination):
       selection = destination
       select(destination)
     case .pluginWorkbench(let path):
       guard pluginNavigation.canOpen, pluginNavigation.workbenches.contains(where: { $0.path == path }),
-        projectCommand.canChangeContext, canNavigateToIntegration()
+        projectCommand.canChangeContext
       else { return }
-      selection = .workbenches
-      select(.workbenches)
       showIntegrationWeb(path)
       pluginWorkbenchPath = path
     case nil: break
@@ -133,6 +136,7 @@ final class WorkbenchModel {
     connectionGeneration = UUID()
     configurationNavigation = UUID()
     webReady = false
+    webOperationPending = false
     retainedWebSession?.invalidate()
     retainedWebSession = nil
     machine?.disconnect()
@@ -151,13 +155,11 @@ final class WorkbenchModel {
     websiteNavigation.connect(preferencesClient)
     pluginNavigation.connect(preferencesClient)
     pluginWorkbenchPath = nil
-    integrations.connect(preferencesClient)
     resourceBridge.connect(preferencesClient)
     workItemActions.connect(preferencesClient)
     workItemActions.completed = { [weak self] _ in
       guard let self else { return }
       await self.today.refreshWorkItems()
-      await self.integrations.refresh()
     }
     NativePreferences.shared.refresh(preferencesClient)
     observation.connect(connection)
@@ -166,6 +168,9 @@ final class WorkbenchModel {
         await projects.load()
         await today.load()
       }
+    }
+    if connection != nil, selection == .workbenches, pendingSelection == nil, !desktopLinksPending {
+      pendingSelection = "window.__craftHubNavigate?.(\(Self.jsonString(Destination.workbenches.path)))"
     }
     showsWebContent = pendingSelection != nil || desktopLinksPending
     webContentRequested = showsWebContent
@@ -188,7 +193,6 @@ final class WorkbenchModel {
     if pluginNavigation.invalidate(changes) {
       Task { await loadPluginNavigation(locale: L10n.text.chinese ? "zh-CN" : "en") }
     }
-    let integrationsChanged = integrations.invalidate(changes)
     if !changes.isDisjoint(with: [.settings, .plugins, .pluginUpdate, .userConfig, .integrations]) {
       if changes.isSubset(of: [.integrations, .configurationSync]) {
         today.markWorkItemsStale()
@@ -207,7 +211,6 @@ final class WorkbenchModel {
       if destination == .projects, projectCommand.capabilityID != nil { await projectCommand.load() }
       if destination == .marketplace { await plugins.load() }
       if destination == .diagnostics { await diagnostics.load() }
-      if destination == .workbenches, integrationsChanged { await integrations.refreshIfIdle() }
       if destination == .environment {
         await machine.loadEnvironment()
         if machine.environmentTab == "profile" { await machine.environmentProfile.load() }
@@ -264,11 +267,11 @@ final class WorkbenchModel {
     canGoForward = forward
   }
 
-  func goBack() { webView?.goBack() }
-  func goForward() { webView?.goForward() }
+  func goBack() { if canLeaveWebOperation() { webView?.goBack() } }
+  func goForward() { if canLeaveWebOperation() { webView?.goForward() } }
   func find() {
     if presentsNativeContent
-      && [.projects, .tools, .software, .workbenches, .marketplace, .diagnostics].contains(selection)
+      && [.projects, .tools, .software, .marketplace, .diagnostics].contains(selection)
     {
       findRequest += 1
     } else {
@@ -277,6 +280,7 @@ final class WorkbenchModel {
   }
 
   func acceptDesktopLink(_ url: URL) {
+    guard canLeaveWebOperation() else { return }
     guard projectCommand.canChangeContext else {
       navigationError = L10n.text.copy("请先核对当前命令操作的结果。", "Review the current command operation before leaving.")
       return
@@ -346,6 +350,7 @@ final class WorkbenchModel {
     }
   }
   func reload() {
+    guard canLeaveWebOperation() else { return }
     Task { await loadPluginNavigation(locale: L10n.text.chinese ? "zh-CN" : "en", force: true) }
     if presentsNativeContent {
       Task {
@@ -354,10 +359,6 @@ final class WorkbenchModel {
           if plugins.tab == .hosts { await plugins.hostComponents.load() }
         }
         if selection == .diagnostics { await diagnostics.load(force: true) }
-        if selection == .workbenches {
-          await integrations.loadCatalog(force: true)
-          await integrations.refresh()
-        }
         if selection == .projects {
           if projectCommand.capabilityID != nil { await projectCommand.load(force: true) }
           if projectDetails.projectID != nil {
@@ -398,6 +399,7 @@ final class WorkbenchModel {
   }
 
   func selectProject(_ project: String, capability: String?) {
+    guard canLeaveWebOperation() else { return }
     if let capability {
       guard preferencesClient != nil else {
         showProjectWeb(project, capability: capability)
@@ -433,6 +435,7 @@ final class WorkbenchModel {
 
   /// Choosing a command opens native inspection only; starting it always requires a separate reviewed action.
   func showProjectCommand(_ project: String, capability: String) {
+    guard canLeaveWebOperation() else { return }
     guard projectCommand.canChangeContext else { return }
     configurationNavigation = UUID()
     selection = .projects
@@ -466,6 +469,7 @@ final class WorkbenchModel {
   }
 
   func returnToNativeContent() {
+    guard canLeaveWebOperation() else { return }
     if selection == .projects, projectDetails.projectID != nil {
       showsWebContent = false
       pendingSelection = nil
@@ -512,6 +516,7 @@ final class WorkbenchModel {
   }
 
   func navigateToWebPath(_ path: String) {
+    guard canLeaveWebOperation() else { return }
     configurationNavigation = UUID()
     navigationError = nil
     if pluginNavigation.workbenches.contains(where: { $0.path == path }) {
@@ -546,60 +551,8 @@ final class WorkbenchModel {
         navigationError = L10n.text.copy("项目已不在登记列表中。", "This project is no longer registered.")
         return
       }
-      if let entry = integrations.entry, entry.path == parts?.path,
-        entry.view.rendering != "web",
-        integrations.projectID == (entry.view.scope == "global" ? "" : project)
-      {
-        integrations.search = ""
-        selection = .workbenches
-        select(.workbenches)
-        Task { await integrations.refreshIfIdle() }
-        return
-      }
-      guard canNavigateToIntegration() else { return }
-      let request = UUID()
-      configurationNavigation = request
-      Task {
-        let loaded = await integrations.loadCatalog()
-        guard configurationNavigation == request else { return }
-        guard canNavigateToIntegration() else { return }
-        guard loaded else {
-          navigationError =
-            integrations.error
-            ?? L10n.text.copy(
-              "暂无法读取来源目录，请重新读取后重试。", "Could not read the source catalog. Reload it and try again.")
-          return
-        }
-        guard let entry = integrations.entries.first(where: { $0.path == parts?.path }) else {
-          showIntegrationWeb(path)
-          return
-        }
-        if entry.view.rendering == "web" {
-          showIntegrationWeb(path)
-          return
-        }
-        selection = .workbenches
-        select(.workbenches)
-        await integrations.select(entry.id, project: project)
-      }
-      return
     }
     showIntegrationWeb(path)
-  }
-  private func canNavigateToIntegration() -> Bool {
-    guard integrations.canChangeContext else {
-      navigationError =
-        integrations.busy
-        ? L10n.text.copy(
-          "当前来源正在处理操作，完成后可切换到其他来源。",
-          "The current source is processing an operation. You can switch sources when it finishes.")
-        : L10n.text.copy(
-          "上次来源操作的结果尚未确认，请先返回当前来源重新读取并核对。",
-          "The last source operation has an uncertain outcome. Return to the current source, reload and review it first."
-        )
-      return false
-    }
-    return true
   }
   private func showTools(_ page: ToolsPage) {
     toolsPage = page
@@ -617,38 +570,26 @@ final class WorkbenchModel {
       }
     }
   }
-  /// Explicit fallback keeps the selected scope in the URL and never loops back into native routing.
+  /// Plugin views share the browser renderer; the URL retains their declared project scope.
   func showIntegrationWeb(_ path: String) {
-    configurationNavigation = UUID()
+    guard canLeaveWebOperation() else { return }
+    if Destination.matching(path: path) == .workbenches {
+      select(.workbenches, path: path)
+    } else {
+      requestWebContent("window.__craftHubNavigate?.(\(Self.jsonString(path)))")
+    }
     pluginWorkbenchPath = pluginNavigation.workbenches.first { $0.path == path }?.path
-    requestWebContent("window.__craftHubNavigate?.(\(Self.jsonString(path)))")
   }
-  /// Environment-profile links resolve against declared global configuration blocks before entering native review.
+  /// Plugin configuration links use the same scoped Web page as workbench and diagnostic entries.
   func openConfiguration(_ path: String) {
-    guard let machine, !machine.configuration.busy, !machine.configuration.loading,
-      machine.configuration.uncertain == nil
-    else {
+    guard canLeaveWebOperation() else { return }
+    if let configuration = machine?.configuration,
+      configuration.busy || configuration.loading || configuration.uncertain != nil
+    {
       navigationError = L10n.text.copy("请等待当前配置操作完成后继续。", "Wait for the current configuration operation to finish.")
       return
     }
-    let request = UUID()
-    configurationNavigation = request
-    Task {
-      await machine.configuration.loadCatalog()
-      guard self.machine === machine, configurationNavigation == request else { return }
-      let components = URLComponents(string: path)
-      guard components?.scheme == nil, components?.host == nil,
-        let entry = machine.configuration.entries.first(where: { $0.path == components?.path })
-      else {
-        navigateToWebPath(path)
-        return
-      }
-      selection = .environment
-      machine.environmentTab = "configuration"
-      select(.environment)
-      let item = components?.queryItems?.first { $0.name == "setupItem" }?.value
-      await machine.configuration.select(entry.id, item: item)
-    }
+    navigateToWebPath(path)
   }
   /// Called only after the sidecar validates a desktop link. Import links fill a draft without fetching or adding it.
   func openPluginManagement(catalogURL: String?) throws {
@@ -673,7 +614,20 @@ final class WorkbenchModel {
     retainedWebSession = session
     return session
   }
+  /// The trusted workbench reports only mutation activity, never operation input or credentials.
+  func setWebOperationPending(_ pending: Bool) { webOperationPending = pending }
+
+  private func canLeaveWebOperation() -> Bool {
+    guard !webOperationPending else {
+      navigationError = L10n.text.copy(
+        "当前插件正在提交操作，完成后可切换页面。", "A plugin operation is being submitted. Wait before changing pages.")
+      return false
+    }
+    return true
+  }
+
   private func requestWebContent(_ script: String? = nil) {
+    guard canLeaveWebOperation() else { return }
     guard projectCommand.canChangeContext else { return }
     projectCommand.cancelReview()
     configurationNavigation = UUID()
@@ -681,6 +635,7 @@ final class WorkbenchModel {
     showsWebContent = true
     pendingSelection = script
     deliverSelection()
+    if webReady { evaluate("window.dispatchEvent(new Event('craft-hub-resource-resume'))") }
   }
   func webWillLoad() { webReady = false }
   func webBecameReady() {

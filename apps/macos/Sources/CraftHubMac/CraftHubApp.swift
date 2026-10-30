@@ -385,7 +385,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   }
 
   private var nativeOperationPending: Bool {
-    panels.capture.busy || model.plugins.busy || model.cloud.operating || model.codexActivity.busy || defaultLinks.busy
+    model.webOperationPending || panels.capture.busy || model.plugins.busy || model.cloud.operating
+      || model.codexActivity.busy || defaultLinks.busy
       || model.machine?.installations.installing == true
       || model.machine?.installations.uncertain != nil
       || model.machine?.softwareSources.busy == true
@@ -393,8 +394,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       || model.machine?.environmentSources.busy == true || model.machine?.environmentSources.uncertain == true
       || model.machine?.configuration.busy == true || model.machine?.configuration.uncertain != nil
       || model.machine?.favorites.busy == true || model.machine?.favorites.uncertain == true
-      || model.integrations.busy || model.integrations.uncertain != nil || model.integrations.connections.uncertain
-      || model.integrations.forms.uncertain || model.workItemActions.pending
+      || model.workItemActions.pending
   }
 
   func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {

@@ -110,12 +110,16 @@ private func waitHeld(_ fixture: SourceFixture) async throws {
   #expect(model.preview == nil && !model.editing && !model.busy)
 }
 
-@MainActor @Test func oldSoftwareSourceReadCannotReplaceANewerMutationReceipt() async throws {
+@MainActor @Test(arguments: [Duration.zero, .seconds(1)])
+func oldSoftwareSourceReadCannotReplaceANewerMutationReceipt(requestDelay: Duration) async throws {
   let fixture = SourceFixture()
   let model = try makeSources(fixture)
   await model.load()
   await fixture.configure(hold: "get")
-  let old = Task { await model.load(force: true) }
+  let old = Task {
+    try? await Task.sleep(for: requestDelay)
+    await model.load(force: true)
+  }
   try await waitHeld(fixture)
   let saved = await model.configure("012345678901234567890123", revision: "sources-1", policy: .init(mode: "manual"))
   #expect(saved && model.snapshot?.revision == "sources-2")

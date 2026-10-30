@@ -1,9 +1,9 @@
 <script setup lang="ts">
+import type { ActionToastMessage } from './types'
 import { ToastProvider, ToastRoot, ToastTitle, ToastViewport } from 'reka-ui'
 import { ref, watch } from 'vue'
 import Icon from '../../../NavigationIcon.vue'
 
-export interface ActionToastMessage { id: number, title: string, error?: boolean }
 const props = defineProps<{ message?: ActionToastMessage }>()
 const open = ref(false)
 watch(() => props.message, () => {

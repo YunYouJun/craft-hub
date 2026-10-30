@@ -6,6 +6,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { api } from './api'
 import { useI18n } from './i18n'
+import { withIntegrationMutation } from './integration-mutations'
 import IntegrationActionForm from './IntegrationActionForm.vue'
 import IntegrationResourceBrowser from './IntegrationResourceBrowser.vue'
 
@@ -31,6 +32,8 @@ const page: ResourcePage = {
 
 afterEach(() => {
   vi.restoreAllMocks()
+  delete window.craftHubDesktop
+  document.body.innerHTML = ''
 })
 
 describe('native resource browser', () => {
@@ -64,4 +67,73 @@ describe('native resource browser', () => {
     expect(invoke).toHaveBeenCalledTimes(2)
     wrapper.unmount()
   })
+})
+
+it.each([false, true])('uses shared transient copy feedback, including clipboard failure=%s', async (fail) => {
+  const pinia = createPinia()
+  setActivePinia(pinia)
+  useI18n().setLocale('en')
+  vi.spyOn(api, 'invokeIntegrationAction').mockResolvedValue(page)
+  const copyText = fail ? vi.fn().mockRejectedValue(new Error('clipboard unavailable')) : vi.fn().mockResolvedValue(undefined)
+  window.craftHubDesktop = { copyText }
+  const wrapper = mount(IntegrationResourceBrowser, { props: { contribution, integrationId: 'example' }, global: { plugins: [pinia] }, attachTo: document.body })
+  try {
+    await flushPromises()
+    await wrapper.findAll('button').find(button => button.text() === 'Copy')!.trigger('click')
+    await flushPromises()
+    expect(copyText).toHaveBeenCalledWith('# Existing text')
+    const toast = wrapper.get('.ui-action-toast')
+    expect(toast.text()).toBe(fail ? 'Could not copy. Try again.' : 'Copied')
+    expect(toast.text()).not.toContain('# Existing text')
+  }
+  finally { wrapper.unmount() }
+})
+
+it.each([true, false])('uses the native save panel and reports only completed exports (saved=%s)', async (saved) => {
+  const pinia = createPinia()
+  setActivePinia(pinia)
+  useI18n().setLocale('en')
+  vi.spyOn(api, 'invokeIntegrationAction').mockResolvedValue(page)
+  const saveTextFile = vi.fn().mockResolvedValue({ saved })
+  window.craftHubDesktop = { saveTextFile }
+  const wrapper = mount(IntegrationResourceBrowser, { props: { contribution, integrationId: 'example' }, global: { plugins: [pinia] }, attachTo: document.body })
+  try {
+    await flushPromises()
+    await wrapper.findAll('button').find(button => button.text() === 'Download')!.trigger('click')
+    await flushPromises()
+    expect(saveTextFile).toHaveBeenCalledExactlyOnceWith({ filename: 'prompt.md', content: '# Existing text' })
+    expect(wrapper.find('.ui-action-toast').exists()).toBe(saved)
+    if (saved)
+      expect(wrapper.get('.ui-action-toast').text()).toBe('Document saved')
+  }
+  finally { wrapper.unmount() }
+})
+
+it('keeps background progress polling alive while another confirmed operation protects navigation', async () => {
+  vi.useFakeTimers()
+  const pinia = createPinia()
+  setActivePinia(pinia)
+  useI18n().setLocale('en')
+  const invoke = vi.spyOn(api, 'invokeIntegrationAction').mockResolvedValue({ ...page, refreshAfterMs: 1500 })
+  const wrapper = mount(IntegrationResourceBrowser, { props: { contribution, integrationId: 'example' }, global: { plugins: [pinia] } })
+  let release!: () => void
+  let mutation: Promise<void> | undefined
+  try {
+    await flushPromises()
+    mutation = withIntegrationMutation(() => new Promise<void>((resolve) => {
+      release = resolve
+    }))
+    await flushPromises()
+    expect(wrapper.findAll('button').find(button => button.text() === 'Refresh')!.attributes('disabled')).toBeDefined()
+    await vi.advanceTimersByTimeAsync(1600)
+    await flushPromises()
+    expect(invoke).toHaveBeenCalledTimes(2)
+    expect(invoke).toHaveBeenLastCalledWith('example', 'read', page.input, undefined)
+  }
+  finally {
+    release?.()
+    await mutation
+    wrapper.unmount()
+    vi.useRealTimers()
+  }
 })

@@ -48,12 +48,16 @@ describe('resource collection', () => {
     expect(open).toHaveBeenCalledWith(context)
     expect(wrapper.text()).toContain('••••••••')
     expect(credential).not.toHaveBeenCalled()
+    open.mockResolvedValueOnce({ sessionId: 'resumed-grant', availableRowIds: ['one'] })
+    window.dispatchEvent(new Event('craft-hub-resource-resume'))
+    await flushPromises()
+    expect(open).toHaveBeenCalledTimes(2)
     await wrapper.findAll('button').find(button => button.text() === 'Import Accounts')!.trigger('click')
     await flushPromises()
-    expect(importAccounts).toHaveBeenCalledWith('grant')
+    expect(importAccounts).toHaveBeenCalledWith('resumed-grant')
     expect(wrapper.emitted('input')?.at(-1)?.[0]).toEqual({})
     wrapper.unmount()
-    expect(close).toHaveBeenCalledWith('grant')
+    expect(close).toHaveBeenCalledWith('resumed-grant')
   })
 
   it('copies provider-formatted batches above the table and blocks empty or pending selections', async () => {

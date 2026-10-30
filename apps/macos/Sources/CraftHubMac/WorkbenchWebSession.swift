@@ -69,6 +69,10 @@ final class WorkbenchWebSession {
         guard let model, model.connectionGeneration == generation else { throw NativeHostChannelError.closed }
         return try await model.codexActivity.bridge(action)
       }
+      bridge.workbenchOperation = { [weak model] pending in
+        guard let model, model.connectionGeneration == generation else { return }
+        model.setWebOperationPending(pending)
+      }
       bridge.resourceAction = { [weak model] action, input in
         guard let model, model.connectionGeneration == generation else { throw NativeHostChannelError.closed }
         return try await model.resourceBridge.perform(action, input: input)
@@ -95,6 +99,7 @@ final class WorkbenchWebSession {
       bridge.cloudAction = nil
       bridge.codexActivityAction = nil
       bridge.resourceAction = nil
+      bridge.workbenchOperation = nil
     }
 
     func observe(_ webView: WKWebView) {

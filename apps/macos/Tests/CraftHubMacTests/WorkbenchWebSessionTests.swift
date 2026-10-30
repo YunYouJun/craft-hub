@@ -59,7 +59,7 @@ import WebKit
   }
   let port = try #require(listener.port)
   let url = URL(string: "http://127.0.0.1:\(port.rawValue)/")!
-  model.showIntegrationWeb("/integrations/fixture/view")
+  model.navigateToWebPath("/integrations/fixture/view?scope=global&tab=details")
   let session = model.webSession(url: url)
   let webView = session.webView
   #expect(!webView.configuration.websiteDataStore.isPersistent)
@@ -77,11 +77,25 @@ import WebKit
   }
   model.webBecameReady()
   model.routeChanged("/integrations/fixture/view")
-  #expect(try await webView.evaluateJavaScript("window.visits[0]") as? String == "/integrations/fixture/view")
+  #expect(
+    try await webView.evaluateJavaScript("window.visits[0]") as? String
+      == "/integrations/fixture/view?scope=global&tab=details")
   while !webView.canGoBack {
     guard Date() < deadline else { throw URLError(.timedOut) }
     try await Task.sleep(for: .milliseconds(25))
   }
+  let protected = try await webView.callAsyncJavaScript(
+    "await window.craftHubDesktop.setWorkbenchOperationPending(true); return true", arguments: [:], in: nil,
+    contentWorld: .page)
+  #expect(protected as? Bool == true)
+  #expect(model.webOperationPending)
+  model.selectSidebar(.builtin(.software))
+  #expect(!model.presentsNativeContent && model.selection == .workbenches)
+  let released = try await webView.callAsyncJavaScript(
+    "await window.craftHubDesktop.setWorkbenchOperationPending(false); return true", arguments: [:], in: nil,
+    contentWorld: .page)
+  #expect(released as? Bool == true)
+  #expect(!model.webOperationPending)
   let historyCount = webView.backForwardList.backList.count
   #expect(historyCount > 0)
   model.selectProject("native-inspection", capability: nil)
@@ -100,9 +114,11 @@ import WebKit
     """)
   model.webWillLoad()
   model.showIntegrationWeb("/integrations/fixture/cancelled")
-  model.selection = .workbenches
   model.select(.workbenches)
+  model.select(.overview)
   model.webBecameReady()
+  model.routeChanged("/integrations/fixture/view")
+  model.selection = .workbenches
   model.showWebWorkbench()
   window.close()
   window.contentView = nil

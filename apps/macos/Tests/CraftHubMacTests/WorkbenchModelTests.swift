@@ -31,23 +31,22 @@ import Testing
   #expect(model.projectTerminal.context == nil)
 }
 
-@MainActor @Test func integrationFallbackKeepsTheNativeWorkbenchReturnAndSearchEntrypoints() {
+@MainActor @Test func pluginWorkbenchNavigationUsesTheSharedWebRenderer() {
   let suite = "craft-hub-integration-navigation-\(UUID())"
   let defaults = UserDefaults(suiteName: suite)!
   defer { defaults.removePersistentDomain(forName: suite) }
   let model = WorkbenchModel(defaults: defaults)
-  model.routeChanged("/overview")
-  model.selection = .workbenches
-  model.select(.workbenches)
-  #expect(model.presentsNativeContent)
+  model.selectSidebar(.builtin(.workbenches))
+  #expect(model.selection == .workbenches && !model.presentsNativeContent && model.webContentRequested)
   let request = model.findRequest
   model.find()
-  #expect(model.findRequest == request + 1)
-  model.showIntegrationWeb("/integrations/fixture/view?project=selected")
-  model.routeChanged("/integrations/fixture/view")
+  #expect(model.findRequest == request)
+  model.navigateToWebPath("/integrations/fixture/view?scope=global")
   #expect(model.selection == .workbenches && !model.presentsNativeContent)
-  model.select(.workbenches)
+  model.selectSidebar(.builtin(.overview))
   #expect(model.presentsNativeContent)
+  model.selectSidebar(.builtin(.workbenches))
+  #expect(!model.presentsNativeContent)
 }
 
 @MainActor
@@ -113,7 +112,7 @@ import Testing
   defaults.set("software", forKey: "lastDestination")
   let model = WorkbenchModel(defaults: defaults)
   #expect(model.selection == .software && model.presentsNativeContent)
-  for destination in Destination.allCases {
+  for destination in Destination.allCases.filter(\.isNative) {
     model.selection = destination
     model.select(destination)
   }

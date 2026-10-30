@@ -174,13 +174,6 @@ struct ContentView: View {
                 model: model.diagnostics, findRequest: model.findRequest, node: node, openTarget: model.openDiagnostic
               )
               .onAppear { PerformanceTrace.mark(.nativePageAppeared) }
-            } else if model.selection == .workbenches {
-              IntegrationWorkbenchView(
-                model: model.integrations, projects: model.projects.projects, findRequest: model.findRequest,
-                openWeb: model.showIntegrationWeb, openConfiguration: model.openConfiguration,
-                workItemActions: model.workItemActions
-              )
-              .onAppear { PerformanceTrace.mark(.nativePageAppeared) }
             } else if model.selection == .environment, let machine = model.machine {
               EnvironmentView(
                 machine: machine, openWeb: model.navigateToWebPath,

@@ -91,7 +91,7 @@ private func pluginSidebarHeld(_ fixture: PluginSidebarFixture) async throws {
   #expect(requests[0].httpMethod == "GET" && requests[0].httpBody == nil)
 }
 
-@MainActor @Test func pluginSidebarRemovalReturnsToTheNativeWorkbenchList() async throws {
+@MainActor @Test func pluginSidebarRemovalReturnsToTheWebWorkbenchList() async throws {
   let fixture = PluginSidebarFixture()
   let suite = "craft-hub-plugin-sidebar-removal-\(UUID())"
   let defaults = UserDefaults(suiteName: suite)!
@@ -106,11 +106,11 @@ private func pluginSidebarHeld(_ fixture: PluginSidebarFixture) async throws {
   model.invalidate([.plugins])
   await model.loadPluginNavigation(locale: "en")
   #expect(model.pluginNavigation.workbenches.isEmpty)
-  #expect(model.sidebarSelection == .builtin(.workbenches) && model.presentsNativeContent)
+  #expect(model.sidebarSelection == .builtin(.workbenches) && !model.presentsNativeContent)
   model.routeChanged(entry.path)
-  #expect(model.sidebarSelection == .builtin(.workbenches) && model.presentsNativeContent)
+  #expect(model.sidebarSelection == .builtin(.workbenches) && !model.presentsNativeContent)
   model.selectSidebar(.pluginWorkbench(entry.path))
-  #expect(model.presentsNativeContent)
+  #expect(!model.presentsNativeContent)
 }
 
 @MainActor @Test func pluginSidebarRefreshesOnPluginChangesAndDisablesStaleEntriesOnFailure() async throws {
