@@ -217,7 +217,37 @@ describe('hTTP command review', () => {
     finally { await f.close() }
   })
 
-  it('preserves non-UTF8 terminal bytes and rejects malformed, mixed and oversized base64 before writing', async () => {
+  it('decodes terminal bytes and rejects malformed, mixed and oversized base64 before writing', async () => {
+    const f = await fixture()
+    const write = vi.spyOn(f.runtime, 'writeRun').mockImplementation(() => {})
+    try {
+      const inputPath = '/api/runs/transport-fixture/input'
+      for (const body of [
+        { data: 'mixed', dataBase64: 'QQ==' },
+        { dataBase64: '!' },
+        { dataBase64: 'ab' },
+        { dataBase64: 'AB==' },
+        { dataBase64: 'AA==\n' },
+        { dataBase64: '_w==' },
+        { dataBase64: 42 },
+        { dataBase64: null },
+        { dataBase64: Buffer.alloc(65537).toString('base64') },
+      ])
+        expect((await f.request(inputPath, body)).status).toBe(400)
+      expect(write).not.toHaveBeenCalled()
+      const bytes = Buffer.from([0xFF, 0x80, 0x41, 0x03, 0x1B, 0x5B, 0x44])
+      expect((await f.request(inputPath, { dataBase64: bytes.toString('base64') })).status).toBe(202)
+      expect(write).toHaveBeenCalledExactlyOnceWith('transport-fixture', bytes)
+    }
+    finally {
+      write.mockRestore()
+      await f.close()
+    }
+  })
+
+  // ConPTY translates UTF-8 text rather than providing an arbitrary-byte POSIX terminal channel.
+  // https://learn.microsoft.com/en-us/windows/console/pseudoconsoles
+  it.skipIf(process.platform === 'win32')('round-trips non-UTF8 input through a POSIX PTY after review', async () => {
     const f = await fixture()
     try {
       f.command.inputs = []
@@ -234,7 +264,7 @@ describe('hTTP command review', () => {
       const until = async (expected: string) => {
         while (!events().flatMap(item => item.type === 'output' ? [item.chunk] : []).join('').includes(expected)) {
           const item = await reader.read()
-          expect(item.done).toBe(false)
+          expect(item.done, `Stream ended before ${expected}`).toBe(false)
           raw += decoder.decode(item.value, { stream: true })
         }
       }
@@ -246,19 +276,6 @@ describe('hTTP command review', () => {
           throw new Error('Missing start event')
         const inputPath = `/api/runs/${first.run.id}/input`
         const write = vi.spyOn(f.runtime, 'writeRun')
-        for (const body of [
-          { data: 'mixed', dataBase64: 'QQ==' },
-          { dataBase64: '!' },
-          { dataBase64: 'ab' },
-          { dataBase64: 'AB==' },
-          { dataBase64: 'AA==\n' },
-          { dataBase64: '_w==' },
-          { dataBase64: 42 },
-          { dataBase64: null },
-          { dataBase64: Buffer.alloc(65537).toString('base64') },
-        ])
-          expect((await f.request(inputPath, body)).status).toBe(400)
-        expect(write).not.toHaveBeenCalled()
         const bytes = Buffer.from([0xFF, 0x80, 0x41, 0x03, 0x1B, 0x5B, 0x44])
         expect((await f.request(inputPath, { dataBase64: bytes.toString('base64') })).status).toBe(202)
         await until(`fixture-bytes:${bytes.toString('hex')}`)
