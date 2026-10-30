@@ -317,3 +317,35 @@ private actor PluginFixture {
   model.connect(nil)
   #expect(!model.stale && model.snapshot == nil)
 }
+
+@MainActor @Test func pluginKindsKeepPackMembersIndependentlyDiscoverable() async throws {
+  var object = try #require(try JSONSerialization.jsonObject(with: Data(overviewJSON.utf8)) as? [String: Any])
+  var catalog = try #require(object["catalog"] as? [[String: Any]])
+  var pack = catalog[0]
+  pack["package"] = "@example/craft-hub-plugin-pack"
+  pack["displayName"] = "Fixture Pack"
+  pack["includesPlugins"] = [["package": pluginName, "version": "^1.0.0"]]
+  pack["members"] = [
+    [
+      "package": pluginName, "range": "^1.0.0", "sourceId": "fixture", "version": "1.0.0", "displayName": "Fixture",
+      "status": "active", "installed": true, "enabled": true,
+    ]
+  ]
+  catalog[0]["included"] = true
+  object["catalog"] = [pack] + catalog
+  let data = try JSONSerialization.data(withJSONObject: object)
+  let model = PluginsModel()
+  model.connect(
+    RuntimeAPIClient(connection: try pluginConnection()) { request in
+      (data, HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+    })
+  await model.load()
+  #expect(model.catalog.map(\.package) == ["@example/craft-hub-plugin-pack"])
+  #expect(model.catalog.first?.members.first?.package == pluginName)
+  model.kind = "plugin"
+  #expect(model.catalog.map(\.package) == [pluginName])
+  model.kind = "pack"
+  #expect(model.catalog.map(\.package) == ["@example/craft-hub-plugin-pack"])
+  model.query = "missing"
+  #expect(model.catalog.isEmpty)
+}

@@ -117,7 +117,6 @@
 .plugin-mark.disabled img { filter: grayscale(1); opacity: .45; }
 .plugin-card.is-installed .plugin-mark::after, .plugin-card.has-update .plugin-mark::after { position: absolute; right: -4px; bottom: -4px; width: 12px; height: 12px; border: 2px solid var(--plugin-card-background); border-radius: 50%; background: var(--success-fill); content: ''; }
 .plugin-card.has-update .plugin-mark::after { background: var(--accent); animation: plugin-pulse 2.4s var(--motion-ease-standard) infinite; }
-.plugin-pack-count { position: absolute; top: -7px; right: -7px; display: grid; min-width: 19px; height: 19px; place-items: center; border: 2px solid var(--plugin-card-background, var(--surface)); border-radius: 10px; background: var(--plugin-pack); padding: 0 4px; color: var(--on-accent); font-size: var(--font-size-micro); font-weight: 750; line-height: 1; }
 
 /* Copy */
 /* Inline identifiers read as quiet monospace text, not boxed code. */
@@ -414,3 +413,5 @@
   .source-preview-details div { grid-template-columns: 1fr; gap: 2px; }
   .source-preview-plugins li { display: grid; gap: 3px; }
 }
+
+.marketplace-kind-filter { height: var(--control-height-default); border: 1px solid var(--border); border-radius: var(--control-radius); background: var(--surface); padding: 0 10px; color: var(--text); font-size: var(--font-size-control); }

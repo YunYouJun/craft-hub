@@ -35,6 +35,27 @@ public struct PluginMetadata: Decodable, Sendable {
     localizations?[chinese ? "zh-CN" : "en"]?.permissionReasons?[permission] ?? permissionReasons?[permission]
   }
 }
+/// Source-resolved pack member presentation from the runtime, including missing declarations.
+public struct PluginPackMember: Decodable, Identifiable, Sendable {
+  public let package: String
+  public let range: String
+  public let sourceId: String
+  public let version: String?
+  public let displayName: String
+  public let icon: String?
+  public let localizations: [String: PluginMetadata.Localization]?
+  public let status: String
+  public let installed: Bool
+  public let enabled: Bool?
+  public let error: String?
+  public var id: String { package }
+  public var artwork: PluginArtwork {
+    PluginArtwork(icon: icon, sourceID: sourceId, package: package, version: version)
+  }
+  public func name(chinese: Bool) -> String {
+    localizations?[chinese ? "zh-CN" : "en"]?.displayName ?? displayName
+  }
+}
 public struct CatalogPlugin: Decodable, Identifiable, Sendable {
   public let package: String
   public let version: String
@@ -48,13 +69,14 @@ public struct CatalogPlugin: Decodable, Identifiable, Sendable {
   public let preferred: Bool
   public let included: Bool
   public let metadata: PluginMetadata
+  public let members: [PluginPackMember]
   public var id: String { "\(sourceId):\(package):\(version)" }
   public var artwork: PluginArtwork {
     PluginArtwork(icon: metadata.icon, sourceID: sourceId, package: package, version: version)
   }
   enum CodingKeys: CodingKey {
     case package, version, sourceId, sourceName, sourceKind, status, statusReason, publisher, action, preferred,
-      included
+      included, members
   }
   public init(from decoder: Decoder) throws {
     let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -69,6 +91,7 @@ public struct CatalogPlugin: Decodable, Identifiable, Sendable {
     action = try c.decode(String.self, forKey: .action)
     preferred = try c.decode(Bool.self, forKey: .preferred)
     included = try c.decode(Bool.self, forKey: .included)
+    members = try c.decodeIfPresent([PluginPackMember].self, forKey: .members) ?? []
     metadata = try PluginMetadata(from: decoder)
   }
 }
@@ -82,6 +105,7 @@ public struct InstalledPlugin: Decodable, Identifiable, Sendable {
   public let origin: String?
   public let previousVersion: String?
   public let error: String?
+  public let members: [PluginPackMember]?
   public var id: String { package }
   public var local: Bool { origin == "local" }
   public var artwork: PluginArtwork {

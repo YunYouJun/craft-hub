@@ -31,15 +31,22 @@ struct PluginsView: View {
           }
         }
         .disabled(model.busy || model.loading || model.hostComponents.loading || model.hostComponents.busy)
-      }.padding()
+      }.padding(.vertical, 16).nativePageContent()
       Picker(text.copy("插件页面", "Plugin Page"), selection: $model.tab) {
         ForEach(PluginsModel.Tab.allCases, id: \.self) { tab in Text(tabTitle(tab)).tag(tab) }
-      }.pickerStyle(.segmented).padding([.horizontal, .bottom]).disabled(model.busy || model.hostComponents.busy)
+      }.labelsHidden().pickerStyle(.segmented).fixedSize(horizontal: true, vertical: false)
+        .padding(.bottom, 16).nativePageContent()
+        .disabled(model.busy || model.hostComponents.busy)
       if model.tab != .hosts {
         HStack {
           TextField(text.copy("搜索插件或来源", "Search plugins or sources"), text: $model.query)
             .textFieldStyle(.roundedBorder).focused($searchFocused)
           if model.tab == .discover {
+            Picker(text.copy("插件类型", "Plugin Type"), selection: $model.kind) {
+              Text(text.copy("全部类型", "All Types")).tag("all")
+              Text(text.copy("插件包", "Plugin Packs")).tag("pack")
+              Text(text.copy("插件", "Plugins")).tag("plugin")
+            }.labelsHidden().frame(width: 130)
             Picker(text.copy("筛选", "Filter"), selection: $model.filter) {
               Text(text.copy("全部", "All")).tag("all")
               Text(text.copy("已安装", "Installed")).tag("installed")
@@ -52,18 +59,20 @@ struct PluginsView: View {
               Task { await model.checkUpdates() }
             }
           }
-        }.padding([.horizontal, .bottom]).disabled(model.busy)
+        }.padding(.bottom, 16).nativePageContent().disabled(model.busy)
       }
-      if let error = model.error { NativeErrorView(message: error) }
-      if let message = model.message { Text(message).font(.callout).foregroundStyle(.secondary).padding(8) }
-      if let error = restartError { NativeErrorView(message: error) }
+      if let error = model.error { NativeErrorView(message: error).nativePageContent() }
+      if let message = model.message {
+        Text(message).font(.callout).foregroundStyle(.secondary).padding(.vertical, 8).nativePageContent()
+      }
+      if let error = restartError { NativeErrorView(message: error).nativePageContent() }
       if model.tab != .hosts && model.stale {
         Label(
           text.copy(
             "目录已有变化或刷新未完成，当前显示上次结果。", "The catalog changed or refresh is incomplete. Showing previous results."),
           systemImage: "clock.arrow.circlepath"
         )
-        .font(.callout).foregroundStyle(.secondary).padding(8)
+        .font(.callout).foregroundStyle(.secondary).padding(.vertical, 8).nativePageContent()
       }
       if model.loading && model.snapshot == nil && model.tab != .hosts {
         ProgressView(text.copy("正在读取插件目录…", "Loading plugins…")).padding()
@@ -90,7 +99,7 @@ struct PluginsView: View {
     .onChange(of: model.installed.map(\.id)) {
       if !model.installed.contains(where: { $0.id == selectedInstalledID }) { selectedInstalledID = nil }
     }
-    .sheet(item: $model.detail) { detail in PluginDetailView(model: model, detail: detail) }
+    .sheet(item: $model.detail) { detail in PluginDetailView(model: model, detail: detail).id(detail.id) }
     .sheet(
       isPresented: Binding(
         get: { model.installReview != nil && model.detail == nil }, set: { if !$0 { model.cancelPreview() } })
@@ -122,7 +131,9 @@ struct PluginsView: View {
 
   private var changeTitle: String {
     switch model.changeReview?.operation {
-    case .removePlugin: text.copy("移除插件？", "Remove Plugin?")
+    case .removePlugin(let plugin):
+      plugin.manifest.includesPlugins.isEmpty
+        ? text.copy("移除插件？", "Remove Plugin?") : text.copy("移除插件包？", "Remove Plugin Pack?")
     case .rollbackPlugin: text.copy("回滚插件版本？", "Roll Back Plugin?")
     case .removeSource: text.copy("移除此来源？", "Remove Source?")
     case nil: ""
@@ -132,7 +143,9 @@ struct PluginsView: View {
     switch model.changeReview?.operation {
     case .removePlugin(let plugin):
       plugin.package + "\n"
-        + text.copy("保留用户数据；本地插件的源文件不会删除。", "User data and local plugin source files are retained.")
+        + (plugin.manifest.includesPlugins.isEmpty
+          ? text.copy("保留用户数据；本地插件的源文件不会删除。", "User data and local plugin source files are retained.")
+          : text.copy("子插件会继续保留，并可独立管理。", "Included plugins remain installed and can be managed independently."))
     case .rollbackPlugin(let plugin): "\(plugin.package)\n\(plugin.version) → \(plugin.previousVersion ?? "")"
     case .removeSource(let source): source.name + "\n" + (source.catalogUrl ?? source.id)
     case nil: ""
@@ -143,47 +156,53 @@ struct PluginsView: View {
     List(selection: $selectedCatalogID) {
       ForEach(model.catalog) { plugin in
         HStack(alignment: .top, spacing: 16) {
-          PluginIconView(
-            artwork: plugin.artwork, client: model.iconClient, revision: model.iconRevision,
-            fallbackSymbol: plugin.metadata.includesPlugins.isEmpty ? "puzzlepiece.extension" : "shippingbox")
+          if plugin.metadata.includesPlugins.isEmpty {
+            PluginIconView(artwork: plugin.artwork, client: model.iconClient, revision: model.iconRevision)
+          } else {
+            PluginPackIconView(members: plugin.members, client: model.iconClient, revision: model.iconRevision)
+          }
           VStack(alignment: .leading, spacing: 5) {
             Button {
-              model.detail = .init(source: plugin.sourceId, package: plugin.package, version: plugin.version)
+              model.detail = model.catalogDetail(plugin)
             } label: {
-              Text(plugin.metadata.name(chinese: text.chinese)).font(.headline)
+              HStack {
+                Text(plugin.metadata.name(chinese: text.chinese)).font(.headline)
+                Text(
+                  plugin.metadata.includesPlugins.isEmpty ? text.copy("插件", "Plugin") : text.copy("插件包", "Plugin Pack")
+                )
+                .font(.caption).foregroundStyle(.secondary)
+              }
             }.buttonStyle(.plain)
             if let description = plugin.metadata.detail(chinese: text.chinese) {
               Text(description).foregroundStyle(.secondary).lineLimit(3)
             }
             Text("\(plugin.sourceName) · \(plugin.version)").font(.caption).foregroundStyle(.secondary)
+            if !plugin.members.isEmpty {
+              PluginPackMembersView(model: model, members: plugin.members).padding(.top, 4)
+            }
             if let reason = plugin.statusReason {
               Label(reason, systemImage: "exclamationmark.triangle").font(.caption)
             }
           }
           Spacer()
-          Button(PluginActionLabel.title(plugin.action, text: text)) {
-            if plugin.action == "local",
-              let active = model.snapshot?.installed.first(where: { $0.package == plugin.package })
-            {
-              model.detail = .init(source: active.sourceId, package: active.package, version: active.version)
-            } else {
-              Task { await model.preview(plugin) }
-            }
-          }.disabled(model.busy || ["installed", "newer"].contains(plugin.action) || plugin.status == "blocked")
+          Button(PluginActionLabel.title(plugin.action, text: text, pack: !plugin.metadata.includesPlugins.isEmpty)) {
+            Task { await model.performCatalogAction(plugin) }
+          }.disabled(!model.canPerformCatalogAction(plugin))
         }.padding(.vertical, 10).tag(plugin.id)
       }
     }.listStyle(.inset)
+      .nativePageListContent()
       .overlay { if model.catalog.isEmpty && !model.loading { empty } }
       .contextMenu(forSelectionType: String.self) { selection in
         if let plugin = model.catalog.first(where: { selection.contains($0.id) }) {
           Button(text.copy("查看详情…", "Show Details…")) {
-            model.detail = .init(source: plugin.sourceId, package: plugin.package, version: plugin.version)
+            model.detail = model.catalogDetail(plugin)
           }
           Button(text.copy("复制包名", "Copy Package Name")) { copyPackage(plugin.package) }
         }
       } primaryAction: { selection in
         if let plugin = model.catalog.first(where: { selection.contains($0.id) }) {
-          model.detail = .init(source: plugin.sourceId, package: plugin.package, version: plugin.version)
+          model.detail = model.catalogDetail(plugin)
         }
       }
   }
@@ -192,14 +211,21 @@ struct PluginsView: View {
       ForEach(model.installed) { plugin in
         VStack(alignment: .leading, spacing: 8) {
           HStack(alignment: .top) {
-            PluginIconView(
-              artwork: plugin.artwork, client: model.iconClient, revision: model.iconRevision,
-              fallbackSymbol: plugin.manifest.includesPlugins.isEmpty ? "puzzlepiece.extension" : "shippingbox")
+            if plugin.manifest.includesPlugins.isEmpty {
+              PluginIconView(artwork: plugin.artwork, client: model.iconClient, revision: model.iconRevision)
+            } else {
+              PluginPackIconView(members: plugin.members ?? [], client: model.iconClient, revision: model.iconRevision)
+            }
             VStack(alignment: .leading, spacing: 4) {
               Button {
                 model.detail = .init(source: plugin.sourceId, package: plugin.package, version: plugin.version)
               } label: {
-                Text(plugin.manifest.name(chinese: text.chinese)).font(.headline)
+                HStack {
+                  Text(plugin.manifest.name(chinese: text.chinese)).font(.headline)
+                  if !plugin.manifest.includesPlugins.isEmpty {
+                    Text(text.copy("插件包", "Plugin Pack")).font(.caption).foregroundStyle(.secondary)
+                  }
+                }
               }.buttonStyle(.plain)
               Text("\(plugin.package) · \(plugin.version)").font(.caption).foregroundStyle(.secondary).textSelection(
                 .enabled)
@@ -208,18 +234,20 @@ struct PluginsView: View {
               }
             }
             Spacer()
-            Toggle(
-              text.copy("启用", "Enabled"),
-              isOn: Binding(get: { plugin.enabled }, set: { _ in Task { await model.enable(plugin) } })
-            )
-            .toggleStyle(.switch).fixedSize().disabled(model.busy)
-            .accessibilityLabel(
-              text.copy("启用插件：", "Enable plugin: ") + plugin.manifest.name(chinese: text.chinese))
+            if plugin.manifest.includesPlugins.isEmpty {
+              Toggle(
+                text.copy("启用", "Enabled"),
+                isOn: Binding(get: { plugin.enabled }, set: { _ in Task { await model.enable(plugin) } })
+              )
+              .toggleStyle(.switch).fixedSize().disabled(model.busy)
+              .accessibilityLabel(
+                text.copy("启用插件：", "Enable plugin: ") + plugin.manifest.name(chinese: text.chinese))
+            }
             Menu {
               if plugin.local {
                 Button(text.copy("重新读取", "Reload Local Files")) { Task { await model.refreshLocal(plugin) } }
               }
-              if plugin.previousVersion != nil && !plugin.local {
+              if plugin.previousVersion != nil && !plugin.local && plugin.manifest.includesPlugins.isEmpty {
                 Button(text.copy("回滚到上一版本", "Roll Back")) { model.reviewRollback(plugin.package) }
                   .disabled(model.stale)
               }
@@ -235,24 +263,19 @@ struct PluginsView: View {
           if let error = plugin.error {
             Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(.orange).textSelection(.enabled)
           }
-          if !plugin.manifest.includesPlugins.isEmpty {
-            DisclosureGroup(
+          if let members = plugin.members, !members.isEmpty {
+            PluginPackMembersView(model: model, members: members)
+            Text(
               text.copy(
-                "包含 \(plugin.manifest.includesPlugins.count) 个插件",
-                "Includes \(plugin.manifest.includesPlugins.count) plugins")
-            ) {
-              ForEach(plugin.manifest.includesPlugins) { member in
-                HStack {
-                  Text(member.package)
-                  Spacer()
-                  Text(member.version).foregroundStyle(.secondary)
-                }.font(.caption)
-              }
-            }
+                "包内插件可独立管理；移除插件包会保留子插件。",
+                "Included plugins are managed independently; removing the pack keeps them installed.")
+            )
+            .font(.caption).foregroundStyle(.secondary)
           }
         }.padding(.vertical, 8).tag(plugin.id)
       }
     }.listStyle(.inset)
+      .nativePageListContent()
       .overlay { if model.installed.isEmpty && !model.loading { empty } }
       .contextMenu(forSelectionType: String.self) { selection in
         if let plugin = model.installed.first(where: { selection.contains($0.id) }) {
@@ -280,19 +303,20 @@ struct PluginsView: View {
     } actions: {
       if model.error != nil {
         Button(text.copy("重试", "Retry")) { Task { await model.load(force: true) } }
-      } else if !model.searchTerm.isEmpty || (model.tab == .discover && model.filter != "all") {
+      } else if !model.searchTerm.isEmpty || (model.tab == .discover && model.filter != "all" || model.kind != "all") {
         Button(text.copy("清除筛选", "Clear Filters")) {
           model.query = ""
           model.filter = "all"
+          model.kind = "all"
         }
       } else {
         Button(text.copy("查看来源", "View Sources")) { model.tab = .sources }
       }
-    }
+    }.nativePageContent(.emptyState)
   }
   private var selectedDetail: PluginsModel.Detail? {
     if model.tab == .discover, let plugin = model.catalog.first(where: { $0.id == selectedCatalogID }) {
-      return .init(source: plugin.sourceId, package: plugin.package, version: plugin.version)
+      return model.catalogDetail(plugin)
     }
     if model.tab == .installed, let plugin = model.installed.first(where: { $0.id == selectedInstalledID }) {
       return .init(source: plugin.sourceId, package: plugin.package, version: plugin.version)
@@ -301,12 +325,17 @@ struct PluginsView: View {
   }
   private var listFooter: some View {
     HStack {
-      let count = model.tab == .discover ? model.catalog.count : model.installed.count
-      Text(text.copy("\(count) 个插件", "\(count) plugins")).font(.caption).foregroundStyle(.secondary)
+      let packs =
+        model.tab == .discover
+        ? model.catalog.filter { !$0.metadata.includesPlugins.isEmpty }.count
+        : model.installed.filter { !$0.manifest.includesPlugins.isEmpty }.count
+      let count = (model.tab == .discover ? model.catalog.count : model.installed.count) - packs
+      Text(text.copy("\(packs) 个插件包 · \(count) 个插件", "\(packs) packs · \(count) plugins"))
+        .font(.caption).foregroundStyle(.secondary)
       Spacer()
       Button(text.copy("查看详情…", "Show Details…")) { model.detail = selectedDetail }
         .disabled(selectedDetail == nil)
-    }.padding(12)
+    }.padding(.vertical, 12).nativePageContent()
   }
   private func copyPackage(_ package: String) {
     NSPasteboard.general.clearContents()
@@ -387,9 +416,9 @@ struct PluginsView: View {
 }
 
 enum PluginActionLabel {
-  static func title(_ action: String, text: L10n) -> String {
+  static func title(_ action: String, text: L10n, pack: Bool = false) -> String {
     switch action {
-    case "install": text.copy("安装…", "Install…")
+    case "install": pack ? text.copy("一键安装…", "Install All…") : text.copy("安装…", "Install…")
     case "update": text.copy("更新…", "Update…")
     case "repair": text.copy("修复…", "Repair…")
     case "enable": text.copy("启用…", "Enable…")

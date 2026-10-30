@@ -9,6 +9,10 @@ Codex plugins use another manifest and are not Craft Hub Marketplace Plugins.
 
 For the supported scaffolding, validation, local-link, and packing workflow, see [Author a Marketplace Plugin](./plugin-authoring.md).
 
+## Plugin packs and plugins
+
+A **Plugin Pack** is a named combination of independently installable plugins, declared with `includesPlugins`. Use a separate package for a pure collection (`contributes: {}` and no extra permissions); keep functional contributions in its member plugins. The marketplace shows a collection of member icons and the complete member list, including unavailable members. Users can filter packs and individual plugins, review their combined installation plan, and install all members together. Removing a pack keeps its members installed.
+
 ## Marketplace sources
 
 A Distribution may provide `builtin` or `managed` Marketplace Sources. Users may also preview and add HTTPS `user` sources. Each source resolves to one versioned Plugin Catalog and may select an npm registry.
@@ -148,7 +152,7 @@ A workbench may reference its own contributions and contributions from packages 
 
 `slug`, `links`, `icon`, `maintainers`, `permissionReasons`, and `localizations` are additive discovery metadata. A maintainer may use a stable Distribution-defined `handle`, an HTTPS profile URL, or both. Permission-reason keys must name declared permissions.
 
-`includesPlugins` declares an Extension Pack: the listed Marketplace Plugins are installed from the same source in one reviewed operation, then remain independently manageable. Removing the pack does not remove its included plugins.
+`includesPlugins` declares an Plugin Pack: the listed Marketplace Plugins are installed from the same source in one reviewed operation, then remain independently manageable. Removing the pack does not remove its included plugins.
 
 `requiresPlugins` declares hard plugin dependencies from the same source. Each relation uses a package name and SemVer range. A package cannot be self-referenced, duplicated, or present in both lists; npm `dependencies` remain forbidden.
 
@@ -235,7 +239,7 @@ A Plugin Catalog lists immutable package versions. Every entry includes the exac
 - `status`: `active`, `deprecated`, or `blocked`.
 - `statusReason`: required for deprecated and blocked versions.
 - `replacement`: an optional Marketplace Plugin package recommended instead.
-- `includesPlugins`: the Extension Pack member list copied from the Manifest.
+- `includesPlugins`: the Plugin Pack member list copied from the Manifest.
 - `requiresPlugins`: the package dependency list copied from the Manifest.
 
 Catalog permission reasons, permissions, and plugin dependencies must match the installed package Manifest. Craft Hub refuses installation when integrity, identity, permissions, permission reasons, plugin dependencies, or the compatible version range does not match.
@@ -256,7 +260,7 @@ Local linking is an explicit trust action and does not provide Catalog integrity
 
 ## Installation safety
 
-Before confirmation, Craft Hub recursively resolves the root plugin and its same-source included and required plugin closure, rejects missing versions, incompatible Craft Hub versions, conflicting constraints, blocked packages, and cycles, and returns a dependency-first install plan with combined permissions. One confirmed request installs new members and dependencies, re-enables compatible disabled plugins, and leaves already-active versions unchanged. After installation, Extension Pack members can be enabled, disabled, updated, or removed independently.
+Before confirmation, Craft Hub recursively resolves the root plugin and its same-source included and required plugin closure, rejects missing versions, incompatible Craft Hub versions, conflicting constraints, blocked packages, and cycles, and returns a dependency-first install plan with combined permissions. One confirmed request installs new members and dependencies, re-enables compatible disabled plugins, and leaves already-active versions unchanged. After installation, Plugin Pack members can be enabled, disabled, updated, or removed independently.
 
 When the local server starts, Craft Hub refreshes Marketplace Sources used by enabled installed plugins and automatically installs the newest active, compatible version when every package in the resulting plan is already installed from the same source with exactly the same permissions. The previous version remains available for rollback. Updates that add permissions or introduce a new dependency are never approved automatically; the Marketplace shows them as manual updates so the complete plan and combined permissions can be reviewed first. The same safe update check is available through `GET /api/plugins/updates` and can be applied with `POST /api/plugins/updates`.
 
