@@ -2,12 +2,14 @@ import AppKit
 import CraftHubMacCore
 import SwiftUI
 
-/// SwiftUI owns the scene. This bridge adds profile-specific geometry and disconnected-display recovery only.
+/// SwiftUI owns the scene; the bridge keeps stable main-window sizing and profile-specific geometry.
 struct WindowRestoration: NSViewRepresentable {
   func makeCoordinator() -> Coordinator { Coordinator() }
   func makeNSView(context: Context) -> WindowProbe {
     let probe = WindowProbe()
-    probe.changed = { [weak coordinator = context.coordinator] window in coordinator?.attach(window) }
+    probe.changed = { [weak coordinator = context.coordinator, weak probe] window in
+      coordinator?.attach(window, from: probe)
+    }
     return probe
   }
   func updateNSView(_ view: WindowProbe, context: Context) {}
@@ -30,11 +32,12 @@ struct WindowRestoration: NSViewRepresentable {
     private let defaults = NativeStorage.defaults
     private let key = "nativeMainWindowFrame"
 
-    func attach(_ window: NSWindow?) {
+    func attach(_ window: NSWindow?, from probe: NSView? = nil) {
       guard self.window !== window else { return }
       detach()
       guard let window else { return }
       self.window = window
+      MainWindowSizing.configure(window, from: probe)
       fullscreen = window.styleMask.contains(.fullScreen)
       if !fullscreen, let data = defaults.data(forKey: key),
         let geometry = try? JSONDecoder().decode(WindowGeometry.self, from: data),

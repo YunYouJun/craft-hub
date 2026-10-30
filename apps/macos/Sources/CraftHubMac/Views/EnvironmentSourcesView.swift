@@ -63,6 +63,7 @@ struct EnvironmentSourcesView: View {
         }
       }
     }.listStyle(.inset)
+      .nativePageListContent(.form)
       .task {
         await model.load()
         guard !Task.isCancelled else { return }

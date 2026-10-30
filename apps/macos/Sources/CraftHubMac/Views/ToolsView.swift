@@ -29,7 +29,7 @@ struct ToolsView: View {
         Button(text.copy("网站导航", "Website Directory")) { navigate("/navigation") }
         Button(text.copy("软件中心", "Software")) { navigate("/software") }
           .help(text.copy("发现软件、查看安装状态和管理安装", "Discover software, check installation status and manage installations"))
-      }.padding(24)
+      }.padding(.horizontal, NativePageLayout.horizontalInset).padding(.vertical, 24)
       SoftwareFavoritesView(model: model, findRequest: findRequest)
     }
     .task { await model.load() }

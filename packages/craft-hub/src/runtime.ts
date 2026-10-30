@@ -22,6 +22,7 @@ import { ApplicationMaintenanceService } from './application-maintenance'
 import { bundledSoftwareCatalog } from './bundled-software-catalog'
 import { resolveCommandContributions } from './command-contributions'
 import { resolveCommandInvocation, resolvePersistedCommandInvocation } from './command-inputs'
+import { CommandReviewService } from './command-review'
 import { assertCommandRunGuardActive, assertCommandRunGuardMatches } from './command-run-guard'
 import { applyProjectConfigInitialization, loadProjectConfig, previewProjectConfigInitialization } from './config'
 import { presentConfigurationManagement } from './configuration-management'
@@ -68,6 +69,13 @@ import { WorkspaceSubscriptionService } from './workspace-subscriptions'
 import { WorkspaceService } from './workspaces'
 
 export class CraftHubRuntime {
+  /** Command reviews retain immutable declarations and inputs until explicit one-use confirmation. */
+  readonly commandReviews = new CommandReviewService({
+    project: id => this.projects.get(id),
+    capabilities: id => this.capabilities(id),
+    trust: (id, expectedPath, assertActive) => this.projects.setTrust(id, 'trusted', expectedPath, assertActive),
+  })
+
   /** Host-local read-only application discovery; does not require an installation plugin. */
   readonly applicationMaintenance = new ApplicationMaintenanceService({ catalog: () => this.softwareCatalogSnapshot({ localDiscovery: false }) })
   /** One-use native form reviews share the runtime's declaration, project and invocation boundaries. */
@@ -829,8 +837,8 @@ export class CraftHubRuntime {
     return () => this.runListeners.delete(listener)
   }
 
-  /** Send terminal input to an active run. */
-  writeRun(runId: string, data: string): void {
+  /** Send text or exact terminal protocol bytes to an active run. */
+  writeRun(runId: string, data: string | Uint8Array): void {
     this.getActiveRun(runId).write(data)
   }
 
@@ -858,6 +866,7 @@ export class CraftHubRuntime {
 
   /** Cancel active agent tasks and commands during host shutdown. */
   async close(): Promise<void> {
+    this.commandReviews.close()
     this.integrationForms.close()
     await this.environmentSources.close()
     await this.agentTasks.cancelAll()

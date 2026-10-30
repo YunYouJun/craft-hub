@@ -106,7 +106,11 @@ final class NativePanels: NSObject, NSWindowDelegate {
       workbench.reload()
     case .project(let project, let capability):
       showMainWindow()
-      workbench.selectProject(project, capability: capability)
+      if item.category == .commands, let capability {
+        workbench.showProjectCommand(project, capability: capability)
+      } else {
+        workbench.selectProject(project, capability: capability)
+      }
     }
   }
   /// Carbon registers a single explicit shortcut without recording keyboard events or requesting Input Monitoring.

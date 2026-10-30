@@ -1,11 +1,11 @@
 import type { CraftHubRuntime } from 'craft-hub'
 import type { WorkspaceLaunchTarget } from './workspace-launch-target.ts'
 import { execFile } from 'node:child_process'
-import { realpath } from 'node:fs/promises'
+import { realpath, stat } from 'node:fs/promises'
 import { isAbsolute, relative, resolve } from 'node:path'
 import { promisify } from 'node:util'
 import { openCodexThreadAfterTaskRelease, waitForAgentTaskThread } from './codex-agent-task-thread.ts'
-import { codexThreadUrl, editorTargetPaths, focusCodexApplication, gitRemoteHttpUrl, macTerminalApplications, openCodexProject, openCursorEditor, openCustomEditor, openMacTerminalProject, projectContainsPath, vscodeUrl } from './open-targets.ts'
+import { codexThreadUrl, editorTargetPaths, focusCodexApplication, gitRemoteHttpUrl, installedMacTerminalApplications, macTerminalApplications, openCodexProject, openCursorEditor, openCustomEditor, openMacTerminalProject, projectContainsPath, vscodeUrl } from './open-targets.ts'
 import { resolveWorkspaceLaunchTarget } from './workspace-launch-target.ts'
 
 const execute = promisify(execFile)
@@ -15,6 +15,8 @@ export interface DesktopLaunchPlatform {
   openURL: (url: string) => Promise<void>
   openPath: (path: string) => Promise<void>
   reportError?: (message: string) => void
+  listInstalledTerminals?: () => string[]
+  openTerminal?: (path: string, application?: string) => Promise<void>
 }
 
 /** Navigation operations shared by both desktop hosts, resolved against the active runtime. */
@@ -39,7 +41,8 @@ export interface ProjectLaunchService {
   openCodexThread: (id: string) => Promise<void>
   focusCodexApplication: () => Promise<void>
   listTerminalApplications: typeof macTerminalApplications
-  openProjectInTerminal: (id: string, application?: string) => Promise<void>
+  listInstalledTerminalApplications: () => string[]
+  openProjectInTerminal: (id: string, application?: string, capabilityId?: string) => Promise<void>
   openDotfilesInTerminal: () => Promise<void>
   openSettingsFile: () => Promise<void>
 }
@@ -182,10 +185,21 @@ export function createProjectLaunchService(getRuntime: () => CraftHubRuntime, pl
     openCodexThread,
     focusCodexApplication,
     listTerminalApplications: macTerminalApplications,
-    async openProjectInTerminal(id: string, application?: string) {
-      if (application && !macTerminalApplications().includes(application))
+    listInstalledTerminalApplications: platform.listInstalledTerminals ?? installedMacTerminalApplications,
+    async openProjectInTerminal(id: string, application?: string, capabilityId?: string) {
+      const applications = platform.listInstalledTerminals?.() ?? macTerminalApplications()
+      if (application && !applications.includes(application))
         throw new Error(`Terminal application is not available: ${application}`)
-      await openMacTerminalProject(await projectPath(id), application)
+      let directory = await realpath(await projectPath(id))
+      if (capabilityId !== undefined) {
+        const capability = (await getRuntime().capabilities(id)).find(item => item.id === capabilityId)
+        if (capability?.kind !== 'command')
+          throw new Error(`No command working directory is available for ${capabilityId}`)
+        directory = (await ownedTarget(id, capability.invocation.cwd)).target
+      }
+      if (!(await stat(directory)).isDirectory())
+        throw new Error('The terminal working directory must be a directory')
+      await (platform.openTerminal ?? openMacTerminalProject)(directory, application)
     },
     async openDotfilesInTerminal() {
       const status = await getRuntime().dotfilesManager.status()

@@ -29,13 +29,13 @@ struct EnvironmentView: View {
         }
         .disabled(machine.checkingEnvironment)
       }
-      .padding(24)
+      .padding(.horizontal, NativePageLayout.horizontalInset).padding(.vertical, 24)
       Picker(text.copy("环境页面", "Environment Page"), selection: $machine.environmentTab) {
         Text(text.copy("本机工具", "Local Tools")).tag("inspection")
         Text(text.copy("环境方案", "Environment Profile")).tag("profile")
         Text(text.copy("配置源连接", "Source Connections")).tag("sources")
         Text(text.copy("配置审阅", "Configuration")).tag("configuration")
-      }.pickerStyle(.segmented).padding(.horizontal, 24).padding(.bottom, 12)
+      }.pickerStyle(.segmented).padding(.horizontal, NativePageLayout.horizontalInset).padding(.bottom, 12)
       if machine.environmentTab == "profile" {
         EnvironmentProfileView(
           model: machine.environmentProfile, openSoftware: openSoftware, openConfiguration: openConfiguration)
@@ -52,9 +52,11 @@ struct EnvironmentView: View {
   private var inspection: some View {
     VStack(alignment: .leading, spacing: 0) {
       if machine.checkingEnvironment {
-        ProgressView().controlSize(.small).padding(.horizontal, 24).padding(.bottom, 12)
+        ProgressView().controlSize(.small).padding(.horizontal, NativePageLayout.horizontalInset).padding(.bottom, 12)
       }
-      if let error = machine.environmentError { NativeErrorView(message: error).padding(.horizontal, 24) }
+      if let error = machine.environmentError {
+        NativeErrorView(message: error).padding(.horizontal, NativePageLayout.horizontalInset)
+      }
       if let snapshot = machine.environment {
         List {
           Section(text.copy("当前运行时", "Active Runtime")) {
@@ -113,8 +115,10 @@ struct EnvironmentView: View {
           }
         }
         .listStyle(.inset)
+        .nativePageListContent()
       } else if !machine.checkingEnvironment && machine.environmentError == nil {
         ContentUnavailableView(text.copy("尚未检查环境", "Environment Not Checked"), systemImage: "terminal")
+          .nativePageContent(.emptyState)
       }
       Spacer(minLength: 0)
     }

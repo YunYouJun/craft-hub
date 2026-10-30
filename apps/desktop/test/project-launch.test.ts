@@ -107,6 +107,59 @@ it('limits terminal selection to host-resolved applications and does not execute
   await expect(service.openDotfilesInTerminal()).rejects.toThrow('not configured')
 })
 
+it('opens a discovered command directory without running its command or changing project trust', async () => {
+  const { projectPath, runtime, project } = await fixture()
+  const directory = join(projectPath, 'packages', 'widget')
+  await mkdir(directory, { recursive: true })
+  const command = (await runtime.capabilities(project.id)).find(item => item.kind === 'command')!
+  const discovery = vi.spyOn(runtime, 'capabilities').mockResolvedValue([{ ...command, invocation: { ...command.invocation, cwd: directory } }])
+  const run = vi.spyOn(runtime, 'run')
+  const open = vi.fn(async (_path: string, _application?: string) => {})
+  const service = createProjectLaunchService(() => runtime, {
+    openURL: vi.fn(),
+    openPath: vi.fn(),
+    listInstalledTerminals: () => ['Terminal'],
+    openTerminal: open,
+  })
+  expect(service.listInstalledTerminalApplications()).toEqual(['Terminal'])
+  await service.openProjectInTerminal(project.id, 'Terminal', command.id)
+  expect(open).toHaveBeenCalledExactlyOnceWith(directory, 'Terminal')
+  expect(run).not.toHaveBeenCalled()
+  expect((await runtime.projects.get(project.id)).trust).toBe('untrusted')
+  expect(await runtime.runs()).toEqual([])
+  expect(await runtime.agentTasks.list()).toEqual([])
+  await expect(service.openProjectInTerminal(project.id, 'Ghostty', command.id)).rejects.toThrow('not available')
+  await expect(service.openProjectInTerminal('unknown-project', 'Terminal', command.id)).rejects.toThrow()
+  await expect(service.openProjectInTerminal(project.id, 'Terminal', 'unknown-command')).rejects.toThrow('No command working directory')
+  expect(open).toHaveBeenCalledTimes(1)
+  discovery.mockRestore()
+})
+
+it('rejects discovered terminal cwd escapes, symlinks and files before invoking the terminal', async () => {
+  const { root, projectPath, runtime, project } = await fixture()
+  const outside = join(root, 'outside')
+  const linked = join(projectPath, 'linked-directory')
+  await mkdir(outside)
+  await symlink(outside, linked)
+  const command = (await runtime.capabilities(project.id)).find(item => item.kind === 'command')!
+  const discovery = vi.spyOn(runtime, 'capabilities')
+  const open = vi.fn(async (_path: string, _application?: string) => {})
+  const service = createProjectLaunchService(() => runtime, {
+    openURL: vi.fn(),
+    openPath: vi.fn(),
+    listInstalledTerminals: () => ['Terminal'],
+    openTerminal: open,
+  })
+  for (const cwd of [outside, linked, join(projectPath, 'package.json')]) {
+    discovery.mockResolvedValue([{ ...command, invocation: { ...command.invocation, cwd } }])
+    await expect(service.openProjectInTerminal(project.id, 'Terminal', command.id)).rejects.toThrow()
+  }
+  expect(open).not.toHaveBeenCalled()
+  expect((await runtime.projects.get(project.id)).trust).toBe('untrusted')
+  expect(await runtime.runs()).toEqual([])
+  discovery.mockRestore()
+})
+
 it('validates Codex thread links before OS delivery and reports a failed deep link', async () => {
   const { service, platform } = await fixture()
   await expect(service.openCodexThread('javascript:bad')).rejects.toThrow('Invalid Codex thread id')

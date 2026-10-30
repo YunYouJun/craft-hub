@@ -30,7 +30,7 @@ export interface RunHandle {
   completion: Promise<RunRecord>
   cancel: () => void
   resize: (columns: number, rows: number) => void
-  write: (data: string) => void
+  write: (data: string | Uint8Array) => void
 }
 
 /** Execute only a structured command capability after project trust is established. */
@@ -170,7 +170,7 @@ export async function executeCommand(
       terminalRows = rows
       terminal?.resize(columns, rows)
     },
-    write: data => terminal?.write(data),
+    write: data => terminal?.write(typeof data === 'string' ? data : Buffer.from(data)),
   }
 }
 

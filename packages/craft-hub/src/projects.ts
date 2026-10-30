@@ -117,13 +117,17 @@ export class ProjectRegistry {
     return verifyProjectReference(path, reference)
   }
 
-  async setTrust(id: string, trust: TrustState): Promise<ProjectRecord> {
+  /** Change trust, optionally requiring the exact project path displayed by a host review. */
+  async setTrust(id: string, trust: TrustState, expectedPath?: string, assertActive?: () => void): Promise<ProjectRecord> {
     const projects = await this.list()
     const index = projects.findIndex(project => project.id === id)
     if (index < 0)
       throw new Error(`Unknown project: ${id}`)
+    if (expectedPath !== undefined && projects[index]!.path !== expectedPath)
+      throw new Error('The reviewed project path changed; review it again before trusting it')
     const project = { ...projects[index]!, trust }
     projects[index] = project
+    assertActive?.()
     await this.store.saveProjects(projects)
     this.emitChanged()
     return project

@@ -219,6 +219,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       while !Task.isCancelled {
         do { try await Task.sleep(for: .seconds(60)) } catch { return }
         guard let self else { return }
+        // Keep background execution and event subscriptions alive, but do not wake external work sources for hidden UI.
+        guard NSApp.windows.contains(where: { $0.isVisible }) else { continue }
         await model.today.load()
       }
     }

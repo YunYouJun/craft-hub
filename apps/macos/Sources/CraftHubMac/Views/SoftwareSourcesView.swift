@@ -55,7 +55,7 @@ struct SoftwareSourcesView: View {
           Label(text.copy("添加来源…", "Add Source…"), systemImage: "plus")
         }
         .buttonStyle(.borderedProminent).disabled(model.busy)
-      }.controlSize(.small).padding(.horizontal, 20).padding(.bottom, 14)
+      }.controlSize(.small).padding(.horizontal, NativePageLayout.horizontalInset).padding(.bottom, 14)
       HStack(spacing: 12) {
         SoftwarePageSearch(
           title: text.copy("搜索来源、仓库或分支", "Search sources, repositories or branches"),
@@ -73,15 +73,18 @@ struct SoftwareSourcesView: View {
           }.buttonStyle(.link)
         }
         Spacer(minLength: 0)
-      }.padding(.horizontal, 20).padding(.bottom, 14)
-      if let error = model.error { NativeErrorView(message: error).padding(.horizontal, 20).padding(.bottom, 10) }
+      }.padding(.horizontal, NativePageLayout.horizontalInset).padding(.bottom, 14)
+      if let error = model.error {
+        NativeErrorView(message: error).padding(.horizontal, NativePageLayout.horizontalInset).padding(.bottom, 10)
+      }
       content
       Text(
         text.copy(
           "自动刷新仅在应用运行时执行。本地目录由你手动读取。",
           "Automatic refresh runs while the app is open. Local checkouts are read manually.")
       )
-      .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 20).padding(.vertical, 12)
+      .font(.caption).foregroundStyle(.secondary).padding(.horizontal, NativePageLayout.horizontalInset).padding(
+        .vertical, 12)
     }.task { await model.load() }
       .sheet(isPresented: Binding(get: { model.editing }, set: { if !$0 { model.dismiss() } })) {
         SoftwareSourceEditor(model: model)
@@ -120,7 +123,7 @@ struct SoftwareSourcesView: View {
               "The bundled catalog remains available. Connect a repository to manage refreshes and catalog versions."))
         } actions: {
           Button(text.copy("添加来源…", "Add Source…")) { model.edit() }.disabled(model.busy)
-        }.frame(maxWidth: .infinity, maxHeight: .infinity)
+        }.nativePageContent(.emptyState).frame(maxHeight: .infinity)
       } else if visible.isEmpty {
         ContentUnavailableView {
           Label(text.copy("没有匹配的来源", "No Matching Sources"), systemImage: "magnifyingglass")
@@ -129,7 +132,7 @@ struct SoftwareSourcesView: View {
             query = ""
             filter = "all"
           }
-        }.frame(maxWidth: .infinity, maxHeight: .infinity)
+        }.nativePageContent(.emptyState).frame(maxHeight: .infinity)
       } else {
         ScrollView {
           LazyVStack(spacing: 12) {
@@ -143,14 +146,14 @@ struct SoftwareSourcesView: View {
                     policy: source.refreshPolicy ?? .init(mode: "interval", intervalMinutes: 1440))
                 }, remove: { removal = .init(source: source, revision: snapshot.revision) })
             }
-          }.padding(.horizontal, 20).padding(.bottom, 12)
+          }.nativePageContent().padding(.bottom, 12)
         }
       }
     } else if model.loading {
       ProgressView(text.copy("正在读取软件来源…", "Loading sources…")).frame(maxWidth: .infinity, maxHeight: .infinity)
     } else {
       ContentUnavailableView(text.copy("无法读取软件来源", "Could Not Load Sources"), systemImage: "exclamationmark.triangle")
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .nativePageContent(.emptyState).frame(maxHeight: .infinity)
     }
   }
 

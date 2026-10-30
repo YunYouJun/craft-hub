@@ -53,19 +53,23 @@ struct SoftwareFavoritesView: View {
         } label: {
           Label(text.copy("自定义工具", "Customize Tools"), systemImage: "square.and.pencil")
         }.disabled(!model.canChange)
-      }.padding(.horizontal, 24)
-      if let error = model.error { NativeErrorView(message: error).padding(.horizontal, 24) }
+      }.padding(.horizontal, NativePageLayout.horizontalInset)
+      if let error = model.error {
+        NativeErrorView(message: error).padding(.horizontal, NativePageLayout.horizontalInset)
+      }
       if let notice = model.notice {
-        Text(notice).font(.callout).foregroundStyle(.secondary).padding(.horizontal, 24)
+        Text(notice).font(.callout).foregroundStyle(.secondary).padding(.horizontal, NativePageLayout.horizontalInset)
       }
       if model.stale, model.snapshot != nil {
         Text(text.copy("正在显示上次读取的工具，请重新读取后编辑。", "Showing previously loaded tools. Reload before editing."))
-          .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 24)
+          .font(.caption).foregroundStyle(.secondary).padding(.horizontal, NativePageLayout.horizontalInset)
       }
       if model.snapshot == nil {
         ContentUnavailableView(
           text.copy("尚未读取常用工具", "Favorites Not Loaded"), systemImage: "star",
-          description: Text(text.copy("重新读取以查看已保存的网站和应用。", "Reload to view your saved websites and apps.")))
+          description: Text(text.copy("重新读取以查看已保存的网站和应用。", "Reload to view your saved websites and apps."))
+        )
+        .nativePageContent(.emptyState)
       } else if tools.isEmpty {
         ContentUnavailableView {
           Label(text.copy("没有匹配的常用工具", "No Matching Favorites"), systemImage: "star")
@@ -81,7 +85,7 @@ struct SoftwareFavoritesView: View {
               model.appendTool()
             }.disabled(!model.canChange)
           }
-        }
+        }.nativePageContent(.emptyState)
       } else {
         List {
           ForEach(groups, id: \.self) { group in
@@ -90,6 +94,7 @@ struct SoftwareFavoritesView: View {
             }
           }
         }.listStyle(.inset)
+          .nativePageListContent()
       }
       HStack {
         Text(
@@ -97,7 +102,8 @@ struct SoftwareFavoritesView: View {
             "与软件中心共享收藏；移除工具不会卸载应用。", "Shared with Software favorites; removing a tool does not uninstall the app."))
         Spacer()
         if let count = model.snapshot?.tools.count { Text("\(count) / 100") }
-      }.font(.caption).foregroundStyle(.secondary).padding(.horizontal, 24).padding(.bottom, 16)
+      }.font(.caption).foregroundStyle(.secondary).padding(.horizontal, NativePageLayout.horizontalInset).padding(
+        .bottom, 16)
     }
     .onChange(of: findRequest) { searchFocused = true }
     .sheet(isPresented: $model.editing) { ToolEditorView(model: model) }

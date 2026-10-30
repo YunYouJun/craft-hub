@@ -140,6 +140,15 @@ export function macTerminalApplications(
   return preferred ? [preferred, ...installed.filter(application => application !== preferred)] : installed
 }
 
+/** List detected applications only; an unavailable preference never becomes a native selectable destination. */
+export function installedMacTerminalApplications(
+  preferred = process.env.CRAFT_HUB_TERMINAL_APP,
+  exists: (path: string) => boolean = existsSync,
+): string[] {
+  const installed = macTerminalApplications('', exists)
+  return preferred && installed.includes(preferred) ? [preferred, ...installed.filter(application => application !== preferred)] : installed
+}
+
 /** Resolve the preferred installed macOS terminal application. */
 export function macTerminalApplication(
   preferred = process.env.CRAFT_HUB_TERMINAL_APP,

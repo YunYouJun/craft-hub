@@ -35,7 +35,7 @@ struct SoftwareInstallationsView: View {
         } label: {
           Label(text.copy("刷新记录", "Refresh History"), systemImage: "arrow.clockwise")
         }.disabled(model.loadingRuns || !model.canReadHistory)
-      }.controlSize(.small).padding(.horizontal, 20).padding(.bottom, 14)
+      }.controlSize(.small).padding(.horizontal, NativePageLayout.horizontalInset).padding(.bottom, 14)
       HStack(spacing: 12) {
         SoftwarePageSearch(
           title: text.copy("搜索软件、来源或任务", "Search apps, sources or tasks"), query: $query, focused: $searchFocused)
@@ -53,11 +53,13 @@ struct SoftwareInstallationsView: View {
           }.buttonStyle(.link)
         }
         Spacer(minLength: 0)
-      }.padding(.horizontal, 20).padding(.bottom, 14)
-      if let error = model.error { NativeErrorView(message: error).padding(.horizontal, 20).padding(.bottom, 8) }
+      }.padding(.horizontal, NativePageLayout.horizontalInset).padding(.bottom, 14)
+      if let error = model.error {
+        NativeErrorView(message: error).padding(.horizontal, NativePageLayout.horizontalInset).padding(.bottom, 8)
+      }
       ForEach(model.historyErrors.keys.sorted(), id: \.self) { source in
         NativeErrorView(message: "\(sourceTitle(source)): \(model.historyErrors[source] ?? "")")
-          .padding(.horizontal, 20).padding(.bottom, 8)
+          .padding(.horizontal, NativePageLayout.horizontalInset).padding(.bottom, 8)
       }
       content
     }
@@ -93,7 +95,7 @@ struct SoftwareInstallationsView: View {
       } actions: {
         Button(text.copy("刷新记录", "Refresh History")) { Task { await model.loadRuns() } }
           .disabled(model.loadingRuns || !model.canReadHistory)
-      }.frame(maxWidth: .infinity, maxHeight: .infinity)
+      }.nativePageContent(.emptyState).frame(maxHeight: .infinity)
     } else if model.runs.isEmpty {
       ContentUnavailableView {
         Label(
@@ -109,7 +111,7 @@ struct SoftwareInstallationsView: View {
             : text.copy("请检查本机管理插件及其支持的操作。", "Check the local management provider and its supported operations."))
       } actions: {
         if model.canReadHistory { Button(text.copy("浏览软件目录", "Browse Catalog"), action: showCatalog) }
-      }.frame(maxWidth: .infinity, maxHeight: .infinity)
+      }.nativePageContent(.emptyState).frame(maxHeight: .infinity)
     } else if visible.isEmpty {
       ContentUnavailableView {
         Label(text.copy("没有匹配的安装任务", "No Matching Installations"), systemImage: "magnifyingglass")
@@ -118,7 +120,7 @@ struct SoftwareInstallationsView: View {
           query = ""
           filter = "all"
         }
-      }.frame(maxWidth: .infinity, maxHeight: .infinity)
+      }.nativePageContent(.emptyState).frame(maxHeight: .infinity)
     } else {
       ScrollView {
         LazyVStack(spacing: 12) {
@@ -127,7 +129,7 @@ struct SoftwareInstallationsView: View {
               model: model, run: run, sourceTitle: sourceTitle(run.sourceId),
               stop: { stopping = run }, showLog: { log = .init(runKey: run.key, itemID: $0) })
           }
-        }.padding(.horizontal, 20).padding(.bottom, 20)
+        }.nativePageContent().padding(.bottom, 20)
       }
     }
   }

@@ -12,9 +12,14 @@ import Observation
   @ObservationIgnored private var revision = 0
   @ObservationIgnored private var poll: Task<Void, Never>?
   @ObservationIgnored private var idleWaiters: [CheckedContinuation<Void, Never>] = []
+  @ObservationIgnored private let sleep: (Duration) async throws -> Void
   var available: Bool { client != nil }
   var operating: Bool { busy || snapshot?.status.busy == true }
   var approvals: [NativeCloudSnapshot.Approval] { error == nil ? snapshot?.approvals ?? [] : [] }
+
+  init(sleep: @escaping (Duration) async throws -> Void = { try await Task.sleep(for: $0) }) {
+    self.sleep = sleep
+  }
 
   func connect(_ client: RuntimeAPIClient?, pollAutomatically: Bool = true) {
     poll?.cancel()
@@ -31,24 +36,29 @@ import Observation
     poll = Task { [weak self] in
       while !Task.isCancelled {
         guard let self, generation == attempt else { return }
-        await refresh()
-        do { try await Task.sleep(for: .seconds(error == nil ? 2 : 10)) } catch { return }
+        let refreshed = await refresh()
+        guard generation == attempt, !Task.isCancelled else { return }
+        // Disabled cloud configuration is fixed for this runtime session; reconnect starts observation again.
+        if refreshed, snapshot?.status.state == "disabled" { return }
+        do { try await sleep(.seconds(error == nil ? 2 : 10)) } catch { return }
       }
     }
   }
 
-  func refresh() async {
-    guard let client, !busy else { return }
+  @discardableResult func refresh() async -> Bool {
+    guard let client, !busy else { return false }
     let attempt = generation
     let read = revision
     do {
       let result = try await client.cloudSnapshot()
-      guard attempt == generation, read == revision, !Task.isCancelled else { return }
+      guard attempt == generation, read == revision, !Task.isCancelled else { return false }
       snapshot = result
+      return true
     } catch {
       if attempt == generation, read == revision, !Task.isCancelled {
         self.error = L10n.text.copy("无法读取个人云状态，请重新检查。", "Cloud status is unavailable. Check again.")
       }
+      return false
     }
   }
 

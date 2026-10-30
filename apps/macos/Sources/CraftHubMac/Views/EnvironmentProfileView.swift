@@ -181,6 +181,7 @@ struct EnvironmentProfileView: View {
       }
     }
     .listStyle(.inset)
+    .nativePageListContent(.form)
     .task { await model.load() }
     .sheet(item: $importing) { request in
       VStack(alignment: .leading, spacing: 16) {

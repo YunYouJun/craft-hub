@@ -47,6 +47,6 @@ struct CodexActivitySettings: View {
             "写入结果尚未确认，请先重新检查，再审阅下一次操作。", "The write result is uncertain. Check again before reviewing another change."))
       }
       if let error = model.error { NativeErrorView(message: error) }
-    }.task { await model.refresh() }
+    }.task(id: model.observationID) { await model.observe() }
   }
 }

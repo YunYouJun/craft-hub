@@ -200,6 +200,8 @@ const binDirectory = await step('Locating the build products', 'swift', [...swif
 const executable = resolve(contents, 'MacOS/CraftHubMac')
 await cp(join(binDirectory, 'CraftHubMac'), executable)
 await cp(join(binDirectory, 'CraftHubMac_CraftHubMac.bundle'), resolve(contents, 'Resources/CraftHubMac_CraftHubMac.bundle'), { recursive: true })
+// SwiftTerm can load its shader source from its SwiftPM bundle when a precompiled Metal library is unavailable.
+await cp(join(binDirectory, 'SwiftTerm_SwiftTerm.bundle'), resolve(contents, 'Resources/SwiftTerm_SwiftTerm.bundle'), { recursive: true })
 const executableArchitecture = (await run('lipo', ['-archs', executable])).stdout.trim()
 if (executableArchitecture !== swiftArchitecture)
   throw new Error(`Native executable architecture ${executableArchitecture} does not match packaged ${architecture} dependencies`)

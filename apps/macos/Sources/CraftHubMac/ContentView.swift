@@ -84,12 +84,14 @@ struct ContentView: View {
           Text(message).font(.caption).foregroundStyle(.secondary).padding(8)
         }
         ZStack {
-          // Keep one bootstrapped web view alive while native pages are visible, preserving web drafts and history.
-          WorkbenchWebView(url: connection.bootstrapURL, model: model)
-            .id(connection.origin)
-            .opacity(model.presentsNativeContent ? 0 : 1)
-            .allowsHitTesting(!model.presentsNativeContent)
-            .accessibilityHidden(model.presentsNativeContent)
+          // Create on first use, then retain the same session across native navigation and window recreation.
+          if model.webContentRequested {
+            WorkbenchWebView(url: connection.bootstrapURL, model: model)
+              .id(model.connectionGeneration)
+              .opacity(model.presentsNativeContent ? 0 : 1)
+              .allowsHitTesting(!model.presentsNativeContent)
+              .accessibilityHidden(model.presentsNativeContent)
+          }
           if model.presentsNativeContent {
             if model.selection == .overview {
               TodayFocusView(
@@ -98,11 +100,29 @@ struct ContentView: View {
               )
               .onAppear { PerformanceTrace.mark(.nativePageAppeared) }
             } else if model.selection == .projects {
-              ProjectsView(
-                projects: model.projects, findRequest: model.findRequest,
-                openProject: { model.selectProject($0, capability: nil) },
-                showWorkbench: model.showWebWorkbench
-              )
+              Group {
+                if model.projectCommand.capabilityID != nil {
+                  ProjectCommandView(
+                    model: model.projectCommand, externalTerminal: model.projectTerminal,
+                    back: model.closeProjectCommand,
+                    openWeb: {
+                      if let project = model.projectCommand.projectID {
+                        model.showProjectWeb(project, capability: model.projectCommand.capabilityID)
+                      }
+                    })
+                } else if model.projectDetails.projectID != nil {
+                  ProjectDetailsView(
+                    model: model.projectDetails, externalTerminal: model.projectTerminal,
+                    findRequest: model.findRequest,
+                    back: { model.select(.projects) }, openWeb: model.showProjectWeb,
+                    openCommand: { project, capability in model.showProjectCommand(project, capability: capability) })
+                } else {
+                  ProjectsView(
+                    projects: model.projects, findRequest: model.findRequest,
+                    openProject: { model.selectProject($0, capability: nil) },
+                    showWorkbench: model.showWebWorkbench)
+                }
+              }
               .onAppear { PerformanceTrace.mark(.nativePageAppeared) }
             } else if model.selection == .marketplace {
               PluginsView(
@@ -173,14 +193,14 @@ struct ContentView: View {
             if sidecar.readingLoginPath { ProgressView().controlSize(.small) }
           }
           PrivateNodeControls(sidecar: sidecar)
-        }.frame(maxWidth: 520)
+        }.frame(maxWidth: NativePageLayout.ContentWidth.emptyState.maximum)
       }
     case .failed(let message):
       StatusView(symbol: "xmark.octagon", title: text.failedTitle, message: message) {
         VStack(spacing: 14) {
           Button(text.retry) { sidecar.start() }.buttonStyle(.borderedProminent).disabled(sidecar.privateNode.busy)
           PrivateNodeControls(sidecar: sidecar)
-        }.frame(maxWidth: 520)
+        }.frame(maxWidth: NativePageLayout.ContentWidth.emptyState.maximum)
       }
     }
   }
@@ -195,9 +215,12 @@ struct ContentView: View {
     ToolbarItemGroup(placement: .primaryAction) {
       if model.selection?.isNative == true && model.showsWebContent {
         Button {
-          model.select(model.selection)
+          model.returnToNativeContent()
         } label: {
-          Label(text.copy("返回列表", "Back to List"), systemImage: "list.bullet")
+          Label(
+            model.selection == .projects && model.projectDetails.projectID != nil
+              ? text.copy("返回原生项目", "Back to Native Project") : text.copy("返回列表", "Back to List"),
+            systemImage: "list.bullet")
         }
       }
       Button {
@@ -234,11 +257,11 @@ struct StatusView<Actions: View>: View {
           .foregroundStyle(.secondary)
           .multilineTextAlignment(.center)
           .textSelection(.enabled)
-          .frame(maxWidth: 460)
       }
       HStack { actions() }.padding(.top, 4)
     }
-    .padding(32)
+    .nativePageContent(.emptyState)
+    .padding(.vertical, 32)
     .frame(maxWidth: .infinity, maxHeight: .infinity)
   }
 }

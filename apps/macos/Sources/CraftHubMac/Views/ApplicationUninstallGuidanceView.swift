@@ -63,7 +63,7 @@ struct ApplicationUninstallGuidanceView: View {
             if let guidance = model.guidance { detail(guidance) }
           }
         }
-      }.padding(20).frame(maxWidth: 860, alignment: .leading)
+      }.nativePageContent(.reading).padding(.vertical, 20)
     }
     .task { await model.load() }
     .task(id: model.selection) { await model.inspect() }

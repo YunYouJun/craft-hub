@@ -49,49 +49,55 @@ struct PluginSourcesView: View {
         }
       }
       Section(text.copy("添加来源", "Add a Source")) {
-        TextField(text.copy("名称（可选）", "Name (optional)"), text: $model.sourceName)
-        TextField(text.copy("HTTPS 目录地址", "HTTPS Catalog URL"), text: $model.sourceCatalogURL)
-        TextField(text.copy("包仓库地址（可选）", "Package Registry (optional)"), text: $model.sourceRegistry)
-        Button(text.copy("预览来源", "Preview Source")) { Task { await model.previewSource(model.sourceInput) } }.disabled(
-          model.sourceInput.catalogUrl.isEmpty || model.busy)
-        if let review = model.sourceReview {
-          VStack(alignment: .leading, spacing: 8) {
-            Text(review.preview.name).font(.headline)
-            Text(review.preview.finalCatalogUrl).font(.caption.monospaced()).textSelection(.enabled)
-            LabeledContent(
-              text.copy("包仓库", "Package Registry"),
-              value: review.preview.registry ?? text.copy("默认仓库", "Default Registry"))
-            if let verification = review.preview.verification {
-              Label(
-                text.copy("已验证发布者：", "Verified publisher: ") + verification.organization,
-                systemImage: "checkmark.shield")
-            }
-            DisclosureGroup(text.copy("查看目录条目", "Review Catalog Entries")) {
-              ForEach(review.preview.catalog.plugins) { plugin in
-                VStack(alignment: .leading, spacing: 4) {
-                  Text(plugin.displayName).font(.callout.weight(.medium))
-                  Text("\(plugin.package) · \(plugin.version)").font(.caption.monospaced()).textSelection(.enabled)
-                }.padding(.vertical, 3)
+        VStack(alignment: .leading, spacing: 12) {
+          TextField(text.copy("名称（可选）", "Name (optional)"), text: $model.sourceName)
+          TextField(text.copy("HTTPS 目录地址", "HTTPS Catalog URL"), text: $model.sourceCatalogURL)
+          TextField(text.copy("包仓库地址（可选）", "Package Registry (optional)"), text: $model.sourceRegistry)
+          Button(text.copy("预览来源", "Preview Source")) { Task { await model.previewSource(model.sourceInput) } }
+            .disabled(
+              model.sourceInput.catalogUrl.isEmpty || model.busy)
+          if let review = model.sourceReview {
+            VStack(alignment: .leading, spacing: 8) {
+              Text(review.preview.name).font(.headline)
+              Text(review.preview.finalCatalogUrl).font(.caption.monospaced()).textSelection(.enabled)
+              LabeledContent(
+                text.copy("包仓库", "Package Registry"),
+                value: review.preview.registry ?? text.copy("默认仓库", "Default Registry"))
+              if let verification = review.preview.verification {
+                Label(
+                  text.copy("已验证发布者：", "Verified publisher: ") + verification.organization,
+                  systemImage: "checkmark.shield")
               }
-            }
-            Text(
-              text.copy(
-                "包含 \(review.preview.catalog.plugins.count) 个目录条目",
-                "\(review.preview.catalog.plugins.count) catalog entries"))
-            Text(
-              text.copy(
-                "添加后可浏览插件；插件安装仍需单独确认。", "Adding a source makes plugins discoverable. Each installation requires review."
-              )
-            ).foregroundStyle(.secondary)
-            HStack {
-              Button(text.copy("取消", "Cancel")) { model.cancelPreview() }
-              Button(text.copy("添加来源", "Add Source")) { Task { await model.confirmSource() } }.buttonStyle(
-                .borderedProminent)
-            }.disabled(model.busy)
-          }.padding(.vertical, 8)
-        }
+              DisclosureGroup(text.copy("查看目录条目", "Review Catalog Entries")) {
+                ForEach(review.preview.catalog.plugins) { plugin in
+                  VStack(alignment: .leading, spacing: 4) {
+                    Text(plugin.displayName).font(.callout.weight(.medium))
+                    Text("\(plugin.package) · \(plugin.version)").font(.caption.monospaced()).textSelection(.enabled)
+                  }.padding(.vertical, 3)
+                }
+              }
+              Text(
+                text.copy(
+                  "包含 \(review.preview.catalog.plugins.count) 个目录条目",
+                  "\(review.preview.catalog.plugins.count) catalog entries"))
+              Text(
+                text.copy(
+                  "添加后可浏览插件；插件安装仍需单独确认。",
+                  "Adding a source makes plugins discoverable. Each installation requires review."
+                )
+              ).foregroundStyle(.secondary)
+              HStack {
+                Button(text.copy("取消", "Cancel")) { model.cancelPreview() }
+                Button(text.copy("添加来源", "Add Source")) { Task { await model.confirmSource() } }.buttonStyle(
+                  .borderedProminent)
+              }.disabled(model.busy)
+            }.padding(.vertical, 8)
+          }
+        }.frame(maxWidth: NativePageLayout.ContentWidth.form.maximum, alignment: .leading)
+          .frame(maxWidth: .infinity)
       }.disabled(model.busy)
     }.listStyle(.inset)
+      .nativePageListContent()
       .onChange(of: model.sourceInput) { model.cancelPreview() }
   }
 }

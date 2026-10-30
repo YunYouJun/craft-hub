@@ -9,42 +9,48 @@ import Observation
   private(set) var uncertain = false
   private(set) var error: String?
   @ObservationIgnored private var client: RuntimeAPIClient?
-  @ObservationIgnored private var generation = UUID()
+  private(set) var observationID = UUID()
   @ObservationIgnored private var revision = 0
   @ObservationIgnored private var readRevision = 0
-  @ObservationIgnored private var poll: Task<Void, Never>?
   @ObservationIgnored private var alert: NSAlert?
+  @ObservationIgnored private let sleep: (Duration) async throws -> Void
   var available: Bool { client != nil }
 
-  func connect(_ client: RuntimeAPIClient?, pollAutomatically: Bool = true) {
-    poll?.cancel()
+  init(sleep: @escaping (Duration) async throws -> Void = { try await Task.sleep(for: $0) }) {
+    self.sleep = sleep
+  }
+
+  func connect(_ client: RuntimeAPIClient?) {
     if let alert { alert.window.sheetParent?.endSheet(alert.window, returnCode: .abort) }
-    generation = UUID()
+    observationID = UUID()
     self.client = client
     status = nil
     busy = false
     uncertain = false
     error = nil
-    guard client != nil, pollAutomatically else { return }
-    let attempt = generation
-    poll = Task { [weak self] in
-      while !Task.isCancelled {
-        guard let self, generation == attempt else { return }
-        await refresh()
-        do { try await Task.sleep(for: .seconds(error == nil ? 5 : 10)) } catch { return }
-      }
+  }
+
+  /// Settings owns this task: closing it stops polling, while reopening reads fresh status immediately.
+  func observe() async {
+    guard client != nil else { return }
+    let attempt = observationID
+    while !Task.isCancelled {
+      guard observationID == attempt else { return }
+      await refresh()
+      guard observationID == attempt, !Task.isCancelled else { return }
+      do { try await sleep(.seconds(error == nil ? 5 : 10)) } catch { return }
     }
   }
 
   func refresh() async {
     guard let client, !busy else { return }
-    let attempt = generation
+    let attempt = observationID
     let read = revision
     readRevision += 1
     let readID = readRevision
     do {
       let result = try await client.codexActivityStatus()
-      guard attempt == generation, read == revision, readID == readRevision, !Task.isCancelled else { return }
+      guard attempt == observationID, read == revision, readID == readRevision, !Task.isCancelled else { return }
       status = result
       if let diagnostic = result.diagnostic {
         error = diagnostic
@@ -53,7 +59,9 @@ import Observation
         error = nil
       }
     } catch {
-      if attempt == generation, read == revision, readID == readRevision { self.error = error.localizedDescription }
+      if attempt == observationID, read == revision, readID == readRevision, !Task.isCancelled {
+        self.error = error.localizedDescription
+      }
     }
   }
 
@@ -62,32 +70,32 @@ import Observation
 
   func change(install: Bool, confirm: (CodexActivityReview) async throws -> Bool) async {
     guard let client, !busy, !uncertain else { return }
-    let attempt = generation
+    let attempt = observationID
     revision += 1
     busy = true
     error = nil
     var review: CodexActivityReview?
     var submitted = false
-    defer { if attempt == generation { busy = false } }
+    defer { if attempt == observationID { busy = false } }
     do {
       let prepared = try await client.reviewCodexActivity(install: install)
       review = prepared
-      guard attempt == generation, !Task.isCancelled else {
+      guard attempt == observationID, !Task.isCancelled else {
         try? await client.cancelCodexActivity(prepared.id)
         return
       }
       let accepted = try await confirm(prepared)
-      guard attempt == generation, !Task.isCancelled, accepted else {
+      guard attempt == observationID, !Task.isCancelled, accepted else {
         try? await client.cancelCodexActivity(prepared.id)
         return
       }
       submitted = true
       let result = try await client.applyCodexActivity(prepared.id)
-      guard attempt == generation else { return }
+      guard attempt == observationID else { return }
       status = result
     } catch {
       if !submitted, let review { try? await client.cancelCodexActivity(review.id) }
-      if attempt == generation {
+      if attempt == observationID {
         self.error = error.localizedDescription
         uncertain = submitted
       }
@@ -99,14 +107,14 @@ import Observation
     guard available, !busy,
       ["install-codex-activity-hooks", "uninstall-codex-activity-hooks"].contains(action)
     else { throw NativeHostChannelError.busy }
-    let attempt = generation
+    let attempt = observationID
     if uncertain { await refresh() }
-    guard attempt == generation, !uncertain else { throw NativeHostChannelError.busy }
+    guard attempt == observationID, !uncertain else { throw NativeHostChannelError.busy }
     await change(install: action == "install-codex-activity-hooks")
-    guard attempt == generation else { throw NativeHostChannelError.closed }
+    guard attempt == observationID else { throw NativeHostChannelError.closed }
     if let error { throw RuntimeAPIError.rejected(400, error) }
     await refresh()
-    guard attempt == generation, let status else { throw NativeHostChannelError.closed }
+    guard attempt == observationID, let status else { throw NativeHostChannelError.closed }
     return try JSONSerialization.jsonObject(with: JSONEncoder().encode(status))
   }
 

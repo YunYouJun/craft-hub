@@ -12,14 +12,25 @@ final class TodayFocusModel {
   private(set) var error: String?
   @ObservationIgnored private var client: RuntimeAPIClient?
   @ObservationIgnored private var generation = UUID()
+  @ObservationIgnored private var invalidationGeneration = UUID()
   @ObservationIgnored private var readTask: Task<Void, Never>?
   @ObservationIgnored private var analysisTask: Task<Void, Never>?
   @ObservationIgnored private var loadedAt: Date?
   @ObservationIgnored private var loadedLocale: String?
+  @ObservationIgnored private var loadingLocale: String?
+  @ObservationIgnored private var workItemsRevision = 0
+  @ObservationIgnored private var loadingRevision: Int?
   @ObservationIgnored private let now: () -> Date
-  private var locale: String { NativePreferences.shared.language.rawValue }
+  @ObservationIgnored private let currentLocale: @MainActor () -> String
+  private var locale: String { currentLocale() }
 
-  init(now: @escaping () -> Date = Date.init) { self.now = now }
+  init(
+    now: @escaping () -> Date = Date.init,
+    locale: @escaping @MainActor () -> String = { NativePreferences.shared.language.rawValue }
+  ) {
+    self.now = now
+    currentLocale = locale
+  }
 
   func connect(_ client: RuntimeAPIClient?) {
     invalidate()
@@ -29,6 +40,7 @@ final class TodayFocusModel {
 
   func invalidate() {
     generation = UUID()
+    invalidationGeneration = UUID()
     readTask?.cancel()
     readTask = nil
     analysisTask?.cancel()
@@ -38,56 +50,81 @@ final class TodayFocusModel {
     loading = false
     analyzing = false
     loadedAt = nil
+    loadedLocale = nil
+    loadingLocale = nil
+    loadingRevision = nil
+    workItemsRevision += 1
     error = nil
   }
 
   func load(force: Bool = false) async {
-    if force { invalidate() }
-    if let readTask {
-      await readTask.value
-      return
-    }
-    guard let client else { return }
-    if loadedLocale == locale, let loadedAt, now().timeIntervalSince(loadedAt) < 60 { return }
-    generation = UUID()
-    analysisTask?.cancel()
-    analysisTask = nil
-    analyzing = false
-    analysis = nil
-    // Keep the browser's selection and search stable during the periodic read. Explicit invalidation still clears accounts.
-    let attempt = generation
+    guard !Task.isCancelled else { return }
     let language = locale
-    loading = true
-    readTask = Task {
-      defer {
-        if attempt == generation {
-          loading = false
-          readTask = nil
-        }
-      }
-      do {
-        async let assistant = client.assistantStatus()
-        let value = try await client.todayFocus(locale: language)
-        let availability = (try? await assistant)?.available ?? false
-        guard attempt == generation, !Task.isCancelled, locale == language else { return }
-        snapshot = value
-        assistantAvailable = availability
-        analysis = nil
-        error = nil
-        loadedAt = now()
-        loadedLocale = language
-      } catch {
-        if attempt == generation { self.error = error.localizedDescription }
-      }
+    // A recreated home view joins its current read. A language change must not wait for or reuse the old locale.
+    if force || loadedLocale.map({ $0 != language }) == true || loadingLocale.map({ $0 != language }) == true {
+      invalidate()
     }
-    await readTask?.value
+    let invalidation = invalidationGeneration
+    while invalidation == invalidationGeneration, language == locale, !Task.isCancelled {
+      let revision: Int
+      let pending: Task<Void, Never>
+      if let readTask {
+        revision = loadingRevision ?? workItemsRevision
+        pending = readTask
+      } else {
+        guard let client else { return }
+        if loadedLocale == language, let loadedAt, now().timeIntervalSince(loadedAt) < 60 { return }
+        generation = UUID()
+        let attempt = generation
+        analysisTask?.cancel()
+        analysisTask = nil
+        analyzing = false
+        analysis = nil
+        revision = workItemsRevision
+        // Preserve displayed rows until a response includes every invalidation received during the read.
+        loading = true
+        loadingLocale = language
+        loadingRevision = revision
+        pending = Task {
+          defer {
+            if attempt == generation {
+              loading = false
+              loadingLocale = nil
+              loadingRevision = nil
+              readTask = nil
+            }
+          }
+          do {
+            async let assistant = client.assistantStatus()
+            let value = try await client.todayFocus(locale: language)
+            let availability = (try? await assistant)?.available ?? false
+            guard attempt == generation, revision == workItemsRevision, !Task.isCancelled, locale == language else {
+              return
+            }
+            snapshot = value
+            assistantAvailable = availability
+            analysis = nil
+            error = nil
+            loadedAt = now()
+            loadedLocale = language
+          } catch {
+            if attempt == generation, revision == workItemsRevision { self.error = error.localizedDescription }
+          }
+        }
+        readTask = pending
+      }
+      await pending.value
+      guard revision != workItemsRevision else { return }
+    }
   }
 
   /// Keep the browser's filters and selection while refreshing a confirmed item receipt.
-  func markWorkItemsStale() { loadedAt = nil }
+  func markWorkItemsStale() {
+    loadedAt = nil
+    workItemsRevision += 1
+  }
 
   func refreshWorkItems() async {
-    if let readTask { await readTask.value }
     markWorkItemsStale()
     await load()
   }

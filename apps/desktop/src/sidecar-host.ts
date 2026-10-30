@@ -148,6 +148,43 @@ export function createSidecarRequestHandler(
   return async (request, response) => {
     const url = new URL(request.url ?? '/', 'http://127.0.0.1')
     const pathname = url.pathname
+    if (pathname === '/api/native-host/terminal-applications' || pathname === '/api/native-host/open-project-terminal') {
+      if (!request.headers.authorization || !guard.authorize(request) || request.headers['sec-fetch-site'] === 'cross-site') {
+        send(response, 403, { error: 'Native authorization is required' })
+        return true
+      }
+      const listing = pathname === '/api/native-host/terminal-applications'
+      if (request.method !== (listing ? 'GET' : 'POST') || (!listing && request.headers['content-type']?.split(';')[0]?.trim().toLowerCase() !== 'application/json')) {
+        send(response, 405, { error: listing ? 'Use a GET request' : 'Use a JSON POST request' })
+        return true
+      }
+      try {
+        if (!projectLaunch)
+          throw new Error('Project launch is unavailable')
+        if (url.search)
+          throw new Error('Query parameters are not accepted')
+        const applications = projectLaunch.listInstalledTerminalApplications()
+        if (listing) {
+          if (request.headers['transfer-encoding'] || (request.headers['content-length'] && request.headers['content-length'] !== '0'))
+            throw new Error('Terminal discovery does not accept a request body')
+          send(response, 200, { version: 1, applications })
+        }
+        else {
+          const input = await inputBody(request)
+          const id = (value: unknown): value is string => typeof value === 'string' && value.length > 0 && value.length <= 4096 && !Array.from(value).some(character => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127)
+          if (Object.keys(input).some(key => !['projectId', 'application', 'capabilityId'].includes(key))
+            || !id(input.projectId) || !id(input.application) || (input.capabilityId !== undefined && !id(input.capabilityId))) {
+            throw new TypeError('Only a project identifier, installed terminal and optional command identifier are accepted')
+          }
+          if (!applications.includes(input.application))
+            throw new Error('The selected terminal application is not installed')
+          await projectLaunch.openProjectInTerminal(input.projectId, input.application, input.capabilityId)
+          send(response, 200, { version: 1, destination: 'terminal', application: input.application })
+        }
+      }
+      catch (error) { send(response, 400, { error: error instanceof Error ? error.message : 'Terminal could not be opened' }) }
+      return true
+    }
     if (pathname === '/api/native-host/open-workbench-tool') {
       if (!request.headers.authorization || !guard.authorize(request)) {
         send(response, 403, { error: 'Native authorization is required' })

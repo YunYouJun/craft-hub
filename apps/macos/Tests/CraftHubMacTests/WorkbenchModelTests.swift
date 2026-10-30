@@ -4,6 +4,33 @@ import Testing
 
 @testable import CraftHubMac
 
+@MainActor @Test func commandInspectionAndTerminalNavigationRemainNativeAndPreserveProjectSelection() {
+  let suite = "craft-hub-command-navigation-\(UUID())"
+  let defaults = UserDefaults(suiteName: suite)!
+  defer { defaults.removePersistentDomain(forName: suite) }
+  let model = WorkbenchModel(defaults: defaults)
+  model.selectProject("fixture", capability: nil)
+  #expect(model.projectTerminal.context == .init(projectID: "fixture"))
+  model.projectDetails.search = "build"
+  model.showProjectCommand("fixture", capability: "package:build")
+  #expect(model.projectCommand.projectID == "fixture")
+  #expect(model.projectCommand.capabilityID == "package:build")
+  #expect(model.projectTerminal.context == .init(projectID: "fixture", capabilityID: "package:build"))
+  #expect(model.presentsNativeContent && !model.webContentRequested && model.webView == nil)
+  model.closeProjectCommand()
+  #expect(model.projectDetails.projectID == "fixture" && model.projectDetails.search == "build")
+  #expect(model.projectCommand.capabilityID == nil && model.presentsNativeContent)
+  #expect(model.projectTerminal.context == .init(projectID: "fixture"))
+  model.showProjectCommand("fixture", capability: "package:build")
+  model.showProjectWeb("fixture", capability: "package:build")
+  #expect(!model.presentsNativeContent && model.webContentRequested)
+  model.returnToNativeContent()
+  #expect(model.projectCommand.capabilityID == "package:build" && model.presentsNativeContent)
+  model.select(.overview)
+  #expect(model.projectCommand.capabilityID == nil)
+  #expect(model.projectTerminal.context == nil)
+}
+
 @MainActor @Test func integrationFallbackKeepsTheNativeWorkbenchReturnAndSearchEntrypoints() {
   let suite = "craft-hub-integration-navigation-\(UUID())"
   let defaults = UserDefaults(suiteName: suite)!
@@ -59,7 +86,13 @@ import Testing
     "version": 1, "url": "http://127.0.0.1:49218/__craft_hub_host/bootstrap?token=\(secret)",
     "nativeApiToken": String(repeating: "b", count: 64),
   ])
-  model.connect(try RuntimeConnection(handshake: data))
+  let connection = try RuntimeConnection(handshake: data)
+  model.connect(connection)
+  model.selection = .software
+  model.select(.software)
+  model.showWebWorkbench()
+  model.connect(nil)
+  model.connect(connection)
   model.routeChanged("/overview")
   #expect(model.selection == .software)
   #expect(model.presentsNativeContent)
@@ -73,20 +106,43 @@ import Testing
   #expect(model.presentsNativeContent)
 }
 
-@MainActor @Test func recreatedWindowsReuseTheEphemeralSessionUntilTheRuntimeChanges() throws {
-  let model = WorkbenchModel()
-  let original = model.webSessionDataStore()
-  model.webWillLoad()
-  #expect(model.webSessionDataStore() === original)
-  #expect(!original.isPersistent)
-  let secret = String(repeating: "a", count: 64)
-  let connection = try RuntimeConnection(
-    handshake: JSONSerialization.data(withJSONObject: [
-      "version": 1, "url": "http://127.0.0.1:49218/__craft_hub_host/bootstrap?token=\(secret)",
-      "nativeApiToken": secret,
-    ]))
-  model.connect(connection)
-  #expect(model.webSessionDataStore() !== original)
+@MainActor @Test func nativeStartupRestoresTheDestinationWithoutCreatingABrowser() {
+  let suite = "craft-hub-lazy-navigation-\(UUID())"
+  let defaults = UserDefaults(suiteName: suite)!
+  defer { defaults.removePersistentDomain(forName: suite) }
+  defaults.set("software", forKey: "lastDestination")
+  let model = WorkbenchModel(defaults: defaults)
+  #expect(model.selection == .software && model.presentsNativeContent)
+  for destination in Destination.allCases {
+    model.selection = destination
+    model.select(destination)
+  }
+  model.presentPanel = { _, _ in }
+  model.presentSettings = {}
+  for command in ["palette", "capture", "settings"] { model.run(command) }
+  #expect(!model.webContentRequested && model.webView == nil)
+}
+
+@MainActor @Test func webEntrypointsRequestABrowserAndNativeNavigationKeepsTheSessionRequested() {
+  let suite = "craft-hub-lazy-entries-\(UUID())"
+  let defaults = UserDefaults(suiteName: suite)!
+  defer { defaults.removePersistentDomain(forName: suite) }
+  let actions: [(WorkbenchModel) -> Void] = [
+    { $0.showWebWorkbench() },
+    { $0.runWebCommand("software") },
+    { $0.selectProject("fixture", capability: "command") },
+    { $0.showIntegrationWeb("/integrations/fixture/view?project=fixture") },
+    { $0.acceptDesktopLink(URL(string: "craft-hub://project/fixture")!) },
+  ]
+  for action in actions {
+    let model = WorkbenchModel(defaults: defaults)
+    action(model)
+    #expect(model.webContentRequested && !model.presentsNativeContent)
+    // Presentation creates the browser later, after the sidecar is ready.
+    #expect(model.webView == nil)
+    model.select(.overview)
+    #expect(model.webContentRequested && model.presentsNativeContent)
+  }
 }
 
 @MainActor @Test func choosingAProjectKeepsItsReviewPageVisibleUntilTheUserReturnsToTheNativeList() {
@@ -98,12 +154,20 @@ import Testing
   model.selection = .projects
   model.select(.projects)
   #expect(model.presentsNativeContent)
+  model.selectProject("registered-project", capability: nil)
+  #expect(model.projectDetails.projectID == "registered-project" && model.presentsNativeContent)
+  #expect(!model.webContentRequested && model.webView == nil)
+  model.select(nil)
+  #expect(model.projectDetails.projectID == "registered-project")
   model.selectProject("registered-project", capability: "command")
   #expect(!model.presentsNativeContent && model.selection == .projects)
   model.routeChanged("/")
   #expect(!model.presentsNativeContent)
+  model.returnToNativeContent()
+  #expect(model.presentsNativeContent && model.projectDetails.projectID == "registered-project")
+  #expect(model.webContentRequested)
   model.select(.projects)
-  #expect(model.presentsNativeContent)
+  #expect(model.presentsNativeContent && model.projectDetails.projectID == nil)
 }
 
 @MainActor @Test func pluginAndDiagnosticsEntrypointsUseNativeSearchablePages() {

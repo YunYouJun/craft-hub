@@ -4,9 +4,9 @@ import Foundation
 public final class RuntimeAPIClient {
   private struct Failure: Decodable { let error: String }
   public typealias Transport = (URLRequest) async throws -> (Data, URLResponse)
-  private let connection: RuntimeConnection
-  private let transport: Transport
-  private let session: URLSession?
+  let connection: RuntimeConnection
+  let transport: Transport
+  let session: URLSession?
 
   /// An injectable transport permits deterministic contract tests without a running sidecar.
   public init(connection: RuntimeConnection, transport: Transport? = nil) {

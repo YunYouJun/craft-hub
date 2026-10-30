@@ -101,7 +101,9 @@ struct PluginHostsView: View {
           }
         }
       }
-    }.listStyle(.inset).task { await model.load() }
+    }.listStyle(.inset)
+      .nativePageListContent()
+      .task { await model.load() }
       .onDisappear { model.cancelReview() }
       .sheet(isPresented: Binding(get: { model.review != nil }, set: { if !$0 { model.cancelReview() } })) {
         HostExtensionReviewView(model: model)
