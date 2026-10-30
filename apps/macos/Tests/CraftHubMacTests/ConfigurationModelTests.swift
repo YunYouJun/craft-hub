@@ -14,6 +14,7 @@ private actor ConfigurationFixture {
   var fail = ""
   var hold = ""
   var waiter: CheckedContinuation<Void, Never>?
+  private let heldRequests = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
   var registryRevision = "registry-1"
   var registryAvailable = true
   func registry(revision: String = "registry-1", available: Bool = true) {
@@ -35,6 +36,9 @@ private actor ConfigurationFixture {
     waiter?.resume()
     waiter = nil
     hold = ""
+  }
+  func waitUntilHeld() async throws {
+    try await requireHeldResponse(heldRequests.stream) { await self.release() }
   }
   func response(_ request: URLRequest) async throws -> (Data, URLResponse) {
     requests.append(request)
@@ -153,7 +157,12 @@ private actor ConfigurationFixture {
           ],
         ]
       }
-      if operation == hold { await withCheckedContinuation { waiter = $0 } }
+      if operation == hold {
+        await withCheckedContinuation {
+          waiter = $0
+          heldRequests.continuation.yield(())
+        }
+      }
     }
     return (
       try JSONSerialization.data(withJSONObject: json),
@@ -169,13 +178,6 @@ private actor ConfigurationFixture {
     ]))
   return ConfigurationModel(
     client: RuntimeAPIClient(connection: connection, transport: { try await fixture.response($0) }))
-}
-private func held(_ fixture: ConfigurationFixture) async throws {
-  for _ in 0..<100 {
-    if await fixture.waiter != nil { return }
-    try await Task.sleep(for: .milliseconds(5))
-  }
-  Issue.record("Configuration response was not held")
 }
 private func lastBody(_ fixture: ConfigurationFixture) async throws -> [String: Any] {
   try JSONSerialization.jsonObject(with: #require(await fixture.requests.last?.httpBody)) as! [String: Any]
@@ -241,14 +243,14 @@ private func lastBody(_ fixture: ConfigurationFixture) async throws -> [String: 
   model.choose(item, choice: "source")
   await fixture.configure(hold: "preview")
   let preview = Task { await model.preview() }
-  try await held(fixture)
+  try await fixture.waitUntilHeld()
   model.discardPlan()
   await fixture.release()
   await preview.value
   #expect(model.plan == nil && !model.canApply)
   await fixture.configure(hold: "preview")
   let old = Task { await model.preview() }
-  try await held(fixture)
+  try await fixture.waitUntilHeld()
   model.disconnect()
   await fixture.release()
   await old.value
@@ -313,7 +315,7 @@ private func lastBody(_ fixture: ConfigurationFixture) async throws -> [String: 
   model.choose(try #require(model.page?.items.first), choice: "source")
   await fixture.configure(hold: "preview")
   let pending = Task { await model.preview() }
-  try await held(fixture)
+  try await fixture.waitUntilHeld()
   model.invalidate(clearApproval: true)
   await fixture.release()
   await pending.value
@@ -420,7 +422,7 @@ private func lastBody(_ fixture: ConfigurationFixture) async throws -> [String: 
   await model.refresh()
   await fixture.configure(hold: "backup-preview")
   let pending = Task { await model.previewBackup(targets[0], action: "restore", replace: true) }
-  try await held(fixture)
+  try await fixture.waitUntilHeld()
   input = try #require((try await lastBody(fixture))["input"] as? [String: String])
   #expect(input["resolution"] == nil)
   model.discardPlan()

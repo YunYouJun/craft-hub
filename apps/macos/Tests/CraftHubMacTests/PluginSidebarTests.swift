@@ -10,6 +10,7 @@ private actor PluginSidebarFixture {
   var fail = false
   var hold = false
   var waiting: CheckedContinuation<Void, Never>?
+  private let heldRequests = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
 
   func configure(empty: Bool = false, fail: Bool = false, hold: Bool = false) {
     self.empty = empty
@@ -21,6 +22,10 @@ private actor PluginSidebarFixture {
     hold = false
     waiting?.resume()
     waiting = nil
+  }
+
+  func waitUntilHeld() async throws {
+    try await requireHeldResponse(heldRequests.stream) { await self.release() }
   }
 
   func response(_ request: URLRequest) async throws -> (Data, URLResponse) {
@@ -37,7 +42,12 @@ private actor PluginSidebarFixture {
           ],
           ["id": "team", "pluginId": "@example/company", "title": chinese ? "公司工作台" : "Company tools"],
         ])
-    if hold { await withCheckedContinuation { waiting = $0 } }
+    if hold {
+      await withCheckedContinuation {
+        waiting = $0
+        heldRequests.continuation.yield(())
+      }
+    }
     if failed { throw URLError(.timedOut) }
     return (data, HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
   }
@@ -50,14 +60,6 @@ private func pluginSidebarClient(_ fixture: PluginSidebarFixture) throws -> Runt
       "version": 1, "url": "http://127.0.0.1:43190/__craft_hub_host/bootstrap?token=\(token)", "nativeApiToken": token,
     ]))
   return RuntimeAPIClient(connection: connection, transport: { try await fixture.response($0) })
-}
-
-private func pluginSidebarHeld(_ fixture: PluginSidebarFixture) async throws {
-  for _ in 0..<100 {
-    if await fixture.waiting != nil { return }
-    try await Task.sleep(for: .milliseconds(5))
-  }
-  Issue.record("Plugin sidebar response was not held")
 }
 
 @MainActor @Test func pluginSidebarShowsLocalizedWorkbenchesAndOpensTheDeclaredScopedRoute() async throws {
@@ -138,7 +140,7 @@ private func pluginSidebarHeld(_ fixture: PluginSidebarFixture) async throws {
   model.connect(try pluginSidebarClient(old))
   await old.configure(hold: true)
   let first = Task { await model.load(locale: "en") }
-  try await pluginSidebarHeld(old)
+  try await old.waitUntilHeld()
   let localized = Task { await model.load(locale: "zh-CN") }
   await Task.yield()
   model.invalidate([.pluginUpdate])
@@ -149,7 +151,7 @@ private func pluginSidebarHeld(_ fixture: PluginSidebarFixture) async throws {
   #expect(await old.requests.count == 2)
   await old.configure(hold: true)
   let obsolete = Task { await model.load(locale: "en") }
-  try await pluginSidebarHeld(old)
+  try await old.waitUntilHeld()
   model.connect(try pluginSidebarClient(fresh))
   await fresh.configure(empty: true)
   await model.load(locale: "zh-CN")

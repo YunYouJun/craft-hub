@@ -32,6 +32,7 @@ private actor InstallationFixture {
   var holdHistory = false
   var holdPreview = false
   var waiter: CheckedContinuation<Void, Never>?
+  private let heldRequests = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
   func configure(
     history: String? = nil, prerequisite: Bool = false, installFails: Bool = false, historyFails: Bool = false,
     holdHistory: Bool = false, holdPreview: Bool = false
@@ -49,13 +50,16 @@ private actor InstallationFixture {
     holdHistory = false
     holdPreview = false
   }
+  func waitUntilHeld() async throws {
+    try await requireHeldResponse(heldRequests.stream) { await self.release() }
+  }
   func response(_ request: URLRequest) async throws -> (Data, URLResponse) {
     requests.append(request)
     let json: String
     switch request.url!.path {
     case "/api/software": json = catalogJSON
     case "/api/software/fixture/plan":
-      if holdPreview { await withCheckedContinuation { waiter = $0 } }
+      if holdPreview { await suspendResponse() }
       json = planJSON(prerequisites: prerequisite)
     case "/api/software/fixture/install":
       if installFails { throw URLError(.timedOut) }
@@ -63,11 +67,17 @@ private actor InstallationFixture {
     case "/api/software/fixture/runs":
       if historyFails { throw URLError(.cannotConnectToHost) }
       json = "{\"version\":1,\"runs\":\(history)}"
-      if holdHistory { await withCheckedContinuation { waiter = $0 } }
+      if holdHistory { await suspendResponse() }
     case "/api/software/fixture/runs/run-1/cancel": json = runJSON("cancelling")
     default: throw URLError(.badURL)
     }
     return (Data(json.utf8), HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+  }
+  private func suspendResponse() async {
+    await withCheckedContinuation {
+      waiter = $0
+      heldRequests.continuation.yield(())
+    }
   }
 }
 @MainActor private func model(_ fixture: InstallationFixture) async throws -> SoftwareInstallationModel {
@@ -76,14 +86,6 @@ private actor InstallationFixture {
   model.updateSources(try await client.software().sources)
   return model
 }
-private func waitUntilHeld(_ fixture: InstallationFixture) async throws {
-  for _ in 0..<100 {
-    if await fixture.waiter != nil { return }
-    try await Task.sleep(for: .milliseconds(5))
-  }
-  Issue.record("Expected the fixture request to be held")
-}
-
 @MainActor @Test func softwarePreviewAndCancelNeverInstallAndConfirmationSendsOnlyReviewedPlan() async throws {
   let fixture = InstallationFixture()
   let model = try await model(fixture)
@@ -145,7 +147,7 @@ private func waitUntilHeld(_ fixture: InstallationFixture) async throws {
   await model.preview(source: "fixture", ids: ["tool"])
   await fixture.configure(holdHistory: true)
   let old = Task { await model.loadRuns() }
-  try await waitUntilHeld(fixture)
+  try await fixture.waitUntilHeld()
   await model.confirm()
   await model.cancel(try #require(model.runs.first))
   await fixture.release()
@@ -159,7 +161,7 @@ private func waitUntilHeld(_ fixture: InstallationFixture) async throws {
   let model = try await model(fixture)
   await fixture.configure(holdPreview: true)
   let preview = Task { await model.preview(source: "fixture", ids: ["tool"]) }
-  try await waitUntilHeld(fixture)
+  try await fixture.waitUntilHeld()
   model.disconnect()
   await fixture.release()
   await preview.value

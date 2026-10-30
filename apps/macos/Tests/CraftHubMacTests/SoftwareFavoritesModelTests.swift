@@ -19,6 +19,7 @@ private actor FavoriteFixture {
   var statusCode = 200
   var hold = false
   var waiting: CheckedContinuation<Void, Never>?
+  private let heldRequests = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
   func configure(fail: Bool = false, hold: Bool = false, statusCode: Int = 200) {
     self.statusCode = statusCode
     self.fail = fail
@@ -29,9 +30,17 @@ private actor FavoriteFixture {
     waiting = nil
     hold = false
   }
+  func waitUntilHeld() async throws {
+    try await requireHeldResponse(heldRequests.stream) { await self.release() }
+  }
   func response(_ request: URLRequest) async throws -> (Data, URLResponse) {
     requests.append(request)
-    if hold { await withCheckedContinuation { waiting = $0 } }
+    if hold {
+      await withCheckedContinuation {
+        waiting = $0
+        heldRequests.continuation.yield(())
+      }
+    }
     if fail { throw URLError(.timedOut) }
     let json: [String: Any] =
       request.url?.path == "/api/native-host/open-workbench-tool"
@@ -59,20 +68,12 @@ private actor FavoriteFixture {
   model.receive(try favoriteSnapshot("initial", saved: false), version: model.readVersion)
   return model
 }
-private func favoriteHeld(_ fixture: FavoriteFixture) async throws {
-  for _ in 0..<100 {
-    if await fixture.waiting != nil { return }
-    try await Task.sleep(for: .milliseconds(5))
-  }
-  Issue.record("Favorite response was not held")
-}
-
 @MainActor @Test func favoriteSaveUsesOnlyCatalogIDsAndProtectsAgainstLateReads() async throws {
   let fixture = FavoriteFixture()
   let model = try favoriteModel(fixture)
   await fixture.configure(hold: true)
   let pending = Task { await model.add(source: "fixture", item: "editor") }
-  try await favoriteHeld(fixture)
+  try await fixture.waitUntilHeld()
   let readingDuringWrite = model.readVersion
   await fixture.release()
   await pending.value
@@ -114,7 +115,7 @@ private func favoriteHeld(_ fixture: FavoriteFixture) async throws {
   model.receive(try favoriteSnapshot("initial", saved: false), version: model.readVersion)
   await fixture.configure(hold: true)
   let pending = Task { await model.add(source: "fixture", item: "editor") }
-  try await favoriteHeld(fixture)
+  try await fixture.waitUntilHeld()
   model.disconnect()
   await fixture.release()
   await pending.value
@@ -191,7 +192,7 @@ private func favoriteHeld(_ fixture: FavoriteFixture) async throws {
   model.beginEditing()
   await fixture.configure(hold: true)
   let pending = Task { await model.saveDraft() }
-  try await favoriteHeld(fixture)
+  try await fixture.waitUntilHeld()
   model.disconnect()
   await fixture.release()
   await pending.value
@@ -203,7 +204,7 @@ private func favoriteHeld(_ fixture: FavoriteFixture) async throws {
   let model = try favoriteModel(fixture)
   await fixture.configure(hold: true)
   let loading = Task { await model.load(force: true) }
-  try await favoriteHeld(fixture)
+  try await fixture.waitUntilHeld()
   #expect(model.loading && !model.canChange)
   model.invalidate()
   await fixture.release()
@@ -257,7 +258,7 @@ private func favoriteHeld(_ fixture: FavoriteFixture) async throws {
   model.beginEditing()
   await fixture.configure(hold: true)
   let saving = Task { await model.saveDraft() }
-  try await favoriteHeld(fixture)
+  try await fixture.waitUntilHeld()
   model.invalidate()
   await fixture.release()
   await saving.value
