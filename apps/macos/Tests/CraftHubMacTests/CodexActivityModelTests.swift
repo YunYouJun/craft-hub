@@ -40,7 +40,7 @@ private func activityAction(_ request: URLRequest) throws -> String {
       let action = try activityAction(request)
       actions.append(action)
       return action == "review" ? activityReviewJSON : #"{"version":1}"#
-    }, pollAutomatically: false)
+    })
   await model.change(install: true) { review in
     #expect(review.otherHookCount == 4 && review.hooksPath == "/fixture/hooks.json")
     #expect(model.busy)
@@ -60,7 +60,7 @@ private func activityAction(_ request: URLRequest) throws -> String {
       let action = try activityAction(request)
       actions.append(action)
       return action == "review" ? activityReviewJSON : #"{"version":1}"#
-    }, pollAutomatically: false)
+    })
   let changing = Task {
     await model.change(install: true) { _ in
       await withCheckedContinuation {
@@ -97,7 +97,7 @@ private func activityAction(_ request: URLRequest) throws -> String {
         return activityInstalledJSON
       default: return activityInstalledJSON
       }
-    }, pollAutomatically: false)
+    })
   await model.change(install: true) { _ in true }
   #expect(model.uncertain && model.error != nil)
   await model.change(install: true) { _ in true }
@@ -124,7 +124,7 @@ private func activityAction(_ request: URLRequest) throws -> String {
       case "review": return activityReviewJSON
       default: return activityInstalledJSON
       }
-    }, pollAutomatically: false)
+    })
   let pending = Task {
     await model.refresh()
     readSignal.finish()
@@ -145,7 +145,7 @@ private func activityAction(_ request: URLRequest) throws -> String {
         writeSignal.yield()
       }
       return activityInstalledJSON
-    }, pollAutomatically: false)
+    })
   let changing = Task {
     await model.change(install: true) { _ in true }
     writeSignal.finish()
@@ -164,7 +164,7 @@ private func activityAction(_ request: URLRequest) throws -> String {
     try activityClient { _ in
       requests += 1
       return activityReviewJSON
-    }, pollAutomatically: false)
+    })
   await model.change(install: false) { _ in
     Issue.record("Unexpected consent for a mismatched action")
     return true

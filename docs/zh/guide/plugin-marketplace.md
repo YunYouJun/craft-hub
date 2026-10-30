@@ -9,6 +9,10 @@ Codex 插件使用另一套 Manifest，不属于 Craft Hub Marketplace Plugin。
 
 创建脚手架、校验、本地关联和打包流程参见[编写 Marketplace Plugin](./plugin-authoring.md)。
 
+## 插件包与插件
+
+**插件包**通过 `includesPlugins` 将多个可独立安装的插件组合起来。纯组合使用独立包，声明 `contributes: {}`，不增加权限；具体能力由子插件提供。市场用成员图标组和完整子插件清单展示插件包，缺失成员仍然可见，并支持按插件包或插件筛选、统一审阅和批量安装。移除插件包会保留子插件。
+
 ## 市场源
 
 Distribution 可以提供 `builtin` 或 `managed` Marketplace Source，用户也可以先预览、再添加 HTTPS `user` Source。每个 Source 对应一个版本化 Plugin Catalog，并可指定 npm Registry。
@@ -114,7 +118,7 @@ Marketplace Plugin 在 `package.json#craftHub` 发布 v1 声明。核心身份�
 
 工作台可以引用自身贡献，也可以引用 `includesPlugins` 或 `requiresPlugins` 声明的 package。宿主会在创作阶段校验自身引用，并在安装后解析子插件引用。子插件被停用、缺失或不兼容时，对应页签会显示为不可用，而不会让整个工作台失效；子插件仍然可以独立管理。已被工作台收纳的集成视图不会再作为独立侧栏入口展示，从而避免图标重复。
 
-`includesPlugins` 声明插件合集：列出的市场插件会从同一 Source 经一次审阅后一起安装，之后仍可独立管理。移除合集不会移除其中已经安装的插件。
+`includesPlugins` 声明插件包：列出的市场插件会从同一 Source 经一次审阅后一起安装，之后仍可独立管理。移除插件包不会移除其中已经安装的插件。
 
 `requiresPlugins` 声明来自同一 Marketplace Source 的强依赖。每项包含包名和 SemVer range；禁止引用自身、重复声明或同时出现在两个清单中。npm `dependencies` 仍然禁止使用。
 
@@ -200,7 +204,7 @@ Plugin Catalog 列出不可变的包版本。每个 Catalog Entry 包含精确�
 - `status`：`active`、`deprecated` 或 `blocked`。
 - `statusReason`：`deprecated` 和 `blocked` 必填。
 - `replacement`：可选的替代 Marketplace Plugin 包名。
-- `includesPlugins`：从 Manifest 复制的插件合集成员清单。
+- `includesPlugins`：从 Manifest 复制的插件包成员清单。
 - `requiresPlugins`：从 Manifest 复制的插件依赖清单。
 
 Catalog 的权限、权限说明和插件依赖必须与已安装包的 Manifest 一致。完整性、身份、权限、权限说明、插件依赖或兼容范围不一致时，Craft Hub 拒绝安装。

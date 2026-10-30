@@ -110,7 +110,7 @@ describe('desktop package scripts', () => {
     const packageMacSource = await readFile(new URL('../../../scripts/package-macos.ts', import.meta.url), 'utf8')
 
     expect(workspacePackage.scripts['package:mac']).toBe('tsx scripts/run-package-macos.ts')
-    expect(workspacePackage.scripts['reinstall:mac']).toBe('tsx scripts/reinstall-macos.ts')
+    expect(workspacePackage.scripts['reinstall:electron:mac']).toBe('tsx scripts/reinstall-macos.ts')
     expect(reinstallSource).toContain('await run(\'pnpm\', [\'build\'])')
     expect(reinstallSource).toContain('createArtifacts: false')
     expect(reinstallSource).toContain('architectures: [architecture]')

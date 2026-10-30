@@ -19,11 +19,16 @@ struct WebsiteNavigationView: View {
     VStack(alignment: .leading, spacing: 0) {
       header
       controls
-      if let error = model.error { NativeErrorView(message: error).padding(.horizontal, 20).padding(.bottom, 8) }
-      if let openError { NativeErrorView(message: openError).padding(.horizontal, 20).padding(.bottom, 8) }
+      if let error = model.error {
+        NativeErrorView(message: error).padding(.horizontal, NativePageLayout.horizontalInset).padding(.bottom, 8)
+      }
+      if let openError {
+        NativeErrorView(message: openError).padding(.horizontal, NativePageLayout.horizontalInset).padding(.bottom, 8)
+      }
       if model.stale {
         Text(text.copy("显示上次读取的导航，请刷新后打开链接。", "Showing the previous directory. Refresh before opening links."))
-          .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 20).padding(.bottom, 8)
+          .font(.caption).foregroundStyle(.secondary).padding(.horizontal, NativePageLayout.horizontalInset).padding(
+            .bottom, 8)
       }
       content
     }
@@ -56,7 +61,7 @@ struct WebsiteNavigationView: View {
       }.disabled(model.loading)
         .help(text.copy("刷新网站导航", "Refresh Website Directory"))
         .accessibilityLabel(text.copy("刷新网站导航", "Refresh Website Directory"))
-    }.controlSize(.small).padding(.horizontal, 20).padding(.top, 18).padding(.bottom, 14)
+    }.controlSize(.small).padding(.horizontal, NativePageLayout.horizontalInset).padding(.top, 18).padding(.bottom, 14)
   }
 
   private var controls: some View {
@@ -87,7 +92,7 @@ struct WebsiteNavigationView: View {
           }
         }
       }.scrollIndicators(.hidden)
-    }.padding(.horizontal, 20).padding(.bottom, 16)
+    }.padding(.horizontal, NativePageLayout.horizontalInset).padding(.bottom, 16)
   }
 
   private func filter(title: String, count: Int, id: String?) -> some View {
@@ -122,7 +127,7 @@ struct WebsiteNavigationView: View {
           Text(text.copy("请重试，或前往插件管理检查导航来源。", "Retry or review navigation sources in plugin management."))
         } actions: {
           Button(text.copy("重试", "Retry")) { Task { await model.load(locale: locale, force: true) } }
-        }
+        }.nativePageContent(.emptyState)
       }
     } else if model.panels?.isEmpty == true {
       ContentUnavailableView {
@@ -134,7 +139,7 @@ struct WebsiteNavigationView: View {
             "Install or enable a plugin with navigation panels to see its websites here."))
       } actions: {
         Button(text.copy("浏览插件", "Browse Plugins")) { navigate("/marketplace") }
-      }
+      }.nativePageContent(.emptyState)
     } else if visiblePanels.isEmpty {
       ContentUnavailableView {
         Label(text.copy("没有匹配的网站", "No Matching Websites"), systemImage: "magnifyingglass")
@@ -146,7 +151,7 @@ struct WebsiteNavigationView: View {
           selectedPanelID = nil
           searchFocused = true
         }
-      }
+      }.nativePageContent(.emptyState)
     } else {
       ScrollView {
         LazyVGrid(
@@ -156,7 +161,7 @@ struct WebsiteNavigationView: View {
             WebsiteNavigationGroup(
               panel: panel, entries: model.visibleEntries(panel), canOpen: model.canOpen, open: open)
           }
-        }.padding(.horizontal, 20).padding(.bottom, 20)
+        }.nativePageContent().padding(.bottom, 20)
       }
     }
   }

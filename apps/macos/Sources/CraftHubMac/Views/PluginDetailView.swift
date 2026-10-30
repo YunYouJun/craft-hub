@@ -22,10 +22,16 @@ struct PluginDetailView: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
       HStack(alignment: .top) {
-        PluginIconView(
-          artwork: PluginArtwork(
-            icon: metadata?.icon, sourceID: detail.source, package: detail.package, version: version),
-          client: model.iconClient, revision: model.iconRevision, size: 44)
+        if let catalog, !catalog.metadata.includesPlugins.isEmpty {
+          PluginPackIconView(members: catalog.members, client: model.iconClient, revision: model.iconRevision)
+        } else if let members = installed?.members, !members.isEmpty {
+          PluginPackIconView(members: members, client: model.iconClient, revision: model.iconRevision)
+        } else {
+          PluginIconView(
+            artwork: PluginArtwork(
+              icon: metadata?.icon, sourceID: detail.source, package: detail.package, version: version),
+            client: model.iconClient, revision: model.iconRevision, size: 44)
+        }
         VStack(alignment: .leading, spacing: 4) {
           Text(metadata?.name(chinese: text.chinese) ?? detail.package).font(.title2.bold())
           Text(detail.package).font(.caption.monospaced()).foregroundStyle(.secondary).textSelection(.enabled)
@@ -54,9 +60,9 @@ struct PluginDetailView: View {
               if let reason = catalog.statusReason {
                 Label(reason, systemImage: "exclamationmark.triangle").foregroundStyle(.orange)
               }
-              Button(PluginActionLabel.title(catalog.action, text: text)) { Task { await model.preview(catalog) } }
-                .disabled(
-                  model.busy || ["installed", "newer", "local"].contains(catalog.action) || catalog.status == "blocked")
+              Button(PluginActionLabel.title(catalog.action, text: text, pack: !metadata.includesPlugins.isEmpty)) {
+                Task { await model.performCatalogAction(catalog) }
+              }.disabled(!model.canPerformCatalogAction(catalog))
             }
             GroupBox(text.copy("权限", "Permissions")) {
               VStack(alignment: .leading, spacing: 8) {
@@ -71,7 +77,15 @@ struct PluginDetailView: View {
                 }
               }.frame(maxWidth: .infinity, alignment: .leading).padding(8)
             }
-            relations(metadata.includesPlugins, title: text.copy("包含的插件", "Included Plugins"))
+            if !metadata.includesPlugins.isEmpty {
+              Text(
+                text.copy(
+                  "插件包 · 一次安装全部子插件，之后可独立管理。",
+                  "Plugin Pack · Install all included plugins together and manage them independently.")
+              )
+              .font(.callout).foregroundStyle(.secondary)
+              PluginPackMembersView(model: model, members: catalog?.members ?? installed?.members ?? [])
+            }
             relations(metadata.requiresPlugins, title: text.copy("依赖插件", "Dependencies"))
             if let contributions = metadata.contributes {
               let groups = contributions.keys.filter { !(contributions[$0]?.isEmpty ?? true) }.sorted()

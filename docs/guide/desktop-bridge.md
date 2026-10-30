@@ -27,6 +27,12 @@
 | 对话框与剪贴板 | `selectProjectDirectory` | 是 | 是 | 各宿主 OS 适配 | 取消选择/主框架校验 |
 | 对话框与剪贴板 | `selectProjectDirectories` | 是 | 是 | 各宿主 OS 适配 | 取消选择/主框架校验 |
 | 对话框与剪贴板 | `copyText` | 缺 | 是 | 各宿主 OS 适配 | 取消选择/主框架校验 |
+| 对话框与剪贴板 | `saveTextFile` | 缺 | 是 | 原生保存面板 | 仅文本与文件名；用户选择路径后才写入 |
+| 本机资源 | `openResourceSession` | 缺 | 是 | 原生解析已安装资源声明 | 只返回账号密码可用性与临时会话 |
+| 本机资源 | `closeResourceSession` | 缺 | 是 | 原生会话回收 | 切页和运行时重连撤销会话 |
+| 本机资源 | `resourceCredential` | 缺 | 是 | 原生 Keychain 与剪贴板 | 当前账号校验、显式显示/复制/清除 |
+| 插件提交 | `setWorkbenchOperationPending` | 缺 | 是 | 原生切页和退出保护 | 仅报告并发提交是否仍在进行；不传业务输入 |
+| 本机资源 | `importResourceAccounts` | 缺 | 是 | 隔离原生账号导入窗口 | 显式导入、单次表单确认、密码留在 Keychain |
 | 宿主扩展 | `hostExtensions` | 是 | 是 | 共享宿主后端；重启归宿主 | 扩展白名单/空闲重启 |
 | 宿主扩展 | `installHostExtension` | 是 | 缺 | 共享宿主后端；重启归宿主 | 扩展白名单/空闲重启 |
 | 宿主扩展 | `configureLocalPluginHost` | 是 | 缺 | 共享宿主后端；重启归宿主 | 扩展白名单/空闲重启 |
@@ -119,9 +125,13 @@ Native configuration review discovers global `configuration-manager` blocks and 
 
 The configuration presentation also includes `backupSourceIds` derived by the same helper used by Vue. Native registry drafts retain the inspected revision across refreshes, and registry uncertainty requires a fresh compatible registry. Native launches forward only the dedicated `CRAFT_HUB_BACKUP_KEY_` environment namespace for backup credentials; the sidecar takes those values out of the general environment before creating providers and supplies them solely to configuration transports. Neither bridge methods nor JSON requests carry passphrases.
 
+The native sidebar reads localized `/api/workbenches` declarations and lists enabled plugin workbenches in their runtime-defined order, with their declared titles and icons. Selecting an entry opens its composed panels in the embedded web workbench. Plugin, configuration and language changes refresh these entries; failed reads retain disabled entries with a retry action, and removing the selected entry returns to the native Workbenches page. Reading sidebar declarations does not create a web session or invoke integration providers. Standalone website panels remain available under Tools → Website Directory.
+
+Sidebar rows use the native sidebar list style, AppKit's unemphasized selection rendering and monochrome item tint. A selected-row probe reapplies neutral emphasis on native window updates without replacing list selection, keyboard navigation or accessibility. Plugin artwork is grayscale while unselected and returns to its original colors when selected. Grayscale rendering preserves transparency and leaves the shared original artwork unchanged.
+
 Native plugin workbenches discover resolved `/api/integrations` declarations. Unconfirmed connection/list/search/resource blocks use the existing global or project action endpoint with `?presentation=workbench-v1`. The optional versioned envelope supplies connection state, entity pages with shared source identity/unfinished-state/personal-membership flags, or resource pages with the same entity identities; other result shapes explicitly report `unsupported`. Calls without this query retain their existing response. Pagination preserves the search input, replaces duplicates by the shared identity, discards prior-account pages and stops repeated cursors with partial coverage. Cache/unknown coverage and failed refreshes remain visible; cached or stale configuration rows cannot be changed.
 
-Native resource navigation binds every invocation to the declared `resources.read` operation/effect and leaves `confirmed` false. Each accepted page retains its own input and project ID; refresh, back and resource-home navigation do not borrow another page's scope. Failed reads retain the previous page as stale, while account changes clear resource content, location/history and pending replies. Documents and comparisons render as literal selectable text; copying or exporting requires an explicit user action and export uses a system save panel. Forms, project suggestions and agent prompts are descriptive only, with an explicit full-workbench entry point retaining the resource scope. Native resources currently use manual refresh and do not transfer their nested resource location into the web fallback.
+Plugin workbench and integration pages use the shared Web renderer in macOS, including older manifests without a Web rendering hint. Project-scoped links retain their query and unavailable projects are rejected before opening. Repeated SwiftUI plugin lists, resource browsers, connection sheets and operation forms were removed after isolated Release acceptance. Native home quick actions and host management pages still consume the public runtime contracts. Confirmed integration requests report only pending activity to protect native navigation and app termination; resource exports retain the system save panel. The renderer still owns documents, diffs, forms, connection UI and shared Reka controls in both browsers and desktop hosts.
 
 Configuration-list toggles freeze entity revision, scope, requested value and action ID in a native confirmation sheet. Requests also supply `reviewedAction: { operation, effect }`; the runtime rejects changed operation/effect declarations before invoking a provider. Existing confirmation and project trust checks still run. Runtime replacement, context changes and invalidation discard old approvals and read responses. Uncertain configuration writes require a compatible fresh read; the UI never repeats a write automatically.
 

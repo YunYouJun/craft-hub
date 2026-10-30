@@ -13,6 +13,7 @@ private actor WorkItemActionFixture {
   var fail: String?
   var hold: String?
   var waiter: CheckedContinuation<Void, Never>?
+  private let heldRequests = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
   var changedWorkflow = false
   var changedDeclaration = false
   var omitDetailSource = false
@@ -36,11 +37,20 @@ private actor WorkItemActionFixture {
     waiter?.resume()
     waiter = nil
   }
+  func waitForHeldRequest() async -> Bool {
+    var iterator = heldRequests.stream.makeAsyncIterator()
+    return await iterator.next() != nil
+  }
   func response(_ request: URLRequest) async throws -> (Data, URLResponse) {
     requests.append(request)
     let action = request.url!.lastPathComponent
     let capturedStatus = status
-    if hold == action { await withCheckedContinuation { waiter = $0 } }
+    if hold == action {
+      await withCheckedContinuation {
+        waiter = $0
+        heldRequests.continuation.yield(())
+      }
+    }
     if fail == action { throw URLError(.timedOut) }
     let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
     let json: [String: Any]
@@ -140,11 +150,18 @@ private func quickActionTarget(readOnly: Bool = false, project: String? = nil) t
   return WorkItemActionTarget(integrationId: "fixture", projectId: project, item: item, readOnly: readOnly)
 }
 private func waitForQuickAction(_ fixture: WorkItemActionFixture) async throws {
-  for _ in 0..<100 {
-    if await fixture.waiter != nil { return }
-    try await Task.sleep(for: .milliseconds(5))
+  let held = await withTaskGroup(of: Bool.self) { group in
+    group.addTask { await fixture.waitForHeldRequest() }
+    group.addTask {
+      try? await Task.sleep(for: .seconds(5))
+      return false
+    }
+    let observed = await group.next() ?? false
+    group.cancelAll()
+    return observed
   }
-  Issue.record("Quick action request was not held")
+  if !held { await fixture.release() }
+  try #require(held, "Quick action request was not held")
 }
 @MainActor private func prepareQuickAction(_ model: WorkItemQuickActionsModel) throws
   -> WorkItemQuickActionsModel.Review

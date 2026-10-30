@@ -6,7 +6,9 @@ struct NavigationIconView: View {
   let icon: String?
   var website: String = ""
   var size: CGFloat = 36
+  var framed = true
   @State private var loader = SoftwareIconLoader()
+  @State private var embeddedImage: NSImage?
   private var artwork: SoftwareArtwork { SoftwareArtwork(website: website, iconURL: icon) }
   private var emoji: String? {
     guard let icon, icon.hasPrefix("emoji:") else { return nil }
@@ -28,18 +30,21 @@ struct NavigationIconView: View {
   }
   var body: some View {
     ZStack {
-      if let loaded = loader.loaded, artwork.sources.contains(loaded.source) {
-        Image(nsImage: loaded.image).renderingMode(.original).resizable().scaledToFit().padding(3)
-          .background(.white, in: RoundedRectangle(cornerRadius: size * 0.22))
+      if let embeddedImage {
+        Image(nsImage: embeddedImage).renderingMode(.original).resizable().scaledToFit()
+      } else if let loaded = loader.loaded, artwork.sources.contains(loaded.source) {
+        Image(nsImage: loaded.image).renderingMode(.original).resizable().scaledToFit().padding(framed ? 3 : 0)
+          .background(framed ? .white : .clear, in: RoundedRectangle(cornerRadius: size * 0.22))
       } else {
-        RoundedRectangle(cornerRadius: size * 0.22).fill(.quaternary)
+        if framed { RoundedRectangle(cornerRadius: size * 0.22).fill(.quaternary) }
         if let emoji {
           Text(emoji).font(.system(size: size * 0.52)).lineLimit(1)
         } else {
-          Image(systemName: symbol).font(.system(size: size * 0.52)).foregroundStyle(.secondary)
+          Image(systemName: symbol).font(.system(size: size * (framed ? 0.52 : 0.85))).foregroundStyle(.secondary)
         }
       }
     }.frame(width: size, height: size).accessibilityHidden(true)
       .task(id: artwork) { await loader.load(artwork) }
+      .task(id: icon) { embeddedImage = InlineIconArtwork.image(icon) }
   }
 }

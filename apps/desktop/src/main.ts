@@ -1,5 +1,6 @@
 /* eslint-disable antfu/no-top-level-await -- Electron must finish profile-path setup before its ready event. */
 import process from 'node:process'
+import './node-network-bootstrap.ts'
 
 // Select maintenance mode before importing runtime, account, plugin, window or single-instance startup code.
 try {

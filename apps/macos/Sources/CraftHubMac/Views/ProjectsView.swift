@@ -22,8 +22,10 @@ struct ProjectsView: View {
         Button(text.copy("完整工作台", "Full Workbench"), action: showWorkbench)
         Button(text.copy("添加项目…", "Add Projects…"), systemImage: "folder.badge.plus") { choosingFolder = true }
           .disabled(projects.adding).keyboardShortcut("o", modifiers: [.command, .shift])
-      }.padding()
-      if let error = projects.error { NativeErrorView(message: error) }
+      }.padding(.horizontal, NativePageLayout.horizontalInset).padding(.vertical)
+      if let error = projects.error {
+        NativeErrorView(message: error).padding(.horizontal, NativePageLayout.horizontalInset)
+      }
       Table(projects.filtered, selection: $projects.selectedID) {
         TableColumn(text.copy("名称", "Name")) { project in
           Label(project.name, systemImage: "folder").lineLimit(1)
@@ -34,6 +36,7 @@ struct ProjectsView: View {
             .foregroundStyle(project.trust == "trusted" ? .primary : .secondary)
         }.width(90)
       }
+      .contentMargins(.horizontal, NativePageLayout.horizontalInset, for: .scrollContent)
       .contextMenu(forSelectionType: String.self) { selection in
         if let id = selection.first {
           Button(text.copy("查看项目与能力", "View Project and Capabilities")) { openProject(id) }
@@ -47,7 +50,9 @@ struct ProjectsView: View {
             projects.search.isEmpty
               ? text.copy("添加第一个项目", "Add your first project") : text.copy("没有匹配项目", "No matching projects"),
             systemImage: "folder",
-            description: Text(text.copy("拖入文件夹，或使用“添加项目”。", "Drop a folder here, or choose Add Projects.")))
+            description: Text(text.copy("拖入文件夹，或使用“添加项目”。", "Drop a folder here, or choose Add Projects."))
+          )
+          .nativePageContent(.emptyState)
         }
       }
       HStack {
@@ -57,13 +62,13 @@ struct ProjectsView: View {
         Button(text.copy("查看项目", "View Project")) {
           if let selected = projects.selected { openProject(selected.id) }
         }.disabled(projects.selected == nil).keyboardShortcut(.return, modifiers: [])
-      }.padding()
+      }.padding(.horizontal, NativePageLayout.horizontalInset).padding(.vertical)
       if !projects.diagnostics.isEmpty {
         DisclosureGroup(text.copy("项目发现提示", "Project discovery notices")) {
           ForEach(projects.diagnostics) { item in
             Text(item.message).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
           }
-        }.padding([.horizontal, .bottom])
+        }.padding(.horizontal, NativePageLayout.horizontalInset).padding(.bottom)
       }
     }
     .searchable(text: $projects.search, prompt: text.copy("按名称或路径搜索", "Search by name or path"))

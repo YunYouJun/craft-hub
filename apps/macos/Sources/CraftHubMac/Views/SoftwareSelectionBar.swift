@@ -28,7 +28,7 @@ struct SoftwareSelectionBar: View {
               }
             }.menuStyle(.borderedButton)
           }
-        }.controlSize(.regular).padding(.horizontal, 20).padding(.vertical, 12)
+        }.controlSize(.regular).padding(.horizontal, NativePageLayout.horizontalInset).padding(.vertical, 12)
       }.background(.bar)
     }
   }

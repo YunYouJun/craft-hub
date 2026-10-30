@@ -25,6 +25,8 @@ Persist user state in the operating-system Craft Hub data directory. The project
 
 ## Working conventions
 
+- Prefer the current `main` checkout for routine iterations. Create a branch or worktree only at the user's request or when concurrent work requires isolation.
+- Clean up local branches after verifying their changes are integrated into `main` (including squash merges); preserve branches with unmatched work.
 - Before pushing, inspect remote branch protection. Keep `main` history linear and wait for required checks before merging.
 - For repository declarations or integration templates, follow `docs/guide/repository-format.md` and reuse `examples/repository-templates/`. Run `pnpm repo:validate <directory> --json` with the required trusted validators; resolve invalid and unsupported results before handoff.
 - Use pnpm catalog dependencies from `pnpm-workspace.yaml`.

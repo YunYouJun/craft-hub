@@ -1,21 +1,27 @@
 <script setup lang="ts">
-import { copyText } from './clipboard'
-import type { IntegrationActionResult, ResourcePage, ResolvedIntegrationContribution } from 'craft-hub'
+import type { IntegrationActionResult, ResolvedIntegrationContribution, ResourcePage } from 'craft-hub'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { api } from './api'
+import { copyText } from './clipboard'
 import { Button as UiButton } from './components/ui/button'
 import { SkeletonList } from './components/ui/skeleton'
-import Icon from './NavigationIcon.vue'
+import { ActionToast, useActionToast } from './components/ui/toast'
+import { useI18n } from './i18n'
+import { integrationMutationPending } from './integration-mutations'
 import IntegrationActionForm from './IntegrationActionForm.vue'
 import IntegrationEntityList from './IntegrationEntityList.vue'
 import IntegrationWorkItemDetail from './IntegrationWorkItemDetail.vue'
-import { useWorkbenchStore } from './store'
 import MarkdownPreview from './MarkdownPreview.vue'
-import { useI18n } from './i18n'
+import Icon from './NavigationIcon.vue'
+import ResourceCollection from './ResourceCollection.vue'
+import { useWorkbenchStore } from './store'
 
-const props = defineProps<{ integrationId: string, contribution: ResolvedIntegrationContribution, input?: Record<string, unknown>, projectId?: string }>()
+const props = defineProps<{ integrationId: string, contribution: ResolvedIntegrationContribution, input?: Record<string, unknown>, projectId?: string, viewId?: string, blockId?: string }>()
 const { t } = useI18n()
+const { message, notify } = useActionToast()
 const store = useWorkbenchStore()
+const page = ref<ResourcePage>()
+const error = ref('')
 const activeProjectId = ref(props.projectId)
 const scopeTitle = computed(() => {
   const project = store.projects.find(project => project.id === activeProjectId.value)
@@ -37,13 +43,16 @@ function selectEntity(id: string): void {
     void read(link.input, false, link.projectId ?? activeProjectId.value)
 }
 async function copy(content: string): Promise<void> {
-  try { await copyText(content) }
-  catch (caught) { error.value = String(caught) }
+  try {
+    await copyText(content)
+    notify(t('agentConnectionCopied'))
+  }
+  catch { notify(t('integrationCopyFailed'), true) }
 }
-const page = ref<ResourcePage>()
+const nativeContext = computed(() => props.viewId && props.blockId && page.value ? { integrationId: props.integrationId, viewId: props.viewId, blockId: props.blockId, ...(activeProjectId.value ? { projectId: activeProjectId.value } : {}), input: { ...page.value.input } } : undefined)
 const formEpoch = ref(0)
-const error = ref('')
 const loading = ref(false)
+const busy = computed(() => loading.value || integrationMutationPending())
 const activeInput = ref<Record<string, unknown>>(props.input ?? {})
 let revision = 0
 let timer: ReturnType<typeof setTimeout> | undefined
@@ -73,7 +82,7 @@ function accept(result: IntegrationActionResult, background = false): void {
   }
 }
 async function read(input: Record<string, unknown>, background = false, projectId = activeProjectId.value): Promise<void> {
-  if (!actions.value.read)
+  if (!actions.value.read || (!background && integrationMutationPending()))
     return
   activeProjectId.value = projectId
   const current = ++revision
@@ -95,7 +104,16 @@ async function read(input: Record<string, unknown>, background = false, projectI
       loading.value = false
   }
 }
-function download(document: NonNullable<ResourcePage['documents']>[number]): void {
+async function download(document: NonNullable<ResourcePage['documents']>[number]): Promise<void> {
+  if (window.craftHubDesktop?.saveTextFile) {
+    try {
+      const result = await window.craftHubDesktop.saveTextFile({ filename: document.filename ?? `${document.id}.txt`, content: document.content })
+      if (result.saved)
+        notify(t('resourceExported'))
+    }
+    catch { notify(t('resourceExportFailed'), true) }
+    return
+  }
   const url = URL.createObjectURL(new Blob([document.content], { type: 'text/plain;charset=utf-8' }))
   const anchor = window.document.createElement('a')
   anchor.href = url
@@ -103,46 +121,77 @@ function download(document: NonNullable<ResourcePage['documents']>[number]): voi
   anchor.click()
   URL.revokeObjectURL(url)
 }
-watch(() => [props.integrationId, props.projectId, props.input], () => { page.value = undefined; void read(props.input ?? {}, false, props.projectId) }, { immediate: true })
-onBeforeUnmount(() => { revision++; clearTimeout(timer) })
+watch(() => [props.integrationId, props.projectId, props.input], () => {
+  page.value = undefined
+  void read(props.input ?? {}, false, props.projectId)
+}, { immediate: true })
+onBeforeUnmount(() => {
+  revision++
+  clearTimeout(timer)
+})
 </script>
 
 <template>
   <section class="resource-browser" :aria-busy="loading">
-    <p v-if="error" role="alert">{{ error }}</p>
+    <p v-if="error" role="alert">
+      {{ error }}
+    </p>
     <header class="resource-header">
       <div class="resource-heading">
-        <h2 v-if="page">{{ page.title }}</h2>
-        <p v-if="page?.description">{{ page.description }}</p>
+        <h2 v-if="page">
+          {{ page.title }}
+        </h2>
+        <p v-if="page?.description">
+          {{ page.description }}
+        </p>
       </div>
       <nav class="resource-toolbar">
-        <UiButton size="compact" variant="ghost" :disabled="loading" @click="read(props.input ?? {}, false, props.projectId)"><Icon name="home" />{{ t('resourceHome') }}</UiButton>
-        <UiButton size="compact" :disabled="loading" @click="read(activeInput)"><Icon :name="loading ? 'loading' : 'refresh'" />{{ t('refresh') }}</UiButton>
+        <UiButton size="compact" variant="ghost" :disabled="busy" @click="read(props.input ?? {}, false, props.projectId)">
+          <Icon name="home" />{{ t('resourceHome') }}
+        </UiButton>
+        <UiButton size="compact" :disabled="busy" @click="read(activeInput)">
+          <Icon :name="loading ? 'loading' : 'refresh'" />{{ t('refresh') }}
+        </UiButton>
       </nav>
     </header>
     <template v-if="page">
       <aside v-if="activeProjectId && store.projects.find(project => project.id === activeProjectId)?.trust !== 'trusted'" class="resource-trust">
         <Icon name="untrusted" />
         <p>{{ t('resourceTrustDescription') }}</p>
-        <UiButton size="compact" @click="store.trustProjectById(activeProjectId)">{{ t('resourceTrustProject') }}</UiButton>
-        <p v-if="store.error" role="alert">{{ store.error }}</p>
+        <UiButton size="compact" @click="store.trustProjectById(activeProjectId)">
+          {{ t('resourceTrustProject') }}
+        </UiButton>
+        <p v-if="store.error" role="alert">
+          {{ store.error }}
+        </p>
       </aside>
       <section v-if="page.projectSuggestions?.length" class="resource-suggestions">
         <p>{{ t('resourceImportProjects') }}</p>
-        <UiButton v-for="project in page.projectSuggestions" :key="project.path" size="compact" :title="project.path" @click="importProject(project.path)"><Icon name="folderOpen" />{{ project.title }}</UiButton>
+        <UiButton v-for="project in page.projectSuggestions" :key="project.path" size="compact" :title="project.path" :disabled="busy" @click="importProject(project.path)">
+          <Icon name="folderOpen" />{{ project.title }}
+        </UiButton>
       </section>
       <nav v-if="page.links?.some(link => !link.entityId)" class="resource-links">
-        <UiButton v-for="(link, index) in page.links.filter(link => !link.entityId)" :key="index" size="compact" :disabled="loading" @click="read(link.input, false, link.projectId ?? activeProjectId)">{{ link.title }}<Icon name="arrowRight" /></UiButton>
+        <UiButton v-for="(link, index) in page.links.filter(link => !link.entityId)" :key="index" size="compact" :disabled="busy" @click="read(link.input, false, link.projectId ?? activeProjectId)">
+          {{ link.title }}<Icon name="arrowRight" />
+        </UiButton>
       </nav>
-      <IntegrationEntityList v-if="page.entities" :items="page.entities" :selectable="page.links?.some(link => link.entityId)" @selected="selectEntity($event.id)" />
-      <details v-for="document in page.documents" :key="document.id" class="resource-disclosure" open>
+      <ResourceCollection v-if="page.collection" :page="page" :native-context="nativeContext" :disabled="busy" @input="read($event, true)" @edit="read($event)" />
+      <IntegrationEntityList v-else-if="page.entities" :items="page.entities" :selectable="page.links?.some(link => link.entityId)" @selected="selectEntity($event.id)" />
+      <details v-for="document in page.documents?.filter(item => !page?.collection?.hiddenDocumentIds.includes(item.id) && !page?.collection?.copyDocumentIds?.includes(item.id))" :key="document.id" class="resource-disclosure" :open="!page.collection">
         <summary><Icon name="arrowRight" />{{ document.title }}</summary>
         <div class="resource-disclosure-body">
           <nav class="resource-document-actions">
             <IntegrationWorkItemDetail v-if="document.agentPrompt" :entity="{ id: document.id, title: document.title }" :integration-id="integrationId" :project-id="activeProjectId" :task-prompt="document.agentPrompt" :trigger-label="t('agentHandoff')" />
-            <UiButton size="compact" variant="ghost" @click="copy(document.content)"><Icon name="copy" />{{ t('resourceCopy') }}</UiButton>
-            <UiButton size="compact" variant="ghost" @click="download(document)">{{ t('resourceDownload') }}</UiButton>
-            <UiButton v-if="document.filename?.endsWith('.md')" size="compact" variant="ghost" @click="preview[document.id] = !preview[document.id]">{{ t('resourcePreview') }}</UiButton>
+            <UiButton size="compact" variant="ghost" :disabled="!document.content" @click="copy(document.content)">
+              <Icon name="copy" />{{ t('resourceCopy') }}
+            </UiButton>
+            <UiButton size="compact" variant="ghost" @click="download(document)">
+              {{ t('resourceDownload') }}
+            </UiButton>
+            <UiButton v-if="document.filename?.endsWith('.md')" size="compact" variant="ghost" @click="preview[document.id] = !preview[document.id]">
+              {{ t('resourcePreview') }}
+            </UiButton>
           </nav>
           <MarkdownPreview v-if="preview[document.id]" :content="document.content" :readme-path="document.filename ?? 'document.md'" />
           <div v-else :class="{ comparison: document.compareWith !== undefined }">
@@ -151,10 +200,12 @@ onBeforeUnmount(() => { revision++; clearTimeout(timer) })
           </div>
         </div>
       </details>
-      <details v-for="form in page.forms" :key="`${JSON.stringify(page.input)}:${form.id}:${formEpoch}`" class="resource-form resource-disclosure">
+      <details v-for="form in page.forms?.filter(item => !page?.collection?.hiddenFormIds.includes(item.id))" :key="`${JSON.stringify(page.input)}:${form.id}:${formEpoch}`" class="resource-form resource-disclosure">
         <summary><Icon name="arrowRight" />{{ form.title }}</summary>
         <div class="resource-disclosure-body">
-          <p v-if="form.description">{{ form.description }}</p>
+          <p v-if="form.description">
+            {{ form.description }}
+          </p>
           <IntegrationActionForm
             v-if="actions[form.effect]"
             :key="`${JSON.stringify(page.input)}:${form.id}:${formEpoch}`" :integration-id="integrationId" :project-id="activeProjectId"
@@ -167,6 +218,7 @@ onBeforeUnmount(() => { revision++; clearTimeout(timer) })
       </details>
     </template>
     <SkeletonList v-else-if="loading" :label="t('loading')" icon />
+    <ActionToast :message="message" />
   </section>
 </template>
 

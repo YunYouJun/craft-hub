@@ -15,15 +15,16 @@ private func todayConnection() throws -> RuntimeConnection {
 
 private actor TodayFixture {
   var calls: [String] = []
+  var requestedLocales: [String] = []
   var analysisRequest: CheckedContinuation<Void, Never>?
   var analysisFinished = false
   var pauseRead = false
   var pendingRead: CheckedContinuation<Void, Never>?
   func pauseNextRead() { pauseRead = true }
-  func releaseRead() {
+  func releaseRead(pauseNext: Bool = false) {
     pendingRead?.resume()
     pendingRead = nil
-    pauseRead = false
+    pauseRead = pauseNext
   }
   func response(_ request: URLRequest) async -> (Data, URLResponse) {
     calls.append("\(request.httpMethod ?? "GET") \(request.url!.path)")
@@ -40,9 +41,17 @@ private actor TodayFixture {
       json = #"{"summary":"Suggestion","items":[{"key":"one","reason":"Important","nextStep":"Review"}]}"#
     default:
       #expect(request.url!.path == "/api/workbench/today")
-      if pauseRead { await withCheckedContinuation { pendingRead = $0 } }
+      requestedLocales.append(
+        URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "locale" }?
+          .value ?? "")
+      let readNumber = requestedLocales.count
+      if pauseRead {
+        pauseRead = false
+        await withCheckedContinuation { pendingRead = $0 }
+      }
       json =
         #"{"version":1,"checkedAt":"2026-10-22T00:00:00Z","sourceCount":2,"total":1,"sources":[{"key":"source","title":"Tasks","path":"/integrations/tasks/todos","state":"loaded","complete":false,"cached":true,"count":1},{"key":"other","title":"Other","path":"/integrations/other/todos","state":"disconnected","complete":false,"cached":false,"count":0}],"items":[{"key":"one","title":"Review","sourceTitle":"Tasks","path":"/integrations/tasks/todos","reasons":["Important"]}],"candidates":[{"key":"one","title":"Review","source":"Tasks","reasons":["Important"]}]}"#
+        .replacingOccurrences(of: "2026-10-22T00:00:00Z", with: String(format: "2026-10-22T00:00:%02dZ", readNumber))
     }
     return (Data(json.utf8), HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
   }
@@ -73,7 +82,7 @@ private actor TodayFixture {
   #expect(model.snapshot == nil)
 }
 
-@MainActor @Test func configurationSyncHeartbeatKeepsTheTodayBrowserUntilAUserConfigurationChange() async throws {
+@MainActor @Test func configurationSyncHeartbeatKeepsTheTodayBrowserWithoutReadingWorkSources() async throws {
   let fixture = TodayFixture()
   let suite = "craft-hub-today-heartbeat-\(UUID())"
   let defaults = try #require(UserDefaults(suiteName: suite))
@@ -83,10 +92,13 @@ private actor TodayFixture {
     RuntimeAPIClient(connection: try todayConnection(), transport: { await fixture.response($0) }))
   await workbench.today.load()
   let loaded = try #require(workbench.today.snapshot)
-  await fixture.pauseNextRead()
   workbench.invalidate([.configurationSync])
+  await workbench.today.load()
   #expect(workbench.today.snapshot?.checkedAt == loaded.checkedAt)
   #expect(workbench.today.snapshot?.items.map(\.key) == loaded.items.map(\.key))
+  #expect(await fixture.calls.count == 2)
+  await fixture.pauseNextRead()
+  workbench.invalidate([.integrations])
   let refresh = Task { await workbench.today.load() }
   for _ in 0..<100 {
     if await fixture.pendingRead != nil { break }
@@ -100,6 +112,93 @@ private actor TodayFixture {
   await refresh.value
   #expect(workbench.today.snapshot == nil)
   #expect(await fixture.calls.allSatisfy { ["GET /api/workbench/today", "GET /api/work-assistant"].contains($0) })
+}
+
+@MainActor @Test func todayPerformanceRecreatedViewsReuseTheCacheAndTheSamePendingRead() async throws {
+  let fixture = TodayFixture()
+  var date = Date()
+  let model = TodayFocusModel(now: { date }, locale: { "en" })
+  model.connect(RuntimeAPIClient(connection: try todayConnection(), transport: { await fixture.response($0) }))
+  await fixture.pauseNextRead()
+  let firstView = Task { await model.load() }
+  for _ in 0..<100 {
+    if await fixture.pendingRead != nil { break }
+    try await Task.sleep(for: .milliseconds(5))
+  }
+  #expect(model.loading)
+  let reopenedView = Task { await model.load() }
+  for _ in 0..<10 { await Task.yield() }
+  #expect(await fixture.requestedLocales == ["en"])
+  await fixture.releaseRead()
+  await firstView.value
+  await reopenedView.value
+  await model.load()
+  #expect(await fixture.calls.count == 2)
+  date = date.addingTimeInterval(61)
+  await model.load()
+  #expect(await fixture.requestedLocales == ["en", "en"])
+  await model.refreshWorkItems()
+  #expect(await fixture.requestedLocales == ["en", "en", "en"])
+}
+
+@MainActor @Test func todayPerformanceLanguageChangesReplaceAnOlderPendingLocaleWithoutWaitingForIt() async throws {
+  let fixture = TodayFixture()
+  var language = "en"
+  let model = TodayFocusModel(locale: { language })
+  model.connect(RuntimeAPIClient(connection: try todayConnection(), transport: { await fixture.response($0) }))
+  await fixture.pauseNextRead()
+  let oldLocale = Task { await model.load() }
+  for _ in 0..<100 {
+    if await fixture.pendingRead != nil { break }
+    try await Task.sleep(for: .milliseconds(5))
+  }
+  #expect(model.loading && model.snapshot == nil)
+  language = "zh-CN"
+  let newLocale = Task { await model.load() }
+  for _ in 0..<100 {
+    if await fixture.requestedLocales.count == 2, model.snapshot != nil, !model.loading { break }
+    try await Task.sleep(for: .milliseconds(5))
+  }
+  #expect(await fixture.requestedLocales == ["en", "zh-CN"])
+  #expect(model.snapshot != nil && !model.loading)
+  await fixture.releaseRead()
+  await oldLocale.value
+  await newLocale.value
+  #expect(model.snapshot != nil && !model.loading && model.error == nil)
+  await model.load()
+  #expect(await fixture.requestedLocales == ["en", "zh-CN"])
+}
+
+@MainActor @Test func todayPerformanceChangesDuringAReadPreserveVisibleRowsAndCoalesceOneFreshFollowup() async throws {
+  let fixture = TodayFixture()
+  var date = Date()
+  let model = TodayFocusModel(now: { date }, locale: { "en" })
+  model.connect(RuntimeAPIClient(connection: try todayConnection(), transport: { await fixture.response($0) }))
+  await model.load()
+  let visible = try #require(model.snapshot?.checkedAt)
+  date = date.addingTimeInterval(61)
+  await fixture.pauseNextRead()
+  let oldRead = Task { await model.load() }
+  for _ in 0..<100 {
+    if await fixture.pendingRead != nil { break }
+    try await Task.sleep(for: .milliseconds(5))
+  }
+  #expect(model.loading && model.snapshot?.checkedAt == visible)
+  for _ in 0..<10 { model.markWorkItemsStale() }
+  let joinedRead = Task { await model.load() }
+  await fixture.releaseRead(pauseNext: true)
+  for _ in 0..<100 {
+    if await fixture.requestedLocales.count == 3, await fixture.pendingRead != nil { break }
+    try await Task.sleep(for: .milliseconds(5))
+  }
+  #expect(await fixture.requestedLocales.count == 3)
+  #expect(model.loading && model.snapshot?.checkedAt == visible)
+  await fixture.releaseRead()
+  await oldRead.value
+  await joinedRead.value
+  #expect(model.snapshot?.checkedAt == "2026-10-22T00:00:03Z" && !model.loading && model.error == nil)
+  await model.load()
+  #expect(await fixture.requestedLocales.count == 3)
 }
 
 @MainActor @Test func nativeTodayReadsCoverageWithoutAutomaticallyInvokingAIAndRefreshesAfterInvalidation() async throws

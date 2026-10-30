@@ -1,9 +1,10 @@
 import type { Router, RouterHistory } from 'vue-router'
 import { createRouter, createWebHistory } from 'vue-router'
 import App from './App.vue'
+import { integrationMutationPending } from './integration-mutations'
 
 export function createWorkbenchRouter(history: RouterHistory = createWebHistory()): Router {
-  return createRouter({
+  const router = createRouter({
     history,
     routes: [
       { path: '/', name: 'workbench', component: App },
@@ -27,4 +28,6 @@ export function createWorkbenchRouter(history: RouterHistory = createWebHistory(
       { path: '/:pathMatch(.*)*', redirect: '/' },
     ],
   })
+  router.beforeEach(() => !integrationMutationPending())
+  return router
 }

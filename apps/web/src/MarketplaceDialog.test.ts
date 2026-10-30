@@ -451,6 +451,47 @@ describe('marketplace dialog', () => {
     wrapper.unmount()
   })
 
+  it.each([false, true])('blocks installing blocked catalog versions while preserving local navigation (linked: %s)', async (linked) => {
+    const local = { ...installedPlugin, sourceId: 'local' as const, origin: 'local' as const, version: '0.2.0', linkedAt: '2026-09-01T00:00:00.000Z' }
+    vi.spyOn(api, 'marketplaceCatalog').mockResolvedValue([{ ...catalogPlugin, status: 'blocked' }])
+    vi.spyOn(api, 'installedPlugins').mockResolvedValue(linked ? [local] : [])
+    vi.spyOn(api, 'marketplaceSources').mockResolvedValue([])
+    const document = vi.spyOn(api, 'pluginDocument').mockImplementation(async (sourceId, packageName, version) => ({
+      sourceId,
+      package: packageName,
+      version: version!,
+      origin: sourceId === 'local' ? 'local' : 'marketplace',
+      manifest: installedPlugin.manifest,
+      document: { status: 'missing' },
+    }))
+    const preview = vi.spyOn(api, 'previewPluginInstall')
+    const wrapper = await mountMarketplace()
+    await flushPromises()
+
+    const action = wrapper.get('.plugin-row > .ui-button')
+    expect((action.element as HTMLButtonElement).disabled).toBe(!linked)
+    if (linked) {
+      await action.trigger('click')
+      await flushPromises()
+      expect(wrapper.vm.$route).toMatchObject({ params: { sourceId: 'local', packageName }, query: expect.objectContaining({ version: local.version }) })
+      expect(document).toHaveBeenCalledWith('local', packageName, local.version, undefined)
+      await wrapper.get('.plugin-detail-back').trigger('click')
+      await flushPromises()
+    }
+
+    await wrapper.get('.plugin-summary-link').trigger('click')
+    await flushPromises()
+    const detailAction = wrapper.get('[data-testid="plugin-detail"] .plugin-actions .ui-button')
+    expect((detailAction.element as HTMLButtonElement).disabled).toBe(!linked)
+    if (linked) {
+      await detailAction.trigger('click')
+      await flushPromises()
+      expect(wrapper.vm.$route).toMatchObject({ params: { sourceId: 'local', packageName }, query: expect.objectContaining({ version: local.version }) })
+    }
+    expect(preview).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
   it('distinguishes changing sources from updating the same installed version', async () => {
     vi.spyOn(api, 'marketplaceCatalog').mockResolvedValue([catalogPlugin])
     vi.spyOn(api, 'installedPlugins').mockResolvedValue([{ ...installedPlugin, sourceId: 'other-source' }])
@@ -466,7 +507,7 @@ describe('marketplace dialog', () => {
   it('groups extension-pack members by default while keeping them searchable', async () => {
     const childPackage = '@acme/craft-hub-plugin-child'
     const pack = { ...catalogPlugin, includesPlugins: [{ package: childPackage, version: '^1.0.0' }] }
-    const child = { ...catalogPlugin, package: childPackage, displayName: 'Acme Child', description: 'Specialized child module.' }
+    const child = { ...catalogPlugin, package: childPackage, version: '1.0.0', displayName: 'Acme Child', description: 'Specialized child module.' }
     vi.spyOn(api, 'marketplaceCatalog').mockResolvedValue([pack, child])
     vi.spyOn(api, 'installedPlugins').mockResolvedValue([])
     vi.spyOn(api, 'marketplaceSources').mockResolvedValue([])
@@ -476,6 +517,13 @@ describe('marketplace dialog', () => {
 
     expect(wrapper.findAll('.plugin-row')).toHaveLength(1)
     expect(wrapper.get('.plugin-row').text()).toContain('Acme Suite')
+    expect(wrapper.get('.plugin-pack-members').text()).toContain('Acme Child')
+    expect(wrapper.get('.plugin-row > .ui-button').text()).toBe('Install all')
+    await wrapper.get('select[aria-label="Plugin type"]').setValue('plugin')
+    expect(wrapper.get('.plugin-row').text()).toContain('Acme Child')
+    await wrapper.get('select[aria-label="Plugin type"]').setValue('pack')
+    expect(wrapper.get('.plugin-row').text()).toContain('Acme Suite')
+    await wrapper.get('select[aria-label="Plugin type"]').setValue('all')
 
     await wrapper.get('.marketplace-search input').setValue('child')
     expect(wrapper.findAll('.plugin-row')).toHaveLength(1)
@@ -539,8 +587,8 @@ describe('marketplace dialog', () => {
     const wrapper = await mountMarketplace()
     await flushPromises()
 
-    expect(wrapper.get('.plugin-row .plugin-pack-count').text()).toBe('1')
-    expect(wrapper.get('.plugin-row .plugin-pack-badge').text()).toBe('Extension Pack')
+    expect(wrapper.find('.plugin-row [data-testid="plugin-pack-icon"]').exists()).toBe(true)
+    expect(wrapper.get('.plugin-row .plugin-pack-badge').text()).toBe('Plugin Pack')
     await wrapper.get('.marketplace-tabs button:nth-child(2)').trigger('click')
     expect(wrapper.findAll('.installed-plugin-row')).toHaveLength(1)
     const packRow = wrapper.findAll('.installed-plugin-row').find(row => row.text().includes('Acme Suite'))!

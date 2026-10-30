@@ -15,6 +15,31 @@ export interface ResourceField {
   placeholder?: string
 }
 
+/** Dense, selectable records. Values and actions stay declarative and provider-owned. */
+export interface ResourceCollection {
+  columns: Array<{ id: string, label: string }>
+  rows: Array<{ id: string, cells: Record<string, string>, copyValue: string, credentialKey?: string, input?: ResourceInput }>
+  selectedIds: string[]
+  selectionInput: string
+  filterFormId: string
+  hiddenFormIds: string[]
+  hiddenDocumentIds: string[]
+  /** Document IDs exposed as one-click copy buttons above the collection. */
+  copyDocumentIds?: string[]
+}
+
+/** A user-opened, isolated browser import. Hosts construct the request; declarations never contain scripts. */
+export interface ResourceBrowserImport {
+  id: string
+  title: string
+  url: string
+  allowedOrigins: string[]
+  formId: string
+  request: { path: string, operatorGlobal: string, operatorParameter: string }
+  response: { recordsPath: string[], successField: string, successValue: number }
+  credentials: { keyField: string, secretField: string, availableField: string, publicFields: string[] }
+}
+
 /** A complete page, including navigation, documents and explicitly invoked actions. */
 export interface ResourcePage {
   kind: 'resource-page'
@@ -22,6 +47,8 @@ export interface ResourcePage {
   description?: string
   input: ResourceInput
   refreshAfterMs?: number
+  collection?: ResourceCollection
+  browserImport?: ResourceBrowserImport
   projectSuggestions?: Array<{ path: string, title: string }>
   entities?: IntegrationEntity[]
   links?: Array<{ title: string, input: ResourceInput, projectId?: string, entityId?: string }>

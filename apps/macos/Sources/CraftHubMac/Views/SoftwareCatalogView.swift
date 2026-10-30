@@ -31,16 +31,29 @@ struct SoftwareCatalogView: View {
           search
           filters
         }
-      }.padding(.horizontal, 20).padding(.bottom, 12)
+      }.padding(.horizontal, NativePageLayout.horizontalInset).padding(.bottom, 12)
       HStack(spacing: 8) {
-        Text(text.copy("\(visibleCount) / \(totalCount) 款软件", "\(visibleCount) of \(totalCount) apps"))
-          .monospacedDigit()
+        if machine.software != nil {
+          Text(text.copy("\(visibleCount) / \(totalCount) 款软件", "\(visibleCount) of \(totalCount) apps"))
+            .monospacedDigit()
+        } else {
+          Text(
+            machine.softwareError == nil
+              ? text.copy("正在读取软件目录…", "Reading software catalog…")
+              : text.copy("软件目录尚未载入", "Software catalog not loaded"))
+        }
         if filtered {
           Button(text.copy("重置筛选", "Reset Filters"), action: resetFilters).buttonStyle(.link)
         }
         Spacer()
-        if machine.checkingSoftware { ProgressView().controlSize(.mini) }
-      }.font(.caption).foregroundStyle(.secondary).padding(.horizontal, 20).padding(.bottom, 12)
+        DelayedLoadingFeedback(
+          active: machine.checkingSoftware && machine.software != nil,
+          label: text.copy("正在重新检测软件", "Checking software again")
+        ) {
+          ProgressView().controlSize(.mini)
+        }.frame(width: 12, height: 12)
+      }.font(.caption).foregroundStyle(.secondary).padding(.horizontal, NativePageLayout.horizontalInset).padding(
+        .bottom, 12)
       if let error = machine.softwareError { notice(error, error: true) }
       if let error = machine.installations.error { notice(error, error: true) }
       if let message = machine.operationMessage { notice(message) }
@@ -101,15 +114,23 @@ struct SoftwareCatalogView: View {
 
   @ViewBuilder private var content: some View {
     if machine.software == nil {
-      if machine.checkingSoftware {
-        ProgressView(text.copy("正在读取软件目录…", "Loading software…"))
-          .frame(maxWidth: .infinity, maxHeight: .infinity)
+      if machine.softwareError == nil {
+        GeometryReader { geometry in
+          DelayedLoadingFeedback(
+            active: true, label: text.copy("正在读取软件目录", "Reading software catalog")
+          ) {
+            SoftwareCatalogSkeleton(columns: columns(width: geometry.size.width))
+          }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        }
       } else {
         ContentUnavailableView(
-          text.copy("无法读取软件目录", "Could Not Load Software"), systemImage: "exclamationmark.triangle")
+          text.copy("无法读取软件目录", "Could Not Load Software"), systemImage: "exclamationmark.triangle"
+        )
+        .nativePageContent(.emptyState)
       }
     } else if sources.isEmpty {
       ContentUnavailableView(text.copy("尚未接入软件目录", "No Software Catalog"), systemImage: "shippingbox")
+        .nativePageContent(.emptyState)
     } else {
       GeometryReader { geometry in
         ScrollView {
@@ -141,9 +162,10 @@ struct SoftwareCatalogView: View {
                 Text(text.copy("试试其他关键词，或重置筛选条件。", "Try another keyword or reset the filters."))
               } actions: {
                 if filtered { Button(text.copy("重置筛选", "Reset Filters"), action: resetFilters) }
-              }.frame(maxWidth: .infinity)
+              }.frame(maxWidth: NativePageLayout.ContentWidth.emptyState.maximum)
+                .frame(maxWidth: .infinity)
             }
-          }.padding(.horizontal, 20).padding(.bottom, 20)
+          }.nativePageContent().padding(.bottom, 20)
         }
       }
     }
@@ -152,7 +174,7 @@ struct SoftwareCatalogView: View {
   private func columns(width: CGFloat) -> [GridItem] {
     Array(
       repeating: GridItem(.flexible(), spacing: 12, alignment: .top),
-      count: min(4, max(1, Int((width - 40 + 12) / 312))))
+      count: min(4, max(1, Int((width - NativePageLayout.horizontalInset * 2 + 12) / 312))))
   }
   private func items(_ source: SoftwareSnapshot.Source) -> [SoftwareSnapshot.Item] {
     machine.visibleItems(source).filter { categoryID.isEmpty || $0.group.id == categoryID }
@@ -170,6 +192,6 @@ struct SoftwareCatalogView: View {
       } else {
         Text(message).font(.callout).foregroundStyle(.secondary).textSelection(.enabled)
       }
-    }.padding(.horizontal, 20).padding(.bottom, 8)
+    }.padding(.horizontal, NativePageLayout.horizontalInset).padding(.bottom, 8)
   }
 }

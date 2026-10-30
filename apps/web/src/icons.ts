@@ -1,11 +1,14 @@
 import type { VNode } from 'vue'
 import { h } from 'vue'
 
-export type IconName = 'macos' | 'windows' | 'linux' | 'bug' | 'story' | 'task' | 'pending' | 'progress' | 'review' | 'sun' | 'arrowDown' | 'arrowRight' | 'briefcase' | 'calendar' | 'chart' | 'chatgpt' | 'check' | 'claude' | 'close' | 'cloud' | 'code' | 'codex' | 'collection' | 'compass' | 'copy' | 'cursor' | 'database' | 'design' | 'docs' | 'download' | 'drag' | 'edit' | 'error' | 'experiment' | 'externalLink' | 'folder' | 'folderOpen' | 'gemini' | 'git' | 'gitMerge' | 'gitRepository' | 'help' | 'homebrew' | 'hub' | 'itchio' | 'keyboard' | 'link' | 'list' | 'loading' | 'mobile' | 'more' | 'nodejs' | 'package' | 'palette' | 'perplexity' | 'personal' | 'plugins' | 'plus' | 'pnpm' | 'raycast' | 'rocket' | 'search' | 'security' | 'settings' | 'source' | 'star' | 'starFilled' | 'steam' | 'stop' | 'team' | 'terminal' | 'terminalApp' | 'skill' | 'play' | 'transfer' | 'trusted' | 'untrusted' | 'refresh' | 'vscode' | 'web' | 'workspace'
+export type IconName = 'eye' | 'eyeOff' | 'trash' | 'macos' | 'windows' | 'linux' | 'bug' | 'story' | 'task' | 'pending' | 'progress' | 'review' | 'sun' | 'arrowDown' | 'arrowRight' | 'briefcase' | 'calendar' | 'chart' | 'chatgpt' | 'check' | 'claude' | 'close' | 'cloud' | 'code' | 'codex' | 'collection' | 'compass' | 'copy' | 'cursor' | 'database' | 'design' | 'docs' | 'download' | 'drag' | 'edit' | 'error' | 'experiment' | 'externalLink' | 'folder' | 'folderOpen' | 'gemini' | 'git' | 'gitMerge' | 'gitRepository' | 'help' | 'homebrew' | 'hub' | 'itchio' | 'keyboard' | 'link' | 'list' | 'loading' | 'mobile' | 'more' | 'nodejs' | 'package' | 'palette' | 'perplexity' | 'personal' | 'plugins' | 'plus' | 'pnpm' | 'raycast' | 'rocket' | 'search' | 'security' | 'settings' | 'source' | 'star' | 'starFilled' | 'steam' | 'stop' | 'team' | 'terminal' | 'terminalApp' | 'skill' | 'play' | 'transfer' | 'trusted' | 'untrusted' | 'refresh' | 'vscode' | 'web' | 'workspace'
 
 export const visualIconNames = ['workspace', 'folder', 'hub', 'briefcase', 'code', 'docs', 'design', 'database', 'package', 'rocket', 'team', 'experiment', 'security', 'cloud', 'mobile', 'web', 'terminal', 'skill', 'settings', 'calendar', 'chart', 'list'] as const satisfies readonly IconName[]
 
 export const iconClasses: Record<Exclude<IconName, 'codex' | 'cursor' | 'plugins' | 'vscode'>, string> = {
+  eye: 'i-lucide-eye',
+  eyeOff: 'i-lucide-eye-off',
+  trash: 'i-lucide-trash-2',
   macos: 'i-ri-apple-fill',
   windows: 'i-ri-windows-fill',
   linux: 'i-simple-icons-linux',

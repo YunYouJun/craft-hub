@@ -15,6 +15,7 @@ const { values } = parseArgs({ options: {
   iterations: { type: 'string', default: '3' },
   native: { type: 'string', default: 'apps/macos/build/Craft Hub Prototype.app' },
   electron: { type: 'string', default: 'release/Craft Hub-darwin-arm64/Craft Hub.app' },
+  baseline: { type: 'string' },
 } })
 if (process.platform !== 'darwin')
   throw new Error('This acceptance runner requires macOS and already-built Release apps')
@@ -22,6 +23,20 @@ const iterations = Number(values.iterations)
 if (!Number.isSafeInteger(iterations) || iterations < 1 || iterations > 10)
   throw new Error('iterations must be between 1 and 10')
 const output = resolve(values.output)
+const nativeComparison = Boolean(values.baseline)
+const targets = nativeComparison
+  ? [{ host: 'before', bundle: values.baseline!, native: true }, { host: 'after', bundle: values.native, native: true }]
+  : [{ host: 'macos', bundle: values.native, native: true }, { host: 'electron', bundle: values.electron, native: false }]
+let interrupted = false
+function onSignal() {
+  interrupted = true
+}
+process.on('SIGINT', onSignal)
+process.on('SIGTERM', onSignal)
+function requireActive(): void {
+  if (interrupted)
+    throw new Error('Benchmark interrupted; its isolated processes are being cleaned up')
+}
 if (await access(join(output, 'report.json')).then(() => true, () => false))
   throw new Error('Choose a new output directory to preserve the previous benchmark report')
 await mkdir(output, { recursive: true })
@@ -51,16 +66,17 @@ async function markers(file: string): Promise<Marker[]> {
 const results: object[] = []
 const fixtures = new Map<string, { application: string, executable: string }>()
 const artifacts: object[] = []
-for (const [host, source] of [['macos', values.native], ['electron', values.electron]]) {
-  const bundle = resolve(source!)
+for (const { host, bundle: source } of targets) {
+  const bundle = resolve(source)
   await run('/usr/bin/codesign', ['--verify', '--deep', '--strict', bundle])
   const signature = (await run('/usr/bin/codesign', ['--display', '--verbose=4', bundle])).stderr
-  artifacts.push({ host, bundle, signature: signature.split('\n').filter(line => /^(?:Identifier|CDHash|TeamIdentifier)=/.test(line)) })
   const application = join(output, `${host}-fixture.app`)
   await mkdir(application) // Reserve a new fixture; never overwrite another run's app.
   await run('/usr/bin/ditto', [bundle, application])
   const plist = join(application, 'Contents/Info.plist')
   const info = JSON.parse((await run('/usr/bin/plutil', ['-convert', 'json', '-o', '-', plist])).stdout) as Record<string, unknown>
+  const executableName = String(info.CFBundleExecutable)
+  artifacts.push({ host, bundle, executableSHA256: createHash('sha256').update(await readFile(join(bundle, 'Contents/MacOS', executableName))).digest('hex'), signature: signature.split('\n').filter(line => /^(?:Identifier|CDHash|TeamIdentifier)=/.test(line)) })
   // Preserve CFBundleName: Electron derives its Helper lookup from it.
   info.CFBundleIdentifier = `dev.craft-hub.benchmark.${host}.${randomUUID().toLowerCase()}`
   delete info.CFBundleURLTypes
@@ -70,14 +86,17 @@ for (const [host, source] of [['macos', values.native], ['electron', values.elec
   await run('/usr/bin/plutil', ['-convert', 'xml1', plist])
   await run('/usr/bin/codesign', ['--force', '--deep', '--sign', '-', application])
   await run('/usr/bin/codesign', ['--verify', '--deep', '--strict', application])
-  fixtures.set(host!, { application, executable: join(application, 'Contents/MacOS', String(info.CFBundleExecutable)) })
+  fixtures.set(host, { application, executable: join(application, 'Contents/MacOS', executableName) })
 }
 let failure: unknown
 try {
   for (let iteration = 1; iteration <= iterations; iteration++) {
   // Alternate order to reduce the influence of shared filesystem and framework cache warming.
-    const hosts = iteration % 2 === 1 ? ['macos', 'electron'] as const : ['electron', 'macos'] as const
-    for (const host of hosts) {
+    const ordered = iteration % 2 === 1 ? targets : [...targets].reverse()
+    for (const target of ordered) {
+      requireActive()
+      const { host } = target
+      const readinessEvent = target.native ? 'native-page-appeared' : 'web-ready'
       const directory = join(output, `${host}-${iteration}-${Date.now()}`)
       // A short private path also stays within Chromium/Unix socket limits.
       const profileRoot = await realpath(await mkdtemp(join(tmpdir(), 'chb-')))
@@ -103,7 +122,7 @@ try {
         CRAFT_HUB_CLOUD_ENDPOINT: '',
         CRAFT_HUB_CLOUD_ORIGIN: '',
         CRAFT_HUB_PERFORMANCE_TRACE: trace,
-        ...(host === 'macos'
+        ...(target.native
           ? { CRAFT_HUB_NATIVE_DATA_DIR: data, CRAFT_HUB_NODE: process.env.CRAFT_HUB_NODE ?? process.execPath }
           : { CRAFT_HUB_DATA_DIR: data, CRAFT_HUB_DESKTOP_PROFILE_DIR: join(profileRoot, 'chromium') }),
       }
@@ -116,6 +135,7 @@ try {
       try {
         await run('/usr/bin/open', ['-n', ...Object.entries(environment).flatMap(([key, value]) => ['--env', `${key}=${value}`]), fixture.application])
         while (Date.now() - launchedAt < 45000) {
+          requireActive()
           observed = await markers(trace)
           const pid = observed[0]?.pid
           if (pid && !before.has(pid)) {
@@ -123,13 +143,15 @@ try {
             if (current.some(row => row.pid === pid && row.executable === fixture.executable))
               owned = performanceProcessTree(current, pid)
           }
-          if (observed.some(marker => marker.event === 'web-ready') && owned.length)
+          if (observed.some(marker => marker.event === readinessEvent) && owned.length)
             break
           await delay(50)
         }
-        if (!observed.some(marker => marker.event === 'web-ready') || !owned.length)
-          throw new Error(`${host} did not reach web-ready in its isolated profile; inspect ${directory}`)
+        if (!observed.some(marker => marker.event === readinessEvent) || !owned.length)
+          throw new Error(`${host} did not reach ${readinessEvent} in its isolated profile; inspect ${directory}`)
         await delay(2000)
+        requireActive()
+        observed = await markers(trace)
         const rows = await processes()
         const root = owned.find(row => row.executable === fixture.executable)
         if (!root || !rows.some(row => samePerformanceProcess(root, row)))
@@ -150,9 +172,11 @@ try {
         const afterAttribution = await responsibilities(afterFootprint)
         const stable = samePerformanceProcesses(owned, performanceProcessTree(afterFootprint, root.pid))
           && samePerformanceProcesses(webkit, attributedWebKitServices(afterFootprint, afterAttribution.owners, root.pid))
-        const attributionComplete = host === 'electron' || (attribution.available && afterAttribution.available && webkit.some(row => row.executable.endsWith('/com.apple.WebKit.WebContent')))
+        // In native-only startup, a complete responsibility query with zero WebKit services is a valid result.
+        const attributionComplete = !target.native || (attribution.available && afterAttribution.available)
         results.push({
           host,
+          readinessEvent,
           iteration,
           launchedAt,
           directory,
@@ -176,6 +200,9 @@ try {
         const root = owned.find(row => row.executable === fixture.executable)
         const pid = root?.pid
         if (root && pid && !before.has(pid) && current.some(row => samePerformanceProcess(root, row))) {
+          owned = [...new Map([...owned, ...performanceProcessTree(current, pid)].map(row => [row.pid, row])).values()]
+          const attribution = await responsibilities(current)
+          observedWebKit = [...new Map([...observedWebKit, ...attributedWebKitServices(current, attribution.owners, pid)].map(row => [row.pid, row])).values()]
           try {
             process.kill(pid, 'SIGTERM')
           }
@@ -197,21 +224,21 @@ try {
             }
           }
         }
-        if (host === 'macos') {
+        if (target.native && !nativeComparison) {
           const domain = `dev.craft-hub.macos-prototype.profile.${createHash('sha256').update(data).digest('hex')}`
           await run('/usr/bin/defaults', ['delete', domain]).catch(() => {})
         }
         const after = await processes()
         cleanup.remaining = owned.filter(row => after.some(item => samePerformanceProcess(row, item))).map(row => row.pid)
         cleanup.webKitRemaining = observedWebKit.filter(row => after.some(item => samePerformanceProcess(row, item))).map(row => row.pid)
-        if (!cleanup.remaining.length && !cleanup.webKitRemaining.length && !after.some(row => row.executable.startsWith(`${fixture.application}/`)))
+        if (!nativeComparison && !cleanup.remaining.length && !cleanup.webKitRemaining.length && !after.some(row => row.executable.startsWith(`${fixture.application}/`)))
           await rm(profileRoot, { recursive: true, force: true, maxRetries: 3 })
       }
     }
   }
 }
 catch (error) { failure = error }
-const sizes = await Promise.all([values.native, values.electron].map(async bundle => ({
+const sizes = await Promise.all(targets.map(async ({ bundle }) => ({
   bundle: resolve(bundle),
   allocatedKiB: Number((await run('/usr/bin/du', ['-sk', resolve(bundle)])).stdout.split(/\s/)[0]),
 })))
@@ -222,19 +249,23 @@ const report = {
   revision: (await run('git', ['rev-parse', 'HEAD'])).stdout.trim(),
   dirty: Boolean((await run('git', ['status', '--porcelain'])).stdout.trim()),
   artifacts,
+  readinessEvents: Object.fromEntries(targets.map(target => [target.host, target.native ? 'native-page-appeared' : 'web-ready'])),
+  settleAfterReadinessMs: 2000,
   nativeNode: { path: process.env.CRAFT_HUB_NODE ?? process.execPath, version: (await run(process.env.CRAFT_HUB_NODE ?? process.execPath, ['--version'])).stdout.trim() },
   os: (await run('/usr/bin/sw_vers', ['-productVersion'])).stdout.trim(),
   hardware: (await run('/usr/sbin/sysctl', ['-n', 'hw.model'])).stdout.trim(),
-  scope: 'Independent ad hoc copies; fresh isolated HOME/config/data/browser profiles, cloud disabled, existing native Node, Launch Services startup with warm OS caches. Readiness callbacks are not first pixels. Physical footprint is the sum of per-process phys_footprint for host/descendants and exact-responsibility WebKit services; shared system services are excluded. Incomplete attribution or sampling is explicitly marked. SIGTERM cleanup is not a normal-quit test.',
+  scope: `Independent ad hoc copies; fresh isolated HOME/config/data/browser profiles, cloud disabled, existing native Node, Launch Services startup with warm OS caches. ${nativeComparison ? 'Both native builds use native-page-appeared; fixtures and profiles are retained.' : 'Native uses native-page-appeared, Electron uses web-ready; these are different UI stages and cannot establish an equal-stage startup comparison.'} An unused WebKit session is not started by the runner. Readiness callbacks are not first pixels. Physical footprint is the sum of per-process phys_footprint for host/descendants and exact-responsibility WebKit services; shared system services are excluded. Incomplete attribution or sampling is explicitly marked. SIGTERM cleanup is not a normal-quit test.`,
   sizes,
   results,
 }
 await writeFile(join(output, 'report.json'), `${JSON.stringify(report, null, 2)}\n`)
 const remaining = await processes()
-for (const fixture of fixtures.values()) {
+for (const fixture of nativeComparison ? [] : fixtures.values()) {
   if (!remaining.some(row => row.executable.startsWith(`${fixture.application}/`)))
     await rm(fixture.application, { recursive: true, force: true })
 }
 console.log(`Saved ${join(output, 'report.json')}`)
+process.off('SIGINT', onSignal)
+process.off('SIGTERM', onSignal)
 if (failure)
   throw failure

@@ -1,0 +1,23 @@
+const initial = location.href
+const expected = new URL(spec.url)
+if (location.origin !== expected.origin || location.pathname !== expected.pathname) throw new Error('login')
+const operator = window[spec.request.operatorGlobal]
+if (typeof operator !== 'string' || !operator.trim() || operator.length > 128 || /[\u0000-\u001f\u007f]/.test(operator)) throw new Error('login')
+const endpoint = new URL(spec.request.path, expected.origin)
+endpoint.searchParams.set(spec.request.operatorParameter, operator)
+const controller = new AbortController()
+const timer = setTimeout(() => controller.abort(), 15000)
+try {
+  const response = await fetch(endpoint.href, { method: 'POST', credentials: 'include', redirect: 'error', headers: { 'Content-Type': 'application/json' }, body: '{}', signal: controller.signal })
+  if (!response.ok || Number(response.headers.get('content-length')) > 4194304) throw new Error('unavailable')
+  const body = await response.text()
+  if (body.length > 4194304 || location.href !== initial || window[spec.request.operatorGlobal] !== operator) throw new Error('invalid')
+  const payload = JSON.parse(body)
+  if (payload[spec.response.successField] !== spec.response.successValue) throw new Error('invalid')
+  let rows = payload
+  for (const key of spec.response.recordsPath) rows = rows[key]
+  if (!Array.isArray(rows) || rows.length > 500) throw new Error('invalid')
+  return rows
+} finally {
+  clearTimeout(timer)
+}

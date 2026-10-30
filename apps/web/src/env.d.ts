@@ -23,7 +23,13 @@ interface DesktopBridgeV1 {
   quickCaptureStatus?: () => Promise<{ registered: boolean, accelerator: string }>
   onQuickCapture?: (callback: () => void) => () => void
   // Native dialogs and clipboard.
+  setWorkbenchOperationPending?: (pending: boolean) => Promise<void>
   copyText?: (text: string) => Promise<void>
+  saveTextFile?: (input: { filename: string, content: string }) => Promise<{ saved: boolean }>
+  openResourceSession?: (context: import('./resource-desktop').ResourceDesktopContext) => Promise<import('./resource-desktop').ResourceDesktopSession>
+  closeResourceSession?: (sessionId: string) => Promise<void>
+  resourceCredential?: (input: { sessionId: string, rowId: string, operation: 'show' | 'copy' | 'remove' }) => Promise<{ value?: string, copied?: boolean, removed?: boolean }>
+  importResourceAccounts?: (sessionId: string) => Promise<{ imported: boolean }>
   // Optional host code and bundled connectors.
   hostExtensions?: () => Promise<import('craft-hub').HostExtensionStatus>
   installHostExtension?: () => Promise<import('craft-hub').HostExtensionStatus>

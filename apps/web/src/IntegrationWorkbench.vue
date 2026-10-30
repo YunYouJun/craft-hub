@@ -4,27 +4,29 @@ import type { WorkbenchIntegrationView } from './store'
 import { workItemIdentityKey } from 'craft-hub/work-items'
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { api } from './api'
-import { FormSelect } from './components/ui/select'
 import { Badge } from './components/ui/badge'
 import { Button as UiButton } from './components/ui/button'
-import { completionActionId } from './home-work-data'
-import Icon from './NavigationIcon.vue'
+import { Input } from './components/ui/input'
+import { FormSelect } from './components/ui/select'
 import ConfigurationManager from './ConfigurationManager.vue'
+import { completionActionId } from './home-work-data'
 import { useI18n } from './i18n'
-import IntegrationResourceBrowser from './IntegrationResourceBrowser.vue'
+import { integrationMutationPending } from './integration-mutations'
 import IntegrationActionForm from './IntegrationActionForm.vue'
 import IntegrationConnectionSetup from './IntegrationConnectionSetup.vue'
-import MicrosoftTodoOpenButton from './MicrosoftTodoOpenButton.vue'
 import IntegrationEntityList from './IntegrationEntityList.vue'
+import IntegrationResourceBrowser from './IntegrationResourceBrowser.vue'
+import MicrosoftTodoOpenButton from './MicrosoftTodoOpenButton.vue'
+import Icon from './NavigationIcon.vue'
 import { useWorkbenchStore } from './store'
-import WorkbenchViewFrame from './WorkbenchViewFrame.vue'
 import { mergeIntegrationEntityPages } from './work-item-pagination'
+import WorkbenchViewFrame from './WorkbenchViewFrame.vue'
 
 const props = withDefaults(defineProps<{ embedded?: boolean, integrationId: string, viewId: string, initialScope?: 'global', initialProjectId?: string }>(), { embedded: false })
 const store = useWorkbenchStore()
 const { t, locale } = useI18n()
 
-type ListFilters = { query: string, status: string, assignee: string }
+interface ListFilters { query: string, status: string, assignee: string }
 
 interface BlockState {
   filters?: ListFilters
@@ -43,6 +45,8 @@ interface BlockState {
   writes: Map<string, { version: number, accountId?: string, entity: IntegrationEntityPage['items'][number] }>
 }
 
+const view = computed(() => store.integrationViews.find(candidate => candidate.integrationId === props.integrationId && candidate.id === props.viewId))
+
 const states = reactive<Record<string, BlockState>>({})
 const searches = ref<Record<string, string>>({})
 let contextGeneration = 0
@@ -52,7 +56,7 @@ let connectionTimer: ReturnType<typeof setInterval> | undefined
 onMounted(() => {
   connectionTimer = setInterval(() => {
     now.value = Date.now()
-    const due = view.value?.blocks.find(block => {
+    const due = view.value?.blocks.find((block) => {
       const status = connectionStatus(states[block.id]?.result)
       const expires = Date.parse(status?.session?.expiresAt ?? '')
       return status?.connected && Number.isFinite(expires) && expires - now.value <= 5 * 60_000
@@ -68,15 +72,19 @@ onBeforeUnmount(() => {
 })
 const inspectedProjectId = ref('')
 watch([() => props.initialScope, () => props.initialProjectId, () => store.selectedProjectId, () => store.projects], ([scope, explicitProjectId, projectId]) => {
-  inspectedProjectId.value = scope === 'global' ? '' : explicitProjectId !== undefined
-    ? explicitProjectId
-    : projectId || ''
+  inspectedProjectId.value = scope === 'global'
+    ? ''
+    : explicitProjectId !== undefined
+      ? explicitProjectId
+      : projectId || ''
 }, { immediate: true })
-const view = computed(() => store.integrationViews.find(candidate => candidate.integrationId === props.integrationId && candidate.id === props.viewId))
 const contribution = computed(() => store.integrationContributions.find(candidate => candidate.id === props.integrationId))
 const scopeSelection = computed({
   get: () => inspectedProjectId.value || 'global',
-  set: (value: string) => { inspectedProjectId.value = value === 'global' ? '' : value },
+  set: (value: string) => {
+    if (!integrationMutationPending())
+      inspectedProjectId.value = value === 'global' ? '' : value
+  },
 })
 const scopeOptions = computed(() => [
   { value: 'global', label: t('integrationGlobalScope') },
@@ -111,7 +119,8 @@ function connectionStatus(result: IntegrationActionResult | undefined): Integrat
 function currentSession(): IntegrationConnectionStatus['session'] {
   for (const block of view.value?.blocks ?? []) {
     const session = connectionStatus(states[block.id]?.result)?.session
-    if (session) return session
+    if (session)
+      return session
   }
 }
 
@@ -122,7 +131,8 @@ function listReadOnly(blockId: string): boolean {
 
 function sessionHint(status: IntegrationConnectionStatus): string {
   const session = status.session
-  if (!session) return ''
+  if (!session)
+    return ''
   if (session.expiresAt && Date.parse(session.expiresAt) <= now.value)
     return copy('授权已到期 · 请重新连接', 'Authorization expired · reconnect')
   if (session.renewal === 'failed')
@@ -134,9 +144,11 @@ function sessionHint(status: IntegrationConnectionStatus): string {
 
 async function restoreFilters(block: WorkbenchIntegrationView['blocks'][number]): Promise<void> {
   const accountKey = currentSession()?.cacheKey
-  if (!accountKey || !['entity-list', 'entity-search'].includes(block.type)) return
+  if (!accountKey || !['entity-list', 'entity-search'].includes(block.type))
+    return
   const state = stateFor(block.id)
-  if (state.filterAccount === accountKey) return
+  if (state.filterAccount === accountKey)
+    return
   const generation = contextGeneration
   try {
     const result = await api.integrationViewFilters(props.integrationId, { viewId: props.viewId, blockId: block.id, projectId: inspectedProjectId.value || undefined, accountKey })
@@ -151,7 +163,8 @@ async function restoreFilters(block: WorkbenchIntegrationView['blocks'][number])
 function saveFilters(blockId: string, filters: ListFilters): void {
   const state = stateFor(blockId)
   const accountKey = currentSession()?.cacheKey
-  if (!accountKey || state.filterAccount !== accountKey || JSON.stringify(state.filters) === JSON.stringify(filters)) return
+  if (!accountKey || state.filterAccount !== accountKey || JSON.stringify(state.filters) === JSON.stringify(filters))
+    return
   state.filters = filters
   clearTimeout(filterTimers.get(blockId))
   const integrationId = props.integrationId
@@ -391,7 +404,8 @@ async function loadBlocks(includeConfiguration = false): Promise<void> {
       delete states[block.id]
   }
   await Promise.all(currentView.blocks.map(block => restoreFilters(block)))
-  if (generation !== contextGeneration) return
+  if (generation !== contextGeneration)
+    return
   await Promise.all(currentView.blocks
     .filter(block => block.type === 'entity-list' || (includeConfiguration && block.type === 'configuration-manager'))
     .map(block => invoke(block)))
@@ -413,7 +427,7 @@ watch(
   },
   { immediate: true },
 )
-defineExpose({ refresh: refresh })
+defineExpose({ refresh })
 </script>
 
 <template>
@@ -424,14 +438,16 @@ defineExpose({ refresh: refresh })
     <section v-if="view" class="integration-content">
       <label v-if="view.scope === 'global-and-project'" class="integration-scope">
         <span>{{ t('integrationScope') }}</span>
-        <FormSelect v-model="scopeSelection" :options="scopeOptions" :aria-label="t('integrationScope')" />
+        <FormSelect v-model="scopeSelection" :options="scopeOptions" :disabled="integrationMutationPending()" :aria-label="t('integrationScope')" />
       </label>
 
       <aside v-if="diagnostics.length" class="integration-diagnostics" role="alert">
         <Icon name="error" />
         <div>
           <strong>{{ t('integrationNeedsAttention') }}</strong>
-          <p v-for="diagnostic in diagnostics" :key="diagnostic.message">{{ diagnostic.message }}</p>
+          <p v-for="diagnostic in diagnostics" :key="diagnostic.message">
+            {{ diagnostic.message }}
+          </p>
         </div>
       </aside>
 
@@ -447,7 +463,9 @@ defineExpose({ refresh: refresh })
             <Icon v-if="block.collapsible" class="integration-block-chevron" name="arrowRight" />
             <div>
               <h2>{{ actionTitle(block) }}</h2>
-              <p v-if="block.description">{{ translate(block.description) }}</p>
+              <p v-if="block.description">
+                {{ translate(block.description) }}
+              </p>
             </div>
             <UiButton v-if="block.type !== 'entity-search' && block.type !== 'action-form'" size="compact" :disabled="stateFor(block.id).loading" @click="block.type === 'connection-status' ? refresh() : invoke(block)">
               <Icon :name="stateFor(block.id).loading ? 'loading' : 'refresh'" />
@@ -455,12 +473,17 @@ defineExpose({ refresh: refresh })
             </UiButton>
           </component>
 
-          <p v-if="blockNeedsProject(block)" class="integration-empty-copy">{{ t('integrationProjectRequired') }}</p>
-          <p v-if="needsConnection(block)" class="integration-empty-copy" role="status">{{ copy('请先连接账号，完成后会自动读取事项。', 'Connect your account first. Items will load when authorization completes.') }}</p>
+          <p v-if="blockNeedsProject(block)" class="integration-empty-copy">
+            {{ t('integrationProjectRequired') }}
+          </p>
+          <p v-if="needsConnection(block)" class="integration-empty-copy" role="status">
+            {{ copy('请先连接账号，完成后会自动读取事项。', 'Connect your account first. Items will load when authorization completes.') }}
+          </p>
 
           <IntegrationResourceBrowser
             v-if="block.type === 'resource-browser' && contribution"
             :integration-id="integrationId" :contribution="contribution" :input="block.input"
+            :view-id="viewId" :block-id="block.id"
             :project-id="view.scope === 'global' ? undefined : inspectedProjectId || undefined"
           />
           <IntegrationActionForm
@@ -475,14 +498,16 @@ defineExpose({ refresh: refresh })
 
           <form v-if="block.type === 'entity-search'" class="integration-search" @submit.prevent="search(block)">
             <Icon name="search" />
-            <input v-model="searches[block.id]" type="search" :placeholder="t('integrationSearchPlaceholder')" :aria-label="actionTitle(block)">
+            <Input v-model="searches[block.id]" type="search" :placeholder="t('integrationSearchPlaceholder')" :aria-label="actionTitle(block)" />
             <UiButton type="submit" size="compact" :disabled="stateFor(block.id).loading">
               <Icon v-if="stateFor(block.id).loading" name="loading" />
               {{ t('search') }}
             </UiButton>
           </form>
 
-          <p v-if="stateFor(block.id).error" class="integration-error" role="alert">{{ translate(stateFor(block.id).error) }}</p>
+          <p v-if="stateFor(block.id).error" class="integration-error" role="alert">
+            {{ translate(stateFor(block.id).error) }}
+          </p>
 
           <p v-if="entityPage(stateFor(block.id).result) && (stateFor(block.id).stale || entityPage(stateFor(block.id).result)?.cache)" class="integration-cache-notice" role="status">
             {{ pageProgress(block.id) }}
@@ -494,9 +519,13 @@ defineExpose({ refresh: refresh })
             <div class="integration-connection-body">
               <div class="integration-connection-title">
                 <strong>{{ connectionStatus(stateFor(block.id).result)?.session?.expiresAt && Date.parse(connectionStatus(stateFor(block.id).result)!.session!.expiresAt!) <= now ? copy('授权已到期', 'Authorization expired') : connectionStatus(stateFor(block.id).result)?.connected ? t('integrationConnected') : t('integrationDisconnected') }}</strong>
-                <Badge v-if="connectionStatus(stateFor(block.id).result)?.accountLabel" :variant="connectionStatus(stateFor(block.id).result)?.connected ? 'success' : 'secondary'">{{ connectionStatus(stateFor(block.id).result)?.accountLabel }}</Badge>
+                <Badge v-if="connectionStatus(stateFor(block.id).result)?.accountLabel" :variant="connectionStatus(stateFor(block.id).result)?.connected ? 'success' : 'secondary'">
+                  {{ connectionStatus(stateFor(block.id).result)?.accountLabel }}
+                </Badge>
               </div>
-              <p v-if="connectionStatus(stateFor(block.id).result)?.message">{{ translate(connectionStatus(stateFor(block.id).result)?.message ?? '') }}</p>
+              <p v-if="connectionStatus(stateFor(block.id).result)?.message">
+                {{ translate(connectionStatus(stateFor(block.id).result)?.message ?? '') }}
+              </p>
             </div>
           </div>
 
@@ -526,9 +555,9 @@ defineExpose({ refresh: refresh })
 
           <IntegrationEntityList
             v-else-if="entityPage(stateFor(block.id).result)"
+            :key="JSON.stringify([integrationId, viewId, inspectedProjectId, locale, currentSession()?.cacheKey, entityPage(stateFor(block.id).result)?.currentUser?.id])"
             :read-only="listReadOnly(block.id)"
             :filter-state="stateFor(block.id).filters"
-            @filters-changed="saveFilters(block.id, $event)"
             :items="entityPage(stateFor(block.id).result)!.items"
             :status-filter="block.statusFilter"
             :assignee-filter="block.assigneeFilter"
@@ -536,28 +565,34 @@ defineExpose({ refresh: refresh })
             :status-actions="statusActionsFor(block)"
             :completion-actions="completionActionsFor(block)"
             :work-item-actions="workItemActionsFor(block)"
-            :key="JSON.stringify([integrationId, viewId, inspectedProjectId, locale, currentSession()?.cacheKey, entityPage(stateFor(block.id).result)?.currentUser?.id])"
             :loading="stateFor(block.id).loading"
             :configuration-action-id="contribution?.actions.find(action => action.operation === 'configuration.list' && action.id === block.actionId) ? contribution.actions.find(action => action.operation === 'configuration.update')?.id : undefined"
-            @configuration-updated="stateFor(block.id).result = $event"
             :source-context="{ integrationId, actionId: block.actionId, projectId: view.scope === 'global' ? undefined : inspectedProjectId || undefined }"
+            @filters-changed="saveFilters(block.id, $event)"
+            @configuration-updated="stateFor(block.id).result = $event"
             @updated="applyEntityUpdate(block.id, $event)"
           />
 
-          <p v-else-if="stateFor(block.id).loading" class="integration-loading"><Icon name="loading" /> {{ t('loading') }}</p>
+          <p v-else-if="stateFor(block.id).loading" class="integration-loading">
+            <Icon name="loading" /> {{ t('loading') }}
+          </p>
 
           <footer v-if="entityPage(stateFor(block.id).result) && ['entity-list', 'entity-search'].includes(block.type)" class="integration-page-progress" :data-testid="`integration-pagination-${block.id}`">
             <div role="status" aria-live="polite">
               <span>{{ pageProgress(block.id) }}</span>
               <time v-if="stateFor(block.id).fetchedAt" :datetime="stateFor(block.id).fetchedAt">{{ copy('最近成功读取', 'Last successful read') }}: {{ new Date(stateFor(block.id).fetchedAt!).toLocaleString(locale) }}</time>
             </div>
-            <UiButton v-if="stateFor(block.id).error" size="compact" :disabled="stateFor(block.id).loading" @click="retry(block)">{{ copy('重试', 'Retry') }}</UiButton>
+            <UiButton v-if="stateFor(block.id).error" size="compact" :disabled="stateFor(block.id).loading" @click="retry(block)">
+              {{ copy('重试', 'Retry') }}
+            </UiButton>
             <UiButton v-else-if="entityPage(stateFor(block.id).result)?.nextCursor" size="compact" :disabled="stateFor(block.id).loading" @click="loadMore(block)">
               <Icon v-if="stateFor(block.id).loading" name="loading" />
               {{ copy('加载更多', 'Load more') }}
             </UiButton>
           </footer>
-          <UiButton v-else-if="stateFor(block.id).error && readBlock(block)" class="integration-retry" size="compact" :disabled="stateFor(block.id).loading" @click="retry(block)">{{ copy('重试', 'Retry') }}</UiButton>
+          <UiButton v-else-if="stateFor(block.id).error && readBlock(block)" class="integration-retry" size="compact" :disabled="stateFor(block.id).loading" @click="retry(block)">
+            {{ copy('重试', 'Retry') }}
+          </UiButton>
         </component>
       </div>
     </section>

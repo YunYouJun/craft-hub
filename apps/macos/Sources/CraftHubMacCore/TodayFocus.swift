@@ -53,13 +53,13 @@ public struct TodayFocusSnapshot: Decodable, Sendable {
 }
 
 /// Read-only presentation of the same personal tasks and classifications used by the web client.
-public struct TodayWorkBrowser: Decodable, Sendable {
-  public struct Collection: Decodable, Identifiable, Sendable {
+public struct TodayWorkBrowser: Decodable, Equatable, Sendable {
+  public struct Collection: Decodable, Equatable, Identifiable, Sendable {
     public let key: String
     public let title: String
     public var id: String { key }
   }
-  public struct Item: Decodable, Identifiable, Sendable {
+  public struct Item: Decodable, Equatable, Identifiable, Sendable {
     public let key: String
     public let title: String
     public let collectionKey: String?

@@ -4,17 +4,18 @@ import type { HomeWorkSource } from './personal-workbench'
 import { isActiveWorkItem, isPersonalWorkItem, workItemIdentityKey, workItemSourceRefSchema } from 'craft-hub/work-items'
 import { computed, onUnmounted, ref, useId, watch } from 'vue'
 import { Button as UiButton } from './components/ui/button'
+import { Input } from './components/ui/input'
 import { FormSelect } from './components/ui/select'
 import { useHomeWorkDataStore } from './home-work-data'
-import IntegrationEntityStatus from './IntegrationEntityStatus.vue'
-import IntegrationEntityMetadata from './IntegrationEntityMetadata.vue'
-import { Icon } from './icons'
 import { useI18n } from './i18n'
-import IntegrationWorkItemDetail from './IntegrationWorkItemDetail.vue'
+import { Icon } from './icons'
 import IntegrationConfigurationToggle from './IntegrationConfigurationToggle.vue'
+import IntegrationEntityMetadata from './IntegrationEntityMetadata.vue'
+import IntegrationEntityStatus from './IntegrationEntityStatus.vue'
 import IntegrationStatusTransitionControl from './IntegrationStatusTransitionControl.vue'
-import VisualIcon from './VisualIcon.vue'
+import IntegrationWorkItemDetail from './IntegrationWorkItemDetail.vue'
 import { useWorkbenchStore } from './store'
+import VisualIcon from './VisualIcon.vue'
 import WorkHandoffDialog from './WorkHandoffDialog.vue'
 
 interface IntegrationStatusActions {
@@ -95,7 +96,10 @@ watch([() => props.assigneeFilter, () => props.currentUser?.id], () => {
     return
   assigneeSelection.value = props.assigneeFilter === 'current-user' && props.currentUser ? 'current-user' : 'all'
 }, { immediate: true })
-watch(() => props.statusFilter, (value) => { if (!props.filterState) statusSelection.value = value ?? 'all' })
+watch(() => props.statusFilter, (value) => {
+  if (!props.filterState)
+    statusSelection.value = value ?? 'all'
+})
 watch(() => props.filterState, (value) => {
   if (!value)
     return
@@ -164,7 +168,9 @@ async function complete(item: IntegrationEntity): Promise<void> {
     await setCompletion(item, true)
     clearTimeout(completionTimer)
     completion.value = { previous: item }
-    completionTimer = setTimeout(() => { completion.value = undefined }, 8000)
+    completionTimer = setTimeout(() => {
+      completion.value = undefined
+    }, 8000)
   }
   catch (caught) { completionFailure(item.title, caught) }
   finally { completing.value.delete(key) }
@@ -235,7 +241,8 @@ const visibleItems = computed(() => {
     if (props.statusFilter && statusSelection.value.startsWith('status:') && statusKey(item) !== statusSelection.value)
       return false
     if (props.assigneeFilter) {
-      const accountId = assigneeSelection.value === 'current-user' ? props.currentUser?.id
+      const accountId = assigneeSelection.value === 'current-user'
+        ? props.currentUser?.id
         : assigneeSelection.value.startsWith('account:') ? assigneeSelection.value.slice(8) : undefined
       if (assigneeSelection.value === 'current-user' && !isPersonalWorkItem(item, props.currentUser))
         return false
@@ -321,8 +328,7 @@ function searchableValues(item: IntegrationEntity): string[] {
     ...Object.values(item.metadata ?? {}),
     ...(item.assignees ?? []).flatMap(account => [account.id, account.label]),
     ...(item.details ?? []).flatMap(detail => [detail.label, detail.value]),
-  ].filter((value): value is string | number | boolean => value !== null && value !== undefined)
-    .map(String)
+  ].filter((value): value is string | number | boolean => value !== null && value !== undefined).map(String)
 }
 
 function descriptionText(value: string): string {
@@ -347,7 +353,7 @@ function updatedTime(item: IntegrationEntity): { date: string, time: string, raw
     <header v-if="items.length" class="integration-entity-toolbar">
       <label>
         <Icon name="search" />
-        <input v-model="query" type="search" :placeholder="t('integrationFilterItems')" :aria-label="t('integrationFilterItems')">
+        <Input v-model="query" type="search" :placeholder="t('integrationFilterItems')" :aria-label="t('integrationFilterItems')" />
       </label>
       <div v-if="statusFilter" class="integration-status-filter">
         <label :for="statusFilterId">{{ t('integrationStatusFilter') }}</label>
@@ -360,15 +366,27 @@ function updatedTime(item: IntegrationEntity): { date: string, time: string, raw
       <span aria-live="polite">{{ t('integrationItemCount', { visible: String(visibleItems.length), total: String(items.length) }) }}</span>
     </header>
 
-    <p v-if="assigneeFilter && items.length && !currentUser" :id="identityHintId" class="integration-filter-hint" role="status">{{ t('integrationCurrentUserUnavailable') }}</p>
-    <p v-if="sourceError" class="integration-inline-error" role="alert">{{ sourceError }}</p>
+    <p v-if="assigneeFilter && items.length && !currentUser" :id="identityHintId" class="integration-filter-hint" role="status">
+      {{ t('integrationCurrentUserUnavailable') }}
+    </p>
+    <p v-if="sourceError" class="integration-inline-error" role="alert">
+      {{ sourceError }}
+    </p>
     <div v-if="completion" class="integration-completion" role="status">
       <span><Icon name="check" />{{ copy(`已完成「${completion.previous.title}」`, `Completed “${completion.previous.title}”`) }}</span>
-      <UiButton variant="ghost" size="compact" :disabled="completion.undoing" @click="undoCompletion">{{ completion.undoing ? copy('正在撤销…', 'Undoing…') : copy('撤销', 'Undo') }}</UiButton>
+      <UiButton variant="ghost" size="compact" :disabled="completion.undoing" @click="undoCompletion">
+        {{ completion.undoing ? copy('正在撤销…', 'Undoing…') : copy('撤销', 'Undo') }}
+      </UiButton>
     </div>
-    <p v-if="completionError" class="integration-inline-error" role="alert">{{ completionError }}</p>
-    <p v-if="!items.length" class="integration-empty-copy">{{ t('integrationNoResults') }}</p>
-    <p v-else-if="!visibleItems.length" class="integration-empty-copy">{{ t('integrationNoFilteredResults') }}</p>
+    <p v-if="completionError" class="integration-inline-error" role="alert">
+      {{ completionError }}
+    </p>
+    <p v-if="!items.length" class="integration-empty-copy">
+      {{ t('integrationNoResults') }}
+    </p>
+    <p v-else-if="!visibleItems.length" class="integration-empty-copy">
+      {{ t('integrationNoFilteredResults') }}
+    </p>
     <div v-else class="integration-entities" :class="{ 'has-updated-column': showUpdatedAt, 'has-priority-column': showPriority, 'integration-configuration-list': configurationActionId }">
       <div v-if="showColumns" class="integration-entity-columns">
         <span class="integration-item-column">{{ t('integrationItemColumn') }}</span>
@@ -394,7 +412,9 @@ function updatedTime(item: IntegrationEntity): { date: string, time: string, raw
               </button>
               <span v-else-if="depth > 0" class="integration-hierarchy-branch app-icon i-lucide-corner-down-right" aria-hidden="true" />
             </div>
-            <button v-if="!context && canComplete(item)" type="button" role="checkbox" class="integration-complete" :aria-checked="completing.has(key)" :aria-label="`${copy('完成', 'Complete')} ${item.title}`" :title="copy('标记为已完成', 'Mark as completed')" :disabled="completing.has(key)" @click="complete(item)"><Icon :name="completing.has(key) ? 'check' : 'pending'" /></button>
+            <button v-if="!context && canComplete(item)" type="button" role="checkbox" class="integration-complete" :aria-checked="completing.has(key)" :aria-label="`${copy('完成', 'Complete')} ${item.title}`" :title="copy('标记为已完成', 'Mark as completed')" :disabled="completing.has(key)" @click="complete(item)">
+              <Icon :name="completing.has(key) ? 'check' : 'pending'" />
+            </button>
             <span v-else-if="item.icon || configurationActionId" class="integration-entity-icon" aria-hidden="true">
               <VisualIcon v-if="item.icon" :icon="item.icon" fallback="package" />
               <span v-else class="app-icon i-ri-puzzle-line" />
@@ -405,9 +425,9 @@ function updatedTime(item: IntegrationEntity): { date: string, time: string, raw
                 class="integration-entity-link"
                 :href="selectable && !context ? undefined : item.url"
                 :type="selectable && !context ? 'button' : undefined"
-                @click="selectable && !context && emit('selected', item)"
                 :target="item.url ? '_blank' : undefined"
                 :rel="item.url ? 'noreferrer' : undefined"
+                @click="selectable && !context && emit('selected', item)"
               >
                 <span class="integration-entity-body">
                   <span class="integration-entity-title">
@@ -452,7 +472,9 @@ function updatedTime(item: IntegrationEntity): { date: string, time: string, raw
           </span>
           <div class="integration-entity-actions">
             <a v-if="item.url" class="integration-original-link" :href="item.url" target="_blank" rel="noopener noreferrer" :aria-label="t('integrationOpenOriginal', { title: item.title })" :title="t('integrationOpenOriginal', { title: item.title })"><Icon name="externalLink" /></a>
-            <UiButton v-if="!context && canPrepareHandoff(item)" variant="ghost" size="compact" class="integration-handoff-trigger" :aria-label="`${copy('准备交接', 'Prepare handoff')} ${item.title}`" @click="prepareHandoff(item)"><Icon name="copy" />{{ copy('准备交接', 'Prepare handoff') }}</UiButton>
+            <UiButton v-if="!context && canPrepareHandoff(item)" variant="ghost" size="compact" class="integration-handoff-trigger" :aria-label="`${copy('准备交接', 'Prepare handoff')} ${item.title}`" @click="prepareHandoff(item)">
+              <Icon name="copy" />{{ copy('准备交接', 'Prepare handoff') }}
+            </UiButton>
             <IntegrationConfigurationToggle
               v-if="!context && configurationActionId && sourceContext && item.configurationToggle"
               :key="`${sourceContext.projectId ?? 'global'}:${configurationActionId}`"

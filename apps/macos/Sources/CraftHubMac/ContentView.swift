@@ -11,23 +11,49 @@ struct ContentView: View {
     NavigationSplitView {
       List(
         selection: Binding(
-          get: { model.selection },
-          set: {
-            model.selection = $0
-            model.select($0)
-          })
+          get: { model.sidebarSelection },
+          set: model.selectSidebar)
       ) {
         Section {
           ForEach(Destination.primary) { destination in
-            Label(destination.title, systemImage: destination.symbol).tag(destination)
+            SidebarDestinationLabel(destination: destination)
+              .listItemTint(.monochrome)
+              .modifier(SidebarRowAppearance(selected: model.sidebarSelection == .builtin(destination)))
+              .tag(SidebarDestination.builtin(destination))
+          }
+        }
+        if !model.pluginNavigation.workbenches.isEmpty || model.pluginNavigation.error != nil {
+          Section(text.copy("插件工作台", "Plugin Workbenches")) {
+            ForEach(model.pluginNavigation.workbenches) { workbench in
+              Label {
+                Text(workbench.title).foregroundStyle(Color(nsColor: .labelColor))
+              } icon: {
+                SidebarPluginIcon(
+                  icon: workbench.icon, selected: model.sidebarSelection == .pluginWorkbench(workbench.path))
+              }
+              .listItemTint(.monochrome)
+              .modifier(SidebarRowAppearance(selected: model.sidebarSelection == .pluginWorkbench(workbench.path)))
+              .tag(SidebarDestination.pluginWorkbench(workbench.path))
+              .disabled(!model.pluginNavigation.canOpen)
+              .help(workbench.description ?? workbench.title)
+            }
+            if let error = model.pluginNavigation.error {
+              Button(text.copy("重新读取插件入口", "Reload Plugin Entries")) {
+                Task { await model.loadPluginNavigation(locale: text.chinese ? "zh-CN" : "en", force: true) }
+              }.help(error)
+            }
           }
         }
         Section(text.manageSection) {
           ForEach(Destination.manage) { destination in
-            Label(destination.title, systemImage: destination.symbol).tag(destination)
+            SidebarDestinationLabel(destination: destination)
+              .listItemTint(.monochrome)
+              .modifier(SidebarRowAppearance(selected: model.sidebarSelection == .builtin(destination)))
+              .tag(SidebarDestination.builtin(destination))
           }
         }
       }
+      .listStyle(.sidebar)
       .navigationSplitViewColumnWidth(min: 180, ideal: 210, max: 280)
       .dropDestination(for: URL.self) { urls, _ in
         guard urls.contains(where: \.isFileURL) else { return false }
@@ -35,9 +61,12 @@ struct ContentView: View {
         return true
       }
       .onAppear { PerformanceTrace.mark(.sidebarAppeared) }
+      .task(id: "\(model.connectionGeneration)-\(text.chinese)") {
+        await model.loadPluginNavigation(locale: text.chinese ? "zh-CN" : "en")
+      }
     } detail: {
       detail
-        .navigationTitle(model.selection?.title ?? "Craft Hub")
+        .navigationTitle(model.navigationTitle)
         .toolbar { toolbar }
     }
     .alert(
@@ -56,6 +85,14 @@ struct ContentView: View {
         set: { if !$0 { model.workItemActions.close() } })
     ) {
       WorkItemQuickActionsSheet(model: model.workItemActions)
+    }
+    .sheet(
+      item: Binding(
+        get: { model.resourceBridge.importRequest }, set: { if $0 == nil { model.resourceBridge.closeImport() } })
+    ) { request in
+      ResourceBrowserImportView(declaration: request.declaration, vault: request.vault) { metadata in
+        await model.resourceBridge.saveImport(request, metadata: metadata)
+      }
     }
   }
 
@@ -84,12 +121,14 @@ struct ContentView: View {
           Text(message).font(.caption).foregroundStyle(.secondary).padding(8)
         }
         ZStack {
-          // Keep one bootstrapped web view alive while native pages are visible, preserving web drafts and history.
-          WorkbenchWebView(url: connection.bootstrapURL, model: model)
-            .id(connection.origin)
-            .opacity(model.presentsNativeContent ? 0 : 1)
-            .allowsHitTesting(!model.presentsNativeContent)
-            .accessibilityHidden(model.presentsNativeContent)
+          // Create on first use, then retain the same session across native navigation and window recreation.
+          if model.webContentRequested {
+            WorkbenchWebView(url: connection.bootstrapURL, model: model)
+              .id(model.connectionGeneration)
+              .opacity(model.presentsNativeContent ? 0 : 1)
+              .allowsHitTesting(!model.presentsNativeContent)
+              .accessibilityHidden(model.presentsNativeContent)
+          }
           if model.presentsNativeContent {
             if model.selection == .overview {
               TodayFocusView(
@@ -98,11 +137,29 @@ struct ContentView: View {
               )
               .onAppear { PerformanceTrace.mark(.nativePageAppeared) }
             } else if model.selection == .projects {
-              ProjectsView(
-                projects: model.projects, findRequest: model.findRequest,
-                openProject: { model.selectProject($0, capability: nil) },
-                showWorkbench: model.showWebWorkbench
-              )
+              Group {
+                if model.projectCommand.capabilityID != nil {
+                  ProjectCommandView(
+                    model: model.projectCommand, externalTerminal: model.projectTerminal,
+                    back: model.closeProjectCommand,
+                    openWeb: {
+                      if let project = model.projectCommand.projectID {
+                        model.showProjectWeb(project, capability: model.projectCommand.capabilityID)
+                      }
+                    })
+                } else if model.projectDetails.projectID != nil {
+                  ProjectDetailsView(
+                    model: model.projectDetails, externalTerminal: model.projectTerminal,
+                    findRequest: model.findRequest,
+                    back: { model.select(.projects) }, openWeb: model.showProjectWeb,
+                    openCommand: { project, capability in model.showProjectCommand(project, capability: capability) })
+                } else {
+                  ProjectsView(
+                    projects: model.projects, findRequest: model.findRequest,
+                    openProject: { model.selectProject($0, capability: nil) },
+                    showWorkbench: model.showWebWorkbench)
+                }
+              }
               .onAppear { PerformanceTrace.mark(.nativePageAppeared) }
             } else if model.selection == .marketplace {
               PluginsView(
@@ -115,13 +172,6 @@ struct ContentView: View {
             } else if model.selection == .diagnostics {
               DiagnosticsView(
                 model: model.diagnostics, findRequest: model.findRequest, node: node, openTarget: model.openDiagnostic
-              )
-              .onAppear { PerformanceTrace.mark(.nativePageAppeared) }
-            } else if model.selection == .workbenches {
-              IntegrationWorkbenchView(
-                model: model.integrations, projects: model.projects.projects, findRequest: model.findRequest,
-                openWeb: model.showIntegrationWeb, openConfiguration: model.openConfiguration,
-                workItemActions: model.workItemActions
               )
               .onAppear { PerformanceTrace.mark(.nativePageAppeared) }
             } else if model.selection == .environment, let machine = model.machine {
@@ -173,14 +223,14 @@ struct ContentView: View {
             if sidecar.readingLoginPath { ProgressView().controlSize(.small) }
           }
           PrivateNodeControls(sidecar: sidecar)
-        }.frame(maxWidth: 520)
+        }.frame(maxWidth: NativePageLayout.ContentWidth.emptyState.maximum)
       }
     case .failed(let message):
       StatusView(symbol: "xmark.octagon", title: text.failedTitle, message: message) {
         VStack(spacing: 14) {
           Button(text.retry) { sidecar.start() }.buttonStyle(.borderedProminent).disabled(sidecar.privateNode.busy)
           PrivateNodeControls(sidecar: sidecar)
-        }.frame(maxWidth: 520)
+        }.frame(maxWidth: NativePageLayout.ContentWidth.emptyState.maximum)
       }
     }
   }
@@ -195,9 +245,12 @@ struct ContentView: View {
     ToolbarItemGroup(placement: .primaryAction) {
       if model.selection?.isNative == true && model.showsWebContent {
         Button {
-          model.select(model.selection)
+          model.returnToNativeContent()
         } label: {
-          Label(text.copy("返回列表", "Back to List"), systemImage: "list.bullet")
+          Label(
+            model.selection == .projects && model.projectDetails.projectID != nil
+              ? text.copy("返回原生项目", "Back to Native Project") : text.copy("返回列表", "Back to List"),
+            systemImage: "list.bullet")
         }
       }
       Button {
@@ -234,11 +287,11 @@ struct StatusView<Actions: View>: View {
           .foregroundStyle(.secondary)
           .multilineTextAlignment(.center)
           .textSelection(.enabled)
-          .frame(maxWidth: 460)
       }
       HStack { actions() }.padding(.top, 4)
     }
-    .padding(32)
+    .nativePageContent(.emptyState)
+    .padding(.vertical, 32)
     .frame(maxWidth: .infinity, maxHeight: .infinity)
   }
 }

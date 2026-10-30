@@ -6,6 +6,7 @@ import type { CommandInputValues, ProjectAccentColor, ProjectCatalogSnapshot, Pr
 import type { UserConfigStatus } from './user-config'
 import type { ProjectChangeEvent } from './watcher'
 import { Buffer } from 'node:buffer'
+import { createHash } from 'node:crypto'
 import { createReadStream } from 'node:fs'
 import { access } from 'node:fs/promises'
 import { createServer } from 'node:http'
@@ -17,6 +18,8 @@ import { AgentConnectionService } from './agent-connection'
 import { handleAgentConnectionRequest } from './agent-connection-http'
 import { applicationRevealRequestSchema } from './application-maintenance'
 import { CommandInputValidationError } from './command-inputs'
+import { CommandReviewError } from './command-review'
+import { CommandRunGuardError } from './command-run-guard'
 import { projectConfigSchemaRevision } from './config'
 import { startDeliveryConnection } from './delivery/connection'
 import { dotfilesOperations, DotfilesTrustError, DotfilesValidationError } from './dotfiles-manager'
@@ -73,6 +76,32 @@ function commandInputValues(value: unknown): CommandInputValues {
   if (!entries.every(([, input]) => typeof input === 'string'))
     throw new CommandInputValidationError('inputs must be an object of strings')
   return Object.fromEntries(entries) as CommandInputValues
+}
+
+// Identity remains opaque and in memory. Existing host authorization validates these credentials first.
+function commandReviewOwner(request: IncomingMessage): string {
+  return createHash('sha256').update(JSON.stringify([request.headers.authorization ?? '', request.headers.cookie ?? ''])).digest('hex')
+}
+
+function terminalInput(body: Record<string, unknown>): string | Uint8Array {
+  if (!body || typeof body !== 'object' || Array.isArray(body))
+    throw new CommandInputValidationError('Terminal input must be an object')
+  const text = Object.hasOwn(body, 'data')
+  const encoded = Object.hasOwn(body, 'dataBase64')
+  if (text && encoded)
+    throw new CommandInputValidationError('Use either data or dataBase64, not both')
+  if (text && typeof body.data === 'string')
+    return body.data
+  if (encoded && typeof body.dataBase64 === 'string') {
+    const value = body.dataBase64
+    if (value.length <= 4 * Math.ceil(65536 / 3) && /^(?:[A-Z0-9+/]{4})*(?:[A-Z0-9+/]{2}==|[A-Z0-9+/]{3}=)?$/i.test(value)) {
+      const data = Buffer.from(value, 'base64')
+      if (data.byteLength <= 65536 && data.toString('base64') === value)
+        return data
+    }
+    throw new CommandInputValidationError('dataBase64 must be canonical base64 containing at most 64 KiB')
+  }
+  throw new CommandInputValidationError('Terminal input requires data text or dataBase64 bytes')
 }
 
 function projectDescriptionChanges(value: unknown): ProjectDescriptionChange[] {
@@ -196,16 +225,27 @@ async function startProtectedServer(options: CraftHubServerOptions, runtime: Cra
   }
   let teamFollowStatus: Array<{ id: string, error?: string }> = []
   let refreshing = false
+  const sharedConfigurationStatus = (): string => JSON.stringify({
+    state: runtime.accountSync.status.state,
+    error: runtime.accountSync.status.error,
+    teams: [...teamFollowStatus].sort((left, right) => left.id.localeCompare(right.id)),
+  })
   async function refreshSharedConfiguration(resolution?: 'use-local' | 'use-cloud'): Promise<void> {
     if (refreshing)
       return
     refreshing = true
     try {
+      const previousStatus = sharedConfigurationStatus()
+      const refreshesContent = Boolean(runtime.accountProvider?.sync)
+        || (await runtime.workspaceSubscriptions.list()).some(subscription => subscription.autoFollow)
+      const before = refreshesContent ? await runtime.accountSync.configurationRevision() : undefined
       if (runtime.accountProvider?.sync)
         await runtime.accountSync.synchronize(resolution)
       else
-        teamFollowStatus = await runtime.withConfiguration(() => runtime.workspaceSubscriptions.followTeams())
-      broadcastEvent('configuration-sync', runtime.accountSync.status)
+        teamFollowStatus = refreshesContent ? await runtime.withConfiguration(() => runtime.workspaceSubscriptions.followTeams()) : []
+      // A completed check is not a configuration change. Successful timestamps remain available through the API.
+      if ((before !== undefined && before !== await runtime.accountSync.configurationRevision()) || previousStatus !== sharedConfigurationStatus())
+        broadcastEvent('configuration-sync', { ...runtime.accountSync.status, teams: teamFollowStatus })
     }
     finally {
       refreshing = false
@@ -1103,9 +1143,7 @@ async function startProtectedServer(options: CraftHubServerOptions, runtime: Cra
           return sendJson(response, 200, await runtime.cancelRun(runId))
         if (request.method === 'POST' && parts[3] === 'input') {
           const body = await jsonBody(request)
-          if (typeof body.data !== 'string')
-            return sendJson(response, 400, { error: 'data is required' })
-          runtime.writeRun(runId, body.data)
+          runtime.writeRun(runId, terminalInput(body))
           return sendJson(response, 202, { accepted: true })
         }
         if (request.method === 'POST' && parts[3] === 'resize') {
@@ -1387,8 +1425,14 @@ async function startProtectedServer(options: CraftHubServerOptions, runtime: Cra
           createReadStream(path).pipe(response)
           return
         }
-        if (request.method === 'POST' && parts[3] === 'trust' && parts.length === 4)
-          return sendJson(response, 200, await runtime.projects.setTrust(projectId, 'trusted'))
+        if (request.method === 'POST' && parts[3] === 'trust' && parts.length === 4) {
+          const body = await jsonBody(request, 64 * 1024)
+          if (body.reviewId !== undefined && typeof body.reviewId !== 'string')
+            return sendJson(response, 400, { error: 'reviewId must be a string' })
+          return sendJson(response, 200, body.reviewId === undefined
+            ? await runtime.projects.setTrust(projectId, 'trusted')
+            : await runtime.commandReviews.trust(commandReviewOwner(request), projectId, body.reviewId))
+        }
         if (request.method === 'DELETE' && parts[3] === 'trust' && parts.length === 4)
           return sendJson(response, 200, await runtime.projects.setTrust(projectId, 'untrusted'))
         if (request.method === 'POST' && parts[3] === 'config' && parts[4] === 'initialize') {
@@ -1408,10 +1452,35 @@ async function startProtectedServer(options: CraftHubServerOptions, runtime: Cra
             return sendJson(response, 400, { error: 'capabilityId is required' })
           return sendJson(response, 200, await runtime.previewCommand(projectId, body.capabilityId, commandInputValues(body.inputs)))
         }
+        if (parts[3] === 'command-review') {
+          if (runtime.hostEnvironment.kind !== 'local' || !addressesThisSocket(request.headers.host ?? '', request)
+            || request.headers['sec-fetch-site'] === 'cross-site'
+            || (request.headers.origin && request.headers.origin !== `http://${request.headers.host}`)
+            || request.headers['content-type']?.split(';')[0]?.trim().toLowerCase() !== 'application/json') {
+            return sendJson(response, 403, { error: 'Command review requires a local same-origin JSON request' })
+          }
+          if (url.search)
+            return sendJson(response, 400, { error: 'Command reviews accept no query parameters' })
+          if (request.method === 'POST' && parts.length === 4) {
+            const body = await jsonBody(request, 64 * 1024)
+            if (typeof body.capabilityId !== 'string')
+              return sendJson(response, 400, { error: 'capabilityId is required' })
+            return sendJson(response, 200, await runtime.commandReviews.prepare(commandReviewOwner(request), projectId, body.capabilityId, commandInputValues(body.inputs)))
+          }
+          if (request.method === 'DELETE' && parts.length === 5) {
+            runtime.commandReviews.cancel(commandReviewOwner(request), projectId, parts[4]!)
+            return sendJson(response, 200, { cancelled: true })
+          }
+          return sendJson(response, 405, { error: 'Method not allowed' })
+        }
         if (request.method === 'POST' && parts[3] === 'run') {
           const body = await jsonBody(request)
           if (typeof body.capabilityId !== 'string')
             return sendJson(response, 400, { error: 'capabilityId is required' })
+          if (body.reviewId !== undefined && typeof body.reviewId !== 'string')
+            return sendJson(response, 400, { error: 'reviewId must be a string' })
+          const inputs = commandInputValues(body.inputs)
+          const approval = body.reviewId === undefined ? undefined : await runtime.commandReviews.consume(commandReviewOwner(request), projectId, body.reviewId, body.capabilityId, inputs)
           const pendingOutput: string[] = []
           let streaming = false
           const handle = await runtime.run(projectId, body.capabilityId, (event) => {
@@ -1420,13 +1489,15 @@ async function startProtectedServer(options: CraftHubServerOptions, runtime: Cra
               response.write(line)
             else
               pendingOutput.push(line)
-          }, commandInputValues(body.inputs))
+          }, inputs, approval)
           response.writeHead(200, {
             'cache-control': 'no-cache, no-transform',
             'content-type': 'application/x-ndjson; charset=utf-8',
             'x-accel-buffering': 'no',
           })
-          response.write(`${JSON.stringify({ type: 'start', run: handle.run })}\n`)
+          // Output emitted during startup already lives in handle.run and pendingOutput.
+          // Start at an empty output boundary, then replay those chunks exactly once.
+          response.write(`${JSON.stringify({ type: 'start', run: { ...handle.run, stdout: '', stderr: '' } })}\n`)
           streaming = true
           for (const line of pendingOutput)
             response.write(line)
@@ -1447,6 +1518,8 @@ async function startProtectedServer(options: CraftHubServerOptions, runtime: Cra
       sendJson(response, 404, { error: 'Not found' })
     }
     catch (error) {
+      if (error instanceof CommandReviewError || error instanceof CommandRunGuardError)
+        return sendJson(response, error instanceof CommandReviewError ? error.status : 409, { error: error.message, reviewRequired: true })
       if (error instanceof IntegrationFormError)
         return sendJson(response, error.status, { error: error.message })
       if (error instanceof WorkItemProjectConflictError)

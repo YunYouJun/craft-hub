@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { CatalogPluginV1, ManagedPlugin, MarketplaceSource, PluginDependencyV1, PluginDocumentPreview, PluginManifestV1 } from 'craft-hub'
+import { marketplacePackMembers } from 'craft-hub/marketplace-model'
 import { maxSatisfying, satisfies } from 'semver'
 import { computed, ref, watch } from 'vue'
 import { api } from './api'
@@ -11,6 +12,8 @@ import { marketplaceActionDisabled, marketplaceActionIcons, marketplaceActionLab
 import { pluginIconUrl } from './plugin-icon'
 import { pluginDescription, pluginDisplayName } from './plugin-text'
 import MarkdownPreview from './MarkdownPreview.vue'
+import PluginPackContents from './PluginPackContents.vue'
+import PluginPackIcon from './PluginPackIcon.vue'
 
 type CatalogItem = CatalogPluginV1 & { sourceId: string, sourceName: string, sourceKind: MarketplaceSource['kind'] }
 type PluginTarget = Pick<CatalogItem, 'displayName' | 'package' | 'sourceId' | 'version'>
@@ -62,6 +65,7 @@ const permissionReasons = computed(() => ({ ...(metadata.value?.permissionReason
 const links = computed(() => metadata.value?.links)
 const maintainers = computed(() => metadata.value?.maintainers ?? [])
 const includesPlugins = computed(() => catalogEntry.value?.includesPlugins ?? manifest.value?.includesPlugins ?? [])
+const members = computed(() => marketplacePackMembers({ sourceId: props.sourceId, includesPlugins: includesPlugins.value }, props.catalog, props.installed))
 const requiresPlugins = computed(() => catalogEntry.value?.requiresPlugins ?? manifest.value?.requiresPlugins ?? [])
 const unavailable = computed(() => !catalogEntry.value && !installedPlugin.value)
 const contributionGroups = computed(() => Object.entries(manifest.value?.contributes ?? {}).filter(([, items]) => items.length))
@@ -158,7 +162,7 @@ async function install(): Promise<void> {
     emit('navigate', 'local', activePlugin.value!.package, activePlugin.value!.version)
     return
   }
-  if (catalogAction.value && marketplaceActionDisabled(catalogAction.value))
+  if (catalogAction.value && marketplaceActionDisabled(catalogAction.value, plugin.status))
     return
   await operate('install', async () => {
     const plan = await api.previewPluginInstall(plugin.sourceId, plugin.package, plugin.version)
@@ -224,7 +228,8 @@ async function refreshLocal(): Promise<void> {
       </div>
       <template v-else>
         <div class="plugin-detail-identity">
-          <div class="plugin-detail-icon"><img v-if="visibleIcon" :src="visibleIcon" alt="" referrerpolicy="no-referrer" @error="failedIcon = icon"><Icon v-else name="plugins" /></div>
+          <PluginPackIcon v-if="includesPlugins.length" :members="members" />
+          <div v-else class="plugin-detail-icon"><img v-if="visibleIcon" :src="visibleIcon" alt="" referrerpolicy="no-referrer" @error="failedIcon = icon"><Icon v-else name="plugins" /></div>
           <div class="plugin-detail-heading">
             <div class="plugin-detail-title"><h1>{{ displayName }}</h1><span v-if="includesPlugins.length" class="plugin-pack-badge">{{ t('pluginPackBadge') }}</span><span v-if="installedPlugin?.origin === 'local'" class="local-plugin-badge">{{ t('localPluginBadge') }}</span></div>
             <code>{{ packageName }}@{{ resolvedVersion }}</code>
@@ -238,7 +243,7 @@ async function refreshLocal(): Promise<void> {
           </div>
         </div>
         <div class="plugin-actions">
-          <UiButton v-if="catalogAction" :variant="marketplaceActionVariant(catalogAction)" :disabled="Boolean(busy) || marketplaceActionDisabled(catalogAction)" @click="install"><Icon :name="busy === 'install' ? 'loading' : marketplaceActionIcons[catalogAction]" />{{ busy === 'install' ? t('installingPlugin') : t(marketplaceActionLabels[catalogAction]) }}</UiButton>
+          <UiButton v-if="catalogAction" :variant="marketplaceActionVariant(catalogAction)" :disabled="Boolean(busy) || marketplaceActionDisabled(catalogAction, catalogEntry?.status)" @click="install"><Icon :name="busy === 'install' ? 'loading' : marketplaceActionIcons[catalogAction]" />{{ busy === 'install' ? t('installingPlugin') : t(includesPlugins.length && catalogAction === 'install' ? 'installPluginPack' : marketplaceActionLabels[catalogAction]) }}</UiButton>
           <UiButton v-if="installedPlugin && !includesPlugins.length" :disabled="Boolean(busy)" @click="toggle"><Icon :name="busy === 'toggle' ? 'loading' : installedPlugin.enabled ? 'stop' : 'play'" />{{ t(installedPlugin.enabled ? 'disablePlugin' : 'enablePlugin') }}</UiButton>
           <UiButton v-if="installedPlugin?.origin === 'local'" :disabled="Boolean(busy)" @click="refreshLocal"><Icon :name="busy === 'refresh' ? 'loading' : 'refresh'" />{{ t('refreshLocalPlugin') }}</UiButton>
           <UiButton v-else-if="installedPlugin && !includesPlugins.length" :disabled="Boolean(busy) || !installedPlugin.previousVersion" @click="rollback">{{ t('rollbackPlugin') }}</UiButton>
@@ -293,7 +298,7 @@ async function refreshLocal(): Promise<void> {
       <main class="plugin-detail-main">
         <section v-if="includesPlugins.length || requiresPlugins.length" class="plugin-relations motion-reveal">
           <h2>{{ t('pluginRelationships') }}</h2>
-          <div v-if="includesPlugins.length"><h3>{{ t('pluginPackContents') }}</h3><div class="plugin-relation-grid"><button v-for="dependency in includesPlugins" :key="dependency.package" :disabled="!relationTarget(dependency)" @click="navigateRelation(dependency)"><span class="plugin-relation-mark" aria-hidden="true"><Icon name="plugins" /></span><span class="plugin-relation-copy"><strong>{{ relationName(dependency) }}</strong><code>{{ dependency.package }} · {{ dependency.version }}</code><span v-if="!relationTarget(dependency)">{{ t('pluginUnavailableFromSource') }}</span></span><Icon v-if="relationTarget(dependency)" name="arrowRight" /></button></div></div>
+          <PluginPackContents v-if="includesPlugins.length" :members="members" @navigate="member => member.version && emit('navigate', member.sourceId, member.package, member.version, displayName)" />
           <div v-if="requiresPlugins.length"><h3>{{ t('pluginDependencies') }}</h3><div class="plugin-relation-grid"><button v-for="dependency in requiresPlugins" :key="dependency.package" :disabled="!relationTarget(dependency)" @click="navigateRelation(dependency)"><span class="plugin-relation-mark" aria-hidden="true"><Icon name="link" /></span><span class="plugin-relation-copy"><strong>{{ relationName(dependency) }}</strong><code>{{ dependency.package }} · {{ dependency.version }}</code><span v-if="!relationTarget(dependency)">{{ t('pluginUnavailableFromSource') }}</span></span><Icon v-if="relationTarget(dependency)" name="arrowRight" /></button></div></div>
         </section>
 

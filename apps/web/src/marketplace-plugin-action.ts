@@ -1,3 +1,4 @@
+import type { CatalogPluginV1 } from 'craft-hub'
 import type { MarketplacePluginAction } from 'craft-hub/marketplace-model'
 import type { IconName } from './icons'
 
@@ -16,8 +17,8 @@ export const marketplaceActionLabels = {
 
 export type { MarketplacePluginAction }
 
-export function marketplaceActionDisabled(action: MarketplacePluginAction): boolean {
-  return action === 'installed' || action === 'newer'
+export function marketplaceActionDisabled(action: MarketplacePluginAction, status?: CatalogPluginV1['status']): boolean {
+  return action === 'installed' || action === 'newer' || (status === 'blocked' && action !== 'local')
 }
 
 /** Leading icon for each action, so the plugin's state reads at a glance before its label. */

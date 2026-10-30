@@ -1,5 +1,6 @@
 import type { AgentActionId, AgentActionSummary, AgentConnectionStatus, AgentTaskRecord, ApplyGitIntegrationRequest, Capability, CapabilityDiscoveryResult, CapabilityPins, CatalogPluginV1, CommandInputValues, CommandInvocation, DotfilesManagerStatus, DotfilesOperation, DotfilesOperationResult, GitIntegrationPlan, GitIntegrationRequest, GitIntegrationResult, InstalledNavigationPanel, InstalledPlugin, InstalledPluginWorkbench, IntegrationActionResult, IntegrationDiagnostic, LocalEnvironmentSnapshot, LocalPlugin, LocalSkillActivationSettings, ManagedPlugin, MarketplaceSource, MarketplaceSourcePreview, OwnerScope, OwnerScopeUiState, PersonalGitSyncResolution, PersonalGitSyncStatus, PluginDocumentPreview, PluginInstallPlan, PluginUpdatePlanItem, PluginUpdateResult, ProjectCatalogSnapshot, ProjectChangeEvent, ProjectConfigInitializationResult, ProjectDescriptionApplication, ProjectDescriptionAudit, ProjectDescriptionChange, ProjectOverview, ProjectRecord, ProjectRunSummary, ProjectSkillsState, ProjectVisualInput, ReleasePlan, ResolvedIntegrationContribution, RunCleanupOptions, RunCleanupResult, RunRecord, RunStreamEvent, RuntimeHealth, SettingsExportEnvelope, SettingsExportMode, SettingsImportPreview, SettingsImportStrategy, SettingsSnapshot, SetupProfileCommand, SetupProfileInventory, SetupProfileReview, SetupProfileSnapshot, SoftwareApplicationOpen, SoftwareCatalogSnapshot, SoftwareInstallationPlan, SoftwareInstallationRun, SoftwareInstallationRuns, SoftwareSourceInput, SoftwareSourcePreview, SoftwareSourceRefreshPolicy, SoftwareSourceSnapshot, TeamDeletionResult, TeamGitSyncStatus, UserConfigStatus, WorkbenchDiagnosticSnapshot, WorkbenchLocale, WorkItemProjectDeleteRequest, WorkItemProjectSnapshot, WorkItemProjectUpdateRequest, WorkspaceCatalog, WorkspaceGroup, WorkspaceImportPreview, WorkspaceImportResult, WorkspaceManifest, WorkspaceRecord, WorkspaceUiState } from 'craft-hub'
 import { emitIntegrationChange } from './integration-action-events'
+import { withIntegrationMutation } from './integration-mutations'
 
 export class ApiRequestError extends Error {
   constructor(message: string, readonly status: number) {
@@ -108,12 +109,13 @@ async function invokeIntegrationAction<T extends IntegrationActionResult = Integ
   if (broadcast)
     emitIntegrationChange({ integrationId, phase: 'start' })
   try {
-    return await request<T>(projectId
+    const invoke = (): Promise<T> => request<T>(projectId
       ? `/api/projects/${encodeURIComponent(projectId)}/integrations/${encodeURIComponent(integrationId)}/actions/${encodeURIComponent(actionId)}`
       : `/api/integrations/${encodeURIComponent(integrationId)}/actions/${encodeURIComponent(actionId)}`, {
       method: 'POST',
       body: JSON.stringify({ input, confirmed }),
     })
+    return await (confirmed ? withIntegrationMutation(invoke) : invoke())
   }
   finally {
     if (broadcast)

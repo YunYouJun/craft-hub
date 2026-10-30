@@ -1,8 +1,8 @@
+import type { Client } from '@modelcontextprotocol/sdk/client/index.js'
+import type { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { createRequire } from 'node:module'
 import { homedir } from 'node:os'
 import process from 'node:process'
-import { Client } from '@modelcontextprotocol/sdk/client/index.js'
-import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 
 const allowedTools = new Set(['list-accounts', 'list-todo-task-lists', 'list-todo-tasks', 'login'])
 const writeTools = new Set(['create-todo-task', 'update-todo-task'])
@@ -17,7 +17,13 @@ export interface MicrosoftTodoTransport {
  * A connector closes after `idleTimeoutMs` without calls (30 seconds by default), or never with `keepAlive`, whose
  * host then closes it during shutdown. A longer idle period spares repeated keychain prompts and startup latency.
  */
-export interface MicrosoftTodoTransportOptions { keepAlive?: boolean, idleTimeoutMs?: number, writable?: boolean }
+export interface MicrosoftTodoTransportOptions {
+  keepAlive?: boolean
+  idleTimeoutMs?: number
+  writable?: boolean
+  /** Host-owned JavaScript bootstrap file URL or path for this connector process; never a user configuration value. */
+  networkBootstrap?: string
+}
 
 /** Sanitized failure without credential-bearing upstream diagnostics. */
 export class MicrosoftTodoError extends Error {
@@ -33,7 +39,9 @@ export function createMicrosoftTodoTransport(options: MicrosoftTodoTransportOpti
   let idleTimer: ReturnType<typeof setTimeout> | undefined
   let active = 0
   let authorizingUntil = 0
+  let generation = 0
   const close = async (): Promise<void> => {
+    generation++
     clearTimeout(idleTimer)
     const previous = connection
     connection = undefined
@@ -41,7 +49,16 @@ export function createMicrosoftTodoTransport(options: MicrosoftTodoTransportOpti
     await previous?.client.close()
   }
   const open = (): Promise<Client> => {
-    opening ??= (async () => {
+    if (opening)
+      return opening
+    const version = generation
+    const attempt = (async () => {
+      const [{ Client }, { StdioClientTransport }] = await Promise.all([
+        import('@modelcontextprotocol/sdk/client/index.js'),
+        import('@modelcontextprotocol/sdk/client/stdio.js'),
+      ])
+      if (version !== generation)
+        throw new MicrosoftTodoError('startup')
       const env: Record<string, string> = {}
       for (const name of ['HOME', 'PATH', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA', 'XDG_CONFIG_HOME', 'SYSTEMROOT', 'TEMP', 'TMP']) {
         if (process.env[name])
@@ -52,7 +69,7 @@ export function createMicrosoftTodoTransport(options: MicrosoftTodoTransportOpti
       env.LOG_LEVEL = 'error'
       const transport = new StdioClientTransport({
         command: process.execPath,
-        args: [createRequire(import.meta.url).resolve('@softeria/ms-365-mcp-server'), ...(options.writable ? [] : ['--read-only']), '--enabled-tools', options.writable ? '^(list-todo-(task-lists|tasks)|(create|update)-todo-task)$' : '^list-todo-(task-lists|tasks)$', '--allowed-scopes', options.writable ? 'Tasks.ReadWrite' : 'Tasks.Read'],
+        args: [...(options.networkBootstrap ? ['--import', options.networkBootstrap] : []), createRequire(import.meta.url).resolve('@softeria/ms-365-mcp-server'), ...(options.writable ? [] : ['--read-only']), '--enabled-tools', options.writable ? '^(list-todo-(task-lists|tasks)|(create|update)-todo-task)$' : '^list-todo-(task-lists|tasks)$', '--allowed-scopes', options.writable ? 'Tasks.ReadWrite' : 'Tasks.Read'],
         cwd: homedir(),
         env,
         stderr: 'pipe',
@@ -81,7 +98,12 @@ export function createMicrosoftTodoTransport(options: MicrosoftTodoTransportOpti
         throw new MicrosoftTodoError('startup')
       }
     })()
-    return opening
+    opening = attempt
+    void attempt.catch(() => {
+      if (opening === attempt)
+        opening = undefined
+    })
+    return attempt
   }
   return {
     close,

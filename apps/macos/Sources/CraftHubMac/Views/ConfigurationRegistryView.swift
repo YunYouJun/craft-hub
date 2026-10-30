@@ -121,6 +121,7 @@ struct ConfigurationRegistryView: View {
               "This provider returned no compatible registry. Update the local tool and inspect again.")))
       }
     }.listStyle(.inset)
+      .nativePageListContent()
   }
   private func remove(_ id: String, category: String, revision: String) {
     var change = ConfigurationRegistryMutation(action: "remove-\(category)", revision: revision)
@@ -153,7 +154,9 @@ private struct ConfigurationRegistryEditor: View {
         Button(text.copy("审阅登记修改…", "Review Registration Changes…")) { model.reviewRegistryDraft() }.disabled(
           conflict || !model.canManageRegistry)
       }
-    }.disabled(model.busy || model.loading)
+    }.frame(maxWidth: NativePageLayout.ContentWidth.form.maximum, alignment: .leading)
+      .frame(maxWidth: .infinity)
+      .disabled(model.busy || model.loading)
   }
   private var sourceForm: some View {
     VStack(alignment: .leading, spacing: 10) {

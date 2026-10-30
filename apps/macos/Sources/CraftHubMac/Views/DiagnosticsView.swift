@@ -23,7 +23,7 @@ struct DiagnosticsView: View {
           Task { await model.load(force: true) }
         }
         .disabled(model.loading)
-      }.padding()
+      }.padding(.vertical, 16).nativePageContent()
       HStack {
         TextField(text.copy("搜索诊断信息", "Search diagnostics"), text: $model.query).textFieldStyle(.roundedBorder).focused(
           $searchFocused)
@@ -41,8 +41,8 @@ struct DiagnosticsView: View {
         if model.hasFilters {
           Button(text.copy("清除筛选", "Clear Filters")) { model.clearFilters() }
         }
-      }.padding([.horizontal, .bottom])
-      if let error = model.error { NativeErrorView(message: error) }
+      }.padding(.bottom, 16).nativePageContent()
+      if let error = model.error { NativeErrorView(message: error).nativePageContent() }
       List(selection: $model.selectedID) {
         if model.loading && model.snapshot == nil {
           ProgressView(text.copy("正在检查插件、来源和配置…", "Checking plugins, sources and configuration…"))
@@ -143,6 +143,7 @@ struct DiagnosticsView: View {
           }
         }
       }.listStyle(.inset)
+        .nativePageListContent()
         .contextMenu(forSelectionType: String.self) { selection in
           if let item = model.filtered.first(where: { selection.contains($0.id) }) {
             Button(text.copy("查看详情…", "Show Details…")) { model.detailID = item.id }
@@ -159,7 +160,7 @@ struct DiagnosticsView: View {
         Spacer()
         Button(text.copy("查看详情…", "Show Details…")) { model.detailID = model.selectedID }
           .disabled(model.selected == nil)
-      }.padding(12)
+      }.padding(.vertical, 12).nativePageContent()
     }.task { await model.load() }.onChange(of: findRequest) { searchFocused = true }
       .sheet(isPresented: Binding(get: { model.detail != nil }, set: { if !$0 { model.detailID = nil } })) {
         if let item = model.detail, let snapshot = model.snapshot {

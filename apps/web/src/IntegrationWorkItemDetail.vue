@@ -1,23 +1,25 @@
 <script setup lang="ts">
-import { copyText } from './clipboard'
 import type { IntegrationEntity } from 'craft-hub'
 import { workItemActionInput } from 'craft-hub/work-items'
 import { computed, ref, useId } from 'vue'
 import AgentTaskOutput from './AgentTaskOutput.vue'
 import { api } from './api'
+import { copyText } from './clipboard'
 import { Button as UiButton } from './components/ui/button'
 import { DialogShell } from './components/ui/dialog'
 import { Field, FieldGroup, FieldLabel } from './components/ui/field'
 import { FormSelect } from './components/ui/select'
 import { Textarea } from './components/ui/textarea'
+import { ActionToast, useActionToast } from './components/ui/toast'
+import { useI18n } from './i18n'
 import { Icon } from './icons'
 import IntegrationEntityStatus from './IntegrationEntityStatus.vue'
-import { useI18n } from './i18n'
 import { useWorkbenchStore } from './store'
 
 const props = defineProps<{ entity: IntegrationEntity, integrationId: string, detailActionId?: string, projectId?: string, taskPrompt?: string, triggerLabel?: string }>()
 const store = useWorkbenchStore()
 const { t } = useI18n()
+const { message, notify } = useActionToast()
 const formId = useId()
 const trigger = ref<HTMLButtonElement>()
 const open = ref(false)
@@ -102,18 +104,27 @@ async function copyPrompt(): Promise<void> {
   try {
     await copyText(prompt.value)
     copied.value = true
+    notify(t('agentConnectionCopied'))
   }
-  catch (caught) { error.value = caught instanceof Error ? caught.message : String(caught) }
+  catch { notify(t('integrationCopyFailed'), true) }
 }
 </script>
 
 <template>
-  <UiButton size="compact" @click="show">{{ triggerLabel ?? t('integrationWorkItemDetails') }}</UiButton>
+  <UiButton size="compact" @click="show">
+    {{ triggerLabel ?? t('integrationWorkItemDetails') }}
+  </UiButton>
   <DialogShell :open="open" layout="panel" content-class="dialog-content work-item-detail" @update:open="updateOpen" @close-auto-focus="restoreFocus">
-    <template #title>{{ t('integrationWorkItemTitle') }}</template>
-    <template #description>{{ t('integrationWorkItemDescription') }}</template>
+    <template #title>
+      {{ t('integrationWorkItemTitle') }}
+    </template>
+    <template #description>
+      {{ t('integrationWorkItemDescription') }}
+    </template>
     <template #header-actions>
-      <UiButton size="icon" variant="ghost" :aria-label="t('close')" @click="updateOpen(false)"><Icon name="close" /></UiButton>
+      <UiButton size="icon" variant="ghost" :aria-label="t('close')" @click="updateOpen(false)">
+        <Icon name="close" />
+      </UiButton>
     </template>
     <section class="work-item-summary">
       <nav v-if="(detail ?? entity).ancestors?.length" class="work-item-ancestors" :aria-label="t('integrationAncestorItems')">
@@ -130,38 +141,65 @@ async function copyPrompt(): Promise<void> {
         <IntegrationEntityStatus :entity="detail ?? entity" />
         <a v-if="(detail ?? entity).url" :href="(detail ?? entity).url" target="_blank" rel="noopener noreferrer"><Icon name="externalLink" /> {{ t('integrationWorkItemSource') }}</a>
       </div>
-      <p v-if="detail?.description" class="work-item-description">{{ plainText(detail.description) }}</p>
+      <p v-if="detail?.description" class="work-item-description">
+        {{ plainText(detail.description) }}
+      </p>
     </section>
     <section class="work-item-handoff">
       <h3>{{ t('integrationHandoffTitle') }}</h3>
-      <p class="work-item-hint">{{ t('integrationHandoffDescription') }}</p>
+      <p class="work-item-hint">
+        {{ t('integrationHandoffDescription') }}
+      </p>
       <FieldGroup>
         <Field>
-          <FieldLabel :for="`${formId}-project`">{{ t('integrationTaskProject') }}</FieldLabel>
+          <FieldLabel :for="`${formId}-project`">
+            {{ t('integrationTaskProject') }}
+          </FieldLabel>
           <FormSelect :id="`${formId}-project`" v-model="projectId" :options="projectOptions" :placeholder="t('integrationChooseProject')" :disabled="loading || Boolean(taskId)" required />
         </Field>
         <Field>
-          <FieldLabel :for="`${formId}-prompt`">{{ t('integrationTaskPrompt') }}</FieldLabel>
+          <FieldLabel :for="`${formId}-prompt`">
+            {{ t('integrationTaskPrompt') }}
+          </FieldLabel>
           <Textarea :id="`${formId}-prompt`" v-model="prompt" :disabled="loading || Boolean(taskId)" :rows="6" required />
         </Field>
       </FieldGroup>
-      <p v-if="store.agentExecution && !store.agentExecution.available" class="work-item-hint">{{ t('agentExecutionUnavailable') }}</p>
-      <p v-if="loading" class="work-item-hint" role="status">{{ t('loading') }}</p>
-      <p v-if="error" class="error-message" role="alert">{{ error }}</p>
-      <p v-if="taskId" role="status">{{ t('integrationTaskCreated') }} {{ taskId }}</p>
+      <p v-if="store.agentExecution && !store.agentExecution.available" class="work-item-hint">
+        {{ t('agentExecutionUnavailable') }}
+      </p>
+      <p v-if="loading" class="work-item-hint" role="status">
+        {{ t('loading') }}
+      </p>
+      <p v-if="error" class="error-message" role="alert">
+        {{ error }}
+      </p>
+      <p v-if="taskId" role="status">
+        {{ t('integrationTaskCreated') }} {{ taskId }}
+      </p>
       <template v-if="task">
-        <p role="status">{{ task.status }}</p>
-        <p v-if="task.error" class="error-message" role="alert">{{ task.error }}</p>
+        <p role="status">
+          {{ task.status }}
+        </p>
+        <p v-if="task.error" class="error-message" role="alert">
+          {{ task.error }}
+        </p>
         <AgentTaskOutput :task="task" />
         <pre v-if="task.finalResponse" class="work-item-response">{{ task.finalResponse }}</pre>
       </template>
     </section>
     <template #footer>
-      <UiButton @click="updateOpen(false)">{{ t('close') }}</UiButton>
-      <UiButton :disabled="loading || !prompt.trim()" @click="copyPrompt">{{ copied ? t('agentConnectionCopied') : t('resourceCopy') }}</UiButton>
-      <UiButton v-if="!taskId" variant="primary" :disabled="loading || !projectId || !prompt.trim() || store.agentExecution?.available === false" @click="startTask"><Icon name="skill" /> {{ t('integrationStartTask') }}</UiButton>
+      <UiButton @click="updateOpen(false)">
+        {{ t('close') }}
+      </UiButton>
+      <UiButton :disabled="loading || !prompt.trim()" @click="copyPrompt">
+        {{ copied ? t('agentConnectionCopied') : t('resourceCopy') }}
+      </UiButton>
+      <UiButton v-if="!taskId" variant="primary" :disabled="loading || !projectId || !prompt.trim() || store.agentExecution?.available === false" @click="startTask">
+        <Icon name="skill" /> {{ t('integrationStartTask') }}
+      </UiButton>
     </template>
   </DialogShell>
+  <ActionToast :message="message" />
 </template>
 
 <style scoped>

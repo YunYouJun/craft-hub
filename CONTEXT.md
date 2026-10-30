@@ -104,6 +104,10 @@ _Avoid_: Marketplace Plugin, Catalog Plugin
 A declarative package listed by a Plugin Catalog and installed without executing plugin package code.
 _Avoid_: Host Plugin, Codex Plugin, extension
 
+**Plugin Pack**:
+A named selection of Marketplace Plugins offered for installation together. Each included plugin retains its own identity, permissions and lifecycle, and may belong to more than one pack.
+_Avoid_: Feature pack, single plugin, Host Plugin
+
 **Plugin Marketplace**:
 The user-level capability for discovering and managing Marketplace Plugins from one or more Marketplace Sources.
 _Avoid_: Host plugin loader, Project Catalog

@@ -1,10 +1,18 @@
 import type { ChildProcess } from 'node:child_process'
 import { EventEmitter } from 'node:events'
 import { describe, expect, it, vi } from 'vitest'
-import { codexCommand, codexThreadUrl, editorTargetPaths, externalHttpUrl, focusCodexApplication, gitRemoteHttpUrl, macTerminalApplication, macTerminalApplications, openCodexProject, openCursorEditor, openCustomEditor, openMacTerminalProject, openPersonalWorkbenchTool, projectContainsPath, vscodeUrl } from '../src/open-targets.ts'
+import { codexCommand, codexThreadUrl, editorTargetPaths, externalHttpUrl, focusCodexApplication, gitRemoteHttpUrl, installedMacTerminalApplications, macTerminalApplication, macTerminalApplications, openCodexProject, openCursorEditor, openCustomEditor, openMacTerminalProject, openPersonalWorkbenchTool, projectContainsPath, vscodeUrl } from '../src/open-targets.ts'
 
 describe('desktop open targets', () => {
   const websiteTool = { id: 'docs', title: 'Docs', url: 'https://example.com/docs', group: 'Tools' }
+
+  it('offers only detected native terminals while preserving an installed preference order', () => {
+    const exists = (path: string) => path === '/Applications/Ghostty.app' || path.includes('/Terminal.app')
+    expect(installedMacTerminalApplications('Unavailable', exists)).toEqual(['Ghostty', 'Terminal'])
+    expect(installedMacTerminalApplications('Terminal', exists)).toEqual(['Terminal', 'Ghostty'])
+    expect(installedMacTerminalApplications('/tmp/arbitrary.app', exists)).toEqual(['Ghostty', 'Terminal'])
+    expect(installedMacTerminalApplications('Ghostty', () => false)).toEqual([])
+  })
 
   it('keeps website tools browser-only', async () => {
     const openWebsite = vi.fn(async () => {})

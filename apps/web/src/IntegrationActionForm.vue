@@ -4,12 +4,12 @@ import { integrationFormInput } from 'craft-hub/integration-form-inputs'
 import { computed, ref, useId } from 'vue'
 import { api } from './api'
 import { Button as UiButton } from './components/ui/button'
-import { DialogShell } from './components/ui/dialog'
 import { Checkbox } from './components/ui/checkbox'
+import { DialogShell } from './components/ui/dialog'
 import { Field, FieldGroup, FieldLabel } from './components/ui/field'
 import { Input } from './components/ui/input'
-import { Textarea } from './components/ui/textarea'
 import { FormSelect } from './components/ui/select'
+import { Textarea } from './components/ui/textarea'
 import { useI18n } from './i18n'
 
 const props = defineProps<{
@@ -79,39 +79,58 @@ async function invoke(input: Record<string, unknown>, confirmed: boolean): Promi
   <form ref="formElement" class="integration-action-form" @submit.prevent="submit">
     <FieldGroup>
       <Field v-for="field in block.fields" :key="field.id" :data-disabled="saving" :data-field-type="field.type" :orientation="field.type === 'checkbox' ? 'horizontal' : 'vertical'">
-        <FieldLabel :for="`${formId}-${field.id}`">{{ translate(field.label) }}{{ field.required ? ' *' : '' }}</FieldLabel>
-        <Checkbox v-if="field.type === 'checkbox'" :id="`${formId}-${field.id}`" :model-value="values[field.id] === 'true'" @update:model-value="values[field.id] = $event === true ? 'true' : 'false'" :disabled="saving" />
+        <FieldLabel :for="`${formId}-${field.id}`">
+          {{ translate(field.label) }}{{ field.required ? ' *' : '' }}
+        </FieldLabel>
+        <Checkbox v-if="field.type === 'checkbox'" :id="`${formId}-${field.id}`" :aria-label="translate(field.label)" :model-value="values[field.id] === 'true'" :disabled="saving" @update:model-value="values[field.id] = $event === true ? 'true' : 'false'" />
         <FormSelect v-else-if="field.type === 'select'" :id="`${formId}-${field.id}`" v-model="values[field.id]" :options="field.options?.map(option => ({ value: option.value, label: translate(option.label) }))" :required="field.required" :disabled="saving" />
-        <Textarea v-else-if="field.type === 'textarea'" :id="`${formId}-${field.id}`" :data-field-id="field.id" v-model="values[field.id]" :required="field.required" :placeholder="translate(field.placeholder ?? '')" :disabled="saving" />
+        <Textarea v-else-if="field.type === 'textarea'" :id="`${formId}-${field.id}`" v-model="values[field.id]" :data-field-id="field.id" :required="field.required" :placeholder="translate(field.placeholder ?? '')" :disabled="saving" />
         <Input v-else :id="`${formId}-${field.id}`" v-model="values[field.id]" :type="field.type === 'number' ? 'number' : 'text'" :required="field.required" :placeholder="translate(field.placeholder ?? '')" :disabled="saving" />
         <span v-if="field.suggestions?.length" class="field-suggestions">
           <UiButton v-for="suggestion in field.suggestions" :key="suggestion.value" size="compact" :disabled="saving" @click.prevent="insert(field.id, suggestion.value)">{{ suggestion.label }}</UiButton>
         </span>
       </Field>
     </FieldGroup>
-    <p v-if="error" role="alert">{{ error }}</p>
-    <UiButton variant="primary" type="submit" :disabled="saving || missing">{{ translate(action.title) }}</UiButton>
+    <p v-if="error" role="alert">
+      {{ error }}
+    </p>
+    <UiButton variant="primary" type="submit" :disabled="saving || missing">
+      {{ translate(action.title) }}
+    </UiButton>
   </form>
   <DialogShell :open="Boolean(pending)" @update:open="!saving && !$event && (pending = undefined)">
-    <template #title>{{ translate(action.title) }}</template>
-    <template #description>{{ t('integrationReviewAction') }}</template>
-    <p v-if="projectTitle"><strong>{{ projectTitle }}</strong></p>
+    <template #title>
+      {{ translate(action.title) }}
+    </template>
+    <template #description>
+      {{ t('integrationReviewAction') }}
+    </template>
+    <p v-if="projectTitle">
+      <strong>{{ projectTitle }}</strong>
+    </p>
     <dl class="action-review">
       <div v-for="(value, key) in Object.fromEntries(Object.entries(pending ?? {}).filter(([id]) => block.fields?.some(field => field.id === id)))" :key="key">
         <dt>{{ translate(block.fields?.find(field => field.id === key)?.label ?? String(key)) }}</dt>
         <dd>{{ Array.isArray(value) ? value.join(', ') : value }}</dd>
       </div>
     </dl>
-    <p v-if="error" role="alert">{{ error }}</p>
+    <p v-if="error" role="alert">
+      {{ error }}
+    </p>
     <footer>
-      <UiButton :disabled="saving" @click="pending = undefined">{{ t('cancel') }}</UiButton>
-      <UiButton variant="primary" :disabled="saving" @click="pending && invoke(pending, true)">{{ t('integrationConfirmAction') }}</UiButton>
+      <UiButton :disabled="saving" @click="pending = undefined">
+        {{ t('cancel') }}
+      </UiButton>
+      <UiButton variant="primary" :disabled="saving" @click="pending && invoke(pending, true)">
+        {{ t('integrationConfirmAction') }}
+      </UiButton>
     </footer>
   </DialogShell>
 </template>
 
 <style scoped>
 .integration-action-form { display: grid; gap: 10px; padding: 12px; }
+.integration-action-form > .ui-button { justify-self: start; }
 .field-suggestions { display: flex; flex-wrap: wrap; gap: 4px; }
 
 .action-review { max-height: 45vh; overflow: auto; display: grid; gap: 12px; }

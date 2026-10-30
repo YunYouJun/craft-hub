@@ -76,6 +76,9 @@ struct NativeSettingsView: View {
         Text(text.copy("编辑器和集成账户在完整工作台中继续管理。", "Manage editors and integration accounts in the full workbench."))
           .font(.caption).foregroundStyle(.secondary)
       }
-    }.formStyle(.grouped).frame(width: 520).padding()
+    }
+    .formStyle(.grouped)
+    .nativePageFormContent()
+    .frame(minWidth: 520, idealWidth: 640, minHeight: 560, idealHeight: 720)
   }
 }

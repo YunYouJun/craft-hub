@@ -18,6 +18,7 @@ private actor ProfileFixture {
   var hold = ""
   var reject = ""
   var waiter: CheckedContinuation<Void, Never>?
+  private let heldRequests = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
   func configure(version: String? = nil, setupRevision: String? = nil, hold: String = "", reject: String = "") {
     if let version { self.version = version }
     self.setupRevision = setupRevision
@@ -28,6 +29,10 @@ private actor ProfileFixture {
     waiter?.resume()
     waiter = nil
     hold = ""
+  }
+  func waitForHeldRequest() async -> Bool {
+    var iterator = heldRequests.stream.makeAsyncIterator()
+    return await iterator.next() != nil
   }
   func response(_ request: URLRequest) async throws -> (Data, URLResponse) {
     requests.append(request)
@@ -56,7 +61,12 @@ private actor ProfileFixture {
       default: json = snapshot()
       }
     }
-    if operation == hold { await withCheckedContinuation { waiter = $0 } }
+    if operation == hold {
+      await withCheckedContinuation {
+        waiter = $0
+        heldRequests.continuation.yield(())
+      }
+    }
     return (
       Data(json.utf8), HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: nil)!
     )
@@ -71,11 +81,18 @@ private func profileClient(_ fixture: ProfileFixture) throws -> RuntimeAPIClient
   return RuntimeAPIClient(connection: connection, transport: { try await fixture.response($0) })
 }
 private func held(_ fixture: ProfileFixture) async throws {
-  for _ in 0..<100 {
-    if await fixture.waiter != nil { return }
-    try await Task.sleep(for: .milliseconds(5))
+  let held = await withTaskGroup(of: Bool.self) { group in
+    group.addTask { await fixture.waitForHeldRequest() }
+    group.addTask {
+      try? await Task.sleep(for: .seconds(5))
+      return false
+    }
+    let observed = await group.next() ?? false
+    group.cancelAll()
+    return observed
   }
-  Issue.record("The profile fixture did not hold its response")
+  if !held { await fixture.release() }
+  try #require(held, "Profile request was not held")
 }
 
 @MainActor @Test func environmentProfileSaveUsesSelectionsAndTheExplicitDraftRevision() async throws {
@@ -148,12 +165,16 @@ private func held(_ fixture: ProfileFixture) async throws {
   #expect(model.stale && model.review == nil && model.setup == nil)
 }
 
-@MainActor @Test func environmentInvalidationAndDisconnectDiscardLateObservations() async throws {
+@MainActor @Test(arguments: [Duration.zero, .seconds(1)])
+func environmentInvalidationAndDisconnectDiscardLateObservations(requestDelay: Duration) async throws {
   let fixture = ProfileFixture()
   let model = EnvironmentProfileModel(client: try profileClient(fixture))
   await model.load()
   await fixture.configure(hold: "setup")
-  let checking = Task { await model.check() }
+  let checking = Task {
+    try? await Task.sleep(for: requestDelay)
+    await model.check()
+  }
   try await held(fixture)
   model.invalidate()
   await fixture.release()

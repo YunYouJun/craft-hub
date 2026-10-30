@@ -5,9 +5,10 @@ import { PopoverContent, PopoverPortal, PopoverRoot, PopoverTrigger, RadioGroupI
 import { computed, ref, useId, watch } from 'vue'
 import { api } from './api'
 import { Button as UiButton } from './components/ui/button'
+import { Input } from './components/ui/input'
+import { useI18n } from './i18n'
 import { Icon } from './icons'
 import IntegrationEntityStatus from './IntegrationEntityStatus.vue'
-import { useI18n } from './i18n'
 
 const props = defineProps<{
   entity: IntegrationEntity
@@ -172,12 +173,18 @@ async function confirm(): Promise<void> {
       >
         <header class="integration-status-heading">
           <strong :id="titleId">{{ t('statusTransitionTarget') }}</strong>
-          <p :id="descriptionId" :title="entity.title">{{ entity.title }}</p>
+          <p :id="descriptionId" :title="entity.title">
+            {{ entity.title }}
+          </p>
         </header>
         <div class="integration-status-body">
-          <p v-if="loading" class="integration-status-loading" role="status"><Icon name="loading" /> {{ t('loadingStatusTransitions') }}</p>
+          <p v-if="loading" class="integration-status-loading" role="status">
+            <Icon name="loading" /> {{ t('loadingStatusTransitions') }}
+          </p>
           <template v-else>
-            <p v-if="error" class="integration-status-error" role="alert">{{ error }}</p>
+            <p v-if="error" class="integration-status-error" role="alert">
+              {{ error }}
+            </p>
             <RadioGroupRoot
               v-if="transitions.length" :model-value="selectedId" :aria-label="t('statusTransitionTarget')" :disabled="saving"
               class="integration-status-options" @update:model-value="selectTransition"
@@ -190,7 +197,9 @@ async function confirm(): Promise<void> {
                 <Icon v-if="selectedId === transition.id" name="check" />
               </RadioGroupItem>
             </RadioGroupRoot>
-            <p v-else-if="!error" class="integration-status-empty">{{ t('statusTransitionNoOptions') }}</p>
+            <p v-else-if="!error" class="integration-status-empty">
+              {{ t('statusTransitionNoOptions') }}
+            </p>
             <template v-if="selected">
               <div class="integration-status-preview">
                 <span>{{ entity.statusLabel || selected.fromStatus }}</span>
@@ -201,15 +210,19 @@ async function confirm(): Promise<void> {
                 <legend>{{ t('statusTransitionRequiredFields') }}</legend>
                 <label v-for="field in selected.requiredFields" :key="field" class="integration-status-field">
                   <span>{{ field }} <b aria-hidden="true">*</b></span>
-                  <input v-model="fields[field]" :name="field" required>
+                  <Input v-model="fields[field]" :name="field" required />
                 </label>
               </fieldset>
-              <p class="integration-status-warning">{{ t('statusTransitionRemoteWarning') }}</p>
+              <p class="integration-status-warning">
+                {{ t('statusTransitionRemoteWarning') }}
+              </p>
             </template>
           </template>
         </div>
         <footer class="integration-status-actions">
-          <UiButton size="compact" :disabled="saving" @click="setOpen(false)">{{ t('cancel') }}</UiButton>
+          <UiButton size="compact" :disabled="saving" @click="setOpen(false)">
+            {{ t('cancel') }}
+          </UiButton>
           <UiButton size="compact" variant="warning" data-testid="confirm-status-transition" :disabled="loading || saving || !selected || missingFields.length > 0" @click="confirm">
             <Icon v-if="saving" name="loading" />
             {{ t('confirmStatusTransition') }}

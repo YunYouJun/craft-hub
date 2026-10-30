@@ -33,15 +33,17 @@ struct ConfigurationView: View {
           }
         }.disabled(model.entry == nil || model.busy || model.loading)
         if let path = model.entry?.path { Button(text.copy("完整管理…", "Full Management…")) { openWeb(path) } }
+      }.nativePageContent()
+      if let error = model.error { NativeErrorView(message: error).nativePageContent() }
+      if let notice = model.notice {
+        Text(notice).foregroundStyle(.secondary).textSelection(.enabled).nativePageContent()
       }
-      if let error = model.error { NativeErrorView(message: error) }
-      if let notice = model.notice { Text(notice).foregroundStyle(.secondary).textSelection(.enabled) }
       if model.uncertain != nil {
         Text(
           text.copy(
             "操作结果尚未确认。请重新检查记录，之后才能继续操作。", "The result is unconfirmed. Inspect current records before continuing.")
         )
-        .foregroundStyle(.secondary)
+        .foregroundStyle(.secondary).nativePageContent()
       } else if model.stale, model.page != nil {
         Text(
           text.copy(
@@ -49,7 +51,7 @@ struct ConfigurationView: View {
             "Configuration may have changed. Inspecting clears current choices; the provider revalidates prepared plans on application."
           )
         )
-        .font(.caption).foregroundStyle(.secondary)
+        .font(.caption).foregroundStyle(.secondary).nativePageContent()
       }
       if let page = model.page {
         if let support = page.operationSupport,
@@ -61,7 +63,7 @@ struct ConfigurationView: View {
                 "配置提供方尚未支持读取，请刷新能力或更新本机工具。",
                 "Configuration inspection is unavailable. Refresh capabilities or update the local tool.")
           )
-          .foregroundStyle(.secondary)
+          .foregroundStyle(.secondary).nativePageContent()
         }
         Picker(text.copy("配置页面", "Configuration Page"), selection: $model.section) {
           Text(text.copy("配置审阅", "Configuration")).tag("configuration")
@@ -69,39 +71,44 @@ struct ConfigurationView: View {
           Text(text.copy("仓库同步", "Repositories")).tag("repositories")
           Text(text.copy("来源与备份", "Sources & Backups")).tag("sources")
           Text(text.copy("Skills 审计", "Skills Audit")).tag("audit")
-        }.pickerStyle(.segmented)
+        }.pickerStyle(.segmented).nativePageContent()
         if model.section == "sources" {
           ConfigurationRegistryView(model: model)
         } else if model.section == "history" {
           history(page)
         } else if model.section == "audit" {
           ConfigurationAuditView(page: page, translate: translate)
+            .nativePageListContent()
         } else if model.section == "repositories" {
           ConfigurationRepositoriesView(model: model)
+            .nativePageListContent()
         } else {
           configuration(page)
         }
       } else if !model.loading {
-        ContentUnavailableView(
-          text.copy("等待配置检查", "Configuration Not Inspected"), systemImage: "doc.text.magnifyingglass",
-          description: Text(text.copy("选择配置提供方并读取其纳管范围。", "Select a provider and inspect its managed configuration.")))
-        if model.entries.isEmpty {
-          Button(text.copy("刷新提供方", "Refresh Providers")) {
-            Task {
-              await model.loadCatalog(force: true)
-              await inspectIfAutomatic()
+        VStack(spacing: 12) {
+          ContentUnavailableView(
+            text.copy("等待配置检查", "Configuration Not Inspected"), systemImage: "doc.text.magnifyingglass",
+            description: Text(text.copy("选择配置提供方并读取其纳管范围。", "Select a provider and inspect its managed configuration."))
+          )
+          if model.entries.isEmpty {
+            Button(text.copy("刷新提供方", "Refresh Providers")) {
+              Task {
+                await model.loadCatalog(force: true)
+                await inspectIfAutomatic()
+              }
             }
           }
-        }
+        }.nativePageContent(.emptyState)
       }
       if !model.catalogDiagnostics.isEmpty {
         DisclosureGroup(text.copy("提供方诊断", "Provider Diagnostics")) {
           ForEach(Array(model.catalogDiagnostics.enumerated()), id: \.offset) { _, diagnostic in
             Text(diagnostic.integrationId + ": " + diagnostic.message).font(.caption).textSelection(.enabled)
           }
-        }
+        }.nativePageContent()
       }
-    }.padding(.horizontal, 24).padding(.bottom, 16)
+    }.padding(.bottom, 16)
       .task {
         await model.loadCatalog()
         await inspectIfAutomatic()
@@ -163,7 +170,7 @@ struct ConfigurationView: View {
           Text(text.copy("待审阅", "Needs Review")).tag("attention")
           ForEach(Array(Set(page.items.map(\.status))).sorted(), id: \.self) { Text(configurationLabel($0)).tag($0) }
         }.frame(width: 190)
-      }
+      }.nativePageContent()
       HSplitView {
         List(selection: $model.selected) {
           ForEach(model.rows) { item in
@@ -177,7 +184,9 @@ struct ConfigurationView: View {
                 .foregroundStyle(.secondary)
             }.padding(.vertical, 4).tag(item.id)
           }
-        }.listStyle(.inset).frame(minWidth: 190, idealWidth: 240, maxWidth: 320)
+        }.listStyle(.inset)
+          .nativePageListContent()
+          .frame(minWidth: 190, idealWidth: 240, maxWidth: 320)
         if let item = model.selectedItem {
           detail(item, page: page).frame(minWidth: 380, maxWidth: .infinity)
         } else {
@@ -193,7 +202,7 @@ struct ConfigurationView: View {
         Button(text.copy("清空选择", "Clear Choices")) { model.clearChoices() }.disabled(model.busy)
         Button(text.copy("预览所选修改…", "Preview Selected Changes…")) { Task { await model.preview() } }.disabled(
           !model.canPreview)
-      }
+      }.nativePageContent()
     }
   }
   private func detail(_ item: ConfigurationPage.Item, page: ConfigurationPage) -> some View {
@@ -266,7 +275,7 @@ struct ConfigurationView: View {
         ForEach(page.managementTools ?? []) { tool in
           if let url = DesktopBridge.externalURL(tool.url) { Link(translate(tool.title), destination: url) }
         }
-      }.padding(16)
+      }.padding(.vertical, 16).nativePageContent(.form)
     }
   }
   private func history(_ page: ConfigurationPage) -> some View {
@@ -295,6 +304,7 @@ struct ConfigurationView: View {
         }.padding(.vertical, 8)
       }
     }.listStyle(.inset)
+      .nativePageListContent()
   }
 }
 

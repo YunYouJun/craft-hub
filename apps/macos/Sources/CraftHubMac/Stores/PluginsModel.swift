@@ -34,6 +34,7 @@ import Observation
   var tab = Tab.discover { didSet { if oldValue != tab { cancelChange() } } }
   var query = ""
   var filter = "all"
+  var kind = "all"
   var sourceName = ""
   var sourceCatalogURL = ""
   var sourceRegistry = ""
@@ -78,7 +79,9 @@ import Observation
   var catalog: [CatalogPlugin] {
     let term = searchTerm
     return (snapshot?.catalog ?? []).filter { item in
-      item.preferred && (term.isEmpty ? !item.included : matches(item.package, item.metadata, term))
+      item.preferred && (term.isEmpty && kind == "all" ? !item.included : matches(item.package, item.metadata, term))
+        && (kind == "all"
+          || (kind == "pack" ? !item.metadata.includesPlugins.isEmpty : item.metadata.includesPlugins.isEmpty))
         && (filter == "all"
           || (filter == "updates"
             ? item.action == "update" : snapshot?.installed.contains { $0.package == item.package } == true))
@@ -193,8 +196,31 @@ import Observation
     installReview = nil
     sourceReview = nil
   }
+  func catalogDetail(_ plugin: CatalogPlugin) -> Detail {
+    if let active = localOverride(plugin) {
+      return .init(source: active.sourceId, package: active.package, version: active.version)
+    }
+    return .init(source: plugin.sourceId, package: plugin.package, version: plugin.version)
+  }
+  func canPerformCatalogAction(_ plugin: CatalogPlugin) -> Bool {
+    guard !busy else { return false }
+    if plugin.action == "local" { return localOverride(plugin) != nil }
+    return !["installed", "newer"].contains(plugin.action) && plugin.status != "blocked"
+  }
+  func performCatalogAction(_ plugin: CatalogPlugin) async {
+    guard canPerformCatalogAction(plugin) else { return }
+    if plugin.action == "local" {
+      detail = catalogDetail(plugin)
+    } else {
+      await preview(plugin)
+    }
+  }
+  private func localOverride(_ plugin: CatalogPlugin) -> InstalledPlugin? {
+    guard plugin.action == "local" else { return nil }
+    return snapshot?.installed.first { $0.package == plugin.package && $0.local }
+  }
   func preview(_ plugin: CatalogPlugin) async {
-    guard let client, !busy else { return }
+    guard let client, !busy, plugin.status != "blocked", plugin.action != "local" else { return }
     cancelPreview()
     let attempt = generation
     let preview = previewGeneration
@@ -404,7 +430,7 @@ import Observation
         $0.package == package && $0.preferred && (source == nil || $0.sourceId == source)
       }) {
         tab = .discover
-        detail = Detail(source: item.sourceId, package: package, version: item.version)
+        detail = catalogDetail(item)
       } else {
         tab = .discover
         query = package

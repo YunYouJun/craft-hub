@@ -88,6 +88,7 @@ export const integrationContributionSchema = z.object({
     showInSidebar: z.boolean().optional(),
     order: z.number().int().optional(),
     scope: z.enum(['global', 'project', 'global-and-project']),
+    rendering: z.enum(['native', 'web']).optional(),
     blocks: z.array(integrationViewBlockSchema).default([]),
   })).default([]),
 }).superRefine((integration, context) => {

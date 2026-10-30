@@ -21,6 +21,16 @@ private func observationConnection(_ port: Int = 49218) throws -> RuntimeConnect
   }
 }
 
+@MainActor private final class ObservationDeliveryGate {
+  private(set) var waiters: [CheckedContinuation<Void, Never>] = []
+  func wait() async { await withCheckedContinuation { waiters.append($0) } }
+  func release() {
+    let pending = waiters
+    waiters.removeAll()
+    for waiter in pending { waiter.resume() }
+  }
+}
+
 @MainActor private func eventually(_ condition: () -> Bool) async throws {
   for _ in 0..<200 {
     if condition() { return }
@@ -31,12 +41,15 @@ private func observationConnection(_ port: Int = 49218) throws -> RuntimeConnect
 
 @MainActor @Test func reconnectRefreshesSnapshotsAndOldConnectionsCannotInvalidateTheNewSession() async throws {
   let source = EventSource()
-  let observation = RuntimeObservation(observe: source.observe)
+  let delivery = ObservationDeliveryGate()
+  defer { delivery.release() }
+  let observation = RuntimeObservation(observe: source.observe, waitForDelivery: delivery.wait)
   var batches: [Set<RuntimeChange>] = []
   observation.onInvalidation = { batches.append($0) }
   observation.connect(try observationConnection())
   try await eventually { source.handlers.count == 1 }
   await source.handlers[0](.connected)
+  try await eventually { delivery.waiters.count == 1 }
   observation.connect(try observationConnection(49219))
   try await eventually { source.handlers.count == 2 }
   await source.handlers[0](.disconnected)
@@ -44,11 +57,16 @@ private func observationConnection(_ port: Int = 49218) throws -> RuntimeConnect
   #expect(observation.state == .connecting)
   await source.handlers[1](.connected)
   for _ in 0..<50 { await source.handlers[1](.changed(.softwareSources)) }
+  try await eventually { delivery.waiters.count == 2 }
+  #expect(batches.isEmpty)
+  delivery.release()
   try await eventually { batches.count == 1 }
   #expect(batches == [Set(RuntimeChange.allCases)])
   await source.handlers[1](.disconnected)
   #expect(observation.state == .reconnecting)
   await source.handlers[1](.connected)
+  try await eventually { delivery.waiters.count == 1 }
+  delivery.release()
   try await eventually { batches.count == 2 }
   #expect(batches[1] == Set(RuntimeChange.allCases))
   observation.connect(nil)

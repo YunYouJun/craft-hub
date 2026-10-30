@@ -18,6 +18,7 @@ private actor SourceFixture {
   var hold = ""
   var rejectMutation = false
   var waiter: CheckedContinuation<Void, Never>?
+  private let heldRequests = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
   func configure(hold: String = "", reject: Bool = false) {
     self.hold = hold
     rejectMutation = reject
@@ -26,6 +27,10 @@ private actor SourceFixture {
     waiter?.resume()
     waiter = nil
     hold = ""
+  }
+  func waitForHeldRequest() async -> Bool {
+    var iterator = heldRequests.stream.makeAsyncIterator()
+    return await iterator.next() != nil
   }
   func response(_ request: URLRequest) async throws -> (Data, URLResponse) {
     requests.append(request)
@@ -45,7 +50,12 @@ private actor SourceFixture {
       revision = "sources-2"
       json = sourcesJSON(revision)
     }
-    if operation == hold { await withCheckedContinuation { waiter = $0 } }
+    if operation == hold {
+      await withCheckedContinuation {
+        waiter = $0
+        heldRequests.continuation.yield(())
+      }
+    }
     return (
       Data(json.utf8), HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: nil)!
     )
@@ -61,11 +71,18 @@ private actor SourceFixture {
     client: RuntimeAPIClient(connection: connection, transport: { try await fixture.response($0) }))
 }
 private func waitHeld(_ fixture: SourceFixture) async throws {
-  for _ in 0..<100 {
-    if await fixture.waiter != nil { return }
-    try await Task.sleep(for: .milliseconds(5))
+  let held = await withTaskGroup(of: Bool.self) { group in
+    group.addTask { await fixture.waitForHeldRequest() }
+    group.addTask {
+      try? await Task.sleep(for: .seconds(5))
+      return false
+    }
+    let observed = await group.next() ?? false
+    group.cancelAll()
+    return observed
   }
-  Issue.record("The fixture did not hold its response")
+  if !held { await fixture.release() }
+  try #require(held, "Software source request was not held")
 }
 
 @MainActor @Test func softwareSourceEditsInvalidateApprovalAndOnlyTheReviewedTokenCanBeApplied() async throws {
@@ -110,12 +127,16 @@ private func waitHeld(_ fixture: SourceFixture) async throws {
   #expect(model.preview == nil && !model.editing && !model.busy)
 }
 
-@MainActor @Test func oldSoftwareSourceReadCannotReplaceANewerMutationReceipt() async throws {
+@MainActor @Test(arguments: [Duration.zero, .seconds(1)])
+func oldSoftwareSourceReadCannotReplaceANewerMutationReceipt(requestDelay: Duration) async throws {
   let fixture = SourceFixture()
   let model = try makeSources(fixture)
   await model.load()
   await fixture.configure(hold: "get")
-  let old = Task { await model.load(force: true) }
+  let old = Task {
+    try? await Task.sleep(for: requestDelay)
+    await model.load(force: true)
+  }
   try await waitHeld(fixture)
   let saved = await model.configure("012345678901234567890123", revision: "sources-1", policy: .init(mode: "manual"))
   #expect(saved && model.snapshot?.revision == "sources-2")

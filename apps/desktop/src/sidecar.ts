@@ -1,4 +1,6 @@
+/* eslint-disable perfectionist/sort-imports -- The bootstrap must evaluate before the runtime's dependencies. */
 import type { ProfileLease } from 'craft-hub'
+import './node-network-bootstrap.ts'
 import { randomBytes } from 'node:crypto'
 import { mkdir } from 'node:fs/promises'
 import { resolve } from 'node:path'
@@ -16,6 +18,7 @@ import { createProjectLaunchService } from './project-launch.ts'
 import { createSessionGuard, createSidecarRequestHandler, openSystemTarget } from './sidecar-host.ts'
 import { acquireSidecarProfileLease } from './sidecar-profile.ts'
 import { takeConfigurationBackupKeys } from './workstation-runtime.ts'
+/* eslint-enable perfectionist/sort-imports */
 
 /**
  * Runtime sidecar for the native macOS host (ADR 0012). It composes the same runtime as the Electron host, serves it

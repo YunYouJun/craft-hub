@@ -7,7 +7,6 @@ import { existsSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { delimiter, join } from 'node:path'
 import process from 'node:process'
-import { spawn } from 'node-pty'
 import { commandInvocationSequence } from './command-inputs'
 import { assertCommandWorkingDirectory } from './path-security'
 
@@ -19,7 +18,8 @@ interface ParsedCommand {
 
 type ParseCommand = (command: string, args: string[], options: { cwd: string, env: NodeJS.ProcessEnv, shell: false }) => ParsedCommand
 
-const parseCommand = (createRequire(import.meta.url)('cross-spawn') as { _parse: ParseCommand })._parse
+const parseCommand: ParseCommand = (command, args, options) =>
+  (createRequire(import.meta.url)('cross-spawn') as { _parse: ParseCommand })._parse(command, args, options)
 
 const persistedOutputLimit = 10 * 1024 * 1024
 const persistedOutputHead = persistedOutputLimit / 2
@@ -30,7 +30,7 @@ export interface RunHandle {
   completion: Promise<RunRecord>
   cancel: () => void
   resize: (columns: number, rows: number) => void
-  write: (data: string) => void
+  write: (data: string | Uint8Array) => void
 }
 
 /** Execute only a structured command capability after project trust is established. */
@@ -44,6 +44,8 @@ export async function executeCommand(
 ): Promise<RunHandle> {
   if (project.trust !== 'trusted')
     throw new Error(`Project ${project.name} is untrusted. Trust it before running commands.`)
+  // Discovery and rejected executions never load a terminal addon. Validate the launch after this async boundary.
+  const { spawn } = await import('node-pty')
   const invocations = commandInvocationSequence(capability.invocation)
   await Promise.all(invocations.map(invocation => assertCommandWorkingDirectory(project.path, invocation.cwd)))
   if (guard) {
@@ -168,7 +170,7 @@ export async function executeCommand(
       terminalRows = rows
       terminal?.resize(columns, rows)
     },
-    write: data => terminal?.write(data),
+    write: data => terminal?.write(typeof data === 'string' ? data : Buffer.from(data)),
   }
 }
 

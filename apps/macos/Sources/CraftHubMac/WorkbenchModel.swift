@@ -10,20 +10,35 @@ final class WorkbenchModel {
   var selection: Destination? = .overview
   private(set) var machine: MachineModel?
   let projects = ProjectsModel()
+  let projectDetails = ProjectDetailsModel()
+  let projectCommand = ProjectCommandModel()
+  let projectTerminal: ProjectTerminalModel
   let today = TodayFocusModel()
   let settings = NativeSettingsModel()
   let plugins = PluginsModel()
   let diagnostics = DiagnosticsModel()
   let websiteNavigation = WebsiteNavigationModel()
+  let pluginNavigation = PluginNavigationModel()
+  private(set) var pluginWorkbenchPath: String?
+  var sidebarSelection: SidebarDestination? {
+    if let pluginWorkbenchPath { return .pluginWorkbench(pluginWorkbenchPath) }
+    return selection.map(SidebarDestination.builtin)
+  }
+  var navigationTitle: String {
+    pluginNavigation.workbenches.first { $0.path == pluginWorkbenchPath }?.title ?? selection?.title ?? "Craft Hub"
+  }
   private(set) var toolsPage: ToolsPage
   let cloud = NativeCloudModel()
   let codexActivity = CodexActivityModel()
   private(set) var connectionGeneration = UUID()
-  let integrations = IntegrationWorkbenchModel()
+  let resourceBridge = ResourceDesktopBridge()
   let workItemActions = WorkItemQuickActionsModel()
   private(set) var recentProjectIDs: [String]
   let observation = RuntimeObservation()
+  private(set) var webOperationPending = false
   private(set) var showsWebContent = false
+  /// Once requested, keep the browser alive for this runtime session, including when its window closes.
+  private(set) var webContentRequested = false
   var presentsNativeContent: Bool { selection?.isNative == true && !showsWebContent }
   private(set) var canGoBack = false
   private(set) var canGoForward = false
@@ -31,18 +46,19 @@ final class WorkbenchModel {
   private(set) var findRequest = 0
   /// The route the web workbench last reported; the sidebar follows it without navigating again.
   private(set) var route = "/overview"
-  @ObservationIgnored weak var webView: WKWebView?
+  var webView: WKWebView? { retainedWebSession?.webView }
+  @ObservationIgnored private var retainedWebSession: WorkbenchWebSession?
   @ObservationIgnored var restartRuntime: (() async throws -> Void)?
   @ObservationIgnored var presentPanel: ((String, String?) -> Void)?
   @ObservationIgnored var importProjects: (([URL]) -> Void)?
   @ObservationIgnored var presentSettings: (() -> Void)?
   @ObservationIgnored private var preferencesClient: RuntimeAPIClient?
   @ObservationIgnored private var webReady = false
-  @ObservationIgnored private var webDataStore: WKWebsiteDataStore?
   @ObservationIgnored private var pendingSelection: String?
   @ObservationIgnored private var desktopLinks = DesktopLinkInbox()
   @ObservationIgnored private var pendingApplicationMaintenance: ApplicationMaintenanceLink?
-  @ObservationIgnored private var restoredLastDestination = false
+  @ObservationIgnored private var desktopLinksPending = false
+  @ObservationIgnored private var runtimeConnected = false
   @ObservationIgnored private var configurationNavigation = UUID()
   @ObservationIgnored private let defaults: UserDefaults
   private static let lastDestinationKey = "lastDestination"
@@ -50,6 +66,8 @@ final class WorkbenchModel {
 
   init(defaults: UserDefaults = NativeStorage.defaults) {
     self.defaults = defaults
+    projectTerminal = ProjectTerminalModel(defaults: defaults)
+    selection = defaults.string(forKey: Self.lastDestinationKey).flatMap(Destination.init(rawValue:)) ?? .overview
     toolsPage = defaults.string(forKey: Self.toolsPageKey).flatMap(ToolsPage.init(rawValue:)) ?? .favorites
     recentProjectIDs = defaults.stringArray(forKey: "recentProjects") ?? []
   }
@@ -58,27 +76,75 @@ final class WorkbenchModel {
     Array(recentProjectIDs.compactMap { id in projects.projects.first { $0.id == id } }.prefix(8))
   }
 
-  func select(_ destination: Destination?) {
+  func select(_ destination: Destination?, path: String? = nil) {
+    guard canLeaveWebOperation() else {
+      selection = Destination.matching(path: route)
+      return
+    }
+    guard projectCommand.canChangeContext else {
+      selection = .projects
+      navigationError = L10n.text.copy("请先核对当前命令操作的结果。", "Review the current command operation before leaving.")
+      return
+    }
     workItemActions.close()
     configurationNavigation = UUID()
     if destination != .marketplace { plugins.cancelNavigation() }
     guard let destination else { return }
+    selection = destination
+    resourceBridge.invalidate()
+    webView?.evaluateJavaScript("window.dispatchEvent(new Event('craft-hub-conceal'))", completionHandler: nil)
+    pluginWorkbenchPath = nil
+    projectCommand.close()
+    projectDetails.close()
+    projectTerminal.select(projectID: nil)
     PerformanceTrace.mark(.pageRequested)
     showsWebContent = false
+    pendingSelection = nil
     defaults.set(destination.rawValue, forKey: Self.lastDestinationKey)
     guard !destination.isNative else { return }
-    guard Destination.matching(path: route) != destination else { return }
-    evaluate("window.__craftHubNavigate?.(\(Self.jsonString(destination.path)))")
+    requestWebContent("window.__craftHubNavigate?.(\(Self.jsonString(path ?? destination.path)))")
+  }
+
+  func selectSidebar(_ destination: SidebarDestination?) {
+    guard canLeaveWebOperation() else { return }
+    switch destination {
+    case .builtin(let destination):
+      selection = destination
+      select(destination)
+    case .pluginWorkbench(let path):
+      guard pluginNavigation.canOpen, pluginNavigation.workbenches.contains(where: { $0.path == path }),
+        projectCommand.canChangeContext
+      else { return }
+      showIntegrationWeb(path)
+      pluginWorkbenchPath = path
+    case nil: break
+    }
+  }
+
+  func loadPluginNavigation(locale: String, force: Bool = false) async {
+    await pluginNavigation.load(locale: locale, force: force)
+    if pluginNavigation.canOpen, let path = pluginWorkbenchPath,
+      !pluginNavigation.workbenches.contains(where: { $0.path == path })
+    {
+      selectSidebar(.builtin(.workbenches))
+    }
   }
 
   func connect(_ connection: RuntimeConnection?) {
+    if runtimeConnected { pendingSelection = nil }
+    runtimeConnected = connection != nil
     connectionGeneration = UUID()
     configurationNavigation = UUID()
     webReady = false
-    webDataStore = nil
+    webOperationPending = false
+    retainedWebSession?.invalidate()
+    retainedWebSession = nil
     machine?.disconnect()
     machine = connection.map { MachineModel(client: RuntimeAPIClient(connection: $0)) }
     projects.connect(connection.map { RuntimeAPIClient(connection: $0) })
+    projectDetails.connect(connection.map { RuntimeAPIClient(connection: $0) })
+    projectCommand.connect(connection.map { RuntimeAPIClient(connection: $0) })
+    projectTerminal.connect(connection.map { RuntimeAPIClient(connection: $0) })
     today.connect(connection.map { RuntimeAPIClient(connection: $0) })
     preferencesClient = connection.map { RuntimeAPIClient(connection: $0) }
     settings.connect(preferencesClient)
@@ -87,12 +153,13 @@ final class WorkbenchModel {
     plugins.connect(preferencesClient)
     diagnostics.connect(preferencesClient)
     websiteNavigation.connect(preferencesClient)
-    integrations.connect(preferencesClient)
+    pluginNavigation.connect(preferencesClient)
+    pluginWorkbenchPath = nil
+    resourceBridge.connect(preferencesClient)
     workItemActions.connect(preferencesClient)
     workItemActions.completed = { [weak self] _ in
       guard let self else { return }
       await self.today.refreshWorkItems()
-      await self.integrations.refresh()
     }
     NativePreferences.shared.refresh(preferencesClient)
     observation.connect(connection)
@@ -102,8 +169,11 @@ final class WorkbenchModel {
         await today.load()
       }
     }
-    showsWebContent = false
-    restoredLastDestination = false
+    if connection != nil, selection == .workbenches, pendingSelection == nil, !desktopLinksPending {
+      pendingSelection = "window.__craftHubNavigate?.(\(Self.jsonString(Destination.workbenches.path)))"
+    }
+    showsWebContent = pendingSelection != nil || desktopLinksPending
+    webContentRequested = showsWebContent
     canGoBack = false
     canGoForward = false
     if let link = pendingApplicationMaintenance { openApplicationMaintenance(link) }
@@ -115,11 +185,15 @@ final class WorkbenchModel {
     }
     if changes.contains(.settings) { NativePreferences.shared.refresh(preferencesClient) }
     projects.invalidate(changes)
+    projectDetails.invalidate(changes)
+    projectCommand.invalidate(changes)
     plugins.invalidate(changes)
     diagnostics.invalidate(changes)
     websiteNavigation.invalidate(changes)
-    integrations.invalidate(changes)
-    if !changes.isDisjoint(with: [.settings, .plugins, .pluginUpdate, .userConfig, .configurationSync, .integrations]) {
+    if pluginNavigation.invalidate(changes) {
+      Task { await loadPluginNavigation(locale: L10n.text.chinese ? "zh-CN" : "en") }
+    }
+    if !changes.isDisjoint(with: [.settings, .plugins, .pluginUpdate, .userConfig, .integrations]) {
       if changes.isSubset(of: [.integrations, .configurationSync]) {
         today.markWorkItemsStale()
       } else {
@@ -133,9 +207,10 @@ final class WorkbenchModel {
     guard presentsNativeContent else { return }
     let destination = selection
     Task {
+      if destination == .projects, projectDetails.projectID != nil { await projectDetails.load() }
+      if destination == .projects, projectCommand.capabilityID != nil { await projectCommand.load() }
       if destination == .marketplace { await plugins.load() }
       if destination == .diagnostics { await diagnostics.load() }
-      if destination == .workbenches { await integrations.refreshIfIdle() }
       if destination == .environment {
         await machine.loadEnvironment()
         if machine.environmentTab == "profile" { await machine.environmentProfile.load() }
@@ -156,28 +231,25 @@ final class WorkbenchModel {
   }
 
   func showWebWorkbench() {
-    showsWebContent = true
-    if let selection {
+    if let pluginWorkbenchPath {
+      requestWebContent("window.__craftHubNavigate?.(\(Self.jsonString(pluginWorkbenchPath)))")
+      return
+    }
+    // Returning to the same section resumes its current detail/editor rather than navigating away from a draft.
+    if let selection, Destination.matching(path: route) != selection {
       let path = selection == .tools ? toolsPage.path : selection.path
-      evaluate("window.__craftHubNavigate?.(\(Self.jsonString(path)))")
+      requestWebContent("window.__craftHubNavigate?.(\(Self.jsonString(path)))")
+    } else {
+      requestWebContent()
     }
   }
 
   func routeChanged(_ path: String) {
+    if route != path { resourceBridge.invalidate() }
     route = path
-    // Like native apps, reopen where the user left off once the workbench reports its first route.
-    if !restoredLastDestination {
-      restoredLastDestination = true
-      let saved = defaults.string(forKey: Self.lastDestinationKey).flatMap(Destination.init(rawValue:))
-      if let saved, saved != Destination.matching(path: path) {
-        selection = saved
-        // A runtime restart may restore the already-selected destination, so onChange alone is insufficient.
-        select(saved)
-        return
-      }
-    }
     // The hidden web page may finish an earlier navigation while a native page is already selected.
     guard !presentsNativeContent else { return }
+    pluginWorkbenchPath = pluginNavigation.workbenches.first { $0.path == path }?.path
     if let page = ToolsPage(path: path) {
       showTools(page)
       return
@@ -195,11 +267,11 @@ final class WorkbenchModel {
     canGoForward = forward
   }
 
-  func goBack() { webView?.goBack() }
-  func goForward() { webView?.goForward() }
+  func goBack() { if canLeaveWebOperation() { webView?.goBack() } }
+  func goForward() { if canLeaveWebOperation() { webView?.goForward() } }
   func find() {
     if presentsNativeContent
-      && [.projects, .tools, .software, .workbenches, .marketplace, .diagnostics].contains(selection)
+      && [.projects, .tools, .software, .marketplace, .diagnostics].contains(selection)
     {
       findRequest += 1
     } else {
@@ -208,6 +280,12 @@ final class WorkbenchModel {
   }
 
   func acceptDesktopLink(_ url: URL) {
+    guard canLeaveWebOperation() else { return }
+    guard projectCommand.canChangeContext else {
+      navigationError = L10n.text.copy("请先核对当前命令操作的结果。", "Review the current command operation before leaving.")
+      return
+    }
+    projectCommand.cancelReview()
     if let link = ApplicationMaintenanceLink(url: url) {
       openApplicationMaintenance(link)
       return
@@ -222,12 +300,15 @@ final class WorkbenchModel {
       return
     }
     navigationError = nil
-    restoredLastDestination = true
+    configurationNavigation = UUID()
+    desktopLinksPending = true
+    webContentRequested = true
+    showsWebContent = true
     deliverDesktopLinks()
   }
 
   private func openApplicationMaintenance(_ link: ApplicationMaintenanceLink) {
-    restoredLastDestination = true
+    configurationNavigation = UUID()
     showsWebContent = false
     selection = .software
     navigationError = nil
@@ -253,9 +334,8 @@ final class WorkbenchModel {
   private func deliverDesktopLinks() {
     guard webReady, let webView else { return }
     let links = desktopLinks.drain()
+    desktopLinksPending = false
     guard !links.isEmpty else { return }
-    restoredLastDestination = true
-    showsWebContent = true
     for url in links {
       webView.callAsyncJavaScript(
         "await window.__craftHubDesktopLink(url); return true", arguments: ["url": url], in: nil, in: .page
@@ -270,6 +350,8 @@ final class WorkbenchModel {
     }
   }
   func reload() {
+    guard canLeaveWebOperation() else { return }
+    Task { await loadPluginNavigation(locale: L10n.text.chinese ? "zh-CN" : "en", force: true) }
     if presentsNativeContent {
       Task {
         if selection == .marketplace {
@@ -277,11 +359,14 @@ final class WorkbenchModel {
           if plugins.tab == .hosts { await plugins.hostComponents.load() }
         }
         if selection == .diagnostics { await diagnostics.load(force: true) }
-        if selection == .workbenches {
-          await integrations.loadCatalog(force: true)
-          await integrations.refresh()
+        if selection == .projects {
+          if projectCommand.capabilityID != nil { await projectCommand.load(force: true) }
+          if projectDetails.projectID != nil {
+            await projectDetails.load(force: true)
+          } else {
+            await projects.load(force: true)
+          }
         }
-        if selection == .projects { await projects.load(force: true) }
         if selection == .overview { await today.load(force: true) }
         if selection == .environment { await machine?.loadEnvironment(force: true) }
         if selection == .software { await machine?.loadSoftware(force: true) }
@@ -310,22 +395,95 @@ final class WorkbenchModel {
   }
 
   func runWebCommand(_ command: String) {
-    showsWebContent = true
-    pendingSelection = "window.__craftHubCommand?.(\(Self.jsonString(command)))"
-    deliverSelection()
+    requestWebContent("window.__craftHubCommand?.(\(Self.jsonString(command)))")
   }
 
   func selectProject(_ project: String, capability: String?) {
-    recentProjectIDs = Array(([project] + recentProjectIDs.filter { $0 != project }).prefix(20))
-    defaults.set(recentProjectIDs, forKey: "recentProjects")
-    showsWebContent = true
+    guard canLeaveWebOperation() else { return }
+    if let capability {
+      guard preferencesClient != nil else {
+        showProjectWeb(project, capability: capability)
+        return
+      }
+      guard projectCommand.canChangeContext else { return }
+      select(.projects)
+      selection = .projects
+      rememberProject(project)
+      projectDetails.select(project)
+      projectTerminal.select(projectID: project)
+      let navigation = UUID()
+      configurationNavigation = navigation
+      Task {
+        await projectDetails.load()
+        guard configurationNavigation == navigation, projectDetails.projectID == project else { return }
+        if projectDetails.snapshot?.discovery.capabilities.contains(where: {
+          $0.id == capability && $0.kind == "command"
+        }) == true {
+          showProjectCommand(project, capability: capability)
+        } else if projectDetails.canReview {
+          showProjectWeb(project, capability: capability)
+        }
+      }
+      return
+    }
+    select(.projects)
     selection = .projects
+    rememberProject(project)
+    projectDetails.select(project)
+    projectTerminal.select(projectID: project)
+  }
+
+  /// Choosing a command opens native inspection only; starting it always requires a separate reviewed action.
+  func showProjectCommand(_ project: String, capability: String) {
+    guard canLeaveWebOperation() else { return }
+    guard projectCommand.canChangeContext else { return }
+    configurationNavigation = UUID()
+    selection = .projects
+    showsWebContent = false
+    pendingSelection = nil
+    rememberProject(project)
+    projectDetails.select(project)
+    projectCommand.select(project: project, capability: capability)
+    projectTerminal.select(projectID: project, capabilityID: capability)
+  }
+
+  func closeProjectCommand() {
+    guard projectCommand.canChangeContext else { return }
+    projectCommand.close()
+    projectTerminal.select(projectID: projectDetails.projectID)
+  }
+
+  /// Enter the existing review flow only on an explicit user action; native inspection never runs it implicitly.
+  func showProjectWeb(_ project: String, capability: String? = nil) {
+    guard projectCommand.canChangeContext else { return }
+    projectCommand.cancelReview()
+    projectTerminal.select(projectID: nil)
+    rememberProject(project)
+    selection = .projects
+    projectDetails.select(project)
     var value = ["projectId": project]
     value["capabilityId"] = capability
     guard let data = try? JSONSerialization.data(withJSONObject: value), let json = String(data: data, encoding: .utf8)
     else { return }
-    pendingSelection = "window.__craftHubSelect?.(\(json))"
-    deliverSelection()
+    requestWebContent("window.__craftHubSelect?.(\(json))")
+  }
+
+  func returnToNativeContent() {
+    guard canLeaveWebOperation() else { return }
+    if selection == .projects, projectDetails.projectID != nil {
+      showsWebContent = false
+      pendingSelection = nil
+      projectTerminal.select(projectID: projectDetails.projectID, capabilityID: projectCommand.capabilityID)
+    } else {
+      select(selection)
+    }
+  }
+
+  private func rememberProject(_ project: String) {
+    recentProjectIDs = Array(([project] + recentProjectIDs.filter { $0 != project }).prefix(20))
+    defaults.set(recentProjectIDs, forKey: "recentProjects")
+    defaults.set(Destination.projects.rawValue, forKey: Self.lastDestinationKey)
+    projects.selectedID = project
   }
 
   func openDiagnostic(_ target: DiagnosticSnapshot.Target) {
@@ -358,7 +516,13 @@ final class WorkbenchModel {
   }
 
   func navigateToWebPath(_ path: String) {
+    guard canLeaveWebOperation() else { return }
     configurationNavigation = UUID()
+    navigationError = nil
+    if pluginNavigation.workbenches.contains(where: { $0.path == path }) {
+      selectSidebar(.pluginWorkbench(path))
+      return
+    }
     if let page = ToolsPage(path: path) {
       showTools(page)
       return
@@ -373,7 +537,7 @@ final class WorkbenchModel {
       select(.environment)
       return
     }
-    if ["/marketplace", "/diagnostics", "/tools", "/software"].contains(path),
+    if ["/overview", "/marketplace", "/diagnostics", "/tools", "/software"].contains(path),
       let destination = Destination.matching(path: path)
     {
       selection = destination
@@ -381,28 +545,12 @@ final class WorkbenchModel {
       return
     }
     if path.hasPrefix("/integrations/") {
-      let request = UUID()
-      configurationNavigation = request
-      Task {
-        await integrations.loadCatalog()
-        guard configurationNavigation == request else { return }
-        let parts = URLComponents(string: path)
-        guard let entry = integrations.entries.first(where: { $0.path == parts?.path }),
-          integrations.canChangeContext
-        else {
-          showIntegrationWeb(path)
-          return
-        }
-        let project = parts?.queryItems?.first { $0.name == "project" }?.value ?? ""
-        guard project.isEmpty || projects.projects.contains(where: { $0.id == project }) else {
-          navigationError = L10n.text.copy("项目已不在登记列表中。", "This project is no longer registered.")
-          return
-        }
-        selection = .workbenches
-        select(.workbenches)
-        await integrations.select(entry.id, project: project)
+      let parts = URLComponents(string: path)
+      let project = parts?.queryItems?.first { $0.name == "project" }?.value ?? ""
+      guard project.isEmpty || projects.projects.contains(where: { $0.id == project }) else {
+        navigationError = L10n.text.copy("项目已不在登记列表中。", "This project is no longer registered.")
+        return
       }
-      return
     }
     showIntegrationWeb(path)
   }
@@ -422,39 +570,26 @@ final class WorkbenchModel {
       }
     }
   }
-  /// Explicit fallback keeps the selected scope in the URL and never loops back into native routing.
+  /// Plugin views share the browser renderer; the URL retains their declared project scope.
   func showIntegrationWeb(_ path: String) {
-    configurationNavigation = UUID()
-    showsWebContent = true
-    pendingSelection = "window.__craftHubNavigate?.(\(Self.jsonString(path)))"
-    deliverSelection()
+    guard canLeaveWebOperation() else { return }
+    if Destination.matching(path: path) == .workbenches {
+      select(.workbenches, path: path)
+    } else {
+      requestWebContent("window.__craftHubNavigate?.(\(Self.jsonString(path)))")
+    }
+    pluginWorkbenchPath = pluginNavigation.workbenches.first { $0.path == path }?.path
   }
-  /// Environment-profile links resolve against declared global configuration blocks before entering native review.
+  /// Plugin configuration links use the same scoped Web page as workbench and diagnostic entries.
   func openConfiguration(_ path: String) {
-    guard let machine, !machine.configuration.busy, !machine.configuration.loading,
-      machine.configuration.uncertain == nil
-    else {
+    guard canLeaveWebOperation() else { return }
+    if let configuration = machine?.configuration,
+      configuration.busy || configuration.loading || configuration.uncertain != nil
+    {
       navigationError = L10n.text.copy("请等待当前配置操作完成后继续。", "Wait for the current configuration operation to finish.")
       return
     }
-    let request = UUID()
-    configurationNavigation = request
-    Task {
-      await machine.configuration.loadCatalog()
-      guard self.machine === machine, configurationNavigation == request else { return }
-      let components = URLComponents(string: path)
-      guard components?.scheme == nil, components?.host == nil,
-        let entry = machine.configuration.entries.first(where: { $0.path == components?.path })
-      else {
-        navigateToWebPath(path)
-        return
-      }
-      selection = .environment
-      machine.environmentTab = "configuration"
-      select(.environment)
-      let item = components?.queryItems?.first { $0.name == "setupItem" }?.value
-      await machine.configuration.select(entry.id, item: item)
-    }
+    navigateToWebPath(path)
   }
   /// Called only after the sidecar validates a desktop link. Import links fill a draft without fetching or adding it.
   func openPluginManagement(catalogURL: String?) throws {
@@ -472,12 +607,35 @@ final class WorkbenchModel {
     selection = .marketplace
     select(.marketplace)
   }
-  /// Keep the ephemeral browser session when the main window is recreated; the bootstrap is one-use.
-  func webSessionDataStore() -> WKWebsiteDataStore {
-    if let webDataStore { return webDataStore }
-    let created = WKWebsiteDataStore.nonPersistent()
-    webDataStore = created
-    return created
+  /// Create only at the first web presentation; window recreation reuses the page and its one-use bootstrap.
+  func webSession(url: URL) -> WorkbenchWebSession {
+    if let retainedWebSession { return retainedWebSession }
+    let session = WorkbenchWebSession(url: url, model: self)
+    retainedWebSession = session
+    return session
+  }
+  /// The trusted workbench reports only mutation activity, never operation input or credentials.
+  func setWebOperationPending(_ pending: Bool) { webOperationPending = pending }
+
+  private func canLeaveWebOperation() -> Bool {
+    guard !webOperationPending else {
+      navigationError = L10n.text.copy(
+        "当前插件正在提交操作，完成后可切换页面。", "A plugin operation is being submitted. Wait before changing pages.")
+      return false
+    }
+    return true
+  }
+
+  private func requestWebContent(_ script: String? = nil) {
+    guard canLeaveWebOperation() else { return }
+    guard projectCommand.canChangeContext else { return }
+    projectCommand.cancelReview()
+    configurationNavigation = UUID()
+    webContentRequested = true
+    showsWebContent = true
+    pendingSelection = script
+    deliverSelection()
+    if webReady { evaluate("window.dispatchEvent(new Event('craft-hub-resource-resume'))") }
   }
   func webWillLoad() { webReady = false }
   func webBecameReady() {
@@ -488,7 +646,6 @@ final class WorkbenchModel {
   }
   private func deliverSelection() {
     guard webReady, webView != nil, let pendingSelection else { return }
-    showsWebContent = true
     evaluate(pendingSelection)
     self.pendingSelection = nil
   }

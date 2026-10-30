@@ -1,9 +1,12 @@
+import { createRequire } from 'node:module'
+import process from 'node:process'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { createMicrosoftTodoTransport } from '../src/transport'
 
 const mocks = vi.hoisted(() => ({
   clients: [] as Array<{ onclose?: () => void, connect: ReturnType<typeof vi.fn>, close: ReturnType<typeof vi.fn>, callTool: ReturnType<typeof vi.fn> }>,
   transports: [] as Array<{ close: ReturnType<typeof vi.fn> }>,
+  parameters: [] as Array<{ command: string, args?: string[], env?: Record<string, string> }>,
 }))
 vi.mock('@modelcontextprotocol/sdk/client/index.js', () => ({
   Client: class {
@@ -17,17 +20,45 @@ vi.mock('@modelcontextprotocol/sdk/client/index.js', () => ({
 vi.mock('@modelcontextprotocol/sdk/client/stdio.js', () => ({
   StdioClientTransport: class {
     close = vi.fn().mockResolvedValue(undefined)
-    constructor() { mocks.transports.push(this) }
+    constructor(parameters: { command: string, args?: string[], env?: Record<string, string> }) {
+      mocks.transports.push(this)
+      mocks.parameters.push(parameters)
+    }
   },
 }))
 beforeEach(() => {
   vi.useFakeTimers()
   mocks.clients.length = 0
   mocks.transports.length = 0
+  mocks.parameters.length = 0
 })
 afterEach(() => {
   vi.useRealTimers()
   vi.restoreAllMocks()
+  vi.unstubAllEnvs()
+})
+
+it.each([false, true])('preloads only the host bootstrap and preserves connector boundaries with writable=%s', async (writable) => {
+  const networkBootstrap = 'file:///Application%20Support/Craft%20Hub/node-network-bootstrap.mjs'
+  vi.stubEnv('NODE_OPTIONS', '--import=file:///untrusted.mjs')
+  vi.stubEnv('NODE_PATH', '/untrusted-modules')
+  vi.stubEnv('CRAFT_HUB_SECRET', 'fixture-value')
+  const transport = createMicrosoftTodoTransport({ networkBootstrap, writable })
+  try {
+    await transport.call('list-accounts')
+    expect(mocks.parameters).toHaveLength(1)
+    expect(mocks.parameters[0]).toMatchObject({
+      command: process.execPath,
+      args: ['--import', networkBootstrap, createRequire(import.meta.url).resolve('@softeria/ms-365-mcp-server'), ...(writable ? [] : ['--read-only']), '--enabled-tools', writable ? '^(list-todo-(task-lists|tasks)|(create|update)-todo-task)$' : '^list-todo-(task-lists|tasks)$', '--allowed-scopes', writable ? 'Tasks.ReadWrite' : 'Tasks.Read'],
+      env: { ELECTRON_RUN_AS_NODE: '1', LOG_LEVEL: 'error' },
+    })
+    expect(mocks.parameters[0]!.env).not.toHaveProperty('NODE_OPTIONS')
+    expect(mocks.parameters[0]!.env).not.toHaveProperty('NODE_PATH')
+    expect(mocks.parameters[0]!.env).not.toHaveProperty('CRAFT_HUB_SECRET')
+  }
+  finally {
+    await transport.close()
+  }
 })
 
 it('reuses the authorized desktop process after idle refreshes instead of reopening the keychain', async () => {

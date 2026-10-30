@@ -21,17 +21,18 @@ struct SoftwareView: View {
         Text(text.copy("来源", "Sources")).tag("sources")
         Text(text.copy("卸载指引", "Uninstall Guidance")).tag("uninstall")
       }.pickerStyle(.segmented).labelsHidden().frame(maxWidth: 560, alignment: .leading)
-        .padding(.horizontal, 20).padding(.bottom, 16)
+        .padding(.horizontal, NativePageLayout.horizontalInset).padding(.bottom, 16)
       if tab != "favorites", let error = machine.favorites.error {
-        NativeErrorView(message: error).padding(.horizontal, 24)
+        NativeErrorView(message: error).padding(.horizontal, NativePageLayout.horizontalInset)
       }
       if tab != "favorites", let notice = machine.favorites.notice {
-        Text(notice).font(.callout).foregroundStyle(.secondary).padding(.horizontal, 20).padding(.bottom, 8)
+        Text(notice).font(.callout).foregroundStyle(.secondary).padding(.horizontal, NativePageLayout.horizontalInset)
+          .padding(.bottom, 8)
       }
       if tab != "favorites", machine.favorites.uncertain || machine.favorites.stale {
         Text(text.copy("收藏状态需重新读取后才能修改。", "Reload favorites before making changes.")).font(.caption).foregroundStyle(
           .secondary
-        ).padding(.horizontal, 24)
+        ).padding(.horizontal, NativePageLayout.horizontalInset)
       }
       if tab == "uninstall" {
         ApplicationUninstallGuidanceView(model: machine.applicationMaintenance)
@@ -92,6 +93,6 @@ struct SoftwareView: View {
       }.menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
         .accessibilityLabel(text.copy("软件中心更多操作", "More Software Actions"))
     }
-    .controlSize(.small).padding(.horizontal, 20).padding(.top, 18).padding(.bottom, 16)
+    .controlSize(.small).padding(.horizontal, NativePageLayout.horizontalInset).padding(.top, 18).padding(.bottom, 16)
   }
 }

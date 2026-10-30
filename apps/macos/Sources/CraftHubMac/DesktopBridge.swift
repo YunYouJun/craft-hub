@@ -11,7 +11,7 @@ final class DesktopBridge: NSObject, WKScriptMessageHandlerWithReply {
   /// Defined before any page script runs, frozen so the page cannot replace individual actions.
   static let script = """
     (() => {
-      const native = (action, input = {}) => window.webkit.messageHandlers.\(handlerName).postMessage({ action, input })
+      const native = (action, input = {}) => window.webkit.messageHandlers.\(handlerName).postMessage({ action, input: JSON.parse(JSON.stringify(input)) })
       const sidecar = async (action, input = {}) => {
         const response = await fetch('/__craft_hub_host/' + action, {
           method: 'POST',
@@ -98,6 +98,12 @@ final class DesktopBridge: NSObject, WKScriptMessageHandlerWithReply {
         selectProjectDirectories: defaultPath => native('select-project-directories', { defaultPath }),
         openExternalUrl: url => native('open-external-url', { url }),
         copyText: text => native('copy-text', { text }),
+        saveTextFile: input => native('save-text-file', input),
+        openResourceSession: context => native('open-resource-session', context),
+        closeResourceSession: sessionId => native('close-resource-session', { sessionId }),
+        resourceCredential: input => native('resource-credential', input),
+        importResourceAccounts: sessionId => native('import-resource-accounts', { sessionId }),
+        setWorkbenchOperationPending: pending => native('set-workbench-operation-pending', { pending }),
         setTheme: theme => native('set-theme', { theme }),
         setLocale: locale => native('set-locale', { locale }),
         hostExtensions: () => sidecar('host-extensions'),
@@ -145,6 +151,8 @@ final class DesktopBridge: NSObject, WKScriptMessageHandlerWithReply {
   var openPluginManagement: ((String?) throws -> Void)?
   var cloudAction: ((String) async throws -> Any?)?
   var codexActivityAction: ((String) async throws -> Any?)?
+  var workbenchOperation: ((Bool) -> Void)?
+  var resourceAction: ((String, [String: Any]) async throws -> Any)?
 
   init(origin: URL) {
     self.origin = origin
@@ -166,6 +174,19 @@ final class DesktopBridge: NSObject, WKScriptMessageHandlerWithReply {
     }
     let input = body["input"] as? [String: Any] ?? [:]
     switch action {
+    case "set-workbench-operation-pending":
+      guard input.count == 1, let pending = input["pending"] as? Bool, let workbenchOperation else {
+        return replyHandler(nil, "Workbench operation state must be a boolean")
+      }
+      workbenchOperation(pending)
+      replyHandler(nil, nil)
+    case "open-resource-session", "close-resource-session", "resource-credential", "import-resource-accounts":
+      guard let resourceAction else { return replyHandler(nil, "Native resource actions are unavailable") }
+      Task {
+        do { replyHandler(try await resourceAction(action, input), nil) } catch {
+          replyHandler(nil, "Local resource action unavailable. Refresh the page and retry.")
+        }
+      }
     case "install-codex-activity-hooks", "uninstall-codex-activity-hooks":
       guard input.isEmpty, let codexActivityAction else {
         return replyHandler(nil, "Native Codex activity is unavailable")
@@ -221,6 +242,25 @@ final class DesktopBridge: NSObject, WKScriptMessageHandlerWithReply {
       }
       NativePreferences.shared.setLanguage(language)
       replyHandler(nil, nil)
+    case "save-text-file":
+      guard let document = Self.textExport(input) else {
+        return replyHandler(nil, "A bounded text document and a file name are required")
+      }
+      let panel = NSSavePanel()
+      panel.nameFieldStringValue = document.filename
+      panel.canCreateDirectories = true
+      let finish: (NSApplication.ModalResponse) -> Void = { response in
+        guard response == .OK, let url = panel.url else { return replyHandler(["saved": false], nil) }
+        do {
+          try document.data.write(to: url, options: .atomic)
+          replyHandler(["saved": true], nil)
+        } catch { replyHandler(nil, "The text document could not be saved") }
+      }
+      if let window = webView?.window {
+        panel.beginSheetModal(for: window, completionHandler: finish)
+      } else {
+        finish(panel.runModal())
+      }
     case "copy-text":
       guard let text = input["text"] as? String else { return replyHandler(nil, "Clipboard text must be a string") }
       NSPasteboard.general.clearContents()
@@ -251,6 +291,18 @@ final class DesktopBridge: NSObject, WKScriptMessageHandlerWithReply {
     } else {
       finish(panel.runModal())
     }
+  }
+
+  /// The web page supplies text and a suggested basename; only the system save panel selects a path.
+  static func textExport(_ input: [String: Any]) -> (filename: String, data: Data)? {
+    guard input.count == 2, let filename = input["filename"] as? String,
+      !filename.isEmpty, filename.utf8.count <= 255, ![".", ".."].contains(filename),
+      !filename.unicodeScalars.contains(where: {
+        $0.value < 32 || $0.value == 127 || "/\\:".unicodeScalars.contains($0)
+      }),
+      let content = input["content"] as? String, content.utf8.count <= 8 * 1024 * 1024
+    else { return nil }
+    return (filename, Data(content.utf8))
   }
 
   /// Credential-free HTTPS only, with no control characters, matching the sidecar's own validation.

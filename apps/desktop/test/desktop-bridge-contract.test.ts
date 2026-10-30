@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 async function loadBridges() {
   const invoke = vi.fn(async () => undefined)
-  const postMessage = vi.fn(async () => undefined)
+  const postMessage = vi.fn(async (_message: { action: string, input: Record<string, unknown> }): Promise<unknown> => undefined)
   const fetch = vi.fn(async (): Promise<{ ok: boolean, json: () => Promise<{ value?: unknown, error?: string }> }> => ({
     ok: true,
     json: async () => ({ value: 'sidecar-result' }),
@@ -40,6 +40,21 @@ async function loadBridges() {
 }
 
 describe('versioned desktop bridge contract', () => {
+  it('omits undefined optional fields before sending resource contexts through WebKit', async () => {
+    const { native, postMessage } = await loadBridges()
+    await native.openResourceSession!({ integrationId: 'example', viewId: 'overview', blockId: 'records', projectId: undefined, input: {} })
+    expect(postMessage).toHaveBeenCalledExactlyOnceWith({ action: 'open-resource-session', input: { integrationId: 'example', viewId: 'overview', blockId: 'records', input: {} } })
+    expect(Object.hasOwn(postMessage.mock.calls[0]![0].input, 'projectId')).toBe(false)
+  })
+  it('converts reactive resource inputs to plain data before the native transport clones them', async () => {
+    const { native, postMessage } = await loadBridges()
+    postMessage.mockImplementation(async (message) => {
+      structuredClone(message)
+    })
+    const input = new Proxy({ query: 'example' }, {})
+    await native.openResourceSession!({ integrationId: 'example', viewId: 'overview', blockId: 'records', input })
+    expect(postMessage).toHaveBeenCalledExactlyOnceWith({ action: 'open-resource-session', input: { integrationId: 'example', viewId: 'overview', blockId: 'records', input: { query: 'example' } } })
+  })
   it('shares the activity stream, releases subscriptions and ignores retired streams and late status reads', async () => {
     const { native, streams, pageEvents, fetch, postMessage } = await loadBridges()
     const first = vi.fn()
