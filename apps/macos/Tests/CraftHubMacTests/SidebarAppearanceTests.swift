@@ -5,25 +5,46 @@ import Testing
 @testable import CraftHubMac
 
 @Suite(.serialized) @MainActor struct SidebarAppearanceTests {
-  @Test func sidebarSelectionKeepsNativeSelectionAndUsesUnemphasizedRendering() {
-    let row = NSTableRowView()
-    let container = NSView()
-    let probe = SidebarSelectionProbe()
-    row.addSubview(container)
-    container.addSubview(probe)
-    row.isSelected = true
-    row.isEmphasized = true
-    probe.apply()
-    #expect(row.isSelected && !row.isEmphasized)
-    row.isEmphasized = true
-    probe.configure()
-    #expect(row.isSelected && !row.isEmphasized)
-    row.isSelected = false
-    row.isEmphasized = true
-    probe.apply()
-    #expect(!row.isSelected && row.isEmphasized)
-    probe.removeFromSuperview()
-    probe.stop()
+  @Test func destinationLabelMatchesSystemSidebarRendering() async throws {
+    for appearance in [NSAppearance.Name.aqua, .darkAqua] {
+      let window = NSWindow(
+        contentRect: NSRect(x: 0, y: 0, width: 240, height: 100), styleMask: [.titled], backing: .buffered,
+        defer: false)
+      window.isReleasedWhenClosed = false
+      defer {
+        window.close()
+        window.contentView = nil
+      }
+      window.appearance = NSAppearance(named: appearance)
+      func render(_ label: AnyView) async throws -> NSBitmapImageRep {
+        let hosting = NSHostingView(
+          rootView: List(selection: .constant(Destination.projects as Destination?)) {
+            label.tag(Destination.projects)
+          }.listStyle(.sidebar))
+        window.contentView = hosting
+        hosting.layoutSubtreeIfNeeded()
+        try await Task.sleep(for: .milliseconds(100))
+        hosting.layoutSubtreeIfNeeded()
+        let bitmap = try #require(hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds))
+        hosting.cacheDisplay(in: hosting.bounds, to: bitmap)
+        return bitmap
+      }
+      let reference = try await render(
+        AnyView(Label(Destination.projects.title, systemImage: Destination.projects.symbol)))
+      let actual = try await render(AnyView(SidebarDestinationLabel(destination: .projects)))
+      var difference: CGFloat = 0
+      for y in 0..<reference.pixelsHigh {
+        for x in 0..<reference.pixelsWide {
+          let expected = try #require(reference.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB))
+          let found = try #require(actual.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB))
+          difference +=
+            abs(expected.redComponent - found.redComponent)
+            + abs(expected.greenComponent - found.greenComponent) + abs(expected.blueComponent - found.blueComponent)
+        }
+      }
+      let meanDifference = difference / CGFloat(reference.pixelsWide * reference.pixelsHigh * 3)
+      #expect(meanDifference < 0.001, "\(appearance.rawValue): sidebar differs from system Label by \(meanDifference)")
+    }
   }
 
   private let icon = Data(
@@ -31,7 +52,7 @@ import Testing
       .utf8
   )
 
-  @Test func pluginSidebarArtworkIsGrayUntilSelectedInLightAndDarkAppearances() async throws {
+  @Test func pluginSidebarArtworkInheritsForegroundInLightAndDarkAppearances() async throws {
     let declaration = "data:image/svg+xml;base64," + icon.base64EncodedString()
     for appearance in [
       NSAppearance.Name.aqua, .darkAqua, .accessibilityHighContrastAqua, .accessibilityHighContrastDarkAqua,
@@ -45,10 +66,11 @@ import Testing
         window.contentView = nil
       }
       window.appearance = NSAppearance(named: appearance)
-      let hosting = NSHostingView(rootView: SidebarPluginIcon(icon: declaration, selected: true).padding(10))
+      let hosting = NSHostingView(
+        rootView: SidebarPluginIcon(icon: declaration).foregroundStyle(Color.white).padding(10))
       window.contentView = hosting
-      for selected in [true, false, true] {
-        hosting.rootView = SidebarPluginIcon(icon: declaration, selected: selected).padding(10)
+      for (foreground, expected) in [(Color.white, CGFloat(1)), (Color.black, CGFloat(0))] {
+        hosting.rootView = SidebarPluginIcon(icon: declaration).foregroundStyle(foreground).padding(10)
         hosting.layoutSubtreeIfNeeded()
         try await Task.sleep(for: .milliseconds(100))
         hosting.layoutSubtreeIfNeeded()
@@ -56,12 +78,10 @@ import Testing
         hosting.cacheDisplay(in: hosting.bounds, to: bitmap)
         let color = try #require(
           bitmap.colorAt(x: bitmap.pixelsWide / 2, y: bitmap.pixelsHigh / 2)?.usingColorSpace(.deviceRGB))
-        let chroma =
-          max(color.redComponent, color.greenComponent, color.blueComponent)
-          - min(color.redComponent, color.greenComponent, color.blueComponent)
         #expect(
-          selected ? chroma > 0.4 : chroma < 0.02,
-          "\(appearance.rawValue), selected=\(selected): \(color)")
+          abs(color.redComponent - expected) < 0.02 && abs(color.greenComponent - expected) < 0.02
+            && abs(color.blueComponent - expected) < 0.02,
+          "\(appearance.rawValue): \(color)")
       }
     }
   }

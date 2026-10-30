@@ -17,8 +17,6 @@ struct ContentView: View {
         Section {
           ForEach(Destination.primary) { destination in
             SidebarDestinationLabel(destination: destination)
-              .listItemTint(.monochrome)
-              .modifier(SidebarRowAppearance(selected: model.sidebarSelection == .builtin(destination)))
               .tag(SidebarDestination.builtin(destination))
           }
         }
@@ -26,13 +24,10 @@ struct ContentView: View {
           Section(text.copy("插件工作台", "Plugin Workbenches")) {
             ForEach(model.pluginNavigation.workbenches) { workbench in
               Label {
-                Text(workbench.title).foregroundStyle(Color(nsColor: .labelColor))
+                Text(workbench.title)
               } icon: {
-                SidebarPluginIcon(
-                  icon: workbench.icon, selected: model.sidebarSelection == .pluginWorkbench(workbench.path))
+                SidebarPluginIcon(icon: workbench.icon)
               }
-              .listItemTint(.monochrome)
-              .modifier(SidebarRowAppearance(selected: model.sidebarSelection == .pluginWorkbench(workbench.path)))
               .tag(SidebarDestination.pluginWorkbench(workbench.path))
               .disabled(!model.pluginNavigation.canOpen)
               .help(workbench.description ?? workbench.title)
@@ -47,8 +42,6 @@ struct ContentView: View {
         Section(text.manageSection) {
           ForEach(Destination.manage) { destination in
             SidebarDestinationLabel(destination: destination)
-              .listItemTint(.monochrome)
-              .modifier(SidebarRowAppearance(selected: model.sidebarSelection == .builtin(destination)))
               .tag(SidebarDestination.builtin(destination))
           }
         }
