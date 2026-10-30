@@ -11,23 +11,49 @@ struct ContentView: View {
     NavigationSplitView {
       List(
         selection: Binding(
-          get: { model.selection },
-          set: {
-            model.selection = $0
-            model.select($0)
-          })
+          get: { model.sidebarSelection },
+          set: model.selectSidebar)
       ) {
         Section {
           ForEach(Destination.primary) { destination in
-            Label(destination.title, systemImage: destination.symbol).tag(destination)
+            SidebarDestinationLabel(destination: destination)
+              .listItemTint(.monochrome)
+              .modifier(SidebarRowAppearance(selected: model.sidebarSelection == .builtin(destination)))
+              .tag(SidebarDestination.builtin(destination))
+          }
+        }
+        if !model.pluginNavigation.workbenches.isEmpty || model.pluginNavigation.error != nil {
+          Section(text.copy("插件工作台", "Plugin Workbenches")) {
+            ForEach(model.pluginNavigation.workbenches) { workbench in
+              Label {
+                Text(workbench.title).foregroundStyle(Color(nsColor: .labelColor))
+              } icon: {
+                SidebarPluginIcon(
+                  icon: workbench.icon, selected: model.sidebarSelection == .pluginWorkbench(workbench.path))
+              }
+              .listItemTint(.monochrome)
+              .modifier(SidebarRowAppearance(selected: model.sidebarSelection == .pluginWorkbench(workbench.path)))
+              .tag(SidebarDestination.pluginWorkbench(workbench.path))
+              .disabled(!model.pluginNavigation.canOpen)
+              .help(workbench.description ?? workbench.title)
+            }
+            if let error = model.pluginNavigation.error {
+              Button(text.copy("重新读取插件入口", "Reload Plugin Entries")) {
+                Task { await model.loadPluginNavigation(locale: text.chinese ? "zh-CN" : "en", force: true) }
+              }.help(error)
+            }
           }
         }
         Section(text.manageSection) {
           ForEach(Destination.manage) { destination in
-            Label(destination.title, systemImage: destination.symbol).tag(destination)
+            SidebarDestinationLabel(destination: destination)
+              .listItemTint(.monochrome)
+              .modifier(SidebarRowAppearance(selected: model.sidebarSelection == .builtin(destination)))
+              .tag(SidebarDestination.builtin(destination))
           }
         }
       }
+      .listStyle(.sidebar)
       .navigationSplitViewColumnWidth(min: 180, ideal: 210, max: 280)
       .dropDestination(for: URL.self) { urls, _ in
         guard urls.contains(where: \.isFileURL) else { return false }
@@ -35,9 +61,12 @@ struct ContentView: View {
         return true
       }
       .onAppear { PerformanceTrace.mark(.sidebarAppeared) }
+      .task(id: "\(model.connectionGeneration)-\(text.chinese)") {
+        await model.loadPluginNavigation(locale: text.chinese ? "zh-CN" : "en")
+      }
     } detail: {
       detail
-        .navigationTitle(model.selection?.title ?? "Craft Hub")
+        .navigationTitle(model.navigationTitle)
         .toolbar { toolbar }
     }
     .alert(

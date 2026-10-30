@@ -18,6 +18,15 @@ final class WorkbenchModel {
   let plugins = PluginsModel()
   let diagnostics = DiagnosticsModel()
   let websiteNavigation = WebsiteNavigationModel()
+  let pluginNavigation = PluginNavigationModel()
+  private(set) var pluginWorkbenchPath: String?
+  var sidebarSelection: SidebarDestination? {
+    if let pluginWorkbenchPath { return .pluginWorkbench(pluginWorkbenchPath) }
+    return selection.map(SidebarDestination.builtin)
+  }
+  var navigationTitle: String {
+    pluginNavigation.workbenches.first { $0.path == pluginWorkbenchPath }?.title ?? selection?.title ?? "Craft Hub"
+  }
   private(set) var toolsPage: ToolsPage
   let cloud = NativeCloudModel()
   let codexActivity = CodexActivityModel()
@@ -76,6 +85,7 @@ final class WorkbenchModel {
     configurationNavigation = UUID()
     if destination != .marketplace { plugins.cancelNavigation() }
     guard let destination else { return }
+    pluginWorkbenchPath = nil
     projectCommand.close()
     projectDetails.close()
     projectTerminal.select(projectID: nil)
@@ -86,6 +96,32 @@ final class WorkbenchModel {
     guard !destination.isNative else { return }
     guard Destination.matching(path: route) != destination else { return }
     requestWebContent("window.__craftHubNavigate?.(\(Self.jsonString(destination.path)))")
+  }
+
+  func selectSidebar(_ destination: SidebarDestination?) {
+    switch destination {
+    case .builtin(let destination):
+      selection = destination
+      select(destination)
+    case .pluginWorkbench(let path):
+      guard pluginNavigation.canOpen, pluginNavigation.workbenches.contains(where: { $0.path == path }),
+        projectCommand.canChangeContext, canNavigateToIntegration()
+      else { return }
+      selection = .workbenches
+      select(.workbenches)
+      showIntegrationWeb(path)
+      pluginWorkbenchPath = path
+    case nil: break
+    }
+  }
+
+  func loadPluginNavigation(locale: String, force: Bool = false) async {
+    await pluginNavigation.load(locale: locale, force: force)
+    if pluginNavigation.canOpen, let path = pluginWorkbenchPath,
+      !pluginNavigation.workbenches.contains(where: { $0.path == path })
+    {
+      selectSidebar(.builtin(.workbenches))
+    }
   }
 
   func connect(_ connection: RuntimeConnection?) {
@@ -110,6 +146,8 @@ final class WorkbenchModel {
     plugins.connect(preferencesClient)
     diagnostics.connect(preferencesClient)
     websiteNavigation.connect(preferencesClient)
+    pluginNavigation.connect(preferencesClient)
+    pluginWorkbenchPath = nil
     integrations.connect(preferencesClient)
     workItemActions.connect(preferencesClient)
     workItemActions.completed = { [weak self] _ in
@@ -143,6 +181,9 @@ final class WorkbenchModel {
     plugins.invalidate(changes)
     diagnostics.invalidate(changes)
     websiteNavigation.invalidate(changes)
+    if pluginNavigation.invalidate(changes) {
+      Task { await loadPluginNavigation(locale: L10n.text.chinese ? "zh-CN" : "en") }
+    }
     let integrationsChanged = integrations.invalidate(changes)
     if !changes.isDisjoint(with: [.settings, .plugins, .pluginUpdate, .userConfig, .integrations]) {
       if changes.isSubset(of: [.integrations, .configurationSync]) {
@@ -183,6 +224,10 @@ final class WorkbenchModel {
   }
 
   func showWebWorkbench() {
+    if let pluginWorkbenchPath {
+      requestWebContent("window.__craftHubNavigate?.(\(Self.jsonString(pluginWorkbenchPath)))")
+      return
+    }
     // Returning to the same section resumes its current detail/editor rather than navigating away from a draft.
     if let selection, Destination.matching(path: route) != selection {
       let path = selection == .tools ? toolsPage.path : selection.path
@@ -196,6 +241,7 @@ final class WorkbenchModel {
     route = path
     // The hidden web page may finish an earlier navigation while a native page is already selected.
     guard !presentsNativeContent else { return }
+    pluginWorkbenchPath = pluginNavigation.workbenches.first { $0.path == path }?.path
     if let page = ToolsPage(path: path) {
       showTools(page)
       return
@@ -295,6 +341,7 @@ final class WorkbenchModel {
     }
   }
   func reload() {
+    Task { await loadPluginNavigation(locale: L10n.text.chinese ? "zh-CN" : "en", force: true) }
     if presentsNativeContent {
       Task {
         if selection == .marketplace {
@@ -462,6 +509,10 @@ final class WorkbenchModel {
   func navigateToWebPath(_ path: String) {
     configurationNavigation = UUID()
     navigationError = nil
+    if pluginNavigation.workbenches.contains(where: { $0.path == path }) {
+      selectSidebar(.pluginWorkbench(path))
+      return
+    }
     if let page = ToolsPage(path: path) {
       showTools(page)
       return
@@ -559,6 +610,7 @@ final class WorkbenchModel {
   /// Explicit fallback keeps the selected scope in the URL and never loops back into native routing.
   func showIntegrationWeb(_ path: String) {
     configurationNavigation = UUID()
+    pluginWorkbenchPath = pluginNavigation.workbenches.first { $0.path == path }?.path
     requestWebContent("window.__craftHubNavigate?.(\(Self.jsonString(path)))")
   }
   /// Environment-profile links resolve against declared global configuration blocks before entering native review.
