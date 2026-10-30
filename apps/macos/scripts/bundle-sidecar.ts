@@ -20,7 +20,7 @@ export async function bundleSidecar(outDir: string): Promise<void> {
   await build({
     config: false,
     cwd: repositoryDir,
-    entry: { sidecar: 'apps/desktop/src/sidecar.ts', cli: 'packages/craft-hub/dist/cli.mjs' },
+    entry: { 'sidecar': 'apps/desktop/src/sidecar.ts', 'cli': 'packages/craft-hub/dist/cli.mjs', 'node-network-bootstrap': 'apps/desktop/src/node-network-bootstrap.ts' },
     outDir,
     format: 'esm',
     platform: 'node',

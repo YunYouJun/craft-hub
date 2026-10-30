@@ -2,8 +2,8 @@ import type { CraftHubPlugin, DistributionConfig, HostExtensionManager, HostExte
 import { readFile } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import codexConfigurationPlugin from '@craft-hub/craft-hub-plugin-codex'
-import { createMicrosoftTodoPlugin, createMicrosoftTodoTransport } from '@craft-hub/craft-hub-plugin-microsoft-todo'
 import { acquireProfileLease, CraftHubRuntime, getCraftHubConfigDir, loadCraftHubPlugins } from 'craft-hub'
+import microsoftTodoManifest from '../../../packages/craft-hub-plugin-microsoft-todo/package.json' with { type: 'json' }
 import { CodexAgentTaskProvider } from './codex-agent-task-provider.ts'
 import { CodexWorkAssistant } from './codex-work-assistant.ts'
 import { desktopWorkstation } from './workstation-runtime.ts'
@@ -12,12 +12,11 @@ import { desktopWorkstation } from './workstation-runtime.ts'
  * A plugin shipped with the application that loads only when the user enables it in plugin management. Without a
  * saved choice, `enabledByDefault` decides, so existing users keep what they already use.
  */
-export interface OptionalHostPlugin {
+export type OptionalHostPlugin = {
   id: string
   name: string
-  plugin: CraftHubPlugin
   enabledByDefault: () => Promise<boolean>
-}
+} & ({ plugin: CraftHubPlugin, load?: never, version?: never } | { plugin?: never, load: () => Promise<CraftHubPlugin>, version: string })
 
 /** Built-in host plugins every desktop host composes into its runtime, with the connections to close on shutdown. */
 export interface BuiltinHostPlugins {
@@ -72,20 +71,28 @@ export async function hasMicrosoftTodoConnection(dataDir: string): Promise<boole
  * To Do connectors start on the first call and close after an idle period instead of staying resident.
  */
 export function createBuiltinHostPlugins(options: { workstationDirectory: string, workstationExecutable?: string, workstationElectronNodeMode?: boolean, dataDir: string, configurationEnvironment?: NodeJS.ProcessEnv }): BuiltinHostPlugins {
-  const microsoftTodoTransport = createMicrosoftTodoTransport({ idleTimeoutMs: microsoftTodoReadIdleMs })
-  const microsoftTodoWriteTransport = createMicrosoftTodoTransport({ idleTimeoutMs: microsoftTodoWriteIdleMs, writable: true })
+  const connections: Array<{ close: () => Promise<void> }> = []
+  let microsoftTodo: Promise<CraftHubPlugin> | undefined
   const workstation = desktopWorkstation({ directory: options.workstationDirectory, executable: options.workstationExecutable, electronNodeMode: options.workstationElectronNodeMode, configurationEnvironment: options.configurationEnvironment })
-  const microsoftTodo = createMicrosoftTodoPlugin({
-    transport: microsoftTodoTransport,
-    writeTransport: microsoftTodoWriteTransport,
-    // Follow the host's runtime data, not the default directory, so an isolated host never reads another's account.
-    statePath: join(options.dataDir, 'integrations', 'microsoft-todo', 'connection.json'),
-  })
+  const loadMicrosoftTodo = (): Promise<CraftHubPlugin> => microsoftTodo ??= (async () => {
+    const { createMicrosoftTodoPlugin, createMicrosoftTodoTransport } = await import('@craft-hub/craft-hub-plugin-microsoft-todo')
+    // Development hosts also use built JavaScript: Electron's connector child does not inherit the TS loader.
+    const networkBootstrap = new URL(import.meta.url.endsWith('.ts') ? '../dist/node-network-bootstrap.mjs' : './node-network-bootstrap.mjs', import.meta.url).href
+    const reader = createMicrosoftTodoTransport({ idleTimeoutMs: microsoftTodoReadIdleMs, networkBootstrap })
+    const writer = createMicrosoftTodoTransport({ idleTimeoutMs: microsoftTodoWriteIdleMs, writable: true, networkBootstrap })
+    connections.push(reader, writer)
+    return createMicrosoftTodoPlugin({
+      transport: reader,
+      writeTransport: writer,
+      // Follow the host's runtime data, never another host's account.
+      statePath: join(options.dataDir, 'integrations', 'microsoft-todo', 'connection.json'),
+    })
+  })()
   return {
     plugins: [codexConfigurationPlugin, workstation.plugin],
-    optionalPlugins: [{ id: microsoftTodoBundledId, name: 'Microsoft To Do', plugin: microsoftTodo, enabledByDefault: () => hasMicrosoftTodoConnection(options.dataDir) }],
+    optionalPlugins: [{ id: microsoftTodoBundledId, name: 'Microsoft To Do', version: microsoftTodoManifest.version, load: loadMicrosoftTodo, enabledByDefault: () => hasMicrosoftTodoConnection(options.dataDir) }],
     workstation,
-    closeConnections: () => [microsoftTodoTransport.close(), microsoftTodoWriteTransport.close()],
+    closeConnections: () => connections.map(connection => connection.close()),
   }
 }
 
@@ -99,7 +106,7 @@ export async function optionalHostPluginStatus(hostExtensions: HostExtensionMana
   return Promise.all(optionalPlugins.map(async optional => ({
     id: optional.id,
     name: optional.name,
-    version: optional.plugin.version ?? '',
+    version: optional.plugin?.version ?? optional.version ?? '',
     optional: true,
     enabled: await isOptionalHostPluginEnabled(hostExtensions, optional),
   })))
@@ -126,7 +133,7 @@ export async function createDesktopHostRuntime(options: DesktopHostRuntimeOption
     const enabledOptional: CraftHubPlugin[] = []
     for (const optional of options.optionalPlugins ?? []) {
       if (await isOptionalHostPluginEnabled(options.hostExtensions, optional))
-        enabledOptional.push(optional.plugin)
+        enabledOptional.push(optional.load ? await optional.load() : optional.plugin)
     }
     const hostPlugins = await options.hostExtensions.load([
       ...configuredPlugins.plugins,

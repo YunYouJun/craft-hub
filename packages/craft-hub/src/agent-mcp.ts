@@ -1,7 +1,6 @@
+import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
 import { readFile } from 'node:fs/promises'
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { agentReadTools } from './agent-connection'
 import { craftHubVersion } from './version'
 
@@ -32,6 +31,10 @@ export async function callAgentHost(options: AgentMcpOptions, name: string, args
 /** Serve read-only MCP tools over stdio while reusing the running host and its plugins. */
 export async function startAgentMcp(options: AgentMcpOptions): Promise<McpServer> {
   await callAgentHost(options, 'check')
+  const [{ McpServer }, { StdioServerTransport }] = await Promise.all([
+    import('@modelcontextprotocol/sdk/server/mcp.js'),
+    import('@modelcontextprotocol/sdk/server/stdio.js'),
+  ])
   const server = new McpServer({ name: 'craft-hub', version: craftHubVersion })
   for (const [name, tool] of Object.entries(agentReadTools)) {
     server.registerTool(name, { description: tool.description, inputSchema: tool.schema.shape, annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true } }, async (args: Record<string, unknown>): Promise<CallToolResult> => {

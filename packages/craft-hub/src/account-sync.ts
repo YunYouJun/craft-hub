@@ -97,6 +97,11 @@ export class AccountSyncService {
     return { accountId, revision: hash(configuration), configuration }
   }
 
+  /** Observe portable content changes without exposing configuration or counting import timestamps as edits. */
+  async configurationRevision(): Promise<string> {
+    return hash(await this.snapshot())
+  }
+
   /** Serialize cloud mutations and reject stale devices before changing any configuration. */
   async accept(accountId: string, input: unknown, expectedRevision: string): Promise<AccountSyncEnvelope> {
     return this.serialize(async () => {
@@ -136,7 +141,8 @@ export class AccountSyncService {
         if (hash(await this.snapshot()) !== hash(local))
           throw new Error('Local configuration changed during upload; preserved for the next synchronization')
         await this.restore(accountConfigurationSchema.parse(result.configuration), local)
-        await this.persist({ accountId: remote.accountId, base: result.configuration })
+        if (saved.accountId !== remote.accountId || !saved.base || saved.conflict || hash(saved.base) !== hash(result.configuration))
+          await this.persist({ accountId: remote.accountId, base: result.configuration })
         this.status = { state: 'synced', lastSyncedAt: new Date().toISOString() }
       }
       catch (error) {

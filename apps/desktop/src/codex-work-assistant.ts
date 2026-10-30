@@ -2,7 +2,6 @@ import type { WorkAssistantProvider, WorkbenchCodexSetting } from 'craft-hub'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { Codex } from '@openai/codex-sdk'
 import { packagedCodexOptions } from './codex-executable.ts'
 
 /** Text-only planning adapter, separate from trusted project execution. */
@@ -16,6 +15,7 @@ export class CodexWorkAssistant implements WorkAssistantProvider {
   async generate(input: Parameters<WorkAssistantProvider['generate']>[0]): Promise<string> {
     const directory = await mkdtemp(join(tmpdir(), 'craft-hub-assistant-'))
     try {
+      const { Codex } = await import('@openai/codex-sdk')
       const setting = await this.settings()
       const codex = new Codex(packagedCodexOptions({
         configOverrides: ['mcp_servers={}', 'plugins={}'],

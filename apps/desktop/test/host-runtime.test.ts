@@ -96,6 +96,27 @@ it('treats an enabled To Do connection as existing use', async () => {
   expect(await hasMicrosoftTodoConnection(dataDir)).toBe(false)
 })
 
+it('reads disabled optional plugin metadata without importing its implementation', async () => {
+  const { root, hostExtensions } = await fixture()
+  const importPlugin = vi.fn(async (): Promise<CraftHubPlugin> => ({ id: 'fixture.optional', name: 'Optional', version: '1.0.0' }))
+  const optional = { id: 'optional', name: 'Optional', version: '1.0.0', load: importPlugin, enabledByDefault: async () => false }
+  const options = { builtinPlugins: builtins, configDir: join(root, 'config'), dataDir: join(root, 'data'), distribution: communityDistribution, hostExtensions, logError: vi.fn(), optionalPlugins: [optional] }
+  const first = await createDesktopHostRuntime(options)
+  try {
+    expect(await optionalHostPluginStatus(hostExtensions, [optional])).toContainEqual(expect.objectContaining({ version: '1.0.0', enabled: false }))
+    expect(importPlugin).not.toHaveBeenCalled()
+    expect((await first.projects.add(root)).trust).toBe('untrusted')
+    expect(await first.store.listRuns()).toEqual([])
+  }
+  finally { await first.close() }
+  await hostExtensions.setBundledEnabled(optional.id, true)
+  const enabled = await createDesktopHostRuntime(options)
+  try {
+    expect(importPlugin).toHaveBeenCalledOnce()
+  }
+  finally { await enabled.close() }
+})
+
 it('native bundled controls cannot enable arbitrary modules or grant project trust', async () => {
   const { root, hostExtensions } = await fixture()
   const builtin = createBuiltinHostPlugins({ workstationDirectory: root, dataDir: join(root, 'data') })

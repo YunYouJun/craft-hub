@@ -1,6 +1,5 @@
 import type { CodexOptions, ThreadEvent } from '@openai/codex-sdk'
 import type { AgentTaskProvider, AgentTaskProviderInput, AgentTaskProviderResult, WorkbenchCodexSetting } from 'craft-hub'
-import { Codex } from '@openai/codex-sdk'
 import { packagedCodexOptions } from './codex-executable.ts'
 
 function commandOutput(event: ThreadEvent, lengths: Map<string, number>): string {
@@ -52,6 +51,7 @@ export class CodexAgentTaskProvider implements AgentTaskProvider {
   }
 
   async run(input: AgentTaskProviderInput): Promise<AgentTaskProviderResult> {
+    const { Codex } = await import('@openai/codex-sdk')
     const setting = await this.resolveSetting()
     const options = {
       threadSource: 'craft-hub',

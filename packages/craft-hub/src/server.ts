@@ -196,16 +196,27 @@ async function startProtectedServer(options: CraftHubServerOptions, runtime: Cra
   }
   let teamFollowStatus: Array<{ id: string, error?: string }> = []
   let refreshing = false
+  const sharedConfigurationStatus = (): string => JSON.stringify({
+    state: runtime.accountSync.status.state,
+    error: runtime.accountSync.status.error,
+    teams: [...teamFollowStatus].sort((left, right) => left.id.localeCompare(right.id)),
+  })
   async function refreshSharedConfiguration(resolution?: 'use-local' | 'use-cloud'): Promise<void> {
     if (refreshing)
       return
     refreshing = true
     try {
+      const previousStatus = sharedConfigurationStatus()
+      const refreshesContent = Boolean(runtime.accountProvider?.sync)
+        || (await runtime.workspaceSubscriptions.list()).some(subscription => subscription.autoFollow)
+      const before = refreshesContent ? await runtime.accountSync.configurationRevision() : undefined
       if (runtime.accountProvider?.sync)
         await runtime.accountSync.synchronize(resolution)
       else
-        teamFollowStatus = await runtime.withConfiguration(() => runtime.workspaceSubscriptions.followTeams())
-      broadcastEvent('configuration-sync', runtime.accountSync.status)
+        teamFollowStatus = refreshesContent ? await runtime.withConfiguration(() => runtime.workspaceSubscriptions.followTeams()) : []
+      // A completed check is not a configuration change. Successful timestamps remain available through the API.
+      if ((before !== undefined && before !== await runtime.accountSync.configurationRevision()) || previousStatus !== sharedConfigurationStatus())
+        broadcastEvent('configuration-sync', { ...runtime.accountSync.status, teams: teamFollowStatus })
     }
     finally {
       refreshing = false
