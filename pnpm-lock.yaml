@@ -178,8 +178,8 @@ catalogs:
       specifier: ^8.0.8
       version: 8.0.8
     '@cloudbase/js-sdk':
-      specifier: 3.10.3
-      version: 3.10.3
+      specifier: 3.10.4
+      version: 3.10.4
     '@cloudbase/node-sdk':
       specifier: ^3.18.7
       version: 3.18.7
@@ -542,7 +542,7 @@ importers:
     dependencies:
       '@cloudbase/js-sdk':
         specifier: 'catalog:'
-        version: 3.10.3
+        version: 3.10.4
       '@yunlefun/sso':
         specifier: 'catalog:'
         version: 0.7.0
@@ -1277,15 +1277,12 @@ packages:
   '@cloudbase/database@1.4.3':
     resolution: {integrity: sha512-JzmdsGjy9LwzSQQ0Fv4OlNHNK61BRXdJSembTpy4408AQA3q2Ip3N5eB3v9OpAlFMvP/6MGmOQ/ZuUPKfJddJA==}
 
-  '@cloudbase/js-sdk@3.10.3':
-    resolution: {integrity: sha512-ZAKZGOkzrAKuGsB4+hibBOeoLyCRsczsfmXEG7tjiyLEg+3ENFpAtTPmUOiLlFEsX68a+IFRhDc2JhUN7f+k5g==}
+  '@cloudbase/js-sdk@3.10.4':
+    resolution: {integrity: sha512-9j+N4fw44aCsmMpcZOng1iCgIIAIYeMofo7opMEwaYsovyZpY5UQ6GWs3eCKi20nVwAjqiv1BWwsMEfaAVfhog==}
 
   '@cloudbase/node-sdk@3.18.7':
     resolution: {integrity: sha512-vBJR1lsSXH2C8Dc12FmFxCx+H2+CXJTwEUQ7sjkoih+hTk6UrhA5UaDCxTaZUn59AN0vM/VhvggR9EDsQJXCdQ==}
     engines: {node: '>=12'}
-
-  '@cloudbase/signature-nodejs@2.2.0':
-    resolution: {integrity: sha512-2y2rieOpJNnBA2MW7sLJKek3iFOjgr8TNicw5qjBkcdVczLR0cFzxMhip75NLCwarFTIAONE3oeNxoQ19eVHcA==}
 
   '@cloudbase/signature-nodejs@2.2.2':
     resolution: {integrity: sha512-hPqxAaqRh5MVXNv2GjkzhWc2WU/XqMUgvDjjl6y2LT7W21WlmhGJodSbu99vH9xAhY/918veQr+gqhj1xCrGtg==}
@@ -1301,9 +1298,6 @@ packages:
 
   '@cloudbase/utilities@2.32.0':
     resolution: {integrity: sha512-vYrr1aXOpU+/IrkHMSTxi/k2d4N8raNu+E3IrKtWt4w7Y0Ke3DLvCHeUJcuWECvQBVhzmg1ert4DcXVUymSKlg==}
-
-  '@cloudbase/wx-cloud-client-sdk@1.8.10':
-    resolution: {integrity: sha512-XtWR1zNwKUqnAK1psvhK93EUnZBWhVorUdA1lHNWyI661YsdpLcxPRiX+/yoIrTo24MJyd/KguSuHluq3hsHqA==}
 
   '@cloudbase/wx-cloud-client-sdk@1.8.11':
     resolution: {integrity: sha512-GuFGM/WMPwaY3mTcU6TgKrFjhTE+bqZ+zTkChrRmImh4ZYqfSs8ZOoIe3n0Ecxih0BF7vJaaaU0DXRs9tOM4Lg==}
@@ -7282,11 +7276,11 @@ snapshots:
       lodash.set: link:vendor/lodash-set-safe
       lodash.unset: 4.18.0
 
-  '@cloudbase/js-sdk@3.10.3':
+  '@cloudbase/js-sdk@3.10.4':
     dependencies:
       '@cloudbase/adapter-interface': 0.7.1
       '@cloudbase/adapter-wx_mp': 1.4.1
-      '@cloudbase/wx-cloud-client-sdk': 1.8.10
+      '@cloudbase/wx-cloud-client-sdk': 1.8.11
       '@mattiasbuelens/web-streams-adapter': 0.1.0
       bson: 6.10.4
       jwt-decode: 3.1.2
@@ -7295,10 +7289,10 @@ snapshots:
       text-encoding-shim: 1.0.5
       web-streams-polyfill: 4.3.0
     optionalDependencies:
-      '@cloudbase/signature-nodejs': 2.2.0
+      '@cloudbase/signature-nodejs': 2.2.2
       jsonwebtoken: 9.0.3
       node-fetch: 2.7.0
-      ws: 8.21.3
+      ws: 8.22.0
     transitivePeerDependencies:
       - bufferutil
       - encoding
@@ -7325,14 +7319,6 @@ snapshots:
       - debug
       - supports-color
       - ws
-
-  '@cloudbase/signature-nodejs@2.2.0':
-    dependencies:
-      '@types/clone': 2.1.4
-      clone: 2.1.2
-      is-stream: 2.0.1
-      url: 0.11.4
-    optional: true
 
   '@cloudbase/signature-nodejs@2.2.2':
     dependencies:
@@ -7361,14 +7347,9 @@ snapshots:
       '@cloudbase/types': 2.32.0
       jwt-decode: 3.1.2
 
-  '@cloudbase/wx-cloud-client-sdk@1.8.10':
-    dependencies:
-      '@cloudbase/adapter-wx_mp': 1.3.1
-      core-js-pure: 3.50.0
-
   '@cloudbase/wx-cloud-client-sdk@1.8.11':
     dependencies:
-      '@cloudbase/adapter-wx_mp': 1.3.1
+      '@cloudbase/adapter-wx_mp': 1.4.1
       core-js-pure: 3.50.0
 
   '@cloudflare/kv-asset-handler@0.5.0': {}
