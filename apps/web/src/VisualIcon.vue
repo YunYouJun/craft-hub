@@ -1,10 +1,20 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import { isNeutralSvgImage } from './icon-monochrome'
 import { Icon, type IconName, visualIconNames } from './icons'
 
-const props = withDefaults(defineProps<{ icon?: string, fallback?: IconName, monochrome?: boolean }>(), { fallback: 'workspace' })
+const props = withDefaults(defineProps<{ icon?: string, fallback?: IconName, monochrome?: boolean | 'auto' }>(), { fallback: 'workspace', monochrome: 'auto' })
 const failed = ref(false)
-watch(() => props.icon, () => { failed.value = false })
+const neutralImage = ref(false)
+watch(() => props.icon, () => {
+  failed.value = false
+  neutralImage.value = false
+})
+const useMonochrome = computed(() => props.monochrome === true || (props.monochrome === 'auto' && neutralImage.value))
+function imageLoaded(event: Event): void {
+  if (event.target instanceof HTMLImageElement)
+    neutralImage.value = isNeutralSvgImage(event.target)
+}
 const imageSource = computed(() => {
   if (failed.value || !props.icon)
     return undefined
@@ -27,10 +37,10 @@ const builtin = computed<IconName | undefined>(() => {
 <template>
   <span
     class="visual-icon"
-    :class="{ 'visual-icon-monochrome': monochrome, 'visual-icon-mask': monochrome && imageSource }"
-    :style="monochrome && imageSource ? { maskImage: `url(${JSON.stringify(imageSource)})` } : undefined"
+    :class="{ 'visual-icon-monochrome': useMonochrome, 'visual-icon-mask': useMonochrome && imageSource }"
+    :style="useMonochrome && imageSource ? { maskImage: `url(${JSON.stringify(imageSource)})` } : undefined"
   >
-    <img v-if="imageSource" :src="imageSource" alt="" referrerpolicy="no-referrer" @error="failed = true">
+    <img v-if="imageSource" :src="imageSource" alt="" referrerpolicy="no-referrer" @load="imageLoaded" @error="failed = true">
     <span v-else-if="emoji" class="visual-icon-emoji" aria-hidden="true">{{ emoji }}</span>
     <Icon v-else :name="builtin ?? fallback" />
   </span>
