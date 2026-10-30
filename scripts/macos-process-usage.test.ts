@@ -12,7 +12,8 @@ it.runIf(process.platform === 'darwin')('calibrates real libproc CPU units again
   const directory = await mkdtemp(join(tmpdir(), 'craft-hub-cpu-counter-'))
   const helper = join(directory, 'usage')
   try {
-    await run('/usr/bin/xcrun', ['clang', '-O2', resolve('scripts/macos-process-usage.c'), '-o', helper], { timeout: 10000 })
+    // A cold hosted macOS runner may initialize the toolchain while other test workers are busy.
+    await run('/usr/bin/xcrun', ['clang', '-O2', resolve('scripts/macos-process-usage.c'), '-o', helper], { timeout: 60000 })
     const child = spawn(process.execPath, ['-e', `
 process.send('ready')
 process.on('message',()=>{
@@ -43,4 +44,4 @@ process.on('disconnect',()=>process.exit(0))
     }
   }
   finally { await rm(directory, { recursive: true, force: true }) }
-}, 15000)
+}, 75000)
