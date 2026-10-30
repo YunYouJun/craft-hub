@@ -115,13 +115,15 @@ To make unsigned packages locally for testing:
 pnpm run build:mac
 ```
 
-To rebuild only the current Mac architecture, replace the installed app in `/Applications`, and open it:
+For local native development, rebuild the current Mac architecture, install it at `~/Applications/Craft Hub Prototype.app`, and start the verified installation:
 
 ```bash
-pnpm run reinstall:mac
+pnpm reinstall:macos
 ```
 
-Set `CRAFT_HUB_DESKTOP_INSTALL_DIR` to install into a different application directory.
+The Codex Run button and `pnpm reinstall:mac` use this same native workflow. It retains the previous app, uses normal quit guards and checks the actual running executable and sidecar. Set `CRAFT_HUB_NATIVE_INSTALL_DIR` to choose another installation directory. Local builds do not update automatically; rerun this command after source changes.
+
+To rebuild and reinstall the Electron fallback in `/Applications`, use `pnpm reinstall:electron:mac`; its installation override remains `CRAFT_HUB_DESKTOP_INSTALL_DIR`.
 
 The lower-level `package:mac` script packages existing build output and is used by the release workflow.
 

@@ -55,7 +55,7 @@ Downstream distributions provide an HTTPS `desktop.updateBaseUrl` in their distr
 
 ## Local builds and keychain approval
 
-`package:mac` and `reinstall:mac` select a valid Developer ID Application certificate, or an Apple Development / Mac Developer certificate for local development. The chosen certificate fingerprint is saved under `~/Library/Application Support/<product>/build/<bundle-id>-signing.json`. Rebuilds reuse this identity even if another certificate is later installed. Only the certificate fingerprint and display name are stored; private keys stay in the system keychain.
+`package:mac` and `reinstall:electron:mac` select a valid Developer ID Application certificate, or an Apple Development / Mac Developer certificate for local development. The chosen certificate fingerprint is saved under `~/Library/Application Support/<product>/build/<bundle-id>-signing.json`. Rebuilds reuse this identity even if another certificate is later installed. Only the certificate fingerprint and display name are stored; private keys stay in the system keychain.
 
 If multiple eligible certificates exist, choose one with `MACOS_LOCAL_SIGNING_IDENTITY=<certificate-fingerprint>`. This explicit setting also permits certificate rotation. If the saved certificate is unavailable, packaging stops instead of silently changing to another identity. Without an eligible certificate and without a saved selection, packaging retains ad hoc signing and prints a warning that keychain prompts can recur after rebuilding.
 
