@@ -180,9 +180,9 @@
  * A native host draws the window chrome itself: its sidebar replaces the activity rail and its toolbar replaces the
  * titlebar and status bar, so the web UI is only the content. Secondary navigation such as the project list stays.
  */
-:root[data-native-host] {
-  /* Content is one plain surface beside the native sidebar, as in the Electron window refinement. */
-  --workbench-canvas: var(--surface);
+:root[data-native-host],
+:root[data-native-host] body {
+  background: var(--workbench-canvas);
 }
 
 :root[data-native-host] .app-shell {
@@ -202,6 +202,5 @@
 }
 
 :root[data-native-host] :is(.workbench-page-sidebar, .workbench-frame-sidebar) {
-  --workbench-sidebar-background: var(--surface);
-  --workbench-sidebar-active-background: color-mix(in srgb, var(--accent) 11%, var(--surface));
+  --workbench-sidebar-active-background: color-mix(in srgb, var(--accent) 11%, var(--workbench-sidebar-background));
 }
