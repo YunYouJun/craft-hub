@@ -111,6 +111,9 @@ import Observation
   @ObservationIgnored private var context = UUID()
   @ObservationIgnored private var revision = 0
   @ObservationIgnored private var catalogLoaded = false
+  @ObservationIgnored private var catalogRead: Task<Bool, Never>?
+  @ObservationIgnored private var catalogRequest: UUID?
+  @ObservationIgnored private var refreshRequested = false
   var entry: Entry? { entries.first { $0.id == entryID } }
   var project: String? { entry?.view.scope == "global" || projectID.isEmpty ? nil : projectID }
   var requiresProject: Bool { entry?.view.scope == "project" && project == nil }
@@ -119,6 +122,9 @@ import Observation
     entries.filter { search.isEmpty || $0.text($0.view.title).localizedStandardContains(search) }
   }
   func connect(_ client: RuntimeAPIClient?) {
+    catalogRead?.cancel()
+    catalogRead = nil
+    catalogRequest = nil
     connections.reset()
     forms.reset()
     session = UUID()
@@ -131,37 +137,65 @@ import Observation
     catalogLoaded = false
     loadingCatalog = false
     refreshing = false
+    refreshRequested = false
     configurationBusy = false
     uncertain = nil
     review = nil
     error = nil
     notice = nil
   }
-  func invalidate(_ changes: Set<RuntimeChange>) {
+  @discardableResult func invalidate(_ changes: Set<RuntimeChange>) -> Bool {
     guard
       !changes.isDisjoint(with: [
-        .plugins, .integrations, .settings, .userConfig, .configurationSync, .projectCatalog, .projects,
+        .plugins, .integrations, .settings, .userConfig, .projectCatalog, .projects,
       ])
-    else { return }
+    else { return false }
     revision += 1
-    connections.invalidate(hard: !changes.isDisjoint(with: [.plugins, .userConfig, .configurationSync]))
+    connections.invalidate(hard: !changes.isDisjoint(with: [.plugins, .userConfig]))
     forms.invalidate()
     review = nil
     for state in states.values { state.stale = true }
-    if !changes.isDisjoint(with: [.plugins, .userConfig, .configurationSync]) { catalogLoaded = false }
+    if !changes.isDisjoint(with: [.plugins, .userConfig]) { catalogLoaded = false }
+    return true
   }
-  func loadCatalog(force: Bool = false) async {
-    guard let client, !loadingCatalog, !busy, force || !catalogLoaded else { return }
+  /// Concurrent navigation waits for the same catalog; unavailable or discarded reads never confirm absence.
+  @discardableResult func loadCatalog(force: Bool = false) async -> Bool {
+    guard !Task.isCancelled else { return false }
+    let token = session
+    if let catalogRead {
+      let loaded = await catalogRead.value
+      return loaded && token == session && catalogLoaded && !Task.isCancelled
+    }
+    guard let client, !busy else { return false }
+    if !force && catalogLoaded { return true }
     revision += 1
     review = nil
     for state in states.values { state.stale = true }
-    let token = session
     let epoch = revision
+    let request = UUID()
+    catalogRequest = request
+    catalogLoaded = false
     loadingCatalog = true
-    defer { if token == session { loadingCatalog = false } }
+    let read = Task { [weak self] in
+      guard let self else { return false }
+      return await self.readCatalog(client, token: token, epoch: epoch, request: request)
+    }
+    catalogRead = read
+    let loaded = await read.value
+    return loaded && token == session && catalogLoaded && !Task.isCancelled
+  }
+
+  private func readCatalog(_ client: RuntimeAPIClient, token: UUID, epoch: Int, request: UUID) async -> Bool {
+    defer {
+      if catalogRequest == request {
+        catalogRead = nil
+        catalogRequest = nil
+        loadingCatalog = false
+      }
+    }
     do {
       let result = try await client.nativeIntegrations()
-      guard token == session, epoch == revision, !Task.isCancelled else { return }
+      guard token == session, epoch == revision, !Task.isCancelled else { return false }
       entries = result.integrations.flatMap { contribution in
         contribution.views.map { Entry(contribution: contribution, view: $0) }
       }.sorted { ($0.view.order ?? 0, $0.id) < ($1.view.order ?? 0, $1.id) }
@@ -174,23 +208,37 @@ import Observation
         states = [:]
         review = nil
         context = UUID()
+        refreshing = false
+        refreshRequested = false
       }
       for block in entry?.view.blocks ?? [] { _ = state(block) }
-    } catch { if token == session { self.error = error.localizedDescription } }
+      return true
+    } catch {
+      if token == session, epoch == revision, !Task.isCancelled { self.error = error.localizedDescription }
+      return false
+    }
   }
   func select(_ id: String, project: String = "") async {
-    guard canChangeContext, entries.contains(where: { $0.id == id }) else { return }
+    guard let selected = entries.first(where: { $0.id == id }) else { return }
+    let selectedProject = selected.view.scope == "global" ? "" : project
+    // Reopening the current source preserves its snapshot, filters and any pending write receipt.
+    if entryID == id, projectID == selectedProject {
+      search = ""
+      return
+    }
+    guard canChangeContext else { return }
     context = UUID()
     connections.reset()
     forms.reset()
     entryID = id
-    projectID = project
+    projectID = selectedProject
     search = ""
     states = [:]
     review = nil
     error = nil
     notice = nil
     refreshing = false
+    refreshRequested = false
     for block in entry?.view.blocks ?? [] { _ = state(block) }
     await refresh()
   }
@@ -212,10 +260,21 @@ import Observation
       && ["local-read", "remote-read"].contains(action.effect) && action.effectiveConfirmation == "never"
   }
   func refreshIfIdle() async {
-    guard !busy, !refreshing, uncertain == nil, review == nil, !connections.isPresented, !forms.isPresented else {
+    guard !busy, uncertain == nil, review == nil, !connections.isPresented, !forms.isPresented else {
       return
     }
-    await loadCatalog()
+    if refreshing {
+      // Multiple invalidations during one read need one follow-up, after the old responses are discarded.
+      refreshRequested = true
+      return
+    }
+    guard await loadCatalog(), let entry else { return }
+    guard
+      entry.view.blocks.contains(where: {
+        ["connection-status", "entity-list", "resource-browser"].contains($0.type) && readable($0)
+          && states[$0.id]?.stale != false
+      })
+    else { return }
     await refresh()
   }
   func canManageConnection(_ block: NativeIntegrationCatalog.Block) -> Bool {
@@ -254,17 +313,44 @@ import Observation
     refreshing = true
     review = nil
     for state in states.values { state.stale = true }
-    defer { if token == context { refreshing = false } }
+    defer {
+      if token == context {
+        refreshing = false
+        if refreshRequested {
+          refreshRequested = false
+          Task { await self.refreshIfIdle() }
+        }
+      }
+    }
     await loadCatalog()
     guard token == context, catalogLoaded, let entry = self.entry else { return }
+    let epoch = revision
+    // Establish account identity before reading independent list and resource blocks concurrently.
     for block in entry.view.blocks where block.type == "connection-status" {
       await read(block)
-      guard token == context, !Task.isCancelled else { return }
+      guard token == context, epoch == revision, !Task.isCancelled else { return }
     }
-    for block in entry.view.blocks where ["entity-list", "resource-browser"].contains(block.type) {
-      await read(block)
-      guard token == context, !Task.isCancelled else { return }
+    let blocks = entry.view.blocks.filter { ["entity-list", "resource-browser"].contains($0.type) && readable($0) }
+    await withTaskGroup(of: Void.self) { group in
+      var next = blocks.makeIterator()
+      for _ in 0..<4 {
+        guard let block = next.next() else { break }
+        group.addTask { await self.readDuringRefresh(block, token: token, epoch: epoch) }
+      }
+      for await _ in group {
+        guard token == context, epoch == revision, !Task.isCancelled else {
+          group.cancelAll()
+          return
+        }
+        if let block = next.next() {
+          group.addTask { await self.readDuringRefresh(block, token: token, epoch: epoch) }
+        }
+      }
     }
+  }
+  private func readDuringRefresh(_ block: NativeIntegrationCatalog.Block, token: UUID, epoch: Int) async {
+    guard token == context, epoch == revision, !Task.isCancelled else { return }
+    await read(block)
   }
   private func connectionIdentity() -> String? {
     entry?.view.blocks.compactMap { states[$0.id]?.connection?.session?.cacheKey }.first
@@ -393,13 +479,13 @@ import Observation
   /// Resource navigation invokes only the declaration's reviewed read action, retaining the selected project per page.
   func readResource(
     _ block: NativeIntegrationCatalog.Block, link: IntegrationResourcePage.Link? = nil,
-    home: Bool = false, back: Bool = false
+    home: Bool = false, back: Bool = false, collectionInput: [String: IntegrationValue]? = nil
   ) async {
     guard let client, let entry, let action = entry.action(block), !busy, catalogLoaded,
       block.type == "resource-browser", readable(block)
     else { return }
     let state = state(block)
-    guard !state.loading, (!back && link == nil) || !state.stale else { return }
+    guard !state.loading || collectionInput != nil, (!back && link == nil) || !state.stale else { return }
     let root = IntegrationBlockState.ResourceLocation(input: block.input ?? [:], project: project)
     let target: IntegrationBlockState.ResourceLocation
     if back {
@@ -412,6 +498,9 @@ import Observation
         }) == true
       else { return }
       target = .init(input: link.input, project: link.projectId ?? state.resourceLocation?.project ?? project)
+    } else if let collectionInput {
+      guard !state.stale, state.resourcePage?.collection != nil else { return }
+      target = .init(input: collectionInput, project: state.resourceLocation?.project ?? project)
     } else {
       target = home ? root : state.resourceLocation ?? root
     }
@@ -436,7 +525,7 @@ import Observation
       let accepted = IntegrationBlockState.ResourceLocation(input: page.input, project: target.project)
       if back {
         state.resourceHistory.removeLast()
-      } else if let previous = state.resourceLocation, previous != accepted {
+      } else if collectionInput == nil, let previous = state.resourceLocation, previous != accepted {
         state.resourceHistory.append(previous)
         state.resourceHistory = Array(state.resourceHistory.suffix(50))
       }
@@ -449,6 +538,42 @@ import Observation
         state.stale = true
         state.error = error.localizedDescription
       }
+    }
+  }
+  /// Import metadata through the same reviewed, one-use form protocol. Credentials never cross this seam.
+  func importBrowserResource(
+    _ block: NativeIntegrationCatalog.Block, formId: String, metadata: String
+  ) async -> Bool {
+    guard let client, let entry, canChangeContext else { return false }
+    let state = state(block)
+    guard !state.loading, !state.stale, state.resourcePage?.browserImport?.formId == formId,
+      state.resourcePage?.forms?.contains(where: { $0.id == formId && $0.effect == "update" }) == true,
+      let input = state.resourceLocation?.input
+    else { return false }
+    let token = context
+    state.loading = true
+    defer { if context == token { state.loading = false } }
+    do {
+      let plan = try await client.prepareIntegrationForm(
+        integration: entry.contribution.id, project: state.resourceLocation?.project,
+        selector: .init(viewId: entry.view.id, blockId: block.id, resourceInput: input, formId: formId),
+        values: ["content": metadata], locale: L10n.text.chinese ? "zh-CN" : "en")
+      guard token == context, !Task.isCancelled else {
+        try? await client.discardIntegrationForm(
+          integration: entry.contribution.id, project: state.resourceLocation?.project, plan: plan.planId)
+        return false
+      }
+      let result = try await client.executeIntegrationForm(
+        integration: entry.contribution.id, project: state.resourceLocation?.project, plan: plan.planId, confirmed: true
+      )
+      guard token == context, let page = result.resources else { return false }
+      state.resourcePage = page
+      state.resourceLocation = .init(input: page.input, project: state.resourceLocation?.project)
+      state.error = nil
+      return true
+    } catch {
+      if token == context { state.error = error.localizedDescription }
+      return false
     }
   }
   func canToggle(_ block: NativeIntegrationCatalog.Block, _ item: IntegrationPresentation.Entity) -> Bool {

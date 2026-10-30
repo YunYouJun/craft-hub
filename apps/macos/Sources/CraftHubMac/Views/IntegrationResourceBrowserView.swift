@@ -40,7 +40,17 @@ struct IntegrationResourceBrowserView: View {
           Text(text.copy("此资源可能持续变化，可点击刷新读取最新内容。", "This resource may change. Refresh to read its latest contents."))
             .font(.caption).foregroundStyle(.secondary)
         }
-        ForEach(Array((page.links ?? []).enumerated()), id: \.offset) { _, link in
+        if let collection = page.collection {
+          ResourceCollectionView(model: model, block: block, state: state, page: page, collection: collection)
+        }
+        ForEach(
+          Array(
+            (page.collection == nil
+              ? page.links ?? []
+              : (page.links ?? []).filter { link in
+                !((page.collection?.rows ?? []).contains { $0.input == link.input })
+              }).enumerated()), id: \.offset
+        ) { _, link in
           Button {
             Task { await model.readResource(block, link: link) }
           } label: {
@@ -52,7 +62,7 @@ struct IntegrationResourceBrowserView: View {
             }
           }.disabled(state.loading || state.stale || model.busy)
         }
-        ForEach(page.entities ?? [], id: \.key) { item in
+        ForEach(page.collection == nil ? page.entities ?? [] : [], id: \.key) { item in
           VStack(alignment: .leading, spacing: 4) {
             HStack {
               Text(item.title).fontWeight(.medium)
@@ -68,7 +78,11 @@ struct IntegrationResourceBrowserView: View {
             }
           }.textSelection(.enabled)
         }
-        ForEach(Array((page.documents ?? []).enumerated()), id: \.offset) { _, document in
+        ForEach(
+          Array(
+            (page.documents ?? []).filter { !(page.collection?.hiddenDocumentIds.contains($0.id) ?? false) }
+              .enumerated()), id: \.offset
+        ) { _, document in
           VStack(alignment: .leading, spacing: 8) {
             HStack {
               Text(document.title).font(.headline)
@@ -77,6 +91,7 @@ struct IntegrationResourceBrowserView: View {
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(document.content, forType: .string)
               }
+              .disabled(document.content.isEmpty)
               .accessibilityLabel(text.copy("复制 \(document.title)", "Copy \(document.title)"))
             }
             DisclosureGroup(text.copy("预览内容", "Preview Contents")) {
@@ -103,7 +118,10 @@ struct IntegrationResourceBrowserView: View {
         if let forms = page.forms, !forms.isEmpty {
           Divider()
           Text(text.copy("此页操作", "Page Actions")).font(.headline)
-          ForEach(Array(forms.enumerated()), id: \.offset) { _, form in
+          ForEach(
+            Array(forms.filter { !(page.collection?.hiddenFormIds.contains($0.id) ?? false) }.enumerated()),
+            id: \.offset
+          ) { _, form in
             VStack(alignment: .leading, spacing: 4) {
               Text(form.title)
               if let description = form.description { Text(description).foregroundStyle(.secondary) }

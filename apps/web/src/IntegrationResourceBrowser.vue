@@ -11,6 +11,7 @@ import IntegrationEntityList from './IntegrationEntityList.vue'
 import IntegrationWorkItemDetail from './IntegrationWorkItemDetail.vue'
 import { useWorkbenchStore } from './store'
 import MarkdownPreview from './MarkdownPreview.vue'
+import ResourceCollection from './ResourceCollection.vue'
 import { useI18n } from './i18n'
 
 const props = defineProps<{ integrationId: string, contribution: ResolvedIntegrationContribution, input?: Record<string, unknown>, projectId?: string }>()
@@ -134,13 +135,14 @@ onBeforeUnmount(() => { revision++; clearTimeout(timer) })
       <nav v-if="page.links?.some(link => !link.entityId)" class="resource-links">
         <UiButton v-for="(link, index) in page.links.filter(link => !link.entityId)" :key="index" size="compact" :disabled="loading" @click="read(link.input, false, link.projectId ?? activeProjectId)">{{ link.title }}<Icon name="arrowRight" /></UiButton>
       </nav>
-      <IntegrationEntityList v-if="page.entities" :items="page.entities" :selectable="page.links?.some(link => link.entityId)" @selected="selectEntity($event.id)" />
-      <details v-for="document in page.documents" :key="document.id" class="resource-disclosure" open>
+      <ResourceCollection v-if="page.collection" :page="page" :disabled="loading" @input="read($event, true)" @edit="read($event)" />
+      <IntegrationEntityList v-else-if="page.entities" :items="page.entities" :selectable="page.links?.some(link => link.entityId)" @selected="selectEntity($event.id)" />
+      <details v-for="document in page.documents?.filter(item => !page?.collection?.hiddenDocumentIds.includes(item.id))" :key="document.id" class="resource-disclosure" :open="!page.collection">
         <summary><Icon name="arrowRight" />{{ document.title }}</summary>
         <div class="resource-disclosure-body">
           <nav class="resource-document-actions">
             <IntegrationWorkItemDetail v-if="document.agentPrompt" :entity="{ id: document.id, title: document.title }" :integration-id="integrationId" :project-id="activeProjectId" :task-prompt="document.agentPrompt" :trigger-label="t('agentHandoff')" />
-            <UiButton size="compact" variant="ghost" @click="copy(document.content)"><Icon name="copy" />{{ t('resourceCopy') }}</UiButton>
+            <UiButton size="compact" variant="ghost" :disabled="!document.content" @click="copy(document.content)"><Icon name="copy" />{{ t('resourceCopy') }}</UiButton>
             <UiButton size="compact" variant="ghost" @click="download(document)">{{ t('resourceDownload') }}</UiButton>
             <UiButton v-if="document.filename?.endsWith('.md')" size="compact" variant="ghost" @click="preview[document.id] = !preview[document.id]">{{ t('resourcePreview') }}</UiButton>
           </nav>
@@ -151,7 +153,7 @@ onBeforeUnmount(() => { revision++; clearTimeout(timer) })
           </div>
         </div>
       </details>
-      <details v-for="form in page.forms" :key="`${JSON.stringify(page.input)}:${form.id}:${formEpoch}`" class="resource-form resource-disclosure">
+      <details v-for="form in page.forms?.filter(item => !page?.collection?.hiddenFormIds.includes(item.id))" :key="`${JSON.stringify(page.input)}:${form.id}:${formEpoch}`" class="resource-form resource-disclosure">
         <summary><Icon name="arrowRight" />{{ form.title }}</summary>
         <div class="resource-disclosure-body">
           <p v-if="form.description">{{ form.description }}</p>

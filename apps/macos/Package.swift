@@ -17,7 +17,7 @@ let package = Package(
     .target(name: "CraftHubMacCore", dependencies: ["CraftHubIdentityIPC"], swiftSettings: [.swiftLanguageMode(.v5)]),
     .executableTarget(
       name: "CraftHubMac", dependencies: ["CraftHubMacCore", .product(name: "Sparkle", package: "Sparkle")],
-      resources: [.copy("Resources/EnvironmentTools")],
+      resources: [.copy("Resources/EnvironmentTools"), .copy("Resources/BrowserImport")],
       swiftSettings: [.swiftLanguageMode(.v5)],
       linkerSettings: [.unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "@executable_path/../Frameworks"])]),
     .testTarget(

@@ -13,40 +13,42 @@ struct IntegrationWorkbenchView: View {
   private var text: L10n { .text }
   var body: some View {
     VStack(alignment: .leading, spacing: 12) {
-      HStack {
-        Text(text.copy("插件工作台", "Plugin Workbenches")).font(.largeTitle.bold())
-        Spacer()
-        if model.loadingCatalog || model.refreshing || model.busy { ProgressView().controlSize(.small) }
-        Button(text.copy("重新读取", "Reload")) {
-          Task {
-            await model.loadCatalog(force: true)
-            await model.refresh()
+      VStack(alignment: .leading, spacing: 12) {
+        HStack {
+          Text(text.copy("插件工作台", "Plugin Workbenches")).font(.largeTitle.bold())
+          Spacer()
+          if model.loadingCatalog || model.refreshing || model.busy { ProgressView().controlSize(.small) }
+          Button(text.copy("重新读取", "Reload")) {
+            Task {
+              await model.loadCatalog(force: true)
+              await model.refresh()
+            }
           }
+          .disabled(model.busy || model.loadingCatalog || model.refreshing)
+          Button(text.copy("完整工作台…", "All Workbenches…")) { openWeb("/workbenches") }
         }
-        .disabled(model.busy || model.loadingCatalog || model.refreshing)
-        Button(text.copy("完整工作台…", "All Workbenches…")) { openWeb("/workbenches") }
-      }
-      HStack {
-        TextField(text.copy("搜索插件工作台", "Search Plugin Workbenches"), text: $model.search)
-          .textFieldStyle(.roundedBorder).focused($searchFocused)
-        Picker(
-          text.copy("工作台", "Workbench"),
-          selection: Binding(get: { model.entryID }, set: { id in Task { await model.select(id) } })
-        ) {
-          Text(text.copy("选择工作台", "Choose Workbench")).tag("")
-          ForEach(model.entries) { entry in Text(entry.text(entry.view.title)).tag(entry.id) }
-        }.disabled(!model.canChangeContext).frame(maxWidth: 350)
-      }
-      if let error = model.error { NativeErrorView(message: error) }
-      if let notice = model.notice { Text(notice).foregroundStyle(.secondary) }
-      if model.uncertain != nil {
-        Text(
-          text.copy(
-            "操作结果尚未确认。请重新读取当前配置并核对后再操作。",
-            "The operation outcome is uncertain. Reload and review the current configuration before continuing.")
-        )
-        .foregroundStyle(.secondary)
-      }
+        HStack {
+          TextField(text.copy("搜索插件工作台", "Search Plugin Workbenches"), text: $model.search)
+            .textFieldStyle(.roundedBorder).focused($searchFocused)
+          Picker(
+            text.copy("工作台", "Workbench"),
+            selection: Binding(get: { model.entryID }, set: { id in Task { await model.select(id) } })
+          ) {
+            Text(text.copy("选择工作台", "Choose Workbench")).tag("")
+            ForEach(model.entries) { entry in Text(entry.text(entry.view.title)).tag(entry.id) }
+          }.disabled(!model.canChangeContext).frame(maxWidth: 350, alignment: .trailing)
+        }
+        if let error = model.error { NativeErrorView(message: error) }
+        if let notice = model.notice { Text(notice).foregroundStyle(.secondary) }
+        if model.uncertain != nil {
+          Text(
+            text.copy(
+              "操作结果尚未确认。请重新读取当前配置并核对后再操作。",
+              "The operation outcome is uncertain. Reload and review the current configuration before continuing.")
+          )
+          .foregroundStyle(.secondary)
+        }
+      }.nativePageContent()
       if let entry = model.entry, model.search.isEmpty {
         HStack {
           HStack(spacing: 8) {
@@ -65,9 +67,10 @@ struct IntegrationWorkbenchView: View {
             }.disabled(!model.canChangeContext).frame(maxWidth: 320)
           }
           Button(text.copy("完整页面…", "Full Page…")) { openWeb(webPath(entry)) }
-        }
+        }.padding(.horizontal, NativePageLayout.horizontalInset)
         if model.requiresProject {
           ContentUnavailableView(text.copy("请选择一个项目", "Choose a Project"), systemImage: "folder")
+            .nativePageContent(.emptyState)
         } else {
           // Each entity must be a list row. A lazy stack of entire, variable-height blocks can
           // repeatedly invalidate placement when a block is taller than the scrolling viewport.
@@ -77,6 +80,7 @@ struct IntegrationWorkbenchView: View {
             }
           }
           .listStyle(.inset)
+          .nativePageListContent()
           .scrollContentBackground(.hidden)
           .buttonStyle(.borderless)
         }
@@ -95,16 +99,18 @@ struct IntegrationWorkbenchView: View {
             }
           }.buttonStyle(.plain)
         }
+        .nativePageListContent()
       }
       ForEach(Array(model.diagnostics.enumerated()), id: \.offset) { _, diagnostic in
         Text(diagnostic.integrationId + ": " + diagnostic.message).font(.caption).foregroundStyle(.secondary)
+          .padding(.horizontal, NativePageLayout.horizontalInset)
       }
-    }.padding(24).task { await model.loadCatalog() }
+    }.padding(.vertical, 24).task { await model.refreshIfIdle() }
       .onChange(of: findRequest) { searchFocused = true }
       .sheet(
         isPresented: Binding(get: { model.forms.isPresented }, set: { if !$0 { model.forms.close() } }),
         onDismiss: {
-          Task { await model.refresh() }
+          Task { await model.refreshIfIdle() }
         }
       ) {
         IntegrationFormView(model: model.forms, projects: projects) {
@@ -118,7 +124,7 @@ struct IntegrationWorkbenchView: View {
       .sheet(
         isPresented: Binding(get: { model.connections.isPresented }, set: { if !$0 { model.connections.close() } }),
         onDismiss: {
-          Task { await model.refresh() }
+          Task { await model.refreshIfIdle() }
         }
       ) {
         IntegrationConnectionView(model: model.connections, projects: projects)
