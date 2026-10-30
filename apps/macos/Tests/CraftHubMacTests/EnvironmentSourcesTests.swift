@@ -11,6 +11,7 @@ private actor ConnectionFixture {
   var hold = ""
   var fail = ""
   var waiter: CheckedContinuation<Void, Never>?
+  private let heldRequests = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
   let jobID = "11111111-1111-4111-8111-111111111111"
   func configure(state: String? = nil, phase: String = "cloning", hold: String = "", fail: String = "") {
     if let state { self.state = state }
@@ -22,6 +23,9 @@ private actor ConnectionFixture {
     waiter?.resume()
     waiter = nil
     hold = ""
+  }
+  func waitUntilHeld() async throws {
+    try await requireHeldResponse(heldRequests.stream) { await self.release() }
   }
   func response(_ request: URLRequest) async throws -> (Data, URLResponse) {
     #expect(request.url?.path == "/api/environment/sources")
@@ -40,7 +44,12 @@ private actor ConnectionFixture {
       """
     let json =
       "{\"providers\":[{\"id\":\"fixture\",\"name\":\"Fixture\",\"kinds\":[\"public\",\"private\"]}],\"connections\":[\(jobs)]}"
-    if operation == hold { await withCheckedContinuation { waiter = $0 } }
+    if operation == hold {
+      await withCheckedContinuation {
+        waiter = $0
+        heldRequests.continuation.yield(())
+      }
+    }
     return (Data(json.utf8), HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
   }
 }
@@ -53,14 +62,6 @@ private actor ConnectionFixture {
   return EnvironmentSourcesModel(
     client: RuntimeAPIClient(connection: connection, transport: { try await fixture.response($0) }))
 }
-private func held(_ fixture: ConnectionFixture) async throws {
-  for _ in 0..<100 {
-    if await fixture.waiter != nil { return }
-    try await Task.sleep(for: .milliseconds(5))
-  }
-  Issue.record("The connection fixture did not hold its response")
-}
-
 @MainActor @Test func environmentConnectionOnlyStartsExplicitlyAndAuthenticationTargetsTheReviewedJob() async throws {
   let fixture = ConnectionFixture()
   let model = try connectionModel(fixture)
@@ -109,15 +110,19 @@ private func held(_ fixture: ConnectionFixture) async throws {
   #expect(model.active?.state == "cancelled")
 }
 
-@MainActor @Test func oldEnvironmentConnectionReadCannotOverwriteAuthenticationAcknowledgement() async throws {
+@MainActor @Test(arguments: [Duration.zero, .seconds(1)])
+func oldEnvironmentConnectionReadCannotOverwriteAuthenticationAcknowledgement(requestDelay: Duration) async throws {
   let fixture = ConnectionFixture()
   let model = try connectionModel(fixture)
   await fixture.configure(state: "authentication-required")
   await model.load()
   let job = try #require(model.active)
   await fixture.configure(hold: "get")
-  let old = Task { await model.load() }
-  try await held(fixture)
+  let old = Task {
+    try? await Task.sleep(for: requestDelay)
+    await model.load()
+  }
+  try await fixture.waitUntilHeld()
   await model.authenticate(job, username: "fixture-user", token: "fixture-token")
   #expect(model.active?.state == "connecting")
   await fixture.release()
@@ -144,7 +149,7 @@ private func held(_ fixture: ConnectionFixture) async throws {
   model.repository = "https://example.com/config.git"
   await fixture.configure(hold: "connect")
   let connect = Task { await model.connect() }
-  try await held(fixture)
+  try await fixture.waitUntilHeld()
   model.disconnect()
   await fixture.release()
   await connect.value

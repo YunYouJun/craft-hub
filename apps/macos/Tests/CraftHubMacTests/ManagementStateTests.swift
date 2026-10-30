@@ -9,6 +9,7 @@ private actor ManagementFixture {
   var failUpdates = false
   var heldPath: String?
   var waiter: CheckedContinuation<Void, Never>?
+  private let heldRequests = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
   var hostEnabled = false
   func hold(_ path: String) { heldPath = path }
   func failNextUpdateCheck() { failUpdates = true }
@@ -16,6 +17,9 @@ private actor ManagementFixture {
     heldPath = nil
     waiter?.resume()
     waiter = nil
+  }
+  func waitUntilHeld() async throws {
+    try await requireHeldResponse(heldRequests.stream) { await self.release() }
   }
   func response(_ request: URLRequest) async throws -> (Data, URLResponse) {
     requests.append(request)
@@ -36,7 +40,12 @@ private actor ManagementFixture {
         : #"[{"package":"fixture","sourceId":"fixture","currentVersion":"1","targetVersion":"2","automatic":true}]"#
     default: json = #"{"version":1,"catalog":[],"installed":[],"sources":[]}"#
     }
-    if heldPath == path { await withCheckedContinuation { waiter = $0 } }
+    if heldPath == path {
+      await withCheckedContinuation {
+        waiter = $0
+        heldRequests.continuation.yield(())
+      }
+    }
     return (Data(json.utf8), HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
   }
 }
@@ -50,14 +59,6 @@ private actor ManagementFixture {
   let model = PluginsModel()
   model.connect(RuntimeAPIClient(connection: connection) { try await fixture.response($0) })
   return model
-}
-
-private func awaitHeld(_ fixture: ManagementFixture) async throws {
-  for _ in 0..<200 {
-    if await fixture.waiter != nil { return }
-    try await Task.sleep(for: .milliseconds(5))
-  }
-  Issue.record("The fixture request was not suspended")
 }
 
 @MainActor @Test func failedUpdateCheckCannotOfferPreviousUpdatesAndChangesRequireRechecking() async throws {
@@ -83,7 +84,7 @@ private func awaitHeld(_ fixture: ManagementFixture) async throws {
   let model = try managementModel(fixture)
   await fixture.hold("/api/plugins/updates")
   let pending = Task { await model.checkUpdates() }
-  try await awaitHeld(fixture)
+  try await fixture.waitUntilHeld()
   #expect(model.updatesPresented && model.updatesLoading && !model.canApplyUpdates)
   model.connect(nil)
   await fixture.release()
@@ -108,7 +109,7 @@ private func awaitHeld(_ fixture: ManagementFixture) async throws {
   let host = try #require(model.hostComponents.snapshot?.bundledExtensions?.first)
   await fixture.hold("/api/native-host/extensions")
   let oldRead = Task { await model.hostComponents.load() }
-  try await awaitHeld(fixture)
+  try await fixture.waitUntilHeld()
   // Hold only the GET that already captured the old state; the PUT must complete first.
   await fixture.hold("/unused")
   await model.hostComponents.setBundled(host)
@@ -125,7 +126,7 @@ private func awaitHeld(_ fixture: ManagementFixture) async throws {
   let model = try managementModel(fixture)
   await fixture.hold("/api/marketplace/overview")
   let pending = Task { await model.show(package: "old-plugin", source: "old-source") }
-  try await awaitHeld(fixture)
+  try await fixture.waitUntilHeld()
   model.cancelNavigation()
   model.query = "keep-search"
   model.tab = .installed

@@ -28,6 +28,7 @@ private actor DirectoryFixture {
   var empty = false
   var hold = false
   var waiting: CheckedContinuation<Void, Never>?
+  private let heldRequests = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
   func configure(fail: Bool = false, empty: Bool = false, hold: Bool = false) {
     self.fail = fail
     self.empty = empty
@@ -38,6 +39,9 @@ private actor DirectoryFixture {
     waiting?.resume()
     waiting = nil
   }
+  func waitUntilHeld() async throws {
+    try await requireHeldResponse(heldRequests.stream) { await self.release() }
+  }
   func response(_ request: URLRequest) async throws -> (Data, URLResponse) {
     requests.append(request)
     let failed = fail
@@ -45,7 +49,12 @@ private actor DirectoryFixture {
       URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "locale" }?.value
       == "zh-CN"
     let data = empty ? Data("[]".utf8) : try directoryData(title: chinese ? "开发资源" : "Resources")
-    if hold { await withCheckedContinuation { waiting = $0 } }
+    if hold {
+      await withCheckedContinuation {
+        waiting = $0
+        heldRequests.continuation.yield(())
+      }
+    }
     if failed { throw URLError(.timedOut) }
     return (data, HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
   }
@@ -59,14 +68,6 @@ private func directoryClient(_ fixture: DirectoryFixture) throws -> RuntimeAPICl
     ]))
   return RuntimeAPIClient(connection: connection, transport: { try await fixture.response($0) })
 }
-private func directoryHeld(_ fixture: DirectoryFixture) async throws {
-  for _ in 0..<100 {
-    if await fixture.waiting != nil { return }
-    try await Task.sleep(for: .milliseconds(5))
-  }
-  Issue.record("Directory response was not held")
-}
-
 @MainActor @Test func websiteDirectoryReadsOnlyLocalizedDeclarationsAndSearchesPanelAndLinkMetadata() async throws {
   let fixture = DirectoryFixture()
   let model = WebsiteNavigationModel()
@@ -123,7 +124,7 @@ private func directoryHeld(_ fixture: DirectoryFixture) async throws {
   model.connect(try directoryClient(fixture))
   await fixture.configure(hold: true)
   let initial = Task { await model.load(locale: "en") }
-  try await directoryHeld(fixture)
+  try await fixture.waitUntilHeld()
   let localized = Task { await model.load(locale: "zh-CN") }
   await Task.yield()
   model.invalidate([.pluginUpdate])
@@ -142,7 +143,7 @@ private func directoryHeld(_ fixture: DirectoryFixture) async throws {
   model.query = "handbook"
   await old.configure(hold: true)
   let loading = Task { await model.load(locale: "en") }
-  try await directoryHeld(old)
+  try await old.waitUntilHeld()
   model.connect(try directoryClient(fresh))
   await fresh.configure(empty: true)
   await model.load(locale: "en")

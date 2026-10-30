@@ -30,9 +30,8 @@ private actor ProfileFixture {
     waiter = nil
     hold = ""
   }
-  func waitForHeldRequest() async -> Bool {
-    var iterator = heldRequests.stream.makeAsyncIterator()
-    return await iterator.next() != nil
+  func waitUntilHeld() async throws {
+    try await requireHeldResponse(heldRequests.stream) { await self.release() }
   }
   func response(_ request: URLRequest) async throws -> (Data, URLResponse) {
     requests.append(request)
@@ -80,21 +79,6 @@ private func profileClient(_ fixture: ProfileFixture) throws -> RuntimeAPIClient
     ]))
   return RuntimeAPIClient(connection: connection, transport: { try await fixture.response($0) })
 }
-private func held(_ fixture: ProfileFixture) async throws {
-  let held = await withTaskGroup(of: Bool.self) { group in
-    group.addTask { await fixture.waitForHeldRequest() }
-    group.addTask {
-      try? await Task.sleep(for: .seconds(5))
-      return false
-    }
-    let observed = await group.next() ?? false
-    group.cancelAll()
-    return observed
-  }
-  if !held { await fixture.release() }
-  try #require(held, "Profile request was not held")
-}
-
 @MainActor @Test func environmentProfileSaveUsesSelectionsAndTheExplicitDraftRevision() async throws {
   let fixture = ProfileFixture()
   let model = EnvironmentProfileModel(client: try profileClient(fixture))
@@ -175,14 +159,14 @@ func environmentInvalidationAndDisconnectDiscardLateObservations(requestDelay: D
     try? await Task.sleep(for: requestDelay)
     await model.check()
   }
-  try await held(fixture)
+  try await fixture.waitUntilHeld()
   model.invalidate()
   await fixture.release()
   await checking.value
   #expect(model.stale && model.review == nil && model.setup == nil)
   await fixture.configure(hold: "get")
   let loading = Task { await model.load(force: true) }
-  try await held(fixture)
+  try await fixture.waitUntilHeld()
   model.disconnect()
   await fixture.release()
   await loading.value
@@ -207,7 +191,7 @@ func environmentInvalidationAndDisconnectDiscardLateObservations(requestDelay: D
   let model = EnvironmentProfileModel(client: try profileClient(fixture))
   await fixture.configure(hold: "get")
   let loading = Task { await model.load() }
-  try await held(fixture)
+  try await fixture.waitUntilHeld()
   await fixture.configure(version: "new-revision")
   model.invalidate()
   await fixture.release()

@@ -28,9 +28,8 @@ private actor SourceFixture {
     waiter = nil
     hold = ""
   }
-  func waitForHeldRequest() async -> Bool {
-    var iterator = heldRequests.stream.makeAsyncIterator()
-    return await iterator.next() != nil
+  func waitUntilHeld() async throws {
+    try await requireHeldResponse(heldRequests.stream) { await self.release() }
   }
   func response(_ request: URLRequest) async throws -> (Data, URLResponse) {
     requests.append(request)
@@ -70,21 +69,6 @@ private actor SourceFixture {
   return SoftwareSourcesModel(
     client: RuntimeAPIClient(connection: connection, transport: { try await fixture.response($0) }))
 }
-private func waitHeld(_ fixture: SourceFixture) async throws {
-  let held = await withTaskGroup(of: Bool.self) { group in
-    group.addTask { await fixture.waitForHeldRequest() }
-    group.addTask {
-      try? await Task.sleep(for: .seconds(5))
-      return false
-    }
-    let observed = await group.next() ?? false
-    group.cancelAll()
-    return observed
-  }
-  if !held { await fixture.release() }
-  try #require(held, "Software source request was not held")
-}
-
 @MainActor @Test func softwareSourceEditsInvalidateApprovalAndOnlyTheReviewedTokenCanBeApplied() async throws {
   let fixture = SourceFixture()
   let model = try makeSources(fixture)
@@ -113,14 +97,14 @@ private func waitHeld(_ fixture: SourceFixture) async throws {
   model.draft.repository = "https://example.com/repo"
   await fixture.configure(hold: "preview")
   let first = Task { await model.inspect() }
-  try await waitHeld(fixture)
+  try await fixture.waitUntilHeld()
   model.draft.localPath = "/fixture/checkout"
   await fixture.release()
   await first.value
   #expect(model.preview == nil)
   await fixture.configure(hold: "preview")
   let second = Task { await model.inspect() }
-  try await waitHeld(fixture)
+  try await fixture.waitUntilHeld()
   model.disconnect()
   await fixture.release()
   await second.value
@@ -137,7 +121,7 @@ func oldSoftwareSourceReadCannotReplaceANewerMutationReceipt(requestDelay: Durat
     try? await Task.sleep(for: requestDelay)
     await model.load(force: true)
   }
-  try await waitHeld(fixture)
+  try await fixture.waitUntilHeld()
   let saved = await model.configure("012345678901234567890123", revision: "sources-1", policy: .init(mode: "manual"))
   #expect(saved && model.snapshot?.revision == "sources-2")
   await fixture.release()
