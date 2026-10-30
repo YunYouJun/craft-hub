@@ -13,12 +13,17 @@ final class RuntimeObservation {
   @ObservationIgnored private var delivery: Task<Void, Never>?
   @ObservationIgnored private var pending = Set<RuntimeChange>()
   private let observe: (RuntimeConnection, @escaping RuntimeEventStream.Handler) async -> Void
+  private let waitForDelivery: () async throws -> Void
 
   init(
     observe: @escaping (RuntimeConnection, @escaping RuntimeEventStream.Handler) async -> Void = {
       await RuntimeEventStream(connection: $0).observe($1)
-    }
-  ) { self.observe = observe }
+    },
+    waitForDelivery: @escaping () async throws -> Void = { try await Task.sleep(for: .milliseconds(150)) }
+  ) {
+    self.observe = observe
+    self.waitForDelivery = waitForDelivery
+  }
 
   func connect(_ connection: RuntimeConnection?) {
     subscription?.cancel()
@@ -49,8 +54,9 @@ final class RuntimeObservation {
     }
     // Fixed-window coalescing prevents bursts from cancelling an in-flight snapshot or starving its delivery.
     guard delivery == nil else { return }
+    let waitForDelivery = waitForDelivery
     delivery = Task { [weak self] in
-      try? await Task.sleep(for: .milliseconds(150))
+      try? await waitForDelivery()
       guard !Task.isCancelled, let self, generation == self.generation else { return }
       let changes = pending
       pending.removeAll()
