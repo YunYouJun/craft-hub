@@ -18,12 +18,15 @@ struct WorkbenchWebView: NSViewRepresentable {
 
 /// SwiftUI can propose a zero frame while recreating a window. Keep it away from the retained web viewport:
 /// responsive web layouts may remount editors when they cross a breakpoint, losing their in-memory drafts.
-final class WorkbenchWebContainer: NSView {
+final class WorkbenchWebContainer: NSVisualEffectView {
   private let webView: WKWebView
 
   init(webView: WKWebView) {
     self.webView = webView
     super.init(frame: .zero)
+    material = .windowBackground
+    blendingMode = .behindWindow
+    state = .followsWindowActiveState
   }
 
   required init?(coder: NSCoder) { nil }

@@ -278,6 +278,36 @@
   --skeleton-highlight: rgb(255 255 255 / 7%);
 }
 
+/* The macOS host supplies NSColor values for both appearances, including system accent and contrast preferences.
+ * Keep the mapping on the document root so Reka portals, plugin content and page chrome share the same palette.
+ * System CSS colors are a fallback for previews without the native injection; browsers keep the web palette above.
+ */
+:root[data-native-host='macos'] {
+  --font-body: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif;
+  --surface: var(--native-control-background, Canvas);
+  --surface-muted: var(--native-window-background, Canvas);
+  --surface-subtle: var(--surface-muted);
+  --surface-hover: color-mix(in srgb, var(--text) 5%, var(--surface));
+  --workbench-canvas: var(--native-window-background, Canvas);
+  --workbench-chrome: var(--workbench-canvas);
+  --text: var(--native-label, CanvasText);
+  --muted: var(--native-secondary-label, GrayText);
+  --placeholder: var(--native-placeholder, GrayText);
+  --border: var(--native-separator, color-mix(in srgb, CanvasText 10%, transparent));
+  --border-strong: color-mix(in srgb, var(--text) 22%, transparent);
+  --accent: var(--native-accent, Highlight);
+  --accent-hover: color-mix(in srgb, var(--accent) 85%, var(--text));
+  --accent-soft: color-mix(in srgb, var(--accent) 12%, var(--surface));
+  --on-accent: var(--native-on-accent, HighlightText);
+  --focus-ring: var(--native-focus-ring, Highlight);
+}
+
+/* Only the native host can opt into transparency after preparing a system window-background material. */
+:root[data-native-host='macos'][data-native-window-material] {
+  --workbench-canvas: transparent;
+  --workbench-sidebar-background: transparent;
+}
+
 @media (prefers-reduced-motion: reduce) {
   :root {
     --motion-press-scale: 1;

@@ -5,7 +5,7 @@ import WebKit
 /// An on-demand, memory-only browser session. Keep its DOM, drafts and back/forward list until the runtime changes.
 @MainActor
 final class WorkbenchWebSession {
-  let webView: WKWebView
+  let webView: NativeWorkbenchWebView
   private let coordinator: Coordinator
 
   init(url: URL, model: WorkbenchModel) {
@@ -18,9 +18,11 @@ final class WorkbenchWebSession {
         source: "window.__craftHubNativeHost = 'macos'", injectionTime: .atDocumentStart, forMainFrameOnly: true))
     scripts.addUserScript(
       WKUserScript(source: DesktopBridge.script, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+    scripts.addUserScript(
+      WKUserScript(source: NativeWebAppearance.script(), injectionTime: .atDocumentStart, forMainFrameOnly: true))
     scripts.add(coordinator, name: "craftHubNative")
     scripts.addScriptMessageHandler(coordinator.bridge, contentWorld: .page, name: DesktopBridge.handlerName)
-    webView = WKWebView(frame: .zero, configuration: configuration)
+    webView = NativeWorkbenchWebView(frame: .zero, configuration: configuration)
     webView.navigationDelegate = coordinator
     webView.uiDelegate = coordinator
     webView.allowsBackForwardNavigationGestures = true
@@ -35,6 +37,7 @@ final class WorkbenchWebSession {
   /// A new sidecar has a different authentication session; never reuse the previous page or its native handlers.
   func invalidate() {
     webView.stopLoading()
+    webView.stopObservingAppearance()
     webView.navigationDelegate = nil
     webView.uiDelegate = nil
     coordinator.invalidate()
@@ -136,6 +139,11 @@ final class WorkbenchWebSession {
     /// The workbench stays on its local origin; HTTPS links open in the default browser.
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
       model?.resourceBridge.invalidate()
+    }
+
+    func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+      // A retained session may reload after system colors changed; refresh the document-start snapshot as well.
+      (webView as? NativeWorkbenchWebView)?.refreshNativeAppearance()
     }
 
     func webView(
