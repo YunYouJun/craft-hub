@@ -21,6 +21,7 @@ public struct IntegrationResourcePage: Decodable, Sendable {
     public let filterFormId: String
     public let hiddenFormIds: [String]
     public let hiddenDocumentIds: [String]
+    public let copyDocumentIds: [String]?
     public struct Column: Decodable, Identifiable, Sendable {
       public let id: String
       public let label: String
@@ -33,7 +34,7 @@ public struct IntegrationResourcePage: Decodable, Sendable {
       public let input: [String: IntegrationValue]?
     }
   }
-  public struct BrowserImport: Codable, Sendable {
+  public struct BrowserImport: Codable, Sendable, Equatable {
     public let id: String
     public let title: String
     public let url: String
@@ -42,17 +43,17 @@ public struct IntegrationResourcePage: Decodable, Sendable {
     public let request: Request
     public let response: Response
     public let credentials: Credentials
-    public struct Request: Codable, Sendable {
+    public struct Request: Codable, Sendable, Equatable {
       public let path: String
       public let operatorGlobal: String
       public let operatorParameter: String
     }
-    public struct Response: Codable, Sendable {
+    public struct Response: Codable, Sendable, Equatable {
       public let recordsPath: [String]
       public let successField: String
       public let successValue: Int
     }
-    public struct Credentials: Codable, Sendable {
+    public struct Credentials: Codable, Sendable, Equatable {
       public let keyField: String
       public let secretField: String
       public let availableField: String

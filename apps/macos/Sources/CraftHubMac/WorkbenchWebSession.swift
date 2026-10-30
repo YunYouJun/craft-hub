@@ -50,12 +50,14 @@ final class WorkbenchWebSession {
     let bridge: DesktopBridge
     private let generation: UUID
     private var observations: [NSKeyValueObservation] = []
+    private var inactiveObserver: NSObjectProtocol?
 
     init(model: WorkbenchModel, origin: URL) {
       self.model = model
       self.origin = origin
       generation = model.connectionGeneration
       bridge = DesktopBridge(origin: origin)
+      super.init()
       bridge.restartRuntime = { [weak model] in try await model?.restartRuntime?() }
       bridge.openPluginManagement = { [weak model] catalog in try model?.openPluginManagement(catalogURL: catalog) }
       let generation = model.connectionGeneration
@@ -67,9 +69,24 @@ final class WorkbenchWebSession {
         guard let model, model.connectionGeneration == generation else { throw NativeHostChannelError.closed }
         return try await model.codexActivity.bridge(action)
       }
+      bridge.resourceAction = { [weak model] action, input in
+        guard let model, model.connectionGeneration == generation else { throw NativeHostChannelError.closed }
+        return try await model.resourceBridge.perform(action, input: input)
+      }
+      inactiveObserver = NotificationCenter.default.addObserver(
+        forName: NSApplication.didResignActiveNotification, object: nil, queue: .main
+      ) { [weak self] _ in
+        Task { @MainActor in
+          guard let self, let model = self.model, model.connectionGeneration == self.generation else { return }
+          model.webView?.evaluateJavaScript(
+            "window.dispatchEvent(new Event('craft-hub-conceal'))", completionHandler: nil)
+        }
+      }
     }
 
     func invalidate() {
+      if let inactiveObserver { NotificationCenter.default.removeObserver(inactiveObserver) }
+      inactiveObserver = nil
       observations.removeAll()
       model = nil
       bridge.webView = nil
@@ -77,6 +94,7 @@ final class WorkbenchWebSession {
       bridge.openPluginManagement = nil
       bridge.cloudAction = nil
       bridge.codexActivityAction = nil
+      bridge.resourceAction = nil
     }
 
     func observe(_ webView: WKWebView) {
@@ -111,6 +129,10 @@ final class WorkbenchWebSession {
     }
 
     /// The workbench stays on its local origin; HTTPS links open in the default browser.
+    func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+      model?.resourceBridge.invalidate()
+    }
+
     func webView(
       _ webView: WKWebView, decidePolicyFor action: WKNavigationAction,
       decisionHandler: @escaping @MainActor (WKNavigationActionPolicy) -> Void

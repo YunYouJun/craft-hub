@@ -42,6 +42,16 @@ function contribution(overrides: Partial<InstalledIntegrationContribution> = {})
   }
 }
 
+it('preserves an optional host rendering preference without changing action effects or trust', () => {
+  const declaration = contribution()
+  declaration.views[0]!.rendering = 'web'
+  const parsed = integrationContributionSchema.parse(declaration)
+  expect(parsed.views[0]?.rendering).toBe('web')
+  expect(parsed.actions[0]?.effect).toBe('remote-read')
+  expect(integrationContributionSchema.parse(contribution()).views[0]?.rendering).toBeUndefined()
+  expect(() => integrationContributionSchema.parse({ ...declaration, views: [{ ...declaration.views[0], rendering: 'script' }] })).toThrow()
+})
+
 describe('integration contracts', () => {
   it('accepts status filtering only on readable entity blocks', () => {
     const declaration = contribution()

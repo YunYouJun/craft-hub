@@ -86,6 +86,14 @@ struct ContentView: View {
     ) {
       WorkItemQuickActionsSheet(model: model.workItemActions)
     }
+    .sheet(
+      item: Binding(
+        get: { model.resourceBridge.importRequest }, set: { if $0 == nil { model.resourceBridge.closeImport() } })
+    ) { request in
+      ResourceBrowserImportView(declaration: request.declaration, vault: request.vault) { metadata in
+        await model.resourceBridge.saveImport(request, metadata: metadata)
+      }
+    }
   }
 
   @ViewBuilder private var detail: some View {

@@ -26,6 +26,7 @@ public struct NativeIntegrationCatalog: Decodable, Sendable {
     public let icon: String?
     public let title: String
     public let scope: String
+    public let rendering: String?
     public let blocks: [Block]
     public let showInSidebar: Bool?
     public let order: Int?

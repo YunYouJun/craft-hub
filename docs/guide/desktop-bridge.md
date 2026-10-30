@@ -27,6 +27,10 @@
 | 对话框与剪贴板 | `selectProjectDirectory` | 是 | 是 | 各宿主 OS 适配 | 取消选择/主框架校验 |
 | 对话框与剪贴板 | `selectProjectDirectories` | 是 | 是 | 各宿主 OS 适配 | 取消选择/主框架校验 |
 | 对话框与剪贴板 | `copyText` | 缺 | 是 | 各宿主 OS 适配 | 取消选择/主框架校验 |
+| 本机资源 | `openResourceSession` | 缺 | 是 | 原生解析已安装资源声明 | 只返回账号密码可用性与临时会话 |
+| 本机资源 | `closeResourceSession` | 缺 | 是 | 原生会话回收 | 切页和运行时重连撤销会话 |
+| 本机资源 | `resourceCredential` | 缺 | 是 | 原生 Keychain 与剪贴板 | 当前账号校验、显式显示/复制/清除 |
+| 本机资源 | `importResourceAccounts` | 缺 | 是 | 隔离原生账号导入窗口 | 显式导入、单次表单确认、密码留在 Keychain |
 | 宿主扩展 | `hostExtensions` | 是 | 是 | 共享宿主后端；重启归宿主 | 扩展白名单/空闲重启 |
 | 宿主扩展 | `installHostExtension` | 是 | 缺 | 共享宿主后端；重启归宿主 | 扩展白名单/空闲重启 |
 | 宿主扩展 | `configureLocalPluginHost` | 是 | 缺 | 共享宿主后端；重启归宿主 | 扩展白名单/空闲重启 |

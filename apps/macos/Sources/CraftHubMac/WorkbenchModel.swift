@@ -31,6 +31,7 @@ final class WorkbenchModel {
   let cloud = NativeCloudModel()
   let codexActivity = CodexActivityModel()
   private(set) var connectionGeneration = UUID()
+  let resourceBridge = ResourceDesktopBridge()
   let integrations = IntegrationWorkbenchModel()
   let workItemActions = WorkItemQuickActionsModel()
   private(set) var recentProjectIDs: [String]
@@ -85,6 +86,8 @@ final class WorkbenchModel {
     configurationNavigation = UUID()
     if destination != .marketplace { plugins.cancelNavigation() }
     guard let destination else { return }
+    resourceBridge.invalidate()
+    webView?.evaluateJavaScript("window.dispatchEvent(new Event('craft-hub-conceal'))", completionHandler: nil)
     pluginWorkbenchPath = nil
     projectCommand.close()
     projectDetails.close()
@@ -149,6 +152,7 @@ final class WorkbenchModel {
     pluginNavigation.connect(preferencesClient)
     pluginWorkbenchPath = nil
     integrations.connect(preferencesClient)
+    resourceBridge.connect(preferencesClient)
     workItemActions.connect(preferencesClient)
     workItemActions.completed = { [weak self] _ in
       guard let self else { return }
@@ -238,6 +242,7 @@ final class WorkbenchModel {
   }
 
   func routeChanged(_ path: String) {
+    if route != path { resourceBridge.invalidate() }
     route = path
     // The hidden web page may finish an earlier navigation while a native page is already selected.
     guard !presentsNativeContent else { return }
@@ -542,6 +547,7 @@ final class WorkbenchModel {
         return
       }
       if let entry = integrations.entry, entry.path == parts?.path,
+        entry.view.rendering != "web",
         integrations.projectID == (entry.view.scope == "global" ? "" : project)
       {
         integrations.search = ""
@@ -565,6 +571,10 @@ final class WorkbenchModel {
           return
         }
         guard let entry = integrations.entries.first(where: { $0.path == parts?.path }) else {
+          showIntegrationWeb(path)
+          return
+        }
+        if entry.view.rendering == "web" {
           showIntegrationWeb(path)
           return
         }

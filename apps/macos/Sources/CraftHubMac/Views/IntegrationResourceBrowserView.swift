@@ -9,6 +9,7 @@ struct IntegrationResourceBrowserView: View {
   let state: IntegrationBlockState
   let projects: [PaletteProject]
   let openWeb: (String?) -> Void
+  @Environment(\.nativeToast) private var toast
   @State private var exportDocument: ResourceTextDocument?
   @State private var exportName = "document.txt"
   @State private var exporting = false
@@ -40,17 +41,7 @@ struct IntegrationResourceBrowserView: View {
           Text(text.copy("此资源可能持续变化，可点击刷新读取最新内容。", "This resource may change. Refresh to read its latest contents."))
             .font(.caption).foregroundStyle(.secondary)
         }
-        if let collection = page.collection {
-          ResourceCollectionView(model: model, block: block, state: state, page: page, collection: collection)
-        }
-        ForEach(
-          Array(
-            (page.collection == nil
-              ? page.links ?? []
-              : (page.links ?? []).filter { link in
-                !((page.collection?.rows ?? []).contains { $0.input == link.input })
-              }).enumerated()), id: \.offset
-        ) { _, link in
+        ForEach(Array((page.links ?? []).enumerated()), id: \.offset) { _, link in
           Button {
             Task { await model.readResource(block, link: link) }
           } label: {
@@ -62,7 +53,7 @@ struct IntegrationResourceBrowserView: View {
             }
           }.disabled(state.loading || state.stale || model.busy)
         }
-        ForEach(page.collection == nil ? page.entities ?? [] : [], id: \.key) { item in
+        ForEach(page.entities ?? [], id: \.key) { item in
           VStack(alignment: .leading, spacing: 4) {
             HStack {
               Text(item.title).fontWeight(.medium)
@@ -78,18 +69,17 @@ struct IntegrationResourceBrowserView: View {
             }
           }.textSelection(.enabled)
         }
-        ForEach(
-          Array(
-            (page.documents ?? []).filter { !(page.collection?.hiddenDocumentIds.contains($0.id) ?? false) }
-              .enumerated()), id: \.offset
-        ) { _, document in
+        ForEach(Array((page.documents ?? []).enumerated()), id: \.offset) { _, document in
           VStack(alignment: .leading, spacing: 8) {
             HStack {
               Text(document.title).font(.headline)
               Spacer()
               Button(text.copy("复制内容", "Copy Contents"), systemImage: "doc.on.doc") {
                 NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(document.content, forType: .string)
+                let success = NSPasteboard.general.setString(document.content, forType: .string)
+                toast?.show(
+                  success ? text.copy("已复制", "Copied") : text.copy("复制失败，请重试", "Copy failed. Try again."),
+                  isError: !success)
               }
               .disabled(document.content.isEmpty)
               .accessibilityLabel(text.copy("复制 \(document.title)", "Copy \(document.title)"))
@@ -118,10 +108,7 @@ struct IntegrationResourceBrowserView: View {
         if let forms = page.forms, !forms.isEmpty {
           Divider()
           Text(text.copy("此页操作", "Page Actions")).font(.headline)
-          ForEach(
-            Array(forms.filter { !(page.collection?.hiddenFormIds.contains($0.id) ?? false) }.enumerated()),
-            id: \.offset
-          ) { _, form in
+          ForEach(Array(forms.enumerated()), id: \.offset) { _, form in
             VStack(alignment: .leading, spacing: 4) {
               Text(form.title)
               if let description = form.description { Text(description).foregroundStyle(.secondary) }

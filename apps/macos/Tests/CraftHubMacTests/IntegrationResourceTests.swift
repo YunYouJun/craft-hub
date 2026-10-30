@@ -20,11 +20,13 @@ private actor ResourceFixture {
   var account = "first"
   var fail = false
   var hold = false
+  var collection = false
   var waiter: CheckedContinuation<Void, Never>?
-  func configure(account: String = "first", fail: Bool = false, hold: Bool = false) {
+  func configure(account: String = "first", fail: Bool = false, hold: Bool = false, collection: Bool = false) {
     self.account = account
     self.fail = fail
     self.hold = hold
+    self.collection = collection
   }
   func release() {
     waiter?.resume()
@@ -42,20 +44,26 @@ private actor ResourceFixture {
     if request.url!.lastPathComponent == "connection" {
       json = ["version": 1, "kind": "connection", "connection": ["connected": true, "session": ["cacheKey": account]]]
     } else {
-      json = [
-        "version": 1, "kind": "resources",
-        "resources": [
-          "title": "\(account)/\(resource)", "input": ["resource": resource],
-          "links": [["title": "Project resource", "input": ["resource": "child"], "projectId": "linked-project"]],
-          "documents": [
-            [
-              "id": "readme", "title": "README", "content": "<script>inert</script>", "compareWith": "old",
-              "filename": "../README.md",
-            ]
-          ],
-          "forms": [["id": "save", "title": "Save", "effect": "update"]],
+      var page: [String: Any] = [
+        "title": "\(account)/\(resource)", "input": ["resource": resource],
+        "links": [["title": "Project resource", "input": ["resource": "child"], "projectId": "linked-project"]],
+        "documents": [
+          [
+            "id": "readme", "title": "README", "content": "<script>inert</script>", "compareWith": "old",
+            "filename": "../README.md",
+          ]
         ],
+        "forms": [["id": "save", "title": "Save", "effect": "update"]],
       ]
+      if collection {
+        page["collection"] = [
+          "columns": [["id": "name", "label": "Name"]],
+          "rows": [["id": "row", "cells": ["name": "Example"], "copyValue": "Example"]],
+          "selectedIds": [], "selectionInput": "selected", "filterFormId": "filter",
+          "hiddenDocumentIds": [], "hiddenFormIds": [],
+        ]
+      }
+      json = ["version": 1, "kind": "resources", "resources": page]
       if hold { await withCheckedContinuation { waiter = $0 } }
       if fail { throw URLError(.timedOut) }
     }
@@ -112,6 +120,24 @@ private func waitForResource(_ fixture: ResourceFixture) async throws {
     #expect(body["confirmed"] as? Bool == false)
     #expect(body["reviewedAction"] as? [String: String] == ["operation": "resources.read", "effect": "remote-read"])
   }
+  #expect(await fixture.requests.allSatisfy { $0.url?.lastPathComponent != "write" })
+}
+
+@MainActor @Test func collectionsOfferWebFallbackWithoutLosingReadOnlyNavigationScope() async throws {
+  let fixture = ResourceFixture()
+  let model = try await resourceModel(fixture)
+  await model.select("fixture/resources", project: "root-project")
+  let block = try #require(model.entry?.view.blocks.first { $0.id == "resources" })
+  let state = model.state(block)
+  await fixture.configure(collection: true)
+  await model.readResource(block, link: try #require(state.resourcePage?.links?.first))
+  #expect(state.unsupported && !state.stale && state.error == nil)
+  #expect(state.resourcePage?.collection?.rows.first?.id == "row")
+  #expect(state.resourceLocation?.project == "linked-project")
+  #expect(state.resourceHistory.count == 1)
+  await fixture.configure()
+  await model.readResource(block, back: true)
+  #expect(!state.unsupported && state.resourceLocation?.project == "root-project")
   #expect(await fixture.requests.allSatisfy { $0.url?.lastPathComponent != "write" })
 }
 

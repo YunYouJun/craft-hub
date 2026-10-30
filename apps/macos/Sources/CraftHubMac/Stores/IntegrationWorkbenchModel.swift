@@ -308,7 +308,7 @@ import Observation
     await connections.open(client: client, entry: entry, block: block, project: project)
   }
   func refresh() async {
-    guard !busy, !refreshing, entry != nil, !requiresProject else { return }
+    guard !busy, !refreshing, entry != nil, entry?.view.rendering != "web", !requiresProject else { return }
     let token = context
     refreshing = true
     review = nil
@@ -479,13 +479,13 @@ import Observation
   /// Resource navigation invokes only the declaration's reviewed read action, retaining the selected project per page.
   func readResource(
     _ block: NativeIntegrationCatalog.Block, link: IntegrationResourcePage.Link? = nil,
-    home: Bool = false, back: Bool = false, collectionInput: [String: IntegrationValue]? = nil
+    home: Bool = false, back: Bool = false
   ) async {
     guard let client, let entry, let action = entry.action(block), !busy, catalogLoaded,
       block.type == "resource-browser", readable(block)
     else { return }
     let state = state(block)
-    guard !state.loading || collectionInput != nil, (!back && link == nil) || !state.stale else { return }
+    guard !state.loading, (!back && link == nil) || !state.stale else { return }
     let root = IntegrationBlockState.ResourceLocation(input: block.input ?? [:], project: project)
     let target: IntegrationBlockState.ResourceLocation
     if back {
@@ -498,9 +498,6 @@ import Observation
         }) == true
       else { return }
       target = .init(input: link.input, project: link.projectId ?? state.resourceLocation?.project ?? project)
-    } else if let collectionInput {
-      guard !state.stale, state.resourcePage?.collection != nil else { return }
-      target = .init(input: collectionInput, project: state.resourceLocation?.project ?? project)
     } else {
       target = home ? root : state.resourceLocation ?? root
     }
@@ -525,55 +522,19 @@ import Observation
       let accepted = IntegrationBlockState.ResourceLocation(input: page.input, project: target.project)
       if back {
         state.resourceHistory.removeLast()
-      } else if collectionInput == nil, let previous = state.resourceLocation, previous != accepted {
+      } else if let previous = state.resourceLocation, previous != accepted {
         state.resourceHistory.append(previous)
         state.resourceHistory = Array(state.resourceHistory.suffix(50))
       }
       state.resourcePage = page
       state.resourceLocation = accepted
-      state.unsupported = false
+      state.unsupported = page.collection != nil
       state.stale = false
     } catch {
       if token == context, epoch == revision, state.stamp == stamp {
         state.stale = true
         state.error = error.localizedDescription
       }
-    }
-  }
-  /// Import metadata through the same reviewed, one-use form protocol. Credentials never cross this seam.
-  func importBrowserResource(
-    _ block: NativeIntegrationCatalog.Block, formId: String, metadata: String
-  ) async -> Bool {
-    guard let client, let entry, canChangeContext else { return false }
-    let state = state(block)
-    guard !state.loading, !state.stale, state.resourcePage?.browserImport?.formId == formId,
-      state.resourcePage?.forms?.contains(where: { $0.id == formId && $0.effect == "update" }) == true,
-      let input = state.resourceLocation?.input
-    else { return false }
-    let token = context
-    state.loading = true
-    defer { if context == token { state.loading = false } }
-    do {
-      let plan = try await client.prepareIntegrationForm(
-        integration: entry.contribution.id, project: state.resourceLocation?.project,
-        selector: .init(viewId: entry.view.id, blockId: block.id, resourceInput: input, formId: formId),
-        values: ["content": metadata], locale: L10n.text.chinese ? "zh-CN" : "en")
-      guard token == context, !Task.isCancelled else {
-        try? await client.discardIntegrationForm(
-          integration: entry.contribution.id, project: state.resourceLocation?.project, plan: plan.planId)
-        return false
-      }
-      let result = try await client.executeIntegrationForm(
-        integration: entry.contribution.id, project: state.resourceLocation?.project, plan: plan.planId, confirmed: true
-      )
-      guard token == context, let page = result.resources else { return false }
-      state.resourcePage = page
-      state.resourceLocation = .init(input: page.input, project: state.resourceLocation?.project)
-      state.error = nil
-      return true
-    } catch {
-      if token == context { state.error = error.localizedDescription }
-      return false
     }
   }
   func canToggle(_ block: NativeIntegrationCatalog.Block, _ item: IntegrationPresentation.Entity) -> Bool {

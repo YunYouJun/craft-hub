@@ -24,6 +24,8 @@ export interface ResourceCollection {
   filterFormId: string
   hiddenFormIds: string[]
   hiddenDocumentIds: string[]
+  /** Document IDs exposed as one-click copy buttons above the collection. */
+  copyDocumentIds?: string[]
 }
 
 /** A user-opened, isolated browser import. Hosts construct the request; declarations never contain scripts. */

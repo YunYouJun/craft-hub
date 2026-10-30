@@ -13,6 +13,8 @@ private let sourceNavigationCatalog = #"""
   """#
 
 private actor SourceNavigationFixture {
+  var webRendering = false
+  func preferWeb() { webRendering = true }
   private(set) var requests: [URLRequest] = []
   private(set) var held = false
   private var hold: String?
@@ -40,7 +42,14 @@ private actor SourceNavigationFixture {
     }
     if fail == action { throw URLError(.timedOut) }
     let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
-    if action == "integrations" { return (Data(sourceNavigationCatalog.utf8), response) }
+    if action == "integrations" {
+      let catalog =
+        webRendering
+        ? sourceNavigationCatalog.replacingOccurrences(
+          of: "\"id\":\"tasks\",\"title\":\"Tasks\"", with: "\"id\":\"tasks\",\"title\":\"Tasks\",\"rendering\":\"web\""
+        ) : sourceNavigationCatalog
+      return (Data(catalog.utf8), response)
+    }
     let result: [String: Any] = [
       "version": 1, "kind": "entities",
       "page": [
@@ -113,6 +122,18 @@ private actor SourceNavigationFixture {
     #expect(model.selection == .workbenches && model.integrations.entryID == "fixture/tasks")
     #expect(model.presentsNativeContent && !model.webContentRequested && model.navigationError == nil)
     #expect(await fixture.requests.filter { $0.url?.lastPathComponent == "integrations" }.count == 1)
+  }
+}
+
+@MainActor @Test func declaredWebRenderingKeepsTheIntegrationScopeAndSkipsNativeResourceReads() async throws {
+  let fixture = SourceNavigationFixture()
+  await fixture.preferWeb()
+  try await withSourceNavigationModel(fixture) { model, _ in
+    model.navigateToWebPath("/integrations/fixture/tasks?scope=global")
+    try await waitForSourceNavigation { model.webContentRequested }
+    #expect(model.showsWebContent)
+    #expect(model.integrations.entryID.isEmpty)
+    #expect(await fixture.requests.allSatisfy { $0.url?.path == "/api/integrations" })
   }
 }
 

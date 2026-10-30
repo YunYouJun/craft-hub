@@ -10,6 +10,7 @@ struct IntegrationWorkbenchView: View {
   let openConfiguration: (String) -> Void
   let workItemActions: WorkItemQuickActionsModel
   @FocusState private var searchFocused: Bool
+  @State private var toast = NativeToastCenter()
   private var text: L10n { .text }
   var body: some View {
     VStack(alignment: .leading, spacing: 12) {
@@ -32,7 +33,7 @@ struct IntegrationWorkbenchView: View {
             .textFieldStyle(.roundedBorder).focused($searchFocused)
           Picker(
             text.copy("工作台", "Workbench"),
-            selection: Binding(get: { model.entryID }, set: { id in Task { await model.select(id) } })
+            selection: Binding(get: { model.entryID }, set: { id in selectEntry(id) })
           ) {
             Text(text.copy("选择工作台", "Choose Workbench")).tag("")
             ForEach(model.entries) { entry in Text(entry.text(entry.view.title)).tag(entry.id) }
@@ -87,7 +88,7 @@ struct IntegrationWorkbenchView: View {
       } else {
         List(model.visibleEntries) { entry in
           Button {
-            Task { await model.select(entry.id) }
+            selectEntry(entry.id)
           } label: {
             HStack {
               HStack(spacing: 8) {
@@ -105,7 +106,7 @@ struct IntegrationWorkbenchView: View {
         Text(diagnostic.integrationId + ": " + diagnostic.message).font(.caption).foregroundStyle(.secondary)
           .padding(.horizontal, NativePageLayout.horizontalInset)
       }
-    }.padding(.vertical, 24).task { await model.refreshIfIdle() }
+    }.padding(.vertical, 24).nativeToast(toast).task { await model.refreshIfIdle() }
       .onChange(of: findRequest) { searchFocused = true }
       .sheet(
         isPresented: Binding(get: { model.forms.isPresented }, set: { if !$0 { model.forms.close() } }),
@@ -155,7 +156,11 @@ struct IntegrationWorkbenchView: View {
       }
   }
   private func webPath(_ entry: IntegrationWorkbenchModel.Entry) -> String {
-    webPath(entry, project: model.project)
+    webPath(entry, project: entry.view.scope == "global" ? nil : model.project)
+  }
+  private func selectEntry(_ id: String) {
+    guard let entry = model.entries.first(where: { $0.id == id }) else { return }
+    if entry.view.rendering == "web" { openWeb(webPath(entry)) } else { Task { await model.select(id) } }
   }
   private func webPath(_ entry: IntegrationWorkbenchModel.Entry, project: String?) -> String {
     var components = URLComponents()
@@ -185,7 +190,7 @@ struct IntegrationWorkbenchView: View {
         Button(text.copy("打开表单…", "Open Form…")) { Task { await model.openForm(block) } }.disabled(
           !model.canChangeContext)
       }
-      if block.type == "resource-browser", model.readable(block) {
+      if block.type == "resource-browser", model.readable(block), !state.unsupported {
         IntegrationResourceBrowserView(model: model, block: block, state: state, projects: projects) { project in
           openWeb(webPath(entry, project: project))
         }
@@ -321,7 +326,9 @@ struct IntegrationWorkbenchView: View {
           Button(text.copy("打开原生配置管理…", "Open Native Configuration…")) { openConfiguration(entry.path) }
         } else {
           Text(text.copy("此业务块使用完整页面。", "This block uses the full page.")).foregroundStyle(.secondary)
-          Button(text.copy("打开完整页面…", "Open Full Page…")) { openWeb(webPath(entry)) }
+          Button(text.copy("打开完整页面…", "Open Full Page…")) {
+            openWeb(webPath(entry, project: state.resourceLocation?.project ?? model.project))
+          }
         }
       }
     }
