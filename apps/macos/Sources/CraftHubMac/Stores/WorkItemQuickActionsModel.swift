@@ -5,6 +5,7 @@ import Observation
 
 /// One window owns the pending work-item operation. Provider actions remain behind the runtime's trust boundary.
 @MainActor @Observable final class WorkItemQuickActionsModel {
+  let completion = WorkItemCompletionModel()
   enum Mode { case detail, status }
   struct Review: Identifiable {
     let id = UUID()
@@ -45,7 +46,7 @@ import Observation
   @ObservationIgnored private var actions: Actions?
   @ObservationIgnored private var connectionIdentity: String?
   @ObservationIgnored private let now: () -> Date
-  var pending: Bool { executing || uncertain }
+  var pending: Bool { executing || uncertain || completion.pending }
   var selected: WorkItemStatusTransitions.Transition? { transitions.first { $0.id == selectedID } }
   var canChangeStatus: Bool {
     !loading && !pending && !stale && target?.readOnly == false && item?.archived != true
@@ -59,11 +60,15 @@ import Observation
       !(fields[$0] ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
   }
-  init(now: @escaping () -> Date = Date.init) { self.now = now }
+  init(now: @escaping () -> Date = Date.init) {
+    self.now = now
+    completion.canStart = { [weak self] in self?.target == nil }
+  }
 
   func connect(_ client: RuntimeAPIClient?) {
     reset()
     self.client = client
+    completion.connect(client)
   }
   private func reset() {
     generation = UUID()
@@ -84,6 +89,7 @@ import Observation
   }
   func close() { if !pending { reset() } }
   func invalidate() {
+    completion.invalidate()
     revision += 1
     stale = true
     review = nil

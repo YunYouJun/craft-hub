@@ -161,6 +161,9 @@ final class WorkbenchModel {
       guard let self else { return }
       await self.today.refreshWorkItems()
     }
+    workItemActions.completion.completed = { [weak self] target, receipt, undoing in
+      self?.today.applyCompletion(target, receipt: receipt, undoing: undoing)
+    }
     NativePreferences.shared.refresh(preferencesClient)
     observation.connect(connection)
     if connection != nil {

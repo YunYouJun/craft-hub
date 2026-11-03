@@ -247,7 +247,7 @@ struct WorkItemsBrowserView: View {
   }
 }
 
-private struct WorkItemRowView: View {
+struct WorkItemRowView: View {
   let item: TodayWorkBrowser.Item
   let compact: Bool
   let narrow: Bool
@@ -261,7 +261,7 @@ private struct WorkItemRowView: View {
   }
 
   @ViewBuilder var body: some View {
-    if let target = item.actionTarget, target.item.statusLabel ?? target.item.status != nil {
+    if let target = item.actionTarget, !target.isMicrosoftTodo, target.item.statusLabel ?? target.item.status != nil {
       accessibleRow.accessibilityAction(named: Text(text.copy("查看或更改状态", "View or Change Status"))) {
         guard !workItemActions.pending else { return }
         Task { await workItemActions.open(target, mode: .status) }
@@ -274,13 +274,21 @@ private struct WorkItemRowView: View {
   private var accessibleRow: some View {
     row
       .accessibilityElement(children: .contain)
-      .accessibilityAction(named: Text(text.copy("查看详情", "View Details")), openDetails)
+      .accessibilityAction(
+        named: Text(
+          item.actionTarget?.isMicrosoftTodo == true
+            ? text.copy("在 To Do 中打开", "Open in To Do") : text.copy("查看详情", "View Details")), openDetails
+      )
       .accessibilityAction(named: Text(text.copy("复制标题", "Copy Title")), copyTitle)
   }
 
   private var row: some View {
     HStack(alignment: WorkItemRowLayout.titleAlignment, spacing: 8) {
-      PluginIconView(icon: sourceIcon, fallbackSymbol: "checklist", size: 18).accessibilityHidden(true)
+      if let target = item.actionTarget, target.isMicrosoftTodo {
+        WorkItemCompletionButton(target: target, actions: workItemActions)
+      } else {
+        PluginIconView(icon: sourceIcon, fallbackSymbol: "checklist", size: 18).accessibilityHidden(true)
+      }
       if narrow {
         VStack(alignment: .leading, spacing: 8) {
           title
@@ -311,30 +319,39 @@ private struct WorkItemRowView: View {
           }.font(.caption).foregroundStyle(.secondary).lineLimit(1)
         }
       }.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
-    }.buttonStyle(.plain).help(text.copy("查看待办详情", "View Task Details"))
+    }.buttonStyle(.plain).help(
+      item.actionTarget?.isMicrosoftTodo == true
+        ? text.copy("在 To Do 中编辑", "Edit in To Do") : text.copy("查看待办详情", "View Task Details"))
   }
 
   private var actions: some View {
     HStack(spacing: 8) {
-      if let target = item.actionTarget {
+      if let target = item.actionTarget, !target.isMicrosoftTodo {
         WorkItemQuickActions(target: target, model: workItemActions)
       }
       if item.categories.contains("important") {
         Image(systemName: "star.fill").font(.caption).foregroundStyle(.orange)
           .accessibilityLabel(text.copy("重要", "Important"))
       }
-      if let url = DesktopBridge.externalURL(item.url) {
+      if item.actionTarget?.isMicrosoftTodo == true {
+        NativeMicrosoftTodoOpenButton(model: workItemActions.completion, iconOnly: true)
+      } else if let url = DesktopBridge.externalURL(item.url) {
         Link(destination: url) { Image(systemName: "arrow.up.right") }
           .help(text.copy("打开原文", "Open Original"))
       }
-      Button(action: copyTitle) {
-        Image(systemName: "doc.on.doc")
-      }.help(text.copy("复制标题", "Copy Title"))
+      Menu {
+        Button(text.copy("复制标题", "Copy Title"), action: copyTitle)
+      } label: {
+        Image(systemName: "ellipsis")
+      }.menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize().help(text.copy("更多操作", "More Actions"))
+        .accessibilityLabel(text.copy("更多操作", "More Actions"))
     }.buttonStyle(.borderless).foregroundStyle(.secondary)
   }
 
   private func openDetails() {
-    if let target = item.actionTarget {
+    if item.actionTarget?.isMicrosoftTodo == true {
+      Task { await workItemActions.completion.openMicrosoftTodo() }
+    } else if let target = item.actionTarget {
       Task { await workItemActions.open(target, mode: .detail) }
     } else {
       openSource()

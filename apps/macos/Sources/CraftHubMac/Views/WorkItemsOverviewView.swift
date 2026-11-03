@@ -33,6 +33,11 @@ struct WorkItemsOverviewView: View {
             .foregroundStyle(source.state == "loaded" ? Color.secondary : .orange)
           if let account = source.accountLabel { Text(account).foregroundStyle(.secondary).lineLimit(1) }
           Spacer(minLength: 8)
+          if source.browser?.items.contains(where: { $0.actionTarget?.isMicrosoftTodo == true }) == true
+            || source.path == "/integrations/microsoft-todo/tasks"
+          {
+            NativeMicrosoftTodoOpenButton(model: workItemActions.completion)
+          }
           Button {
             navigate(source.path)
           } label: {
@@ -40,6 +45,7 @@ struct WorkItemsOverviewView: View {
           }.buttonStyle(.borderless)
         }.font(.callout).padding(.horizontal, NativePageLayout.horizontalInset).padding(.bottom, 10)
         Divider()
+        WorkItemCompletionBanner(model: workItemActions.completion)
         ZStack {
           WorkSourceBrowserHost(
             identity: source.browser.map { WorkSourceBrowserIdentity(source: source.key, account: $0.accountKey) },

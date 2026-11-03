@@ -32,6 +32,13 @@ public final class RuntimeAPIClient {
     return result
   }
 
+  /// Launch the runtime-owned To Do application shortcut, with its official website fallback.
+  public func openMicrosoftTodo() async throws {
+    struct Result: Decodable { let destination: String }
+    let result: Result = try await fetch(path: "/api/applications/microsoft-todo/open", body: Data("{}".utf8))
+    guard ["application", "website"].contains(result.destination) else { throw RuntimeAPIError.invalidResponse }
+  }
+
   public func software(localDiscovery: Bool = true) async throws -> SoftwareSnapshot {
     let result: SoftwareSnapshot = try await fetch(
       path: "/api/software", query: localDiscovery ? [] : [URLQueryItem(name: "discovery", value: "none")])

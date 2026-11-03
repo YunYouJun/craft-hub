@@ -20,6 +20,7 @@ final class TodayFocusModel {
   @ObservationIgnored private var loadingLocale: String?
   @ObservationIgnored private var workItemsRevision = 0
   @ObservationIgnored private var loadingRevision: Int?
+  @ObservationIgnored private var completionSnapshot: TodayFocusSnapshot?
   @ObservationIgnored private let now: () -> Date
   @ObservationIgnored private let currentLocale: @MainActor () -> String
   private var locale: String { currentLocale() }
@@ -39,6 +40,7 @@ final class TodayFocusModel {
   }
 
   func invalidate() {
+    completionSnapshot = nil
     generation = UUID()
     invalidationGeneration = UUID()
     readTask?.cancel()
@@ -127,6 +129,20 @@ final class TodayFocusModel {
   func refreshWorkItems() async {
     markWorkItemsStale()
     await load()
+  }
+
+  /// A confirmed single-task receipt updates counts and rows in place; keep the pre-completion row for Undo.
+  func applyCompletion(_ target: WorkItemActionTarget, receipt: IntegrationPresentation.Entity, undoing: Bool) {
+    guard let snapshot else { return }
+    let previous = completionSnapshot
+    completionSnapshot = undoing ? nil : snapshot
+    self.snapshot = snapshot.applyingCompletion(to: target, receipt: receipt, restoringFrom: undoing ? previous : nil)
+    analysisTask?.cancel()
+    analysisTask = nil
+    analyzing = false
+    analysis = nil
+    workItemsRevision += 1
+    loadedAt = now()
   }
 
   func analyze() async {

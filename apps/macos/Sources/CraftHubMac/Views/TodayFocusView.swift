@@ -200,8 +200,12 @@ struct TodayFocusView: View {
 
   private func focusRow(_ item: TodayFocusSnapshot.Item, index: Int) -> some View {
     HStack(alignment: WorkItemRowLayout.titleAlignment, spacing: 10) {
-      Text(index + 1, format: .number).font(.caption.monospacedDigit()).foregroundStyle(.tertiary)
-        .frame(width: 18)
+      if let target = item.actionTarget, target.isMicrosoftTodo {
+        WorkItemCompletionButton(target: target, actions: workItemActions)
+      } else {
+        Text(index + 1, format: .number).font(.caption.monospacedDigit()).foregroundStyle(.tertiary)
+          .frame(width: 18)
+      }
       DisclosureGroup {
         VStack(alignment: .leading, spacing: 8) {
           if let recommendation = today.analysis?.items.first(where: { $0.key == item.key }) {
@@ -211,14 +215,20 @@ struct TodayFocusView: View {
             Text(item.reasons.joined(separator: " · "))
           }
           HStack {
-            Button(text.copy("前往来源", "Open Source")) { navigate(item.path) }.buttonStyle(.borderless)
-            if let target = item.actionTarget { WorkItemQuickActions(target: target, model: workItemActions) }
+            if item.actionTarget?.isMicrosoftTodo == true {
+              NativeMicrosoftTodoOpenButton(model: workItemActions.completion)
+            } else {
+              Button(text.copy("前往来源", "Open Source")) { navigate(item.path) }.buttonStyle(.borderless)
+              if let target = item.actionTarget { WorkItemQuickActions(target: target, model: workItemActions) }
+            }
           }
         }.font(.callout).padding(.vertical, 8).textSelection(.enabled)
       } label: {
         VStack(alignment: .leading, spacing: 3) {
           Button {
-            if let target = item.actionTarget {
+            if item.actionTarget?.isMicrosoftTodo == true {
+              Task { await workItemActions.completion.openMicrosoftTodo() }
+            } else if let target = item.actionTarget {
               Task { await workItemActions.open(target, mode: .detail) }
             } else {
               navigate(item.path)
@@ -228,13 +238,15 @@ struct TodayFocusView: View {
               .frame(maxWidth: NativePageLayout.ContentWidth.reading.maximum, alignment: .leading)
               .frame(maxWidth: .infinity, alignment: .leading)
               .alignmentGuide(WorkItemRowLayout.titleAlignment) { WorkItemRowLayout.firstLineCenter(in: $0) }
-          }.buttonStyle(.plain).help(text.copy("查看详情", "View Details"))
+          }.buttonStyle(.plain).help(
+            item.actionTarget?.isMicrosoftTodo == true
+              ? text.copy("在 To Do 中编辑", "Edit in To Do") : text.copy("查看详情", "View Details"))
           HStack(spacing: 8) {
             PluginIconView(
               icon: today.snapshot?.sources.first { $0.key == item.sourceKey }?.icon ?? "builtin:list",
               fallbackSymbol: "checklist", size: 14)
             Text(item.project ?? item.sourceTitle).help(item.sourceTitle)
-            if let status = item.status {
+            if let status = item.status, item.actionTarget?.isMicrosoftTodo != true {
               Text("·").accessibilityHidden(true)
               WorkItemStatusLabel(title: status, category: item.statusCategory)
             }
