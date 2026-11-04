@@ -39,15 +39,19 @@ const sidebarLabel = computed(() => props.sidebarCollapsed ? copy('展开侧栏'
 <template>
   <header class="workbench-titlebar workbench-toolbar" :class="{ 'desktop-mac': desktopMac }" :aria-label="t('paletteTitlebar')">
     <div class="toolbar-leading">
-      <button class="toolbar-icon-button mobile-navigation-toggle" type="button" aria-controls="workbench-primary-navigation" :aria-label="copy('切换导航', 'Toggle navigation')" :aria-expanded="mobileNavigationOpen" @click="emit('toggleMobileNavigation')"><Icon name="list" /></button>
-      <div class="toolbar-history desktop-toolbar-control" :aria-label="copy('浏览历史', 'Navigation history')">
-        <button class="toolbar-icon-button toolbar-back" type="button" :disabled="!canGoBack" :aria-label="copy('返回', 'Back')" :title="`${copy('返回', 'Back')} (${shortcut('Mod+[')})`" @click="emit('back')"><svg aria-hidden="true" class="toolbar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m14 6-6 6 6 6" /></svg></button>
-        <button class="toolbar-icon-button toolbar-forward" type="button" :disabled="!canGoForward" :aria-label="copy('前进', 'Forward')" :title="`${copy('前进', 'Forward')} (${shortcut('Mod+]')})`" @click="emit('forward')"><svg aria-hidden="true" class="toolbar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m10 6 6 6-6 6" /></svg></button>
+      <div class="toolbar-sidebar-controls">
+        <button class="toolbar-icon-button mobile-navigation-toggle" type="button" aria-controls="workbench-primary-navigation" :aria-label="copy('切换导航', 'Toggle navigation')" :aria-expanded="mobileNavigationOpen" @click="emit('toggleMobileNavigation')"><Icon name="list" /></button>
+        <button class="toolbar-icon-button sidebar-toggle desktop-toolbar-control" type="button" aria-controls="workbench-primary-navigation" :aria-label="sidebarLabel" :aria-expanded="!sidebarCollapsed" :title="`${sidebarLabel} (${sidebarShortcutLabel})`" @click="emit('toggleSidebar')">
+          <svg aria-hidden="true" class="toolbar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2.5" /><path d="M9 4v16" /></svg>
+        </button>
       </div>
-      <button class="toolbar-icon-button sidebar-toggle desktop-toolbar-control" type="button" aria-controls="workbench-primary-navigation" :aria-label="sidebarLabel" :aria-expanded="!sidebarCollapsed" :title="`${sidebarLabel} (${sidebarShortcutLabel})`" @click="emit('toggleSidebar')">
-        <svg aria-hidden="true" class="toolbar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M9 4v16M5.5 8h1M5.5 12h1M5.5 16h1" /></svg>
-      </button>
-      <span class="toolbar-section-title desktop-toolbar-control" :title="title">{{ title }}</span>
+      <div class="toolbar-context-controls">
+        <div class="toolbar-history desktop-toolbar-control" :aria-label="copy('浏览历史', 'Navigation history')">
+          <button class="toolbar-icon-button toolbar-back" type="button" :disabled="!canGoBack" :aria-label="copy('返回', 'Back')" :title="`${copy('返回', 'Back')} (${shortcut('Mod+[')})`" @click="emit('back')"><svg aria-hidden="true" class="toolbar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m14 6-6 6 6 6" /></svg></button>
+          <button class="toolbar-icon-button toolbar-forward" type="button" :disabled="!canGoForward" :aria-label="copy('前进', 'Forward')" :title="`${copy('前进', 'Forward')} (${shortcut('Mod+]')})`" @click="emit('forward')"><svg aria-hidden="true" class="toolbar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m10 6 6 6-6 6" /></svg></button>
+        </div>
+        <span class="toolbar-section-title desktop-toolbar-control" :title="title">{{ title }}</span>
+      </div>
     </div>
     <div class="toolbar-palette-controls">
       <button class="titlebar-project" type="button" aria-haspopup="dialog" :aria-expanded="paletteOpen && paletteMode === 'projects'" :title="`${t('paletteFindProject')} (${shortcut('Mod+P')})`" @click="emit('openPalette', 'projects')"><Icon name="folder" /><span>{{ projectName }}</span><Icon name="arrowDown" /><kbd>{{ shortcut('Mod+P') }}</kbd></button>
@@ -63,7 +67,7 @@ const sidebarLabel = computed(() => props.sidebarCollapsed ? copy('展开侧栏'
 <style scoped>
 .workbench-toolbar.workbench-titlebar { display: flex; align-items: center; justify-content: flex-start; gap: 14px; min-width: 0; min-height: var(--workbench-toolbar-height); padding: 7px 12px; background: var(--workbench-chrome); border-bottom: 1px solid var(--border); }
 .workbench-toolbar.workbench-titlebar.desktop-mac { padding-left: 86px; -webkit-app-region: drag; }
-.toolbar-leading, .toolbar-palette-controls, .toolbar-trailing, .toolbar-history { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.toolbar-leading, .toolbar-sidebar-controls, .toolbar-context-controls, .toolbar-palette-controls, .toolbar-trailing, .toolbar-history { display: flex; align-items: center; gap: 4px; min-width: 0; }
 .toolbar-leading, .toolbar-trailing { flex: none; }
 .toolbar-palette-controls { flex: 1; justify-content: center; gap: 14px; }
 .toolbar-trailing { gap: 8px; margin-left: auto; -webkit-app-region: no-drag; }
@@ -73,6 +77,7 @@ const sidebarLabel = computed(() => props.sidebarCollapsed ? copy('展开侧栏'
 .workbench-toolbar.workbench-titlebar button:focus-visible { outline: var(--control-focus-width) solid var(--focus-ring); outline-offset: var(--control-focus-offset); }
 .workbench-toolbar.workbench-titlebar .toolbar-icon-button { flex: none; width: var(--control-height-default); padding: 0; }
 .toolbar-icon, .workbench-toolbar :deep(.app-icon) { flex: none; width: 16px; height: 16px; }
+.sidebar-toggle .toolbar-icon { width: 18px; height: 18px; }
 .toolbar-section-title { display: block; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-left: 6px; color: var(--text); font-size: 13px; font-weight: 600; }
 .workbench-toolbar.workbench-titlebar .titlebar-project { flex: 0 1 220px; max-width: 220px; justify-content: flex-start; }
 .workbench-toolbar.workbench-titlebar .titlebar-project > span:not(.app-icon) { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
