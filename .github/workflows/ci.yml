@@ -65,7 +65,8 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
       - name: Run unit tests
-        run: pnpm test --run --exclude scripts/dev-vite.test.ts
+        # File/process fixtures should not compete with a full set of CPU workers on hosted VMs.
+        run: pnpm test --run --maxWorkers=2 --exclude scripts/dev-vite.test.ts
       - name: Run Vite process integration test
         run: pnpm test --run scripts/dev-vite.test.ts
 
