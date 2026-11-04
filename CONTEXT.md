@@ -4,6 +4,22 @@ Craft Hub brings software, development environments and configuration migration 
 
 ## Language
 
+**Shared Runtime**:
+The single authoritative executor of configured capabilities for one local writable data scope, shared by its connected clients. A client does not become another owner of that scope by connecting.
+_Avoid_: Desktop window, Resident Companion, cloud service
+
+**Runtime Lease**:
+A temporary claim on runtime availability for a client session, accepted operation or interactive authorization. Releasing a client claim does not cancel an already accepted external write.
+_Avoid_: Account credential, access grant, permanent background task
+
+**Provider Connection**:
+An identified relationship to one provider account and region within a local data scope. Its changing authorization state is separate from project trust and workspace ownership.
+_Avoid_: Owner Scope, copied login session, plugin installation
+
+**Capture Attempt**:
+An identified submission of reviewed content to one Provider Connection and destination. Its outcome may be confirmed success, a failure before dispatch or uncertain delivery; repeating its identity does not authorize another creation.
+_Avoid_: Editable draft, completed Work Item, automatic retry
+
 **Software Item**:
 An identified application or command-line tool with installation sources and relevant local availability. It is distinct from a plugin or a website shortcut.
 _Avoid_: Marketplace Plugin, bookmark, arbitrary install command

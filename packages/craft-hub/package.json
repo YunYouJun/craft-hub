@@ -29,6 +29,7 @@
     "./personal-workbench": "./dist/personal-workbench.mjs",
     "./project-config-schema-revision": "./dist/project-config-schema-revision.mjs",
     "./quick-capture": "./dist/quick-capture.mjs",
+    "./shared-runtime": "./dist/shared-runtime.mjs",
     "./skill-inputs": "./dist/skill-inputs.mjs",
     "./skill-prompts": "./dist/skill-prompts.mjs",
     "./work-items": "./dist/work-items.mjs",

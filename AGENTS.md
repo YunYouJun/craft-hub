@@ -8,6 +8,7 @@ Craft Hub is a local, cross-project developer workbench. Project Palette discove
 - `apps/web`: Vue UI that consumes the local API. Keep it usable in a normal browser.
 - `apps/desktop`: thin Electron host. Keep domain logic out of this package.
 - `apps/macos`: SwiftUI/AppKit macOS candidate with a WKWebView fallback and the shared TypeScript sidecar. Consume public API/event contracts; keep discovery, trust, execution and persistence in the runtime. Keep candidate data isolated from Electron until an explicitly accepted migration (ADR 0012).
+- Shared runtime P0/P1 (ADR 0015): read `docs/plans/on-demand-shared-runtime.md` before changing ownership or background lifecycle. `apps/runtime` and `apps/runtime-macos` are fixture-only; run `pnpm test:shared-runtime` for isolated signed macOS acceptance. Production client switching, shared login and cloud writes remain pending.
 - `examples/sample-project`: deterministic manual-test fixture.
 - `docs/design/workbench-concept.webp`: visual baseline for the workbench.
 
