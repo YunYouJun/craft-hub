@@ -40,18 +40,37 @@ jobs:
 
   test:
     name: Build and test
-    runs-on: ${{ matrix.runner || matrix.os }}
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 15
 
     strategy:
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-        include:
-          # Keep the protected check name while selecting an explicit macOS 26 architecture.
-          - os: macos-latest
-            runner: macos-26-intel
+        os: [ubuntu-latest, windows-latest]
       fail-fast: false
 
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+        with:
+          run_install: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - name: Run unit tests
+        # File/process fixtures should not compete with a full set of CPU workers on hosted VMs.
+        run: pnpm test --run --maxWorkers=2 --exclude scripts/dev-vite.test.ts
+      - name: Run Vite process integration test
+        run: pnpm test --run scripts/dev-vite.test.ts
+
+  test-macos:
+    # Preserve the required check name while scheduling macOS independently of the matrix.
+    name: Build and test (macos-latest)
+    runs-on: macos-26-intel
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
