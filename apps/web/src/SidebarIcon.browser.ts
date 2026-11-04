@@ -36,7 +36,7 @@ describe('sidebar artwork theme rendering', () => {
     const artwork = wrapper.get('.visual-icon').element
     await expect.poll(() => getComputedStyle(artwork).maskImage).not.toBe('none')
     const button = page.getByRole('button')
-    for (const [theme, color] of [['dark', 'rgb(242, 242, 247)'], ['light', 'rgb(29, 29, 31)']] as const) {
+    for (const [theme, color] of [['dark', 'rgb(222, 222, 222)'], ['light', 'rgb(29, 29, 31)']] as const) {
       applyWorkbenchTheme(theme)
       for (const selected of [false, true]) {
         await wrapper.setProps({ 'aria-selected': selected })
