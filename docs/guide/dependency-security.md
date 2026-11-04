@@ -2,6 +2,10 @@
 
 Upgrade direct dependencies through the workspace catalog. Keep the lockfile, production audit and dependency regression tests together; never suppress an advisory just to make CI pass.
 
+## Redirect patch (2026-11-04)
+
+The override pins `follow-redirects` to 1.16.2 to resolve [GHSA-mrwp-f3q8-3g9p](https://github.com/advisories/GHSA-mrwp-f3q8-3g9p), which affects 1.16.0–1.16.1. This is a targeted security patch; the other catalog versions are unchanged. Validate with `pnpm audit --prod --audit-level high`.
+
 ## Stable dependency refresh (2026-10-26)
 
 All 84 catalog entries were checked against npm's `latest` dist-tag. The remaining SDK update is [`@modelcontextprotocol/sdk@1.32.2`](https://github.com/modelcontextprotocol/typescript-sdk/releases/tag/1.32.2), which fixes optional transport types and registration after connection when the capability was declared. The catalog and override use the same version so direct consumers and the Microsoft To Do connector share the patch.
