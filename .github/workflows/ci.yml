@@ -13,7 +13,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  # Preserve per-ref cancellation while isolating new runs from a stale concurrency lease.
+  group: ${{ github.workflow }}-${{ github.ref }}-checks-v2
   cancel-in-progress: true
 
 jobs:
@@ -45,7 +46,7 @@ jobs:
 
     strategy:
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-latest, windows-latest, macos-latest]
       fail-fast: false
 
     steps:
@@ -61,30 +62,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
       - name: Run unit tests
-        # File/process fixtures should not compete with a full set of CPU workers on hosted VMs.
-        run: pnpm test --run --maxWorkers=2 --exclude scripts/dev-vite.test.ts
-      - name: Run Vite process integration test
-        run: pnpm test --run scripts/dev-vite.test.ts
-
-  test-macos:
-    # Preserve the required check name while scheduling macOS independently of the matrix.
-    name: Build and test (macos-latest)
-    runs-on: macos-26-intel
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
-        with:
-          run_install: false
-      - uses: actions/setup-node@v7
-        with:
-          node-version-file: .node-version
-          cache: pnpm
-
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm build
-      - name: Run unit tests
-        # File/process fixtures should not compete with a full set of CPU workers on hosted VMs.
+        # Bound file/process fixture contention on hosted VMs without relaxing assertions or timeouts.
         run: pnpm test --run --maxWorkers=2 --exclude scripts/dev-vite.test.ts
       - name: Run Vite process integration test
         run: pnpm test --run scripts/dev-vite.test.ts
@@ -146,7 +124,7 @@ jobs:
 
   shared-runtime-macos:
     name: Shared runtime macOS
-    runs-on: macos-26-intel
+    runs-on: macos-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
