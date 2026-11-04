@@ -3,12 +3,12 @@ import { createHash, randomUUID } from 'node:crypto'
 import { constants } from 'node:fs'
 import { chmod, lstat, mkdir, open, realpath, rename, rm } from 'node:fs/promises'
 import { tmpdir, userInfo } from 'node:os'
-import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
+import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path'
 import process from 'node:process'
 import { DatabaseSync } from 'node:sqlite'
 import { syncDirectory, syncDirectoryAncestors } from './sync-directory'
 
-/** Kernel-held migration barrier. Active clients share leases; migration requires exclusive ownership. */
+/** Kernel-held ownership barrier. Legacy clients share leases; runtimes and migrations are exclusive. */
 export interface ProfileLease {
   readonly paths: readonly string[]
   release: () => void
@@ -20,7 +20,9 @@ export interface ProfileMigrationGuard { version: 1, root: string, transaction: 
 export class ProfileMigrationGuardError extends Error {
   constructor() { super('This profile has a pending or retained identity migration. Use its reviewed migration recovery before opening it.') }
 }
-interface HeldLease { roots: Set<string>, mode: 'client' | 'migration', directory: string, released: boolean, pending: number, close: () => void }
+/** Shared legacy clients, an exclusive runtime owner, or exclusive identity maintenance. */
+export type ProfileLeaseMode = 'client' | 'runtime-owner' | 'migration'
+interface HeldLease { roots: Set<string>, mode: ProfileLeaseMode, directory: string, released: boolean, pending: number, close: () => void }
 const heldLeases = new WeakMap<ProfileLease, HeldLease>()
 const guardName = (root: string): string => `${createHash('sha256').update(root).digest('hex')}.migration.json`
 
@@ -137,7 +139,7 @@ export async function canonicalProfilePath(path: string): Promise<string> {
 }
 
 /** Acquire all roots in deterministic order. Locks survive renames and release automatically on process death. */
-export async function acquireProfileLease(paths: string[], mode: 'client' | 'migration' = 'client', recoveryTransaction?: string): Promise<ProfileLease> {
+export async function acquireProfileLease(paths: string[], mode: ProfileLeaseMode = 'client', recoveryTransaction?: string): Promise<ProfileLease> {
   const canonical = [...new Set(await Promise.all(paths.map(canonicalProfilePath)))].sort()
   if (recoveryTransaction !== undefined && (mode !== 'migration' || await canonicalProfilePath(recoveryTransaction) !== recoveryTransaction))
     throw new ProfileMigrationGuardError()
@@ -145,7 +147,20 @@ export async function acquireProfileLease(paths: string[], mode: 'client' | 'mig
   const lockDirectory = (await leaseDirectory(true))!
   const databases: DatabaseSync[] = []
   try {
-    for (const path of canonical) {
+    // Intention locks on ancestors also exclude overlapping (not only equal) writable roots.
+    // Collapse nested roots owned by this request so it never conflicts with itself.
+    const top = canonical.filter(path => !canonical.some(other => other !== path && path.startsWith(other.endsWith(sep) ? other : `${other}${sep}`)))
+    const locks = new Map<string, boolean>()
+    for (const root of top) {
+      let parent = dirname(root)
+      while (parent !== dirname(parent)) {
+        if (!locks.has(parent))
+          locks.set(parent, false)
+        parent = dirname(parent)
+      }
+      locks.set(root, mode !== 'client')
+    }
+    for (const [path, exclusive] of [...locks].sort(([a], [b]) => a.localeCompare(b))) {
       const lockPath = join(lockDirectory, `${createHash('sha256').update(path).digest('hex')}.sqlite`)
       const file = await open(lockPath, 'ax', 0o600).catch((error: NodeJS.ErrnoException) => {
         if (error.code !== 'EEXIST')
@@ -163,8 +178,10 @@ export async function acquireProfileLease(paths: string[], mode: 'client' | 'mig
         throw new Error('The profile lease changed while opening')
       // No profile data is stored in SQLite. Never unlink a lease file: its inode is the shared lock identity.
       database.exec('CREATE TABLE IF NOT EXISTS lease (id INTEGER PRIMARY KEY)')
-      database.exec(mode === 'migration' ? 'BEGIN EXCLUSIVE' : 'BEGIN')
+      database.exec(exclusive ? 'BEGIN EXCLUSIVE' : 'BEGIN')
       database.prepare('SELECT id FROM lease').all()
+    }
+    for (const path of canonical) {
       const guard = await readGuard(path, lockDirectory)
       if (guard && guard.transaction !== recoveryTransaction)
         throw new ProfileMigrationGuardError()
@@ -175,7 +192,7 @@ export async function acquireProfileLease(paths: string[], mode: 'client' | 'mig
       database.close()
     if (error instanceof ProfileMigrationGuardError)
       throw error
-    throw new Error('This profile is in use or its migration lease is unavailable. Close its hosts and CLI clients before migrating.')
+    throw new Error('This profile is in use or its ownership/migration lease is unavailable. Close its hosts and CLI clients before opening another owner or migrating.')
   }
   const state: HeldLease = { roots: new Set(canonical), mode, directory: lockDirectory, released: false, pending: 0, close: () => {
     for (const database of databases.splice(0).reverse())

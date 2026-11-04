@@ -16,6 +16,7 @@ export default defineConfig({
     'src/personal-workbench.ts',
     'src/work-items.ts',
     'src/quick-capture.ts',
+    'src/shared-runtime.ts',
     'src/project-config-schema-revision.ts',
     'src/skill-inputs.ts',
     'src/skill-prompts.ts',

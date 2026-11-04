@@ -119,3 +119,26 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
       - run: pnpm docs:build
+
+  shared-runtime-macos:
+    name: Shared runtime macOS
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+        with:
+          run_install: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: swift test --package-path apps/runtime-macos
+      - run: pnpm test:shared-runtime
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: shared-runtime-macos-evidence
+          path: apps/macos/build/shared-runtime-*/
+          retention-days: 7

@@ -12,6 +12,7 @@ export default antfu(
     ignores: [
       'docs/api/**',
       'apps/macos/.build/**',
+      'apps/runtime-macos/.build/**',
       'apps/macos/build/**',
     ],
   },

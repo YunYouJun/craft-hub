@@ -17,8 +17,8 @@
     "check:public-boundary": "node scripts/check-public-boundary.mjs",
     "icons:desktop": "tsx scripts/generate-desktop-icons.ts",
     "lint": "pnpm check:public-boundary && eslint --cache .",
-    "lint:macos": "swift format lint --strict --configuration apps/macos/.swift-format --recursive apps/macos/Sources apps/macos/Tests apps/macos/Package.swift scripts/native-macos-lifecycle.swift",
-    "format:macos": "swift format format --in-place --configuration apps/macos/.swift-format --recursive apps/macos/Sources apps/macos/Tests apps/macos/Package.swift scripts/native-macos-lifecycle.swift",
+    "lint:macos": "swift format lint --strict --configuration apps/macos/.swift-format --recursive apps/macos/Sources apps/macos/Tests apps/macos/Package.swift apps/runtime-macos/Sources apps/runtime-macos/Tests apps/runtime-macos/Package.swift scripts/native-macos-lifecycle.swift",
+    "format:macos": "swift format format --in-place --configuration apps/macos/.swift-format --recursive apps/macos/Sources apps/macos/Tests apps/macos/Package.swift apps/runtime-macos/Sources apps/runtime-macos/Tests apps/runtime-macos/Package.swift scripts/native-macos-lifecycle.swift",
     "package:mac": "tsx scripts/run-package-macos.ts",
     "package:macos": "tsx apps/macos/scripts/package-release.ts",
     "reinstall:mac": "pnpm reinstall:macos",
@@ -51,6 +51,7 @@
     "test:macos-identity-recipient": "tsx apps/macos/scripts/verify-identity-recipient.ts",
     "test:identity-launcher": "tsx scripts/verify-identity-launcher.ts",
     "test:desktop-backend": "tsx scripts/verify-desktop-backend.ts",
+    "test:shared-runtime": "tsx scripts/verify-shared-runtime-macos.ts",
     "typecheck": "tsc --noEmit",
     "prepare": "simple-git-hooks"
   },
