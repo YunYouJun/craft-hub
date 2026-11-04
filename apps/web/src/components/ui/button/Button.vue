@@ -33,10 +33,11 @@ withDefaults(defineProps<{
   gap: var(--control-icon-gap);
   border: 1px solid transparent;
   border-radius: var(--control-radius);
-  font-size: var(--font-size-body);
+  font-family: var(--font-body);
+  font-size: var(--font-size-control);
   font-weight: 500;
   line-height: var(--line-height-body);
-  box-shadow: none;
+  box-shadow: var(--control-shadow);
   transition:
     background-color var(--motion-duration-fast) var(--motion-ease-standard),
     border-color var(--motion-duration-fast) var(--motion-ease-standard),
@@ -52,14 +53,14 @@ withDefaults(defineProps<{
 }
 
 .ui-button:focus-visible {
-  outline: 2px solid var(--focus-ring);
-  outline-offset: 1px;
-  box-shadow: 0 0 0 1px var(--surface);
+  outline: var(--control-focus-width) solid var(--focus-ring);
+  outline-offset: var(--control-focus-offset);
 }
 
 .ui-button:disabled {
   cursor: default;
-  opacity: .5;
+  opacity: var(--control-disabled-opacity);
+  box-shadow: none;
 }
 
 .ui-button--default { min-height: var(--control-height-default); padding: 4px 12px; }
@@ -67,7 +68,7 @@ withDefaults(defineProps<{
 .ui-button--icon { width: var(--control-height-default); height: var(--control-height-default); padding: 0; }
 
 .ui-button--primary {
-  background: var(--accent);
+  background: var(--accent-fill);
   color: var(--on-accent);
 }
 
@@ -92,8 +93,8 @@ withDefaults(defineProps<{
 
 
 .ui-button--secondary {
-  border-color: var(--border);
-  background: var(--surface);
+  border-color: var(--control-border);
+  background: var(--control-background);
   color: var(--text);
 }
 
@@ -101,21 +102,26 @@ withDefaults(defineProps<{
 .ui-button--ghost {
   background: transparent;
   color: var(--text-secondary);
+  box-shadow: none;
 }
 
 @media (hover: hover) and (pointer: fine) {
-  .ui-button--primary:hover:not(:disabled) { background: var(--accent-hover); }
+  .ui-button--primary:hover:not(:disabled) { background: var(--accent-fill-hover); }
   .ui-button--warning:hover:not(:disabled) { background: var(--warning-fill-hover); }
   .ui-button--danger:hover:not(:disabled) { background: var(--danger-fill-hover); }
   .ui-button--danger-secondary:hover:not(:disabled) {
     background: var(--danger-soft);
   }
-  .ui-button--secondary:hover:not(:disabled),
+  .ui-button--secondary:hover:not(:disabled) {
+    background: var(--control-background-hover);
+  }
   .ui-button--ghost:hover:not(:disabled) {
     background: var(--surface-hover);
-    color: var(--accent);
+    color: var(--text);
   }
 }
+
+.ui-button--secondary:active:not(:disabled) { background: var(--control-background-pressed); }
 
 .ui-button :deep(.app-icon) { width: var(--control-icon-size); height: var(--control-icon-size); }
 .ui-button--compact :deep(.app-icon) { width: var(--control-icon-size-compact); height: var(--control-icon-size-compact); }

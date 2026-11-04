@@ -9,6 +9,7 @@ import CelebrationSettings from './CelebrationSettings.vue'
 import { Button as UiButton } from './components/ui/button'
 import { DialogShell } from './components/ui/dialog'
 import { Input } from './components/ui/input'
+import { NavigationItem, NavigationList } from './components/ui/navigation'
 import { SettingsRow, SettingsSection, SettingsStatus } from './components/ui/settings'
 import { Switch } from './components/ui/switch'
 import { TabsContent, TabsList, TabsRoot, TabsTrigger } from './components/ui/tabs'
@@ -662,29 +663,27 @@ async function cleanupRuns(includeAllUnpinned: boolean): Promise<void> {
             <SettingsSection :title="t('displayLanguage')" :description="t('displayLanguageDescription')">
               <SettingsRow :label="t('displayLanguage')">
                 <template #control>
-                  <div class="settings-choice-options language-options" :aria-label="t('displayLanguage')" role="group">
-                    <UiButton size="compact" data-testid="locale-zh-CN" :class="{ active: locale === 'zh-CN' }" :aria-pressed="locale === 'zh-CN'" @click="selectLocale('zh-CN')">中文</UiButton>
-                    <UiButton size="compact" data-testid="locale-en" :class="{ active: locale === 'en' }" :aria-pressed="locale === 'en'" @click="selectLocale('en')">English</UiButton>
-                  </div>
+                  <NavigationList class="settings-choice-options language-options" :aria-label="t('displayLanguage')" role="group">
+                    <NavigationItem data-testid="locale-zh-CN" :aria-pressed="locale === 'zh-CN'" @click="selectLocale('zh-CN')">中文</NavigationItem>
+                    <NavigationItem data-testid="locale-en" :aria-pressed="locale === 'en'" @click="selectLocale('en')">English</NavigationItem>
+                  </NavigationList>
                 </template>
               </SettingsRow>
             </SettingsSection>
             <SettingsSection :title="t('colorTheme')" :description="t('colorThemeDescription')">
               <SettingsRow :label="t('colorTheme')">
                 <template #control>
-                  <div class="settings-choice-options theme-options" :aria-label="t('colorTheme')" role="group">
-                    <UiButton
+                  <NavigationList class="settings-choice-options theme-options" :aria-label="t('colorTheme')" role="group">
+                    <NavigationItem
                       v-for="option in (['system', 'light', 'dark'] as const)"
                       :key="option"
-                      size="compact"
                       :data-testid="`theme-${option}`"
-                      :class="{ active: store.settings?.settings['workbench.theme'] === option }"
                       :aria-pressed="store.settings?.settings['workbench.theme'] === option"
                       @click="selectTheme(option)"
                     >
                       {{ t(option === 'system' ? 'themeSystem' : option === 'light' ? 'themeLight' : 'themeDark') }}
-                    </UiButton>
-                  </div>
+                    </NavigationItem>
+                  </NavigationList>
                 </template>
               </SettingsRow>
             </SettingsSection>

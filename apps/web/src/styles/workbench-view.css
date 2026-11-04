@@ -3,11 +3,11 @@
 .workbench-view-content { width: min(var(--page-content-max-width), calc(100% - 2 * var(--page-padding-inline))); min-width: 0; margin: 0 auto; padding: var(--page-padding-block) 0 var(--page-content-bottom); }
 .workbench-view.embedded { overflow: visible; background: transparent; }
 .workbench-view.embedded > .workbench-view-content { width: 100%; padding: 0; }
-.workbench-view .workbench-action-link { min-height: var(--control-height-compact); padding: 3px 10px; border-radius: var(--control-radius); font-size: var(--font-size-control); font-weight: 500; line-height: var(--line-height-control); box-shadow: none; }
+.workbench-view .workbench-action-link { min-height: var(--control-height-compact); padding: 3px 10px; border-radius: var(--control-radius); font-size: var(--font-size-control); font-weight: 500; line-height: var(--line-height-control); box-shadow: var(--control-shadow); }
 .workbench-view .workbench-action-link .app-icon { width: var(--control-icon-size-compact); height: var(--control-icon-size-compact); }
-.workbench-view .workbench-action-link { display: inline-flex; align-items: center; justify-content: center; gap: 7px; border: 1px solid var(--border); background: var(--surface); color: var(--text); text-decoration: none; white-space: nowrap; }
-.workbench-view .workbench-action-link:hover { background: var(--surface-hover); color: var(--accent); }
-.workbench-view .workbench-action-link:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+.workbench-view .workbench-action-link { display: inline-flex; align-items: center; justify-content: center; gap: var(--control-icon-gap); border: 1px solid var(--control-border); background: var(--control-background); color: var(--text); text-decoration: none; white-space: nowrap; }
+.workbench-view .workbench-action-link:hover { background: var(--control-background-hover); }
+.workbench-view .workbench-action-link:focus-visible { outline: var(--control-focus-width) solid var(--focus-ring); outline-offset: var(--control-focus-offset); }
 
 /* The frame owns header alignment and scrolling; pages only supply their content. */
 .workbench-view-frame { display: flex; flex-direction: column; overflow: hidden; }

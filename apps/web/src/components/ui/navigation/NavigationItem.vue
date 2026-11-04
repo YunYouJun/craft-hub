@@ -112,6 +112,7 @@ export default defineComponent({
   min-height: var(--navigation-segmented-item-height);
   flex: 0 0 auto;
   padding: 0 var(--navigation-segmented-item-padding-inline);
+  border-radius: var(--navigation-segmented-item-radius);
   /* Keep text metrics stable as the selected segment changes. */
   font-weight: var(--workbench-sidebar-active-weight);
 }
@@ -136,10 +137,10 @@ export default defineComponent({
   }
 }
 
-.ui-navigation-item[data-variant='segmented']:is([data-state='active'], [aria-selected='true'], [aria-current='page'], .active) {
-  background: var(--surface);
+.ui-navigation-item[data-variant='segmented']:is([data-state='active'], [aria-selected='true'], [aria-current='page'], [aria-pressed='true'], .active) {
+  background: var(--navigation-selection-background);
   color: var(--text);
-  box-shadow: 0 1px 2px var(--shadow);
+  box-shadow: var(--navigation-selection-shadow);
 }
 
 .ui-navigation-item[data-variant='sidebar']:is([data-state='active'], [aria-selected='true'], [aria-current='page'], .active) {

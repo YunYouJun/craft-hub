@@ -21,11 +21,11 @@ const forwarded = useForwardPropsEmits(computed(() => {
 
 <style scoped>
 .ui-switch { display: inline-flex; position: relative; align-items: center; flex: none; width: var(--switch-width); height: var(--switch-height); box-sizing: border-box; padding: var(--switch-inset); border: 0; border-radius: var(--radius-pill); background: var(--switch-track); cursor: pointer; transition: background-color var(--motion-duration-fast) ease; }
-.ui-switch[data-state='checked'] { background: var(--accent); }
+.ui-switch[data-state='checked'] { background: var(--accent-fill); }
 .ui-switch:focus-visible { outline: var(--control-focus-width) solid var(--focus-ring); outline-offset: var(--control-focus-offset); }
 .ui-switch[data-disabled] { cursor: not-allowed; opacity: var(--control-disabled-opacity); }
 .ui-switch[aria-busy='true'] { cursor: wait; }
-.ui-switch-thumb { display: grid; position: relative; place-items: center; flex: none; width: var(--switch-thumb-size); height: var(--switch-thumb-size); border-radius: var(--radius-pill); background: var(--switch-thumb); color: var(--text-secondary); pointer-events: none; box-shadow: var(--switch-thumb-shadow); transform: translateX(0); transition: width var(--motion-duration-slow) var(--motion-ease-spring), transform var(--motion-duration-slow) var(--motion-ease-spring); }
+.ui-switch-thumb { display: grid; position: relative; place-items: center; flex: none; width: var(--switch-thumb-size); height: var(--switch-thumb-size); border-radius: var(--radius-pill); background: var(--switch-thumb); color: var(--switch-thumb-color); pointer-events: none; box-shadow: var(--switch-thumb-shadow); transform: translateX(0); transition: width var(--motion-duration-slow) var(--motion-ease-spring), transform var(--motion-duration-slow) var(--motion-ease-spring); }
 .ui-switch[data-state='checked'] .ui-switch-thumb { transform: translateX(var(--switch-travel)); }
 .ui-switch:dir(rtl)[data-state='checked'] .ui-switch-thumb { transform: translateX(calc(-1 * var(--switch-travel))); }
 /* Pressing stretches the thumb toward its travel; the spring settles it on release. */

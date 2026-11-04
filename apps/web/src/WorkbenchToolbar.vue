@@ -67,11 +67,11 @@ const sidebarLabel = computed(() => props.sidebarCollapsed ? copy('展开侧栏'
 .toolbar-leading, .toolbar-trailing { flex: none; }
 .toolbar-palette-controls { flex: 1; justify-content: center; gap: 14px; }
 .toolbar-trailing { gap: 8px; margin-left: auto; -webkit-app-region: no-drag; }
-.workbench-toolbar.workbench-titlebar button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-width: 0; height: 32px; padding: 0 8px; border: 1px solid transparent; border-radius: var(--control-radius); background: transparent; color: var(--text-secondary); font-size: 13px; font-weight: 400; line-height: 1.4; cursor: pointer; -webkit-app-region: no-drag; }
+.workbench-toolbar.workbench-titlebar button { display: inline-flex; align-items: center; justify-content: center; gap: var(--control-icon-gap); min-width: 0; height: var(--control-height-default); padding: 0 8px; border: 1px solid transparent; border-radius: var(--control-radius); background: transparent; color: var(--text-secondary); font-family: var(--font-body); font-size: var(--font-size-control); font-weight: 400; line-height: var(--line-height-control); cursor: pointer; -webkit-app-region: no-drag; }
 .workbench-toolbar.workbench-titlebar button:hover:not(:disabled) { background: var(--surface-hover); color: var(--text); }
-.workbench-toolbar.workbench-titlebar button:disabled { opacity: .4; cursor: default; }
-.workbench-toolbar.workbench-titlebar button:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
-.workbench-toolbar.workbench-titlebar .toolbar-icon-button { flex: none; width: 32px; padding: 0; }
+.workbench-toolbar.workbench-titlebar button:disabled { opacity: var(--control-disabled-opacity); cursor: default; }
+.workbench-toolbar.workbench-titlebar button:focus-visible { outline: var(--control-focus-width) solid var(--focus-ring); outline-offset: var(--control-focus-offset); }
+.workbench-toolbar.workbench-titlebar .toolbar-icon-button { flex: none; width: var(--control-height-default); padding: 0; }
 .toolbar-icon, .workbench-toolbar :deep(.app-icon) { flex: none; width: 16px; height: 16px; }
 .toolbar-section-title { display: block; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-left: 6px; color: var(--text); font-size: 13px; font-weight: 600; }
 .workbench-toolbar.workbench-titlebar .titlebar-project { flex: 0 1 220px; max-width: 220px; justify-content: flex-start; }
