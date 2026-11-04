@@ -11,9 +11,9 @@ import WorkbenchSplitter from './WorkbenchSplitter.vue'
 const preferenceKey = 'craft-hub-primary-sidebar-width'
 const Fixture = defineComponent({
   components: { SplitterPanel, WorkbenchResizeHandle, WorkbenchSplitter },
-  props: { compact: Boolean, home: Boolean, middle: Boolean, activityWidth: Number },
+  props: { compact: Boolean, home: Boolean, middle: Boolean, activityWidth: Number, sidebarHidden: Boolean },
   template: `
-    <WorkbenchSplitter :compact="compact" :includes-activity-rail="home" :activity-rail-width="activityWidth" :auto-save-id="home ? 'test-home-layout' : undefined" sidebar-label="Resize sidebar">
+    <WorkbenchSplitter :compact="compact" :sidebar-hidden="sidebarHidden" :includes-activity-rail="home" :activity-rail-width="activityWidth" :auto-save-id="home ? 'test-home-layout' : undefined" sidebar-label="Resize sidebar">
       <template #sidebar><nav>Navigation</nav></template>
       <SplitterPanel v-if="middle && !compact" id="middle" :order="2" size-unit="px" :default-size="320" :min-size="230" :max-size="540">Commands</SplitterPanel>
       <WorkbenchResizeHandle v-if="middle && !compact" label="Resize commands" />
@@ -60,6 +60,24 @@ describe('shared workbench splitter', () => {
     await wrapper.setProps({ activityWidth: 176 })
     await flushPromises()
     expect(sidebarSize(wrapper)).toBeCloseTo(412, 1)
+    wrapper.unmount()
+  })
+
+  it('reclaims hidden sidebar space without replacing the saved width', async () => {
+    localStorage.setItem(preferenceKey, '280')
+    const wrapper = mount(Fixture, { props: { home: true, activityWidth: 176 }, attachTo: document.body })
+    await flushPromises()
+    expect(sidebarSize(wrapper)).toBeCloseTo(456, 1)
+    await wrapper.setProps({ sidebarHidden: true, activityWidth: 0 })
+    await flushPromises()
+    expect(wrapper.find('nav').exists()).toBe(false)
+    expect(wrapper.find('[role="separator"]').exists()).toBe(false)
+    expect(wrapper.findAll('[data-panel]')).toHaveLength(1)
+    expect(localStorage.getItem(preferenceKey)).toBe('280')
+    await wrapper.setProps({ sidebarHidden: false, activityWidth: 176 })
+    await flushPromises()
+    expect(sidebarSize(wrapper)).toBeCloseTo(456, 1)
+    expect(localStorage.getItem(preferenceKey)).toBe('280')
     wrapper.unmount()
   })
 

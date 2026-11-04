@@ -33,7 +33,9 @@ const copy = (zh: string, en: string): string => locale.value === 'zh-CN' ? zh :
 const shortcutPlatform = computed(() => props.desktopMac ? 'MacIntel' : navigator.platform)
 const shortcut = (value: string): string => formatShortcut(value, shortcutPlatform.value)
 const sidebarShortcutLabel = computed(() => shortcut(desktopSidebarShortcut(shortcutPlatform.value)))
-const sidebarLabel = computed(() => props.sidebarCollapsed ? copy('展开侧栏', 'Expand sidebar') : copy('收起侧栏', 'Collapse sidebar'))
+const sidebarLabel = computed(() => props.desktopMac
+  ? props.sidebarCollapsed ? copy('显示侧栏', 'Show sidebar') : copy('隐藏侧栏', 'Hide sidebar')
+  : props.sidebarCollapsed ? copy('展开侧栏', 'Expand sidebar') : copy('收起侧栏', 'Collapse sidebar'))
 </script>
 
 <template>

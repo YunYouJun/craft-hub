@@ -149,6 +149,15 @@
     grid-template-columns: calc(var(--workbench-activity-width) + var(--desktop-sidebar-inset)) minmax(0, 1fr);
   }
 
+  /* Hiding a macOS sidebar removes its panel and material instead of leaving an icon strip under the traffic lights. */
+  :root[data-desktop-platform='darwin'] .app-shell.desktop-sidebar-hidden {
+    background: var(--surface);
+  }
+
+  :root[data-desktop-platform='darwin'] .desktop-sidebar-hidden .navigation-view-shell {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   /*
    * Only the panel itself is tinted, once. Its children stay clear so tints do not stack, and an opaque spread
    * shadow, clipped by the surrounding column, paints the gutter without covering the material inside the panel.

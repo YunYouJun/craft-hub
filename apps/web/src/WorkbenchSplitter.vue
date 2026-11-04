@@ -6,6 +6,7 @@ import WorkbenchResizeHandle from './WorkbenchResizeHandle.vue'
 
 const props = withDefaults(defineProps<{
   compact: boolean
+  sidebarHidden?: boolean
   sidebarLabel: string
   sidebarId?: string
   handleId?: string
@@ -44,7 +45,7 @@ function panel(): InstanceType<typeof SplitterPanel> | undefined {
 }
 function rememberWidth(): void {
   const size = panel()?.getSize()
-  if (props.compact || size === undefined || !Number.isFinite(size) || !minWidth || !maxWidth)
+  if (props.compact || props.sidebarHidden || size === undefined || !Number.isFinite(size) || !minWidth || !maxWidth)
     return
   savedWidth.value = Math.round(Math.min(maxWidth, Math.max(minWidth, size - offset.value)) * 100) / 100
 }
@@ -52,14 +53,14 @@ function rememberWidth(): void {
 watch(offset, async () => {
   await nextTick()
   const width = panelWidth(preferredWidth.value)
-  if (!props.compact && width !== undefined)
+  if (!props.compact && !props.sidebarHidden && width !== undefined)
     panel()?.resize(width)
 })
 
 let panelCount = 0
-watch(() => props.compact, () => { panelCount = 0 })
+watch(() => [props.compact, props.sidebarHidden], () => { panelCount = 0 })
 async function restoreWidth(layout: number[]): Promise<void> {
-  if (layout.length === panelCount)
+  if (props.sidebarHidden || layout.length === panelCount)
     return
   panelCount = layout.length
   const legacyWidth = (layout[0] ?? 0) - offset.value
@@ -69,17 +70,17 @@ async function restoreWidth(layout: number[]): Promise<void> {
   // page must win when that saved layout loads, including after async panels mount.
   const width = savedWidth.value === null ? undefined : panelWidth(preferredWidth.value)
   await nextTick()
-  if (!props.compact && width !== undefined)
+  if (!props.compact && !props.sidebarHidden && width !== undefined)
     panel()?.resize(width)
 }
 </script>
 
 <template>
   <component :is="compact ? 'div' : SplitterGroup" class="workbench-sidebar-splitter" direction="horizontal" :auto-save-id="autoSaveId" :keyboard-resize-by="2" @layout="restoreWidth">
-    <component :is="compact ? 'div' : SplitterPanel" :id="sidebarId" ref="sidebar" data-panel :order="1" size-unit="px" :default-size="panelWidth(preferredWidth)" :min-size="panelWidth(minWidth)" :max-size="panelWidth(maxWidth)">
+    <component :is="compact ? 'div' : SplitterPanel" v-if="!sidebarHidden" :id="sidebarId" ref="sidebar" data-panel :order="1" size-unit="px" :default-size="panelWidth(preferredWidth)" :min-size="panelWidth(minWidth)" :max-size="panelWidth(maxWidth)">
       <slot name="sidebar" />
     </component>
-    <WorkbenchResizeHandle v-if="!compact" :id="handleId" :label="sidebarLabel" @resize-end="rememberWidth" />
+    <WorkbenchResizeHandle v-if="!compact && !sidebarHidden" :id="handleId" :label="sidebarLabel" @resize-end="rememberWidth" />
     <slot />
   </component>
 </template>

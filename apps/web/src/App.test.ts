@@ -356,6 +356,30 @@ describe('app startup', () => {
     reopened.wrapper.unmount()
   })
 
+  it('hides the macOS sidebar completely and restores it across page changes', async () => {
+    stubStartupData()
+    window.craftHubDesktop = { platform: 'darwin' }
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    const { wrapper, router } = await mountApp(pinia, '/overview')
+    await flushPromises()
+    await wrapper.get('.sidebar-toggle').trigger('click')
+    expect(wrapper.find('.project-rail').exists()).toBe(false)
+    expect(wrapper.get('.app-shell').classes()).toContain('desktop-sidebar-hidden')
+    await vi.waitFor(() => expect(wrapper.get('.app-shell').attributes('style')).toContain('0px'))
+    await router.push('/')
+    await flushPromises()
+    expect(wrapper.find('#projects-panel').exists()).toBe(false)
+    expect(wrapper.find('#projects-resize-handle').exists()).toBe(false)
+    await wrapper.get('.sidebar-toggle').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('#projects-panel').exists()).toBe(true)
+    expect(wrapper.find('.project-rail').exists()).toBe(true)
+    expect(wrapper.get('.app-shell').classes()).not.toContain('desktop-sidebar-hidden')
+    await vi.waitFor(() => expect(wrapper.get('.app-shell').attributes('style')).toContain('176px'))
+    wrapper.unmount()
+  })
+
   it('opens the native palette when its shortcut is pressed inside embedded web content', async () => {
     stubStartupData()
     const postMessage = vi.fn()
