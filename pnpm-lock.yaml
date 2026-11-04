@@ -326,8 +326,8 @@ catalogs:
       specifier: 3.4.17
       version: 3.4.17
     electron:
-      specifier: ^45.0.0
-      version: 45.0.0
+      specifier: ^45.2.1
+      version: 45.2.1
     eslint:
       specifier: ^10.13.0
       version: 10.13.0
@@ -623,7 +623,7 @@ importers:
     devDependencies:
       electron:
         specifier: 'catalog:'
-        version: 45.0.0(supports-color@10.2.2)
+        version: 45.2.1(supports-color@10.2.2)
       tsdown:
         specifier: 'catalog:'
         version: 0.23.2(@vitejs/devtools@0.8.0)(@volar/typescript@2.4.28(typescript@6.0.3))(@vue/language-core@3.3.13)(publint@0.3.25)(tsx@4.23.15)(typescript@6.0.3)(vue-tsc@3.3.13(typescript@6.0.3))
@@ -3977,8 +3977,8 @@ packages:
   electron-to-chromium@1.5.463:
     resolution: {integrity: sha512-nVWNU6ltFjopvOdD44J4zoBkgO0M+WZiFKKFV7EjebOH9z0KNphk6bCEjplXtJofL21ARIuuwWOCsFkBVklm6w==}
 
-  electron@45.0.0:
-    resolution: {integrity: sha512-yjz4uhMBcO6L5X7CWgRMobf2EMJPnb9j4zuf+nu/TU/6E4Sqfx7fn/a2eACo4qngjml/0JnsoZhxYroJLxLd2w==}
+  electron@45.2.1:
+    resolution: {integrity: sha512-t433yuo8Kh8WG/mTStnPRT/NtpWw8A+caNLJgeU0tS/FlfOkeNEntFsac4ViLgDxZOmDe7BeSkOANVqrqNHhDA==}
     engines: {node: '>= 22.12.0'}
     hasBin: true
 
@@ -10010,7 +10010,7 @@ snapshots:
 
   electron-to-chromium@1.5.463: {}
 
-  electron@45.0.0(supports-color@10.2.2):
+  electron@45.2.1(supports-color@10.2.2):
     dependencies:
       '@electron-internal/extract-zip': 1.0.5
       '@electron/get': 5.1.0(supports-color@10.2.2)
