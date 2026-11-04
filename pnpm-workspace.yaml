@@ -82,7 +82,7 @@ catalog:
   '@antfu/eslint-config': ^10.0.0
   '@antfu/ni': ^30.6.0
   '@antfu/utils': ^9.3.0
-  '@babel/parser': ^8.0.8
+  '@babel/parser': ^8.0.10
   '@cloudbase/js-sdk': 3.10.3
   '@cloudbase/node-sdk': ^3.18.7
   '@electron/fuses': 2.1.3
