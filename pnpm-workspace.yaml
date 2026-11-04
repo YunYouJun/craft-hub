@@ -35,7 +35,7 @@ overrides:
   brace-expansion@>=4.0.0 <5.0.12: 5.0.12
   esbuild: ^0.28.1
   fast-uri@>=3.0.0 <3.1.9: 3.1.9
-  follow-redirects@<1.16.1: 1.16.1
+  follow-redirects@<1.16.2: 1.16.2
   hono: ^4.13.11
   http-cache-semantics@<=4.2.0: 4.3.0
   ip-address@>=10.0.0 <10.7.4: 10.7.4
