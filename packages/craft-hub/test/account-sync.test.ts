@@ -20,6 +20,20 @@ function transport(cloud: CraftHubRuntime): AccountSyncProvider {
 }
 
 describe('portable account synchronization', () => {
+  it('synchronizes Team artwork and clears it on another device', async () => {
+    const cloud = await fixture()
+    const first = await fixture(transport(cloud))
+    const second = await fixture(transport(cloud))
+    const team = await first.teams.create({ name: 'Acme', icon: 'https://example.com/logo.svg' })
+    await first.accountSync.synchronize()
+    await second.accountSync.synchronize()
+    expect((await second.ownerScopes.get(team.id)).icon).toBe(team.icon)
+    await first.teams.updateIcon(team.id)
+    await first.accountSync.synchronize()
+    await second.accountSync.synchronize()
+    expect((await second.ownerScopes.get(team.id)).icon).toBeUndefined()
+  })
+
   it('automatically uploads, downloads and preserves a second device edit with CAS', async () => {
     const cloud = await fixture()
     const first = await fixture(transport(cloud))

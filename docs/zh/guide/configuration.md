@@ -241,6 +241,8 @@ Personal 配置功能共享同一个 Git 工作区。配置同步使用 `persona
 
 重命名 Team 时会保留稳定 ID 和 Git 目标，并将本地快照标记为有变更，等待下一次显式同步。删除 Team 前必须准确输入 Team 名称；Craft Hub 会清理该 Team 的本地工作空间、绑定、导航状态和同步目标，若删除的是当前 Team 则自动切回 Personal，同时保留共享 Git 快照以供恢复。
 
+创建团队和管理团队均可设置自定义 logo：上传不超过 256 KiB 的 PNG、JPEG、WebP、SVG、GIF 或 AVIF 图片，或填写 HTTPS 图片链接。选择器和下拉列表保留图片原色；点击「恢复默认」并保存可移除自定义 logo。可选的 `icon` 字段保存在 `owner-scopes.jsonc`，上传图片会内嵌保存，因此移动原文件不影响显示。Logo 随可迁移账号配置和 Team Git 快照保存，刷新配置源时保留自定义图片。Personal 保留默认图标。
+
 ```jsonc
 {
   "$schema": "https://raw.githubusercontent.com/YunYouJun/craft-hub/main/packages/craft-hub/schema/workspace-v1.schema.json",

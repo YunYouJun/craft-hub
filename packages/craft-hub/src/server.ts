@@ -38,6 +38,7 @@ import { SettingsConflictError, SettingsValidationError } from './settings'
 import { setupProfileCommandSchema, SetupProfileError } from './setup-profile'
 import { softwareApplicationRequestSchema, softwareInstallationConfirmationSchema, softwareInstallationRequestSchema, SoftwareOperationError } from './software-catalog'
 import { softwareSourceCommandSchema, SoftwareSourceError } from './software-sources'
+import { teamIconSchema } from './team-icon'
 import { TeamLifecycleValidationError } from './teams'
 import { todayFocusSnapshot } from './today-focus-snapshot'
 import { PERSONAL_OWNER_SCOPE_ID, projectAccentColors } from './types'
@@ -596,9 +597,15 @@ async function startProtectedServer(options: CraftHubServerOptions, runtime: Cra
           return sendJson(response, 400, { error: 'directory must be a string when provided' })
         return sendJson(response, 201, await runtime.teams.create({
           name: body.name,
+          icon: teamIconSchema.optional().parse(body.icon),
           repositoryPath: body.repositoryPath as string | undefined,
           directory: body.directory as string | undefined,
         }))
+      }
+
+      if (request.method === 'PUT' && parts[0] === 'api' && parts[1] === 'owner-scopes' && parts[2] && parts[3] === 'icon' && parts.length === 4) {
+        const body = z.object({ icon: teamIconSchema.nullable() }).strict().parse(await jsonBody(request))
+        return sendJson(response, 200, await runtime.teams.updateIcon(parts[2], body.icon ?? undefined))
       }
 
       if (parts[0] === 'api' && parts[1] === 'owner-scopes' && parts[2] && parts.length === 3) {

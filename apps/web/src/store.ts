@@ -424,8 +424,8 @@ export const useWorkbenchStore = defineStore('workbench', () => {
       activeTeamSyncStatus.value = undefined
   }
 
-  async function createTeam(name: string, repositoryPath: string, directory?: string): Promise<OwnerScope> {
-    const team = await api.createTeam(name, repositoryPath, directory)
+  async function createTeam(name: string, repositoryPath: string, directory?: string, icon?: string): Promise<OwnerScope> {
+    const team = await api.createTeam(name, repositoryPath, directory, icon)
     ownerScopes.value = [...ownerScopes.value, team]
     await switchOwnerScope(team.id)
     return team
@@ -433,6 +433,14 @@ export const useWorkbenchStore = defineStore('workbench', () => {
 
   async function renameTeam(ownerScopeId: string, name: string): Promise<OwnerScope> {
     const team = await api.renameTeam(ownerScopeId, name)
+    ownerScopes.value = ownerScopes.value.map(scope => scope.id === ownerScopeId ? team : scope)
+    if (activeTeamSyncStatus.value?.ownerScopeId === ownerScopeId)
+      await refreshActiveTeamSyncStatus()
+    return team
+  }
+
+  async function updateTeamIcon(ownerScopeId: string, icon: string | null): Promise<OwnerScope> {
+    const team = await api.updateTeamIcon(ownerScopeId, icon)
     ownerScopes.value = ownerScopes.value.map(scope => scope.id === ownerScopeId ? team : scope)
     if (activeTeamSyncStatus.value?.ownerScopeId === ownerScopeId)
       await refreshActiveTeamSyncStatus()
@@ -1539,6 +1547,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     switchOwnerScope,
     createTeam,
     renameTeam,
+    updateTeamIcon,
     deleteTeam,
     refreshActiveTeamSyncStatus,
     synchronizeActiveTeam,

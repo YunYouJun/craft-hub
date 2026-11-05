@@ -73,7 +73,8 @@ export class WorkspaceSubscriptionService {
       if (!this.ownerScopes)
         throw new WorkspaceSubscriptionError(400, 'Team identities are unavailable')
       await this.workspaces.assertSubscriptionIdsAvailable(next.snapshot.workspaces.map(item => this.workspaceId(next.id, item.id)))
-      await this.ownerScopes.ensureTeam(team)
+      const existingTeam = (await this.ownerScopes.list()).find(scope => scope.id === team.id)
+      await this.ownerScopes.ensureTeam({ ...existingTeam, ...team })
       next.ownerScopeId = team.id
       next.autoFollow = true
       next.selectedWorkspaceIds = next.snapshot.workspaces.map(item => item.id)
@@ -127,8 +128,10 @@ export class WorkspaceSubscriptionService {
     await this.serialize(async () => {
       await this.workspaces.assertSubscriptionIdsAvailable(subscriptions.flatMap(item => item.selectedWorkspaceIds.map(id => this.workspaceId(item.id, id))))
       for (const item of subscriptions) {
-        if (item.ownerScopeId)
-          await this.ownerScopes?.ensureTeam({ id: item.ownerScopeId, kind: 'team', name: item.snapshot.name })
+        if (item.ownerScopeId && this.ownerScopes) {
+          const existingTeam = (await this.ownerScopes.list()).find(scope => scope.id === item.ownerScopeId)
+          await this.ownerScopes.ensureTeam({ ...existingTeam, id: item.ownerScopeId, kind: 'team', name: item.snapshot.name })
+        }
       }
       await this.write({ schemaVersion: 1, version: '', subscriptions })
     })

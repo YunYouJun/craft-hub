@@ -18,6 +18,7 @@ import ProjectIcon from './ProjectIcon.vue'
 import { projectAccentStyle } from './project-visuals'
 import { pluginSidebarId, resolveSidebarEntries } from './sidebar-navigation'
 import { useWorkbenchStore } from './store'
+import TeamLogoField from './TeamLogoField.vue'
 import VisualIcon from './VisualIcon.vue'
 import { classifyWorkbenchSection } from './workbench-navigation'
 
@@ -51,6 +52,9 @@ const workspaceGroupError = ref('')
 const workspaceGroupSubmitting = ref(false)
 const teamDialogOpen = ref(false)
 const teamName = ref('')
+const teamIcon = ref('')
+const teamManageIcon = ref('')
+const teamLogoPending = ref(false)
 const teamRepositoryPath = ref('')
 const teamDirectory = ref('')
 const teamError = ref('')
@@ -215,14 +219,18 @@ async function switchOwnerScope(value: unknown): Promise<void> {
 async function createTeam(): Promise<void> {
   const name = teamName.value.trim()
   const repositoryPath = teamRepositoryPath.value.trim()
-  if (!name || teamSubmitting.value)
+  if (!name || teamSubmitting.value || teamLogoPending.value)
     return
   teamSubmitting.value = true
   teamError.value = ''
   try {
-    await store.createTeam(name, repositoryPath, teamDirectory.value.trim() || undefined)
+    if (teamIcon.value)
+      await store.createTeam(name, repositoryPath, teamDirectory.value.trim() || undefined, teamIcon.value)
+    else
+      await store.createTeam(name, repositoryPath, teamDirectory.value.trim() || undefined)
     teamDialogOpen.value = false
     teamName.value = ''
+    teamIcon.value = ''
     teamRepositoryPath.value = ''
     teamDirectory.value = ''
   }
@@ -246,6 +254,7 @@ function openTeamManagement(): void {
   teamRepositoryPath.value = store.activeTeamSyncStatus?.target?.repositoryPath || ''
   teamDirectory.value = store.activeTeamSyncStatus?.target?.directory || ''
   teamRenameName.value = store.activeOwnerScope.name
+  teamManageIcon.value = store.activeOwnerScope.icon || ''
   teamDeleteConfirmation.value = ''
   teamManageError.value = ''
   teamManageDialogOpen.value = true
@@ -261,6 +270,23 @@ async function renameTeam(): Promise<void> {
   try {
     await store.renameTeam(team.id, name)
     teamRenameName.value = name
+  }
+  catch (caught) {
+    teamManageError.value = caught instanceof Error ? caught.message : String(caught)
+  }
+  finally {
+    teamManageSubmitting.value = false
+  }
+}
+
+async function saveTeamLogo(): Promise<void> {
+  const team = store.activeOwnerScope
+  if (team?.kind !== 'team' || teamManageSubmitting.value || teamLogoPending.value)
+    return
+  teamManageSubmitting.value = true
+  teamManageError.value = ''
+  try {
+    await store.updateTeamIcon(team.id, teamManageIcon.value || null)
   }
   catch (caught) {
     teamManageError.value = caught instanceof Error ? caught.message : String(caught)
@@ -924,8 +950,9 @@ function openWorkspace(workspaceId: string): void {
             <Select :model-value="store.activeOwnerScopeId" @update:model-value="switchOwnerScope">
               <SelectTrigger class="owner-scope-trigger" data-testid="owner-scope-trigger" :aria-label="t('ownerScope')">
                 <span v-if="store.activeOwnerScope" class="owner-scope-value">
-                  <span class="owner-scope-icon" :class="store.activeOwnerScope.kind" aria-hidden="true">
-                    <Icon :name="store.activeOwnerScope.kind === 'team' ? 'team' : 'personal'" />
+                  <span class="owner-scope-icon" :class="[store.activeOwnerScope.kind, { 'has-logo': store.activeOwnerScope.icon }]" aria-hidden="true">
+                    <VisualIcon v-if="store.activeOwnerScope.icon" :icon="store.activeOwnerScope.icon" :fallback="store.activeOwnerScope.kind === 'team' ? 'team' : 'personal'" :monochrome="false" framed />
+                    <Icon v-else :name="store.activeOwnerScope.kind === 'team' ? 'team' : 'personal'" />
                   </span>
                   <span class="owner-scope-name">{{ store.activeOwnerScope.name }}</span>
                 </span>
@@ -934,8 +961,9 @@ function openWorkspace(workspaceId: string): void {
               <SelectContent class="owner-scope-content" align="start">
                 <SelectGroup>
                   <SelectItem v-for="scope in store.ownerScopes" :key="scope.id" class="owner-scope-item" :value="scope.id">
-                    <span class="owner-scope-icon" :class="scope.kind" aria-hidden="true">
-                      <Icon :name="scope.kind === 'team' ? 'team' : 'personal'" />
+                    <span class="owner-scope-icon" :class="[scope.kind, { 'has-logo': scope.icon }]" aria-hidden="true">
+                      <VisualIcon v-if="scope.icon" :icon="scope.icon" :fallback="scope.kind === 'team' ? 'team' : 'personal'" :monochrome="false" framed />
+                      <Icon v-else :name="scope.kind === 'team' ? 'team' : 'personal'" />
                     </span>
                     <span class="owner-scope-name">{{ scope.name }}</span>
                   </SelectItem>
@@ -1172,6 +1200,7 @@ function openWorkspace(workspaceId: string): void {
     <template #description>{{ t('createTeamDescription') }}</template>
     <form class="team-create-form" data-testid="create-team-form" @submit.prevent="createTeam">
       <label><span>{{ t('teamName') }}</span><input v-model="teamName" name="team-name" autofocus></label>
+      <TeamLogoField v-model="teamIcon" v-model:pending="teamLogoPending" :disabled="teamSubmitting" />
       <label v-if="store.hostEnvironment.capabilities.localGitSync">
         <span>{{ t('teamGitRepository') }}</span>
         <span class="dialog-path-entry">
@@ -1185,7 +1214,7 @@ function openWorkspace(workspaceId: string): void {
       <p v-if="teamError" class="error-message">{{ teamError }}</p>
       <footer>
         <UiButton @click="teamDialogOpen = false">{{ t('cancel') }}</UiButton>
-        <UiButton type="submit" variant="primary" :disabled="!teamName.trim() || teamSubmitting">{{ teamSubmitting ? t('saving') : t('create') }}</UiButton>
+        <UiButton type="submit" variant="primary" :disabled="!teamName.trim() || teamSubmitting || teamLogoPending">{{ teamSubmitting ? t('saving') : t('create') }}</UiButton>
       </footer>
     </form>
   </DialogShell>
@@ -1206,6 +1235,10 @@ function openWorkspace(workspaceId: string): void {
       <footer>
         <UiButton type="submit" variant="primary" :disabled="!teamRenameName.trim() || teamManageSubmitting">{{ t('renameTeam') }}</UiButton>
       </footer>
+    </form>
+    <form data-testid="team-logo-form" @submit.prevent="saveTeamLogo">
+      <TeamLogoField v-model="teamManageIcon" v-model:pending="teamLogoPending" :disabled="teamManageSubmitting" />
+      <footer><UiButton type="submit" variant="primary" :disabled="teamManageSubmitting || teamLogoPending">{{ t('save') }}</UiButton></footer>
     </form>
     <section class="team-danger-zone">
       <h3>{{ t('deleteTeam') }}</h3>

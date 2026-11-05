@@ -474,6 +474,34 @@ describe('project rail', () => {
     expect(store.switchOwnerScope).toHaveBeenCalledWith('acme')
   })
 
+  it('saves and clears the active Team logo through its management form', async () => {
+    const store = useWorkbenchStore()
+    store.ownerScopes = [{ id: 'acme', kind: 'team', name: 'Acme', icon: 'https://example.com/old.svg' }]
+    store.activeOwnerScopeId = 'acme'
+    store.updateTeamIcon = vi.fn(async (_id: string, icon: string | null) => {
+      const team = { id: 'acme', kind: 'team' as const, name: 'Acme', ...(icon ? { icon } : {}) }
+      store.ownerScopes = [team]
+      return team
+    })
+    const wrapper = mount(ProjectRail, { attachTo: document.body })
+    expect(wrapper.get('.owner-scope-trigger img').attributes('src')).toBe('https://example.com/old.svg')
+    await wrapper.get('[data-testid="manage-team"]').trigger('click')
+    const input = document.querySelector<HTMLInputElement>('[data-testid="team-logo-url"]')!
+    input.value = 'https://example.com/new.svg'
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    const form = document.querySelector<HTMLFormElement>('[data-testid="team-logo-form"]')!
+    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+    await flushPromises()
+    expect(store.updateTeamIcon).toHaveBeenLastCalledWith('acme', 'https://example.com/new.svg')
+    expect(wrapper.get('.owner-scope-trigger img').attributes('src')).toBe('https://example.com/new.svg')
+    document.querySelector<HTMLButtonElement>('[data-testid="reset-team-logo"]')!.click()
+    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+    await flushPromises()
+    expect(store.updateTeamIcon).toHaveBeenLastCalledWith('acme', null)
+    expect(wrapper.find('.owner-scope-trigger img').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
   it('renames and deletes the active Team only after exact-name confirmation', async () => {
     const store = useWorkbenchStore()
     store.ownerScopes = [

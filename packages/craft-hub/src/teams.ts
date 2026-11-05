@@ -6,6 +6,7 @@ import type { OwnerScopeWorkspaceData, WorkspaceService } from './workspaces'
 /** Input required to create one isolated, Git-backed Team. */
 export interface CreateTeamInput {
   name: string
+  icon?: string
   repositoryPath?: string
   directory?: string
 }
@@ -31,7 +32,7 @@ export class TeamManager {
 
   /** Create a Team only when its Git target and initial snapshot are ready. */
   async create(input: CreateTeamInput): Promise<OwnerScope> {
-    const team = await this.ownerScopes.createTeam(input.name)
+    const team = await this.ownerScopes.createTeam(input.name, input.icon)
     if (!input.repositoryPath)
       return team
     try {
@@ -62,6 +63,13 @@ export class TeamManager {
   /** Rename a Team without changing its stable id or Git target. */
   async rename(ownerScopeId: string, name: string): Promise<OwnerScope> {
     return this.ownerScopes.renameTeam(ownerScopeId, name)
+  }
+
+  /** Save or clear a Team logo while retaining its identity and execution boundaries. */
+  async updateIcon(ownerScopeId: string, icon?: string): Promise<OwnerScope> {
+    if ((await this.ownerScopes.get(ownerScopeId)).kind !== 'team')
+      throw new TeamLifecycleValidationError('Only Teams support custom logos')
+    return this.ownerScopes.updateTeamIcon(ownerScopeId, icon)
   }
 
   /** Delete local Team state after an exact-name confirmation, retaining its shared Git snapshot. */

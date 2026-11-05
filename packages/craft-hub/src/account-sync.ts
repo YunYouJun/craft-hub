@@ -4,6 +4,7 @@ import { mkdir, open, readFile, rename, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import process from 'node:process'
 import { z } from 'zod'
+import { teamIconSchema } from './team-icon'
 import { projectAccentColors } from './types'
 import { WorkspaceSubscriptionError } from './workspace-repository'
 import { workspaceSubscriptionSchema } from './workspace-subscriptions'
@@ -29,7 +30,7 @@ const manifest = z.object({
   primaryProject: reference.optional(),
   members: z.array(z.object({ project: reference, label: z.string().optional(), pinned: z.boolean().optional() }).strict()),
 }).strict()
-const scope = z.object({ id, kind: z.enum(['personal', 'team']), name: z.string().min(1) }).strict()
+const scope = z.object({ id, kind: z.enum(['personal', 'team']), name: z.string().min(1), icon: teamIconSchema.optional() }).strict()
 const snapshot = z.object({
   schemaVersion: z.literal(1),
   workspaces: z.array(manifest),

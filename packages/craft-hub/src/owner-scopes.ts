@@ -2,6 +2,7 @@ import type { OwnerScope, OwnerScopeUiState } from './types'
 import { randomUUID } from 'node:crypto'
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
+import { teamIconSchema } from './team-icon'
 import { PERSONAL_OWNER_SCOPE_ID } from './types'
 import { ownerScopesFileName, ownerScopesSchemaUrl, UserConfigService } from './user-config'
 
@@ -48,8 +49,9 @@ export class OwnerScopeService {
   }
 
   /** Create a Team identity without coupling it to a particular Git target. */
-  async createTeam(name: string): Promise<OwnerScope> {
+  async createTeam(name: string, icon?: string): Promise<OwnerScope> {
     const trimmed = validateTeamName(name)
+    const artwork = teamIconSchema.optional().parse(icon)
     const catalog = await this.catalog()
     const existing = await this.list()
     assertUniqueTeamName(existing, trimmed)
@@ -58,7 +60,7 @@ export class OwnerScopeService {
     let suffix = 2
     while (existing.some(scope => scope.id === id))
       id = `${base}-${suffix++}`
-    const team: OwnerScope = { id, kind: 'team', name: trimmed }
+    const team: OwnerScope = { id, kind: 'team', name: trimmed, ...(artwork ? { icon: artwork } : {}) }
     await this.writeCatalog({ ...catalog, teams: [...catalog.teams, team] })
     return team
   }
@@ -69,7 +71,7 @@ export class OwnerScopeService {
     const catalog = await this.catalog()
     const existing = catalog.teams.find(item => item.id === team.id)
     if (existing) {
-      if (existing.name !== team.name)
+      if (existing.name !== team.name || existing.icon !== team.icon)
         await this.writeCatalog({ ...catalog, teams: catalog.teams.map(item => item.id === team.id ? team : item) })
       return team
     }
@@ -90,6 +92,22 @@ export class OwnerScopeService {
       ...catalog,
       teams: catalog.teams.map(item => item.id === id ? team : item),
     })
+    return team
+  }
+
+  /** Save or clear a Team logo without changing its name, identity or sync target. */
+  async updateTeamIcon(id: string, icon?: string): Promise<OwnerScope> {
+    const artwork = teamIconSchema.optional().parse(icon)
+    const catalog = await this.catalog()
+    const existing = catalog.teams.find(team => team.id === id)
+    if (!existing)
+      throw new Error(`Unknown owner scope: ${id}`)
+    const team = { ...existing }
+    if (artwork)
+      team.icon = artwork
+    else
+      delete team.icon
+    await this.writeCatalog({ ...catalog, teams: catalog.teams.map(item => item.id === id ? team : item) })
     return team
   }
 
@@ -150,12 +168,13 @@ function validateOwnerScopeCatalog(input: unknown): OwnerScopeCatalog {
     throw new Error('Unsupported owner scope catalog schema')
   const teams = record.teams as OwnerScope[]
   if (teams.some(scope => !scope || typeof scope !== 'object' || Array.isArray(scope)
-    || Object.keys(scope).some(key => !['id', 'kind', 'name'].includes(key))
+    || Object.keys(scope).some(key => !['id', 'kind', 'name', 'icon'].includes(key))
     || scope.kind !== 'team'
     || typeof scope.id !== 'string'
     || !/^[a-z0-9][a-z0-9-]*$/.test(scope.id)
     || typeof scope.name !== 'string'
-    || !scope.name.trim())) {
+    || !scope.name.trim()
+    || !teamIconSchema.optional().safeParse(scope.icon).success)) {
     throw new Error('Owner scope catalog contains an invalid Team')
   }
   if (new Set(teams.map(team => team.id)).size !== teams.length)

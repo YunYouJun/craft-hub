@@ -17,7 +17,12 @@
         "properties": {
           "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
           "kind": { "const": "team" },
-          "name": { "type": "string", "minLength": 1 }
+          "name": { "type": "string", "minLength": 1 },
+          "icon": {
+            "type": "string",
+            "maxLength": 350000,
+            "description": "HTTPS image URL or base64 image data URI up to 256 KiB"
+          }
         }
       }
     },

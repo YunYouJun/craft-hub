@@ -53,6 +53,16 @@
   --placeholder: var(--muted);
   --panel-radius: 12px;
   --control-radius: 8px;
+  /* Artwork keeps its original colors on a neutral plate, independently of menu selection and window appearance. */
+  --logo-surface-light: #fff;
+  --logo-surface-dark: #3a3a3c;
+  --logo-foreground-light: #3a3a3c;
+  --logo-foreground-dark: #f5f5f7;
+  --logo-edge-light: rgb(0 0 0 / 16%);
+  --logo-edge-dark: rgb(255 255 255 / 22%);
+  --logo-frame-width: 0.5px;
+  --logo-frame-radius: 6px;
+  --logo-frame-inset: 2px;
   /* One control surface and state scale for buttons, fields and portaled controls. */
   --control-background: var(--surface);
   --control-background-hover: color-mix(in srgb, var(--text) 4%, var(--control-background));
@@ -394,6 +404,14 @@
     --page-padding-block: 16px;
     --page-section-gap: 16px;
     --page-toolbar-height: var(--control-height-default);
+  }
+}
+
+@media (prefers-contrast: more) {
+  :root {
+    --logo-frame-width: 1px;
+    --logo-edge-light: rgb(0 0 0 / 45%);
+    --logo-edge-dark: rgb(255 255 255 / 45%);
   }
 }
 

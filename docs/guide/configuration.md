@@ -246,6 +246,8 @@ Creating a Team requires an existing local Git checkout. Craft Hub writes the Te
 
 Renaming a Team keeps its stable id and Git target, then marks the local snapshot as changed for the next explicit synchronization. Deleting a Team requires typing its exact name; Craft Hub removes that Team's local workspaces, bindings, navigation state, and sync target, switches an active deleted Team back to Personal, and leaves the shared Git snapshot untouched so it remains recoverable.
 
+Create Team and Manage Team support a custom logo: upload a PNG, JPEG, WebP, SVG, GIF or AVIF image up to 256 KiB, or enter an HTTPS image URL. The selector and its menu preserve the artwork's original colors. Reset to default clears the custom logo after saving. The optional `icon` field lives in `owner-scopes.jsonc`; uploaded images are embedded, so they remain available after the original file moves. Logos travel with portable account configuration and Team Git snapshots, and source refreshes preserve custom artwork. Personal retains its default icon.
+
 ```jsonc
 {
   "$schema": "https://raw.githubusercontent.com/YunYouJun/craft-hub/main/packages/craft-hub/schema/workspace-v1.schema.json",

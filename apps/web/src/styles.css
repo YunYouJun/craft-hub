@@ -1146,6 +1146,8 @@ code { border: 1px solid var(--border); border-radius: 5px; background: var(--su
 .owner-scope-item [data-slot='select-item-text'] { display: flex; min-width: 0; align-items: center; gap: 8px; }
 .owner-scope-icon { display: grid; width: 24px; height: 24px; flex: 0 0 24px; place-items: center; border-radius: 6px; background: var(--surface-subtle); color: var(--text-secondary); }
 .owner-scope-icon.team { background: var(--accent-soft); color: var(--accent); }
+.owner-scope-icon.has-logo { background: transparent; }
+.owner-scope-icon > .visual-icon { width: 100%; height: 100%; }
 .owner-scope-icon .app-icon { width: 14px; height: 14px; }
 .owner-scope-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: var(--font-size-body); font-weight: 600; white-space: nowrap; }
 .owner-scope-switcher > button { display: grid; width: 26px; height: 30px; flex: 0 0 26px; place-items: center; border-radius: 7px; background: transparent; color: var(--muted); }

@@ -21,8 +21,10 @@ it('joins multiple isolated Teams, follows new revisions, and retains cached dat
   try {
     const first = await runtime.workspaceSubscriptions.joinTeam('https://example.com/one')
     const second = await runtime.workspaceSubscriptions.joinTeam('https://example.com/two')
+    await runtime.teams.updateIcon(first.id, 'https://example.com/logo.svg')
     expect(first.id).not.toBe(second.id)
     expect((await runtime.workspaceSubscriptions.joinTeam('https://example.com/one')).id).toBe(first.id)
+    expect((await runtime.ownerScopes.get(first.id)).icon).toBe('https://example.com/logo.svg')
     expect(await runtime.ownerScopes.list()).toHaveLength(3)
     expect(await runtime.workspaces.list()).toHaveLength(0)
     const workspace = (await runtime.workspaces.list(first.id))[0]!
@@ -33,6 +35,8 @@ it('joins multiple isolated Teams, follows new revisions, and retains cached dat
     revision = 'two'
     expect((await runtime.workspaceSubscriptions.followTeams()).every(item => !item.error)).toBe(true)
     expect((await runtime.workspaces.list(first.id))[0]).toMatchObject({ id: workspace.id, name: 'two', subscription: { revision: 'two' } })
+    await runtime.workspaceSubscriptions.replacePortableSnapshot(await runtime.workspaceSubscriptions.portableSnapshot())
+    expect((await runtime.ownerScopes.get(first.id)).icon).toBe('https://example.com/logo.svg')
     denied = true
     expect((await runtime.workspaceSubscriptions.followTeams())[0]?.error).toBe('Permission revoked')
     expect((await runtime.workspaces.list(first.id))[0]?.name).toBe('two')

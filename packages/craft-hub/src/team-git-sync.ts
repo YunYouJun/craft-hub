@@ -7,6 +7,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { mkdir, readFile, realpath, rename, writeFile } from 'node:fs/promises'
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { promisify } from 'node:util'
+import { teamIconSchema } from './team-icon'
 
 const execFileAsync = promisify(execFile)
 
@@ -118,6 +119,7 @@ export class TeamGitSyncService {
       if (!snapshot)
         throw new Error('The selected Git repository does not contain this Team snapshot')
       await this.workspaces.replacePortableSnapshot(snapshot.workspaces, ownerScopeId)
+      await this.ownerScopes.updateTeamIcon(ownerScopeId, snapshot.ownerScope.icon)
       revision = snapshotRevision(snapshot)
     }
     else {
@@ -258,6 +260,7 @@ async function readSnapshot(path: string, ownerScopeId: string): Promise<TeamPor
 function validateSnapshot(value: TeamPortableSnapshot, ownerScopeId: string): void {
   if (value.schemaVersion !== 1 || value.ownerScope?.kind !== 'team' || value.ownerScope.id !== ownerScopeId)
     throw new Error('Team Git snapshot identity does not match the requested Team')
+  teamIconSchema.optional().parse(value.ownerScope.icon)
   if (value.workspaces?.schemaVersion !== 1 || !Array.isArray(value.workspaces.workspaces))
     throw new Error('Unsupported Team Git snapshot schema')
 }

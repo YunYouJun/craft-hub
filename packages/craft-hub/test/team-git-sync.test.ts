@@ -23,7 +23,7 @@ describe('team Git sync', () => {
     const project = await projects.add(projectPath)
     const scopes = new OwnerScopeService(configDir, dataDir)
     const workspaces = new WorkspaceService(configDir, dataDir, projects)
-    const team = await scopes.createTeam('Acme')
+    const team = await scopes.createTeam('Acme', 'https://example.com/logo.svg')
     await workspaces.create('Personal App')
     const teamWorkspace = await workspaces.create('Shared App', team.id)
     await workspaces.addProject(teamWorkspace.id, project.id, team.id)
@@ -33,8 +33,12 @@ describe('team Git sync', () => {
     await expect(sync.synchronize(team.id)).resolves.toMatchObject({ state: 'clean' })
     const snapshot = JSON.parse(await readFile(join(repositoryPath, '.craft-hub', 'teams', team.id, `${team.id}.snapshot.json`), 'utf8')) as { ownerScope: { id: string }, workspaces: { workspaces: Array<{ name: string }> } }
     expect(snapshot.ownerScope.id).toBe(team.id)
+    expect(snapshot.ownerScope).toMatchObject({ icon: team.icon })
     expect(snapshot.workspaces.workspaces.map(workspace => workspace.name)).toEqual(['Shared App'])
     await expect(workspaces.list()).resolves.toMatchObject([{ name: 'Personal App' }])
+    await scopes.updateTeamIcon(team.id, 'https://example.com/local.svg')
+    await expect(sync.synchronize(team.id, 'use-repository')).resolves.toMatchObject({ state: 'clean' })
+    expect((await scopes.get(team.id)).icon).toBe(team.icon)
   })
 
   it('does not allow Personal to use Team synchronization', async () => {

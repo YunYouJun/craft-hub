@@ -74,6 +74,8 @@ export interface OwnerScope {
   id: string
   kind: OwnerScopeKind
   name: string
+  /** Optional portable Team logo, rendered as image artwork without recoloring. */
+  icon?: string
 }
 
 /** Machine-local owner-scope navigation state. */
