@@ -26,9 +26,11 @@ packages:
 
 overrides:
   '@azure/msal-node@>=5.0.0-beta.0 <7.1.0': 7.1.1
+  '@hono/node-server@>=1.19.10 <2.1.3': 2.1.3
   '@modelcontextprotocol/client@>=2.0.0 <2.2.0': 2.2.0
   '@modelcontextprotocol/sdk@<1.32.2': 1.32.2
   '@toon-format/toon@<2.3.1': 2.3.1
+  '@tufjs/models>minimatch': 11.0.1
   axios: ^1.20.0
   body-parser@>=2.0.0 <2.4.0: 2.4.0
   brace-expansion@>=2.0.0 <2.1.7: 2.1.7
@@ -36,8 +38,10 @@ overrides:
   esbuild: ^0.28.1
   fast-uri@>=3.0.0 <3.1.9: 3.1.9
   follow-redirects@<1.16.2: 1.16.2
+  glob@>=9.0.0 <14.0.2: 14.0.2
   hono: ^4.13.11
   http-cache-semantics@<=4.2.0: 4.3.0
+  ignore-walk>minimatch: 11.0.1
   ip-address@>=10.0.0 <10.7.4: 10.7.4
   katex@>=0.11.0 <0.18.2: 0.18.2
   lodash.set: link:vendor/lodash-set-safe
@@ -46,7 +50,7 @@ overrides:
   nanoid: ^3.3.18
   postcss-selector-parser@>=7.0.0 <7.1.6: 7.1.6
   proxy-addr@>=1.1.0 <2.0.8: 2.0.8
-  qs: ^6.16.0
+  qs: ^6.16.1
   sharp: 0.35.5
   source-map-js@>=1.0.0 <1.2.2: 1.2.2
   undici@>=6.7.0 <6.29.1: 6.29.1
@@ -57,7 +61,7 @@ overrides:
 
 # The vanilla diffs API does not use its React adapter.
 packageExtensions:
-  '@pierre/diffs@1.6.1':
+  '@pierre/diffs@1.6.2':
     peerDependenciesMeta:
       react:
         optional: true
@@ -65,7 +69,6 @@ packageExtensions:
         optional: true
 
 patchedDependencies:
-  '@softeria/ms-365-mcp-server@0.171.0': patches/@softeria__ms-365-mcp-server@0.171.0.patch
   node-pty@1.1.0: patches/node-pty@1.1.0.patch
 
 allowBuilds:
@@ -82,27 +85,27 @@ catalog:
   '@antfu/eslint-config': ^10.0.0
   '@antfu/ni': ^30.6.0
   '@antfu/utils': ^9.3.0
-  '@babel/parser': ^8.0.8
-  '@cloudbase/js-sdk': 3.10.3
+  '@babel/parser': ^8.0.10
+  '@cloudbase/js-sdk': 3.10.4
   '@cloudbase/node-sdk': ^3.18.7
   '@electron/fuses': 2.1.3
   '@electron/packager': ^20.3.0
-  '@iconify-json/logos': 1.2.17
-  '@iconify-json/lucide': ^1.2.147
+  '@iconify-json/logos': 1.2.18
+  '@iconify-json/lucide': ^1.2.150
   '@iconify-json/ri': ^1.2.10
-  '@iconify-json/simple-icons': 1.2.100
+  '@iconify-json/simple-icons': 1.2.101
   '@iconify-json/svg-spinners': ^1.2.4
   '@modelcontextprotocol/sdk': 1.32.2
-  '@openai/codex-sdk': ^0.164.0
-  '@pierre/diffs': 1.6.1
+  '@openai/codex-sdk': ^0.166.0
+  '@pierre/diffs': 1.6.2
   '@shikijs/vitepress-twoslash': ^4.5.0
-  '@softeria/ms-365-mcp-server': 0.171.0
+  '@softeria/ms-365-mcp-server': 0.178.0
   '@types/canvas-confetti': ^1.9.0
-  '@types/node': ^26.6.5
+  '@types/node': ^26.6.6
   '@types/pacote': ^11.1.8
   '@types/semver': ^7.8.0
   '@typescript/native': npm:typescript@^7.0.2
-  '@unocss/reset': ^66.11.0
+  '@unocss/reset': ^66.12.0
   '@vitejs/devtools': ^0.8.0
   '@vitejs/devtools-kit': ^0.8.0
   '@vitejs/plugin-vue': ^6.0.10
@@ -122,16 +125,16 @@ catalog:
   canvas-confetti: ^1.9.4
   chokidar: ^6.0.0
   cross-spawn: ^7.0.6
-  devframe: ^1.2.6
+  devframe: ^1.3.0
   dompurify: 3.4.17
-  electron: ^45.0.0
-  eslint: ^10.13.0
+  electron: ^45.2.1
+  eslint: ^10.14.0
   floating-vue: ^5.4.0
   happy-dom: ^21.0.4
   jsonc-parser: ^3.3.1
   lint-staged: ^17.6.0
   lodash: ^4.18.1
-  marked: ^18.1.1
+  marked: ^18.1.2
   node-api-headers: 1.9.0
   node-pty: ^1.1.0
   pacote: ^22.0.1
@@ -143,23 +146,23 @@ catalog:
   shiki: ^4.5.0
   simple-git-hooks: ^2.14.0
   tinyglobby: ^0.2.17
-  tsdown: ^0.23.2
+  tsdown: ^0.23.4
   tsx: ^4.23.15
   typedoc: ^0.28.20
   typedoc-plugin-markdown: ^4.14.1
   typedoc-vitepress-theme: ^1.1.4
   typescript: npm:@typescript/typescript6@^6.0.2
-  unocss: ^66.11.0
+  unocss: ^66.12.0
   unplugin-vue-components: ^32.1.0
   update-electron-app: ^3.3.0
   vite: ^8.3.5
   vite-plugin-vue-devtools: ^8.2.1
-  vitepress: ^2.0.0-alpha.20
+  vitepress: ^2.0.0-alpha.21
   vitepress-plugin-group-icons: ^1.8.1
   vitest: ^5.0.5
   vue: 3.5.44
   vue-router: ^5.4.0
-  vue-tsc: ^3.3.13
-  wrangler: ^4.152.0
+  vue-tsc: ^3.3.14
+  wrangler: ^4.156.0
   yaml: ^2.9.1
   zod: ^4.6.7
