@@ -7,6 +7,7 @@ import { Icon } from './icons'
 import { useI18n } from './i18n'
 import MarkdownPreview from './MarkdownPreview.vue'
 import { compareOverviewPackages } from './package-overview'
+import ProjectSpacePanel from './ProjectSpacePanel.vue'
 import { useWorkbenchStore } from './store'
 
 const store = useWorkbenchStore()
@@ -145,6 +146,8 @@ onBeforeUnmount(() => {
         </section>
       </header>
 
+      <ProjectSpacePanel v-if="!isPackageOverview" :key="store.selectedProject.id" />
+
       <section v-for="group in toolGroups" :key="group.id" class="overview-section overview-actions overview-tool-group" :data-testid="`package-tool-group-${group.id}`">
         <div class="overview-tool-heading">
           <h3><Icon name="terminal" /> {{ group.title }}</h3>
@@ -237,6 +240,7 @@ onBeforeUnmount(() => {
       </section>
 
     </template>
+    <ProjectSpacePanel v-if="!isPackageOverview && store.selectedProject && !store.projectOverviewLoading && (store.projectOverviewError || !activePackage)" :key="store.selectedProject.id" />
   </section>
 
   <DialogRoot v-model:open="readmeDrawerOpen">

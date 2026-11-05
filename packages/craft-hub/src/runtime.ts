@@ -10,6 +10,7 @@ import type { InstalledIntegrationContribution, IntegrationActionResult, Integra
 import type { LocalEnvironmentSnapshot } from './local-environment'
 import type { CraftHubPlugin, PluginDiagnostic } from './plugins'
 import type { ProfileLease } from './profile-lease'
+import type { ProjectSpaceSnapshot } from './project-space'
 import type { SoftwareApplicationOpen, SoftwareCatalogSnapshot, SoftwareFavoritesSnapshot, SoftwareInstallationPlan, SoftwareInstallationRun, SoftwareInstallationRuns } from './software-catalog'
 import type { Capability, CapabilityDiscoveryDiagnostic, CapabilityDiscoveryResult, CapabilityPins, CapabilityReference, CommandCapability, CommandInputValues, CommandInvocation, CommandPackage, LocalSkillActivationSettings, ProjectConfigInitializationMode, ProjectConfigInitializationResult, ProjectOverview, ProjectRecord, ProjectRunSummary, ProjectSkillsState, ReleasePlan, RunCleanupOptions, RunCleanupResult, RunOutputEvent, RunRecord } from './types'
 import { randomUUID } from 'node:crypto'
@@ -48,6 +49,7 @@ import { createSoftwareFavorite, findSoftwareFavorite, personalWorkbenchHomeSche
 import { getCraftHubConfigDir, getCraftHubDataDir } from './platform'
 import { acquireProfileLease } from './profile-lease'
 import { readProjectOverviewAsset, readProjectReadme } from './project-overview'
+import { ProjectSpaceError, scanProjectSpace } from './project-space'
 import { ProjectRegistry } from './projects'
 import { ReleasePlanner } from './release-planner'
 import { CraftHubSettingsService, SettingsConflictError } from './settings'
@@ -126,6 +128,7 @@ export class CraftHubRuntime {
   private readonly hostPluginDiagnostics: readonly PluginDiagnostic[]
   private readonly diagnosticProviders: Array<{ pluginId: string, provider: HostDiagnosticProvider }>
   private readonly activeRuns = new Map<string, RunHandle>()
+  private readonly projectSpaceScans = new Map<string, { controller: AbortController, completion: Promise<ProjectSpaceSnapshot> }>()
   private readonly capabilityDiscoveryRequests = new Map<string, Promise<CapabilityDiscoveryResult>>()
   private readonly lastRuns = new Map<string, Pick<ProjectRunSummary, 'lastFinishedAt' | 'lastStatus'>>()
   private readonly runListeners = new Set<(summary: ProjectRunSummary) => void>()
@@ -704,6 +707,31 @@ export class CraftHubRuntime {
     }
   }
 
+  /** Read project-local file metadata on demand; discovery does not grant execution or trust. */
+  async projectSpace(projectId: string, signal?: AbortSignal): Promise<ProjectSpaceSnapshot> {
+    if (!this.hostEnvironment.capabilities.localProjectDirectories)
+      throw new ProjectSpaceError(403, 'Project space analysis is unavailable on this host.')
+    if (this.projectSpaceScans.has(projectId))
+      throw new ProjectSpaceError(409, 'This project is already being analyzed.')
+    if (this.projectSpaceScans.size >= 2)
+      throw new ProjectSpaceError(429, 'Space analysis is busy. Try again after another scan finishes.')
+    const controller = new AbortController()
+    const scanSignal = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal
+    const completion = this.projects.list().then((projects) => {
+      const project = projects.find(project => project.id === projectId)
+      if (!project)
+        throw new ProjectSpaceError(404, 'The project is no longer registered.')
+      return scanProjectSpace(project, { signal: scanSignal })
+    })
+    this.projectSpaceScans.set(projectId, { controller, completion })
+    try {
+      return await completion
+    }
+    finally {
+      this.projectSpaceScans.delete(projectId)
+    }
+  }
+
   /** Read one bounded raster asset contained by a registered project. */
   async projectOverviewAsset(projectId: string, projectRelativePath: string): Promise<{ content: Buffer, contentType: string } | undefined> {
     const project = await this.projects.get(projectId)
@@ -868,6 +896,10 @@ export class CraftHubRuntime {
   async close(): Promise<void> {
     this.commandReviews.close()
     this.integrationForms.close()
+    const scans = [...this.projectSpaceScans.values()]
+    for (const scan of scans)
+      scan.controller.abort()
+    await Promise.allSettled(scans.map(scan => scan.completion))
     await this.environmentSources.close()
     await this.agentTasks.cancelAll()
     await this.cancelAllRuns()

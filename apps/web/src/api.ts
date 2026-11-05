@@ -250,6 +250,7 @@ export const api = {
   projectSkills: (projectId: string) => request<ProjectSkillsState>(`/api/projects/${projectId}/skills`),
   updateProjectSkills: (projectId: string, settings: LocalSkillActivationSettings) => request<ProjectSkillsState>(`/api/projects/${projectId}/skills`, { method: 'PUT', body: JSON.stringify({ settings }) }),
   projectOverview: (projectId: string, packagePath: string, locale: WorkbenchLocale) => request<ProjectOverview>(`/api/projects/${projectId}/overview?package=${encodeURIComponent(packagePath)}&locale=${encodeURIComponent(locale)}`),
+  projectSpace: (projectId: string, signal?: AbortSignal) => request<import('craft-hub').ProjectSpaceSnapshot>(`/api/projects/${encodeURIComponent(projectId)}/space`, { signal }),
   gitIntegrationPlan: (projectId: string, input: GitIntegrationRequest = {}) => request<GitIntegrationPlan>(`/api/projects/${projectId}/git-integration/plan`, {
     method: 'POST',
     body: JSON.stringify(input),

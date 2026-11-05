@@ -33,6 +33,7 @@ import { IntegrationConfirmationRequiredError, IntegrationReviewChangedError } f
 import { openMicrosoftTodo } from './local-applications'
 import { PluginInstallPlanChangedError } from './marketplace'
 import { marketplaceOverview } from './marketplace-model'
+import { ProjectSpaceError } from './project-space'
 import { captureDueInstant, parseQuickCapture } from './quick-capture'
 import { CraftHubRuntime } from './runtime'
 import { SettingsConflictError, SettingsValidationError } from './settings'
@@ -1347,6 +1348,37 @@ async function startProtectedServer(options: CraftHubServerOptions, runtime: Cra
           watcher.setCapabilityPatterns(projectId, discovery.skillWatchPatterns ?? [])
           return sendJson(response, 200, state)
         }
+        if (parts[3] === 'space') {
+          if (!addressesThisSocket(request.headers.host ?? '', request) || request.headers['sec-fetch-site'] === 'cross-site'
+            || (request.headers.origin && request.headers.origin !== `http://${request.headers.host}`)) {
+            return sendJson(response, 403, { error: 'Project space analysis requires a same-origin local request' })
+          }
+          if (parts.length !== 4 || url.search)
+            return sendJson(response, 400, { error: 'Project space analysis accepts only a registered project ID' })
+          if (request.method !== 'GET')
+            return sendJson(response, 405, { error: 'Project space analysis is read-only' })
+          const controller = new AbortController()
+          const cancel = (): void => {
+            if (!response.writableFinished)
+              controller.abort()
+          }
+          response.once('close', cancel)
+          try {
+            const snapshot = await runtime.projectSpace(projectId, controller.signal)
+            if (!response.destroyed) {
+              response.setHeader('cache-control', 'no-store')
+              return sendJson(response, 200, snapshot)
+            }
+          }
+          catch (error) {
+            if (!controller.signal.aborted)
+              throw error
+          }
+          finally {
+            response.off('close', cancel)
+          }
+          return
+        }
         if (request.method === 'GET' && parts[3] === 'overview') {
           const packagePath = url.searchParams.get('package') ?? '.'
           const locale = url.searchParams.get('locale')
@@ -1542,7 +1574,7 @@ async function startProtectedServer(options: CraftHubServerOptions, runtime: Cra
         return sendJson(response, 409, { error: error.message, actualRevision: error.actualRevision })
       if (error instanceof WorkItemProjectError)
         return sendJson(response, error.status, { error: error.message })
-      if (error instanceof SoftwareOperationError || error instanceof SoftwareSourceError || error instanceof SetupProfileError || error instanceof EnvironmentSourceError)
+      if (error instanceof SoftwareOperationError || error instanceof SoftwareSourceError || error instanceof SetupProfileError || error instanceof EnvironmentSourceError || error instanceof ProjectSpaceError)
         return sendJson(response, error.status, { error: error.message })
       if (error instanceof PluginInstallPlanChangedError)
         return sendJson(response, 409, { error: error.message, reviewRequired: true })

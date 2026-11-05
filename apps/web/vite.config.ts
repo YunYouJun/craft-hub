@@ -42,6 +42,7 @@ export default defineConfig({
   server: {
     host: '127.0.0.1',
     proxy: {
+      '^/api/projects/[^/]+/space(?:[/?]|$)': localOnly,
       '/api/applications': localOnly,
       '/api/application-maintenance': localOnly,
       '/api/work-assistant': localOnly,
