@@ -218,8 +218,8 @@ catalogs:
       specifier: 1.2.17
       version: 1.2.17
     '@iconify-json/lucide':
-      specifier: ^1.2.147
-      version: 1.2.147
+      specifier: ^1.2.150
+      version: 1.2.150
     '@iconify-json/ri':
       specifier: ^1.2.10
       version: 1.2.10
@@ -697,7 +697,7 @@ importers:
         version: 1.2.17
       '@iconify-json/lucide':
         specifier: 'catalog:'
-        version: 1.2.147
+        version: 1.2.150
       '@iconify-json/ri':
         specifier: 'catalog:'
         version: 1.2.10
@@ -1867,8 +1867,8 @@ packages:
   '@iconify-json/logos@1.2.17':
     resolution: {integrity: sha512-ruCr6y5h8FW+loXwRJkz+6cJj3njyX5Ccpi+ifMgaWZPbTSCbsCccNyGomZxIdhoyDKNOmNdZuURC3tyBvDr7A==}
 
-  '@iconify-json/lucide@1.2.147':
-    resolution: {integrity: sha512-7Qqa/joSBeUxihWsQJx5nKcqMWtV3YrH90Jldxcx4J9ciTLavRUlpexQwRTcx9dcb7CJpISfjZTj42zD/30sqA==}
+  '@iconify-json/lucide@1.2.150':
+    resolution: {integrity: sha512-av3IH1CB8RuKrlKGDmBbt6dLYtZus1Vr89VOysxORLhKcTr4ARe4Dmp0gL7Q47sK9GMkyROn1a+h07tAYpSuEw==}
 
   '@iconify-json/ri@1.2.10':
     resolution: {integrity: sha512-WWMhoncVVM+Xmu9T5fgu2lhYRrKTEWhKk3Com0KiM111EeEsRLiASjpsFKnC/SrB6covhUp95r2mH8tGxhgd5Q==}
@@ -7870,7 +7870,7 @@ snapshots:
     dependencies:
       '@iconify/types': 2.0.0
 
-  '@iconify-json/lucide@1.2.147':
+  '@iconify-json/lucide@1.2.150':
     dependencies:
       '@iconify/types': 2.0.0
 
