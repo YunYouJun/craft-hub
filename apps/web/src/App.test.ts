@@ -334,6 +334,21 @@ describe('app startup', () => {
     delete window.craftHubDesktop
   })
 
+  it('keeps native content flush when the sidebar is hidden and restored', async () => {
+    stubStartupData()
+    window.craftHubDesktop = { platform: 'darwin', windowMaterial: 'sidebar' }
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    const { wrapper } = await mountApp(pinia, '/overview')
+    await flushPromises()
+    expect(wrapper.get('.app-shell').attributes('style')).toContain('176px')
+    await wrapper.get('.sidebar-toggle').trigger('click')
+    await vi.waitFor(() => expect(wrapper.get('.app-shell').attributes('style')).toContain('--workbench-activity-width: 0px'))
+    await wrapper.get('.sidebar-toggle').trigger('click')
+    await vi.waitFor(() => expect(wrapper.get('.app-shell').attributes('style')).toContain('176px'))
+    wrapper.unmount()
+  })
+
   it('remembers collapsed navigation while moving between desktop pages', async () => {
     stubStartupData()
     const pinia = createPinia()

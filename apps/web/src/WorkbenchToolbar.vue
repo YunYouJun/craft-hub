@@ -2,6 +2,7 @@
 import { useMediaQuery } from '@vueuse/core'
 import { computed } from 'vue'
 import AccountMenu from './AccountMenu.vue'
+import { Tooltip } from './components/ui/tooltip'
 import { useI18n } from './i18n'
 import Icon from './NavigationIcon.vue'
 import { desktopSidebarShortcut, formatShortcut } from './shortcuts'
@@ -42,25 +43,39 @@ const sidebarLabel = computed(() => props.desktopMac
   <header class="workbench-titlebar workbench-toolbar" :class="{ 'desktop-mac': desktopMac }" :aria-label="t('paletteTitlebar')">
     <div class="toolbar-leading">
       <div class="toolbar-sidebar-controls">
-        <button class="toolbar-icon-button mobile-navigation-toggle" type="button" aria-controls="workbench-primary-navigation" :aria-label="copy('切换导航', 'Toggle navigation')" :aria-expanded="mobileNavigationOpen" @click="emit('toggleMobileNavigation')"><Icon name="list" /></button>
-        <button class="toolbar-icon-button sidebar-toggle desktop-toolbar-control" type="button" aria-controls="workbench-primary-navigation" :aria-label="sidebarLabel" :aria-expanded="!sidebarCollapsed" :title="`${sidebarLabel} (${sidebarShortcutLabel})`" @click="emit('toggleSidebar')">
-          <svg aria-hidden="true" class="toolbar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2.5" /><path d="M9 4v16" /></svg>
-        </button>
+        <Tooltip :text="copy('切换导航', 'Toggle navigation')" side="bottom">
+          <button class="toolbar-icon-button mobile-navigation-toggle" type="button" aria-controls="workbench-primary-navigation" :aria-label="copy('切换导航', 'Toggle navigation')" :aria-expanded="mobileNavigationOpen" @click="emit('toggleMobileNavigation')"><Icon name="list" /></button>
+        </Tooltip>
+        <Tooltip :text="sidebarLabel" :shortcut="sidebarShortcutLabel" side="bottom">
+          <button class="toolbar-icon-button sidebar-toggle desktop-toolbar-control" type="button" aria-controls="workbench-primary-navigation" :aria-label="sidebarLabel" :aria-expanded="!sidebarCollapsed" @click="emit('toggleSidebar')">
+            <svg aria-hidden="true" class="toolbar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2.5" /><path d="M9 4v16" /></svg>
+          </button>
+        </Tooltip>
       </div>
       <div class="toolbar-context-controls">
         <div class="toolbar-history desktop-toolbar-control" :aria-label="copy('浏览历史', 'Navigation history')">
-          <button class="toolbar-icon-button toolbar-back" type="button" :disabled="!canGoBack" :aria-label="copy('返回', 'Back')" :title="`${copy('返回', 'Back')} (${shortcut('Mod+[')})`" @click="emit('back')"><svg aria-hidden="true" class="toolbar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m14 6-6 6 6 6" /></svg></button>
-          <button class="toolbar-icon-button toolbar-forward" type="button" :disabled="!canGoForward" :aria-label="copy('前进', 'Forward')" :title="`${copy('前进', 'Forward')} (${shortcut('Mod+]')})`" @click="emit('forward')"><svg aria-hidden="true" class="toolbar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m10 6 6 6-6 6" /></svg></button>
+          <Tooltip :text="copy('返回', 'Back')" :shortcut="shortcut('Mod+[')" side="bottom">
+            <button class="toolbar-icon-button toolbar-back" type="button" :disabled="!canGoBack" :aria-label="copy('返回', 'Back')" @click="emit('back')"><svg aria-hidden="true" class="toolbar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m14 6-6 6 6 6" /></svg></button>
+          </Tooltip>
+          <Tooltip :text="copy('前进', 'Forward')" :shortcut="shortcut('Mod+]')" side="bottom">
+            <button class="toolbar-icon-button toolbar-forward" type="button" :disabled="!canGoForward" :aria-label="copy('前进', 'Forward')" @click="emit('forward')"><svg aria-hidden="true" class="toolbar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m10 6 6 6-6 6" /></svg></button>
+          </Tooltip>
         </div>
         <span class="toolbar-section-title desktop-toolbar-control" :title="title">{{ title }}</span>
       </div>
     </div>
     <div class="toolbar-palette-controls">
-      <button class="titlebar-project" type="button" aria-haspopup="dialog" :aria-expanded="paletteOpen && paletteMode === 'projects'" :title="`${t('paletteFindProject')} (${shortcut('Mod+P')})`" @click="emit('openPalette', 'projects')"><Icon name="folder" /><span>{{ projectName }}</span><Icon name="arrowDown" /><kbd>{{ shortcut('Mod+P') }}</kbd></button>
-      <button class="titlebar-search" type="button" aria-haspopup="dialog" :aria-expanded="paletteOpen && paletteMode === 'all'" :aria-label="t('paletteFindAnything')" :title="`${t('paletteFindAnything')} (${paletteShortcutLabel})`" @click="emit('openPalette', 'all')"><Icon name="search" /><span class="titlebar-label">{{ t('paletteFindAnything') }}</span><kbd>{{ paletteShortcutLabel }}</kbd></button>
+      <Tooltip :text="t('paletteFindProject')" :shortcut="shortcut('Mod+P')" side="bottom">
+        <button class="titlebar-project" type="button" aria-haspopup="dialog" :aria-expanded="paletteOpen && paletteMode === 'projects'" @click="emit('openPalette', 'projects')"><Icon name="folder" /><span>{{ projectName }}</span><Icon name="arrowDown" /><kbd>{{ shortcut('Mod+P') }}</kbd></button>
+      </Tooltip>
+      <Tooltip :text="t('paletteFindAnything')" :shortcut="paletteShortcutLabel" side="bottom">
+        <button class="titlebar-search" type="button" aria-haspopup="dialog" :aria-expanded="paletteOpen && paletteMode === 'all'" :aria-label="t('paletteFindAnything')" @click="emit('openPalette', 'all')"><Icon name="search" /><span class="titlebar-label">{{ t('paletteFindAnything') }}</span><kbd>{{ paletteShortcutLabel }}</kbd></button>
+      </Tooltip>
     </div>
     <div v-if="desktopViewport" class="toolbar-trailing desktop-toolbar-control">
-      <button class="toolbar-icon-button toolbar-refresh" type="button" :disabled="refreshing" :aria-busy="refreshing" :aria-label="t('refresh')" :title="`${t('refresh')} (${shortcut('Mod+Shift+R')})`" @click="emit('refresh')"><Icon :name="refreshing ? 'loading' : 'refresh'" /></button>
+      <Tooltip :text="t('refresh')" :shortcut="shortcut('Mod+Shift+R')" side="bottom">
+        <button class="toolbar-icon-button toolbar-refresh" type="button" :disabled="refreshing" :aria-busy="refreshing" :aria-label="t('refresh')" @click="emit('refresh')"><Icon :name="refreshing ? 'loading' : 'refresh'" /></button>
+      </Tooltip>
       <AccountMenu placement="toolbar" />
     </div>
   </header>
@@ -73,8 +88,8 @@ const sidebarLabel = computed(() => props.desktopMac
 .toolbar-leading, .toolbar-trailing { flex: none; }
 .toolbar-palette-controls { flex: 1; justify-content: center; gap: 14px; }
 .toolbar-trailing { gap: 8px; margin-left: auto; -webkit-app-region: no-drag; }
-.workbench-toolbar.workbench-titlebar button { display: inline-flex; align-items: center; justify-content: center; gap: var(--control-icon-gap); min-width: 0; height: var(--control-height-default); padding: 0 8px; border: 1px solid transparent; border-radius: var(--control-radius); background: transparent; color: var(--text-secondary); font-family: var(--font-body); font-size: var(--font-size-control); font-weight: 400; line-height: var(--line-height-control); cursor: pointer; -webkit-app-region: no-drag; }
-.workbench-toolbar.workbench-titlebar button:hover:not(:disabled) { background: var(--surface-hover); color: var(--text); }
+.workbench-toolbar.workbench-titlebar button { display: inline-flex; align-items: center; justify-content: center; gap: var(--control-icon-gap); min-width: 0; height: var(--control-height-default); padding: 0 8px; border: 1px solid transparent; border-radius: var(--control-radius); background: transparent; color: var(--text-secondary); font-family: var(--font-body); font-size: var(--font-size-control); font-weight: 400; line-height: var(--line-height-control); cursor: pointer; transition: background-color var(--motion-duration-fast) var(--motion-ease-standard), color var(--motion-duration-fast) var(--motion-ease-standard); -webkit-app-region: no-drag; }
+.workbench-toolbar.workbench-titlebar button:focus:not(:focus-visible) { outline: none; }
 .workbench-toolbar.workbench-titlebar button:disabled { opacity: var(--control-disabled-opacity); cursor: default; }
 .workbench-toolbar.workbench-titlebar button:focus-visible { outline: var(--control-focus-width) solid var(--focus-ring); outline-offset: var(--control-focus-offset); }
 .workbench-toolbar.workbench-titlebar .toolbar-icon-button { flex: none; width: var(--control-height-default); padding: 0; }
@@ -84,6 +99,11 @@ const sidebarLabel = computed(() => props.desktopMac
 .workbench-toolbar.workbench-titlebar .titlebar-project { flex: 0 1 220px; max-width: 220px; justify-content: flex-start; }
 .workbench-toolbar.workbench-titlebar .titlebar-project > span:not(.app-icon) { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .workbench-toolbar.workbench-titlebar .titlebar-search { position: static; transform: none; flex: 1 1 320px; width: auto; max-width: 360px; border-color: var(--border); background: var(--surface-muted); justify-content: flex-start; }
+@media (hover: hover) and (pointer: fine) {
+  .workbench-toolbar.workbench-titlebar button:hover:not(:disabled) { background: var(--toolbar-control-hover-background); color: var(--text); }
+}
+.workbench-toolbar.workbench-titlebar button[aria-expanded='true']:not(:disabled) { background: var(--toolbar-control-active-background); color: var(--text); }
+.workbench-toolbar.workbench-titlebar button:active:not(:disabled) { background: var(--toolbar-control-pressed-background); color: var(--text); transition-duration: var(--motion-duration-press); }
 .titlebar-label { flex: 1; min-width: 0; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .workbench-toolbar kbd { flex: none; border-color: transparent; background: transparent; padding: 0 1px; color: var(--muted); font-size: 11px; font-weight: 400; }
 .workbench-toolbar.workbench-titlebar .mobile-navigation-toggle { display: none; }

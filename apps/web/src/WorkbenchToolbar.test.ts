@@ -2,6 +2,7 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import AccountMenu from './AccountMenu.vue'
+import { Tooltip } from './components/ui/tooltip'
 import { useI18n } from './i18n'
 import WorkbenchToolbar from './WorkbenchToolbar.vue'
 
@@ -42,11 +43,15 @@ it('exposes desktop navigation, palette and refresh actions with keyboard hints'
   await flushPromises()
   expect(wrapper.get('header').attributes('role')).toBeUndefined()
   expect(wrapper.get('.toolbar-section-title').text()).toBe(baseProps.title)
-  expect(wrapper.get('.sidebar-toggle').attributes('title')).toContain('⌘ ⌃ S')
-  expect(wrapper.get('.toolbar-back').attributes('title')).toContain('⌘ [')
-  expect(wrapper.get('.toolbar-forward').attributes('title')).toContain('⌘ ]')
-  expect(wrapper.get('.titlebar-project').attributes('title')).toContain('⌘ P')
-  expect(wrapper.get('.toolbar-refresh').attributes('title')).toContain('⌘ ⇧ R')
+  const hints = wrapper.findAllComponents(Tooltip).map(tooltip => tooltip.props())
+  expect(hints).toEqual(expect.arrayContaining([
+    expect.objectContaining({ text: 'Hide sidebar', shortcut: '⌘ ⌃ S', side: 'bottom' }),
+    expect.objectContaining({ text: 'Back', shortcut: '⌘ [', side: 'bottom' }),
+    expect.objectContaining({ text: 'Forward', shortcut: '⌘ ]', side: 'bottom' }),
+    expect.objectContaining({ shortcut: '⌘ P', side: 'bottom' }),
+    expect.objectContaining({ shortcut: '⌘ ⇧ R', side: 'bottom' }),
+  ]))
+  expect(wrapper.get('.sidebar-toggle').attributes('title')).toBeUndefined()
   expect(wrapper.findComponent(AccountMenu).props('placement')).toBe('toolbar')
 
   await wrapper.get('.sidebar-toggle').trigger('click')

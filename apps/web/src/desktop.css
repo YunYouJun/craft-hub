@@ -55,23 +55,17 @@
 }
 
 /*
- * The macOS Electron host draws the native sidebar material behind a transparent window. As in macOS 26 apps, the
- * primary sidebar floats as an inset panel from the window top, under the traffic lights, to the bottom; the
- * titlebar is a clear overlay; and content, the compact drawer, dialogs and popovers share one opaque surface.
+ * The macOS host supplies the window material. The titlebar and activity rail share that continuous background;
+ * opaque content starts below the titlebar with a rounded leading corner, like a native split view.
  */
 @media (min-width: 761px) {
   :root[data-desktop-platform='darwin'][data-desktop-window-material='sidebar'] {
-    --desktop-sidebar-inset: 8px;
-    --desktop-sidebar-radius: 12px;
-    --desktop-sidebar-edge: rgb(0 0 0 / 9%);
-    --desktop-sidebar-lift: rgb(0 0 0 / 6%);
-    /* Content is one plain surface; grouped blocks keep their own borders instead of sitting on a gray canvas. */
-    --workbench-canvas: var(--surface);
+    --desktop-content-radius: 16px;
+    --desktop-content-edge: rgb(0 0 0 / 9%);
   }
 
   :root[data-desktop-platform='darwin'][data-desktop-window-material='sidebar'][data-theme='dark'] {
-    --desktop-sidebar-edge: rgb(255 255 255 / 4%);
-    --desktop-sidebar-lift: rgb(0 0 0 / 18%);
+    --desktop-content-edge: rgb(255 255 255 / 8%);
   }
 
   :root[data-desktop-platform='darwin'][data-desktop-window-material='sidebar'],
@@ -79,27 +73,26 @@
     background: transparent;
   }
 
-  /* The titlebar overlays the window so the sidebar can reach the top edge; content columns reserve its height. */
+  /* A real header row keeps content corners and resize handles below the window controls. */
   :root[data-desktop-platform='darwin'][data-desktop-window-material='sidebar'] .app-shell {
-    position: relative;
-    grid-template-rows: minmax(0, 1fr) auto;
+    grid-template-rows: var(--workbench-toolbar-height) minmax(0, 1fr) auto;
+    background: color-mix(in srgb, var(--surface-muted) var(--desktop-sidebar-tint), transparent);
   }
 
   :root[data-desktop-platform='darwin'][data-desktop-window-material='sidebar'] .app-shell.has-app-notices {
-    grid-template-rows: auto minmax(0, 1fr) auto;
+    grid-template-rows: var(--workbench-toolbar-height) auto minmax(0, 1fr) auto;
   }
 
   :root[data-desktop-platform='darwin'][data-desktop-window-material='sidebar'] .workbench-titlebar {
-    position: absolute;
+    position: relative;
     z-index: 5;
-    inset: 0 0 auto;
     border-bottom-color: transparent;
     background: transparent;
   }
 
-  /* Reserve a real sidebar header: history and page context must clear the floating panel's rounded edge. */
+  /* Keep toolbar controls clear of traffic lights while the primary navigation changes width. */
   :root[data-desktop-platform='darwin'][data-desktop-window-material='sidebar'] .workbench-titlebar.desktop-mac {
-    --toolbar-sidebar-width: max(calc(var(--workbench-activity-width) + var(--desktop-sidebar-inset)), 132px);
+    --toolbar-sidebar-width: max(var(--workbench-activity-width), 132px);
 
     display: grid;
     grid-template-columns: var(--toolbar-sidebar-width) auto minmax(0, 1fr) auto;
@@ -132,21 +125,8 @@
     margin-inline-start: 0;
   }
 
-  :root[data-desktop-platform='darwin'][data-desktop-window-material='sidebar'] .app-notices {
-    padding-top: var(--workbench-toolbar-height);
-    background: var(--surface);
-  }
-
-  :root[data-desktop-platform='darwin'][data-desktop-window-material='sidebar'] :is(.navigation-view-shell > :not(.project-rail), .workbench-splitter > :is(#capabilities-panel, #detail-panel)) {
-    padding-top: var(--workbench-toolbar-height);
-  }
-
-  :root[data-desktop-platform='darwin'][data-desktop-window-material='sidebar'] .workbench-splitter > .workbench-resize-handle {
-    margin-top: var(--workbench-toolbar-height);
-  }
-
   :root[data-desktop-platform='darwin'][data-desktop-window-material='sidebar'] .navigation-view-shell {
-    grid-template-columns: calc(var(--workbench-activity-width) + var(--desktop-sidebar-inset)) minmax(0, 1fr);
+    grid-template-columns: var(--workbench-activity-width) minmax(0, 1fr);
   }
 
   /* Hiding a macOS sidebar removes its panel and material instead of leaving an icon strip under the traffic lights. */
@@ -158,36 +138,35 @@
     grid-template-columns: minmax(0, 1fr);
   }
 
-  /*
-   * Only the panel itself is tinted, once. Its children stay clear so tints do not stack, and an opaque spread
-   * shadow, clipped by the surrounding column, paints the gutter without covering the material inside the panel.
-   */
+  /* The rail is part of the window chrome; only the adjacent content gets a panel edge. */
   :root[data-desktop-platform='darwin'][data-desktop-window-material='sidebar'] .project-rail {
-    --rail: color-mix(in srgb, var(--surface-muted) var(--desktop-sidebar-tint), transparent);
-    --activity-rail: transparent;
-    --workbench-sidebar-background: transparent;
-    --workbench-sidebar-active-background: color-mix(in srgb, var(--accent) 14%, transparent);
+    --rail: transparent;
 
-    height: calc(100% - 2 * var(--desktop-sidebar-inset));
-    margin: var(--desktop-sidebar-inset) 0 var(--desktop-sidebar-inset) var(--desktop-sidebar-inset);
-    padding-top: calc(var(--workbench-toolbar-height) - var(--desktop-sidebar-inset));
+    height: 100%;
     overflow: hidden;
-    border-radius: var(--desktop-sidebar-radius);
-    box-shadow: inset 0 0 0 0.5px var(--desktop-sidebar-edge), 0 1px 4px var(--desktop-sidebar-lift), 0 0 0 48px var(--surface);
   }
 
-  :root[data-desktop-platform='darwin'][data-desktop-window-material='sidebar'][data-window-inactive] .project-rail {
+  :root[data-desktop-platform='darwin'][data-desktop-window-material='sidebar'] .project-rail > .activity-rail {
+    --workbench-sidebar-active-background: var(--toolbar-control-active-background);
+    --workbench-sidebar-active-color: var(--text);
+
+    padding-top: 8px;
+    border-right: 0;
+    background: transparent;
+  }
+
+  :root[data-desktop-platform='darwin'][data-desktop-window-material='sidebar'][data-window-inactive] .project-rail > .activity-rail {
     --workbench-sidebar-active-background: color-mix(in srgb, var(--text) 8%, transparent);
   }
 
-  :root[data-desktop-platform='darwin'][data-desktop-window-material='sidebar'] .navigation-view-shell .activity-rail {
-    border-right-color: transparent;
+  :root[data-desktop-platform='darwin'][data-desktop-window-material='sidebar'] :is(.navigation-view-shell > :not(.project-rail), .workbench-splitter > #projects-panel .rail-content) {
+    border-start-start-radius: var(--desktop-content-radius);
+    box-shadow: inset 1px 1px 0 var(--desktop-content-edge);
   }
 
   /* Secondary navigation is part of the content, not a second glass column. */
   :root[data-desktop-platform='darwin'][data-desktop-window-material='sidebar'] :is(.workbench-page-sidebar, .workbench-frame-sidebar) {
-    --workbench-sidebar-background: var(--surface);
-    --workbench-sidebar-active-background: color-mix(in srgb, var(--accent) 11%, var(--surface));
+    --workbench-sidebar-active-background: color-mix(in srgb, var(--accent) 11%, var(--workbench-sidebar-background));
   }
 
   /* Native windows report activity only while there is something to say. */
@@ -195,22 +174,21 @@
     display: none;
   }
 
-  /* Zero-specificity fallback: regions beside the sidebar that relied on the body color stay opaque. */
+  /* Content stays opaque; native material belongs to the surrounding chrome. */
   :where(:root[data-desktop-platform='darwin'][data-desktop-window-material='sidebar']) :where(.app-shell > :not(.navigation-view-shell, .workbench-splitter, .workbench-titlebar), .navigation-view-shell > :not(.project-rail), .workbench-splitter > :not(#projects-panel, .workbench-resize-handle)) {
-    background-color: var(--surface);
+    background-color: var(--workbench-canvas);
   }
 }
 
 /*
- * The panel shows the material through a light tint, like native sidebars; labels keep 4.5:1 over the material.
- * Reduced transparency restores an opaque panel.
+ * Window chrome reveals the host material through one light tint. Reduced transparency restores an opaque surface.
  */
 :root[data-desktop-window-material='sidebar'] {
-  --desktop-sidebar-tint: 40%;
+  --desktop-sidebar-tint: 16%;
 }
 
 :root[data-desktop-window-material='sidebar'][data-theme='dark'] {
-  --desktop-sidebar-tint: 30%;
+  --desktop-sidebar-tint: 20%;
 }
 
 @media (prefers-reduced-transparency: reduce) {

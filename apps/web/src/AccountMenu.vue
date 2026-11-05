@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, useId, watch } from 'vue'
+import { Tooltip } from './components/ui/tooltip'
 import { useI18n } from './i18n'
 import SidebarIcon from './SidebarIcon.vue'
 
@@ -17,6 +18,7 @@ const { locale } = useI18n()
 const zh = computed(() => locale.value === 'zh-CN')
 const panelId = useId()
 const trigger = ref<HTMLButtonElement>()
+const panelOpen = ref(false)
 const panelPosition = ref<{ left: string, top?: string, bottom?: string, maxHeight?: string }>({ left: '48px', bottom: '68px' })
 
 function positionPanel(): void {
@@ -171,13 +173,15 @@ onBeforeUnmount(() => {
 
 <template>
   <aside class="account-menu" :class="{ 'account-menu--toolbar': placement === 'toolbar' }" :aria-label="zh ? '账号' : 'Account'">
-    <button ref="trigger" type="button" :popovertarget="panelId" class="activity-button account-trigger" :title="status.identity?.name || (zh ? '账号' : 'Account')" :aria-label="zh ? '打开账号信息' : 'Open account details'">
-      <img v-if="avatarUrl && !failedAvatar" :src="avatarUrl" class="account-avatar account-photo" alt="" referrerpolicy="no-referrer" @error="failedAvatar = true">
-      <span v-else-if="status.identity" class="account-avatar" aria-hidden="true">{{ status.identity.name.slice(0, 1).toUpperCase() }}</span>
-      <SidebarIcon v-else name="personal" />
-      <span v-if="placement === 'sidebar'" class="account-trigger-label" aria-hidden="true">{{ zh ? '账号' : 'Account' }}</span>
-    </button>
-    <div :id="panelId" popover="auto" class="account-panel" :style="panelPosition" @beforetoggle="positionPanel">
+    <Tooltip :text="status.identity?.name || (zh ? '账号' : 'Account')" :side="placement === 'toolbar' ? 'bottom' : 'right'">
+      <button ref="trigger" type="button" :popovertarget="panelId" :aria-controls="panelId" :aria-expanded="panelOpen" class="activity-button account-trigger" :aria-label="zh ? '打开账号信息' : 'Open account details'">
+        <img v-if="avatarUrl && !failedAvatar" :src="avatarUrl" class="account-avatar account-photo" alt="" referrerpolicy="no-referrer" @error="failedAvatar = true">
+        <span v-else-if="status.identity" class="account-avatar" aria-hidden="true">{{ status.identity.name.slice(0, 1).toUpperCase() }}</span>
+        <SidebarIcon v-else name="personal" />
+        <span v-if="placement === 'sidebar'" class="account-trigger-label" aria-hidden="true">{{ zh ? '账号' : 'Account' }}</span>
+      </button>
+    </Tooltip>
+    <div :id="panelId" popover="auto" class="account-panel" :style="panelPosition" @beforetoggle="positionPanel" @toggle="panelOpen = $event.newState === 'open'">
       <strong>{{ status.identity?.name || (status.enabled ? (zh ? '未登录' : 'Signed out') : (zh ? '本地模式' : 'Local mode')) }}</strong>
       <span v-if="status.provider">{{ status.provider }}</span>
       <span v-if="status.identity" class="account-id">{{ zh ? '账号 ID' : 'Account ID' }}: {{ status.identity.id }}</span>
@@ -194,11 +198,16 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .account-menu { position: relative; color: var(--text); font-size: 12px; -webkit-app-region: no-drag; }
-.account-menu--toolbar .account-trigger { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; min-height: 32px; padding: 0; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--text-secondary); cursor: pointer; }
-.account-menu--toolbar .account-trigger:hover { background: var(--surface-hover); color: var(--text); }
+.account-menu--toolbar .account-trigger { display: inline-flex; align-items: center; justify-content: center; width: var(--control-height-default); height: var(--control-height-default); min-height: var(--control-height-default); padding: 0; border: 1px solid transparent; border-radius: var(--control-radius); background: transparent; color: var(--text-secondary); cursor: pointer; }
+@media (hover: hover) and (pointer: fine) {
+  .account-menu--toolbar .account-trigger:hover { background: var(--toolbar-control-hover-background); color: var(--text); }
+}
+.account-menu--toolbar .account-trigger[aria-expanded='true'] { background: var(--toolbar-control-active-background); color: var(--text); }
+.account-menu--toolbar .account-trigger:active { background: var(--toolbar-control-pressed-background); color: var(--text); }
 .account-menu--toolbar .account-trigger :deep(.app-icon) { width: 18px; height: 18px; }
 .account-menu--toolbar .account-trigger .account-avatar { width: 24px; height: 24px; }
-.activity-button:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
+.activity-button:focus:not(:focus-visible) { outline: none; }
+.activity-button:focus-visible { outline: var(--control-focus-width) solid var(--focus-ring); outline-offset: var(--control-focus-offset); }
 .account-trigger-label { display: none; }
 .account-avatar { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; background: var(--surface); border: 1px solid var(--border); font-size: 11px; }
 .account-photo { object-fit: cover; }

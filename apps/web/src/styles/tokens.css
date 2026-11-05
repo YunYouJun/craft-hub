@@ -34,7 +34,12 @@
   --switch-thumb-shadow: 0 1px 2px var(--shadow);
   --switch-spinner-size: 10px;
   --tooltip-max-width: 300px;
-  --tooltip-shadow: 0 4px 12px var(--shadow);
+  --tooltip-shadow: 0 8px 24px rgb(0 0 0 / 18%), 0 2px 6px rgb(0 0 0 / 12%);
+  --tooltip-border: color-mix(in srgb, var(--tooltip-text) 12%, transparent);
+  --tooltip-shortcut-background: color-mix(in srgb, var(--tooltip-text) 20%, transparent);
+  --toolbar-control-hover-background: color-mix(in srgb, var(--text) 6%, transparent);
+  --toolbar-control-active-background: color-mix(in srgb, var(--text) 10%, transparent);
+  --toolbar-control-pressed-background: color-mix(in srgb, var(--text) 14%, transparent);
   --control-height-compact: 28px;
   --control-height-default: 32px;
   --form-control-height: var(--control-height-default);
@@ -143,10 +148,13 @@
   --page-section-title-size: var(--font-size-subheading);
   /* Primary sidebar excludes the activity rail. App sizing reads these same tokens. */
   --workbench-activity-width: 48px;
+  --workbench-activity-button-size: 36px;
+  --workbench-activity-button-radius: 10px;
   --workbench-sidebar-width: 216px;
   --workbench-sidebar-min-width: 188px;
   --workbench-sidebar-max-width: 346px;
-  --workbench-sidebar-background: var(--surface-muted);
+  /* Navigation sits below the canvas; cards and command lists use the raised surface. */
+  --workbench-sidebar-background: color-mix(in srgb, var(--text) 3%, var(--surface-muted));
   --workbench-sidebar-border: var(--border);
   --workbench-sidebar-color: var(--text);
   --workbench-sidebar-header-height: 40px;
@@ -277,7 +285,7 @@
   --terminal-fg: var(--ylf-admin-fg);
   --text: #1d1d1f;
   --text-secondary: var(--muted);
-  --tooltip-bg: #20242b;
+  --tooltip-bg: #181818;
   --tooltip-text: #fff;
   --warning: var(--ylf-status-warning-text);
   --warning-hover: var(--ylf-status-warning-hover);
@@ -328,8 +336,8 @@
   --status-review: #aaa2ff;
   --status-releasing: #d0a2f2;
   --status-resolved: #6ed4ca;
-  --tooltip-bg: #eef1f5;
-  --tooltip-text: #20242b;
+  --tooltip-bg: #eee;
+  --tooltip-text: #1d1d1f;
   --skeleton-highlight: rgb(255 255 255 / 7%);
 }
 
@@ -340,6 +348,7 @@
 :root[data-native-host='macos'] {
   --font-body: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif;
   --surface: var(--native-control-background, Canvas);
+  --menu-background: var(--surface);
   --surface-muted: var(--native-window-background, Canvas);
   --surface-subtle: var(--surface-muted);
   --surface-hover: color-mix(in srgb, var(--text) 5%, var(--surface));

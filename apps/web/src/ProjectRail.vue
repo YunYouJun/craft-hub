@@ -916,8 +916,8 @@ function openWorkspace(workspaceId: string): void {
       <div class="rail-controls">
         <header class="project-section-heading"><Icon name="folder" /><strong>{{ locale === 'zh-CN' ? '项目' : 'Projects' }}</strong></header>
         <NavigationList as="nav" class="project-section-tabs" :aria-label="locale === 'zh-CN' ? '项目导航' : 'Project navigation'">
-          <NavigationItem type="button" aria-current="page" :title="locale === 'zh-CN' ? '项目与工作区' : 'Projects and workspaces'" @click="emit('openWorkbench')"><span class="ui-navigation-label">{{ locale === 'zh-CN' ? '项目与工作区' : 'Projects and workspaces' }}</span></NavigationItem>
-          <NavigationItem type="button" data-testid="open-workspace-sources" :title="locale === 'zh-CN' ? '配置源' : 'Workspace sources'" @click="router.push('/subscriptions')"><span class="ui-navigation-label">{{ locale === 'zh-CN' ? '配置源' : 'Workspace sources' }}</span></NavigationItem>
+          <NavigationItem type="button" aria-current="page" :title="locale === 'zh-CN' ? '项目与工作区' : 'Projects and workspaces'" @click="emit('openWorkbench')"><span class="ui-navigation-label">{{ locale === 'zh-CN' ? '项目' : 'Projects' }}</span></NavigationItem>
+          <NavigationItem type="button" data-testid="open-workspace-sources" :title="locale === 'zh-CN' ? '配置源' : 'Workspace sources'" @click="router.push('/subscriptions')"><span class="ui-navigation-label">{{ locale === 'zh-CN' ? '配置源' : 'Sources' }}</span></NavigationItem>
         </NavigationList>
         <div class="owner-scope-switcher">
           <div class="owner-scope-select">
