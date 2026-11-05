@@ -124,7 +124,7 @@ catalog:
   cross-spawn: ^7.0.6
   devframe: ^1.2.6
   dompurify: 3.4.17
-  electron: ^45.0.0
+  electron: ^45.2.1
   eslint: ^10.13.0
   floating-vue: ^5.4.0
   happy-dom: ^21.0.4
