@@ -80,6 +80,10 @@ final class WorkbenchWebSession {
         guard let model, model.connectionGeneration == generation else { throw NativeHostChannelError.closed }
         return try await model.resourceBridge.perform(action, input: input)
       }
+      bridge.connectionBrowserAction = { [weak model] input in
+        guard let model, model.connectionGeneration == generation else { throw NativeHostChannelError.closed }
+        return try await model.connectionBrowser.open(input)
+      }
       inactiveObserver = NotificationCenter.default.addObserver(
         forName: NSApplication.didResignActiveNotification, object: nil, queue: .main
       ) { [weak self] _ in
@@ -140,6 +144,7 @@ final class WorkbenchWebSession {
     /// The workbench stays on its local origin; HTTPS links open in the default browser.
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
       model?.resourceBridge.invalidate()
+      model?.connectionBrowser.invalidate()
     }
 
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {

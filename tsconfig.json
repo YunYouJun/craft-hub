@@ -5,6 +5,7 @@
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "paths": {
+      "@craft-hub/craft-hub-plugin-xiaomi-cloud": ["./packages/craft-hub-plugin-xiaomi-cloud/src/index.ts"],
       "@craft-hub/craft-hub-plugin-microsoft-todo": ["./packages/craft-hub-plugin-microsoft-todo/src/index.ts"],
       "@craft-hub/craft-hub-plugin-workstation": ["./packages/craft-hub-plugin-workstation/src/index.ts"],
       "craft-hub/marketplace-model": ["./packages/craft-hub/src/marketplace-model.ts"],

@@ -99,6 +99,7 @@ final class DesktopBridge: NSObject, WKScriptMessageHandlerWithReply {
         openExternalUrl: url => native('open-external-url', { url }),
         copyText: text => native('copy-text', { text }),
         saveTextFile: input => native('save-text-file', input),
+        connectIntegrationBrowser: input => native('connect-integration-browser', input),
         openResourceSession: context => native('open-resource-session', context),
         closeResourceSession: sessionId => native('close-resource-session', { sessionId }),
         resourceCredential: input => native('resource-credential', input),
@@ -153,6 +154,7 @@ final class DesktopBridge: NSObject, WKScriptMessageHandlerWithReply {
   var codexActivityAction: ((String) async throws -> Any?)?
   var workbenchOperation: ((Bool) -> Void)?
   var resourceAction: ((String, [String: Any]) async throws -> Any)?
+  var connectionBrowserAction: (([String: Any]) async throws -> Any)?
 
   init(origin: URL) {
     self.origin = origin
@@ -174,6 +176,13 @@ final class DesktopBridge: NSObject, WKScriptMessageHandlerWithReply {
     }
     let input = body["input"] as? [String: Any] ?? [:]
     switch action {
+    case "connect-integration-browser":
+      guard let connectionBrowserAction else { return replyHandler(nil, "Native sign-in is unavailable") }
+      Task {
+        do { replyHandler(try await connectionBrowserAction(input), nil) } catch {
+          replyHandler(nil, "Connection did not finish. Reopen the sign-in window to retry.")
+        }
+      }
     case "set-workbench-operation-pending":
       guard input.count == 1, let pending = input["pending"] as? Bool, let workbenchOperation else {
         return replyHandler(nil, "Workbench operation state must be a boolean")

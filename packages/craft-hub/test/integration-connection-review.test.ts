@@ -25,6 +25,11 @@ it('binds reviews to account, grant and form definitions without returning or ha
   const formChanged = structuredClone(original)
   formChanged.forms![0]!.description = 'Changed meaning'
   expect(connectionReviewRevision(formChanged)).not.toBe(revision)
+  const browserChanged = structuredClone(original)
+  browserChanged.forms![0]!.browserAuthorization = { title: 'Sign in', url: 'https://cloud.example.com/notes', allowedOrigins: ['https://cloud.example.com'], cookieOrigin: 'https://cloud.example.com', cookieNames: ['session'], requiredCookieGroups: [['session']], cookieField: 'token', originField: 'origin' }
+  const browserRevision = connectionReviewRevision(browserChanged)
+  browserChanged.forms![0]!.browserAuthorization.cookieNames.push('another-session')
+  expect(connectionReviewRevision(browserChanged)).not.toBe(browserRevision)
   expect(matchesConnectionReview(original, revision, { method: 'token', token: 'provided', locale: 'en' })).toBe(true)
   for (const input of [{ method: 'disconnect', token: 'provided' }, { method: 'token', token: '' }, { method: 'token', token: 42 }, { method: 'token', token: 'provided', callbackUrl: 'https://example.com' }])
     expect(matchesConnectionReview(original, revision, input)).toBe(false)

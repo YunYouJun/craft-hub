@@ -26,6 +26,7 @@ interface DesktopBridgeV1 {
   setWorkbenchOperationPending?: (pending: boolean) => Promise<void>
   copyText?: (text: string) => Promise<void>
   saveTextFile?: (input: { filename: string, content: string }) => Promise<{ saved: boolean }>
+  connectIntegrationBrowser?: (input: { integrationId: string, formId: string, projectId?: string }) => Promise<{ connected: boolean }>
   openResourceSession?: (context: import('./resource-desktop').ResourceDesktopContext) => Promise<import('./resource-desktop').ResourceDesktopSession>
   closeResourceSession?: (sessionId: string) => Promise<void>
   resourceCredential?: (input: { sessionId: string, rowId: string, operation: 'show' | 'copy' | 'remove' }) => Promise<{ value?: string, copied?: boolean, removed?: boolean }>

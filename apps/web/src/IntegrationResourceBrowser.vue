@@ -17,7 +17,7 @@ import ResourceCollection from './ResourceCollection.vue'
 import { useWorkbenchStore } from './store'
 
 const props = defineProps<{ integrationId: string, contribution: ResolvedIntegrationContribution, input?: Record<string, unknown>, projectId?: string, viewId?: string, blockId?: string }>()
-const { t } = useI18n()
+const { locale, t } = useI18n()
 const { message, notify } = useActionToast()
 const store = useWorkbenchStore()
 const page = ref<ResourcePage>()
@@ -91,7 +91,7 @@ async function read(input: Record<string, unknown>, background = false, projectI
     loading.value = true
   error.value = ''
   try {
-    const result = await api.invokeIntegrationAction(props.integrationId, actions.value.read.id, input, projectId)
+    const result = await api.invokeIntegrationAction(props.integrationId, actions.value.read.id, { ...input, locale: locale.value }, projectId)
     if (current === revision)
       accept(result, background)
   }
@@ -209,7 +209,7 @@ onBeforeUnmount(() => {
           <IntegrationActionForm
             v-if="actions[form.effect]"
             :key="`${JSON.stringify(page.input)}:${form.id}:${formEpoch}`" :integration-id="integrationId" :project-id="activeProjectId"
-            :block="{ id: form.id, type: 'action-form', actionId: actions[form.effect]!.id, input: form.input, fields: form.fields }"
+            :block="{ id: form.id, type: 'action-form', actionId: actions[form.effect]!.id, input: { ...form.input, locale }, fields: form.fields }"
             :project-title="scopeTitle"
             :action="{ ...actions[form.effect]!, title: form.title }" :translate="value => value"
             @completed="completed"

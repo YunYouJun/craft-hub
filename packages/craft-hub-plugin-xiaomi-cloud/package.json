@@ -1,0 +1,13 @@
+{
+  "name": "@craft-hub/craft-hub-plugin-xiaomi-cloud",
+  "type": "module",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Read and back up Xiaomi Cloud notes in Craft Hub.",
+  "exports": { ".": "./dist/index.mjs" },
+  "types": "./dist/index.d.mts",
+  "scripts": { "build": "tsdown" },
+  "peerDependencies": { "craft-hub": "*" },
+  "dependencies": { "keytar": "catalog:" },
+  "devDependencies": { "craft-hub": "workspace:*", "tsdown": "catalog:" }
+}

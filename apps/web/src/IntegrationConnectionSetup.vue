@@ -18,6 +18,24 @@ const saving = ref(false)
 const error = ref('')
 const authorizationUrl = ref('')
 const deviceAuthorization = ref<IntegrationConnectionStatus['deviceAuthorization']>()
+const browserConnection = window.craftHubDesktop?.connectIntegrationBrowser
+
+async function connectBrowser(formId: string): Promise<void> {
+  if (!browserConnection || saving.value)
+    return
+  saving.value = true
+  error.value = ''
+  try {
+    const result = await browserConnection({ integrationId: props.integrationId, formId, ...(props.projectId ? { projectId: props.projectId } : {}) })
+    if (active && result.connected)
+      emit('updated')
+  }
+  catch {
+    if (active)
+      error.value = locale.value === 'zh-CN' ? '连接未完成，请重新打开登录窗口后重试。' : 'Connection did not finish. Reopen the sign-in window to retry.'
+  }
+  finally { saving.value = false }
+}
 let active = true
 let authorizationRefresh: ReturnType<typeof setInterval> | undefined
 let authorizationDeadline: ReturnType<typeof setTimeout> | undefined
@@ -136,10 +154,15 @@ async function submit(form: NonNullable<IntegrationConnectionStatus['forms']>[nu
       </a>
     </p>
     <template v-if="actionId">
+      <template v-for="form in status.forms" :key="`browser-${form.id}`">
+        <UiButton v-if="browserConnection && form.browserAuthorization" variant="primary" :disabled="saving" @click="connectBrowser(form.id)">
+          {{ translate(form.browserAuthorization.title) }}
+        </UiButton>
+      </template>
       <details v-for="form in status.forms" :key="form.id" class="connection-disclosure" :open="!status.connected && ['oauth', 'device-code'].includes(form.id)">
         <summary class="connection-disclosure-summary">
           <span class="connection-disclosure-chevron"><Icon name="arrowRight" /></span>
-          <span>{{ translate(form.title) }}</span>
+          <span>{{ browserConnection && form.browserAuthorization ? (locale === 'zh-CN' ? '高级：手动连接' : 'Advanced: manual connection') : translate(form.title) }}</span>
         </summary>
         <form class="connection-form" @submit.prevent="submit(form)">
           <p v-if="form.description" class="connection-form-description">{{ translate(form.description) }}</p>

@@ -13,6 +13,46 @@ beforeEach(() => {
 })
 
 describe('connection setup forms', () => {
+  it('offers native automatic sign-in without sending credentials through the web action API', async () => {
+    const connectIntegrationBrowser = vi.fn().mockResolvedValue({ connected: true })
+    window.craftHubDesktop = { connectIntegrationBrowser }
+    const invoke = vi.spyOn(api, 'invokeIntegrationAction')
+    const wrapper = mount(IntegrationConnectionSetup, { props: { ...props, status: { connected: false, forms: [{ ...status.forms[0]!, browserAuthorization: { title: 'Sign in and connect', url: 'https://cloud.example.com', allowedOrigins: ['https://cloud.example.com'], cookieOrigin: 'https://cloud.example.com', cookieNames: ['session'], requiredCookieGroups: [['session']], cookieField: 'token', originField: 'origin' } }] } } })
+    try {
+      expect(connectIntegrationBrowser).not.toHaveBeenCalled()
+      expect(wrapper.text()).toContain('Advanced: manual connection')
+      await wrapper.get('button').trigger('click')
+      await flushPromises()
+      expect(connectIntegrationBrowser).toHaveBeenCalledExactlyOnceWith({ integrationId: 'example', formId: 'token', projectId: 'project-1' })
+      expect(invoke).not.toHaveBeenCalled()
+      expect(wrapper.emitted('updated')).toHaveLength(1)
+    }
+    finally {
+      wrapper.unmount()
+      delete window.craftHubDesktop
+    }
+  })
+
+  it('keeps cancelled or failed native sign-in retryable and hides host error details', async () => {
+    const connectIntegrationBrowser = vi.fn().mockResolvedValueOnce({ connected: false }).mockRejectedValueOnce(new Error('must-not-show-session'))
+    window.craftHubDesktop = { connectIntegrationBrowser }
+    const wrapper = mount(IntegrationConnectionSetup, { props: { ...props, status: { connected: false, forms: [{ ...status.forms[0]!, browserAuthorization: { title: 'Sign in', url: 'https://cloud.example.com', allowedOrigins: ['https://cloud.example.com'], cookieOrigin: 'https://cloud.example.com', cookieNames: ['session'], requiredCookieGroups: [['session']], cookieField: 'token', originField: 'origin' } }] } } })
+    try {
+      await wrapper.get('button').trigger('click')
+      await flushPromises()
+      expect(wrapper.emitted('updated')).toBeUndefined()
+      await wrapper.get('button').trigger('click')
+      await flushPromises()
+      expect(wrapper.text()).toContain('Connection did not finish')
+      expect(wrapper.text()).not.toContain('must-not-show-session')
+      expect(wrapper.get('button').attributes('disabled')).toBeUndefined()
+    }
+    finally {
+      wrapper.unmount()
+      delete window.craftHubDesktop
+    }
+  })
+
   it('only submits on user action, confirms the selected method, clears secrets and refreshes', async () => {
     const invoke = vi.spyOn(api, 'invokeIntegrationAction').mockResolvedValue({ connected: true })
     const wrapper = mount(IntegrationConnectionSetup, { props })

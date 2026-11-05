@@ -37,6 +37,20 @@ afterEach(() => {
 })
 
 describe('native resource browser', () => {
+  it('passes the selected language to resource reads and explicit forms', async () => {
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    useI18n().setLocale('zh-CN')
+    const invoke = vi.spyOn(api, 'invokeIntegrationAction').mockResolvedValue(page)
+    const wrapper = mount(IntegrationResourceBrowser, { props: { contribution, integrationId: 'example' }, global: { plugins: [pinia] } })
+    try {
+      await flushPromises()
+      expect(invoke).toHaveBeenCalledExactlyOnceWith('example', 'read', { locale: 'zh-CN' }, undefined)
+      expect(wrapper.getComponent(IntegrationActionForm).props('block').input).toMatchObject({ locale: 'zh-CN', revision: 'old' })
+    }
+    finally { wrapper.unmount() }
+  })
+
   it('loads documents without writing and resets an editor only after an explicit successful update', async () => {
     const pinia = createPinia()
     setActivePinia(pinia)
@@ -44,7 +58,7 @@ describe('native resource browser', () => {
     const invoke = vi.spyOn(api, 'invokeIntegrationAction').mockResolvedValue(page)
     const wrapper = mount(IntegrationResourceBrowser, { props: { contribution, integrationId: 'example', projectId: 'project', input: { resource: 'documents' } }, global: { plugins: [pinia] } })
     await flushPromises()
-    expect(invoke).toHaveBeenCalledExactlyOnceWith('example', 'read', { resource: 'documents' }, 'project')
+    expect(invoke).toHaveBeenCalledExactlyOnceWith('example', 'read', { resource: 'documents', locale: 'en' }, 'project')
     expect(wrapper.text()).toContain('Previous text')
     await wrapper.get('textarea').setValue('My unsaved draft')
     expect(wrapper.get('textarea').element.value).toBe('My unsaved draft')
@@ -128,7 +142,7 @@ it('keeps background progress polling alive while another confirmed operation pr
     await vi.advanceTimersByTimeAsync(1600)
     await flushPromises()
     expect(invoke).toHaveBeenCalledTimes(2)
-    expect(invoke).toHaveBeenLastCalledWith('example', 'read', page.input, undefined)
+    expect(invoke).toHaveBeenLastCalledWith('example', 'read', { ...page.input, locale: 'en' }, undefined)
   }
   finally {
     release?.()

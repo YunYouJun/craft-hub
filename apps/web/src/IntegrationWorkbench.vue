@@ -482,6 +482,7 @@ defineExpose({ refresh })
 
           <IntegrationResourceBrowser
             v-if="block.type === 'resource-browser' && contribution"
+            :key="`${integrationId}:${block.id}:${currentSession()?.cacheKey ?? ''}:${locale}`"
             :integration-id="integrationId" :contribution="contribution" :input="block.input"
             :view-id="viewId" :block-id="block.id"
             :project-id="view.scope === 'global' ? undefined : inspectedProjectId || undefined"

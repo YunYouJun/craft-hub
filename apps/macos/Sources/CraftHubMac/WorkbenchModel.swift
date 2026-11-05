@@ -32,6 +32,7 @@ final class WorkbenchModel {
   let codexActivity = CodexActivityModel()
   private(set) var connectionGeneration = UUID()
   let resourceBridge = ResourceDesktopBridge()
+  let connectionBrowser = ConnectionBrowserBridge()
   let workItemActions = WorkItemQuickActionsModel()
   private(set) var recentProjectIDs: [String]
   let observation = RuntimeObservation()
@@ -97,6 +98,7 @@ final class WorkbenchModel {
     guard let destination else { return }
     selection = destination
     resourceBridge.invalidate()
+    connectionBrowser.invalidate()
     webView?.evaluateJavaScript("window.dispatchEvent(new Event('craft-hub-conceal'))", completionHandler: nil)
     pluginWorkbenchPath = nil
     projectCommand.close()
@@ -161,6 +163,7 @@ final class WorkbenchModel {
     pluginNavigation.connect(preferencesClient)
     pluginWorkbenchPath = nil
     resourceBridge.connect(preferencesClient)
+    connectionBrowser.connect(preferencesClient)
     workItemActions.connect(preferencesClient)
     workItemActions.completed = { [weak self] _ in
       guard let self else { return }
@@ -251,6 +254,7 @@ final class WorkbenchModel {
   func routeChanged(_ path: String, section: String? = nil) {
     if route != path {
       resourceBridge.invalidate()
+      connectionBrowser.invalidate()
     }
     if let section {
       routeSection = section

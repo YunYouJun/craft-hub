@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 /// <reference lib="dom" />
 
-import type { IntegrationContribution, IntegrationEntity, IntegrationEntityPage } from 'craft-hub'
+import type { IntegrationContribution, IntegrationEntity, IntegrationEntityPage, ResourcePage } from 'craft-hub'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -43,6 +43,41 @@ describe('integration workbench', () => {
   function task(containerId: string, title: string, accountId = 'me'): IntegrationEntity {
     return { id: '1', title, sourceRef: { providerId: 'tasks', instanceId: 'tasks', accountId, containerId, kind: 'task', itemId: '1' }, personalMembership: { accountId, relation: 'owned' } }
   }
+
+  it('reloads resource pages when connection identity changes and removes the previous account documents', async () => {
+    const store = workSource()
+    const source = store.integrationContributions[0]!
+    source.actions = [
+      { id: 'status', title: 'Connection', operation: 'connection.status', effect: 'remote-read', confirmation: 'never', effectiveConfirmation: 'never' },
+      { id: 'read', title: 'Notes', operation: 'resources.read', effect: 'remote-read', confirmation: 'never', effectiveConfirmation: 'never' },
+    ]
+    source.views[0]!.blocks = [{ id: 'connection', type: 'connection-status', actionId: 'status' }, { id: 'notes', type: 'resource-browser', actionId: 'read' }]
+    let account: string | undefined
+    vi.spyOn(api, 'invokeIntegrationAction').mockImplementation(async (_id, action) => {
+      if (action === 'status')
+        return { connected: Boolean(account), ...(account ? { session: { cacheKey: account } } : {}) }
+      const page: ResourcePage = { kind: 'resource-page', title: 'Notes', input: {}, documents: account ? [{ id: 'note', title: `${account} note`, content: `${account} private text` }] : [] }
+      return page
+    })
+    const wrapper = mount(IntegrationWorkbench, { props: { integrationId: 'tasks', viewId: 'work' }, global: { plugins: [pinia] } })
+    try {
+      await flushPromises()
+      account = 'First'
+      await wrapper.get('[data-testid="integration-block-connection"] button').trigger('click')
+      await flushPromises()
+      expect(wrapper.text()).toContain('First private text')
+      account = 'Second'
+      await wrapper.get('[data-testid="integration-block-connection"] button').trigger('click')
+      await flushPromises()
+      expect(wrapper.text()).toContain('Second private text')
+      expect(wrapper.text()).not.toContain('First private text')
+      account = undefined
+      await wrapper.get('[data-testid="integration-block-connection"] button').trigger('click')
+      await flushPromises()
+      expect(wrapper.text()).not.toContain('Second private text')
+    }
+    finally { wrapper.unmount() }
+  })
 
   it('keeps the reviewed project scope fixed while a confirmed operation is pending', async () => {
     const store = workSource()

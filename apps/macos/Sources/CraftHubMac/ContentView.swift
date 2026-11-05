@@ -87,6 +87,15 @@ struct ContentView: View {
         await model.resourceBridge.saveImport(request, metadata: metadata)
       }
     }
+    .sheet(
+      item: Binding(
+        get: { model.connectionBrowser.request }, set: { if $0 == nil { model.connectionBrowser.invalidate() } })
+    ) { request in
+      ConnectionBrowserSignInView(
+        request: request,
+        save: { cookie in await model.connectionBrowser.save(request, cookie: cookie) },
+        cancel: { model.connectionBrowser.invalidate() })
+    }
   }
 
   @ViewBuilder private var detail: some View {

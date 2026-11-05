@@ -15,6 +15,7 @@ export function connectionReviewRevision(status: IntegrationConnectionStatus): s
       title: form.title,
       description: form.description ?? null,
       submitLabel: form.submitLabel,
+      browserAuthorization: form.browserAuthorization ?? null,
       fields: form.fields.map(field => ({ id: field.id, label: field.label, type: field.type, required: field.required === true, value: field.type === 'password' ? null : field.value ?? null, placeholder: field.placeholder ?? null })),
     })),
   }

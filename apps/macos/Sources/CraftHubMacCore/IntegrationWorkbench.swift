@@ -76,6 +76,7 @@ public struct IntegrationPresentation: Decodable, Sendable {
       public let title: String
       public let description: String?
       public let submitLabel: String
+      public let browserAuthorization: ConnectionBrowserAuthorization?
       public let fields: [Field]
       public struct Field: Decodable, Identifiable, Sendable {
         public let id: String

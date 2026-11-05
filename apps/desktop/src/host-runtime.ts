@@ -4,6 +4,7 @@ import { dirname, join, resolve } from 'node:path'
 import codexConfigurationPlugin from '@craft-hub/craft-hub-plugin-codex'
 import { acquireProfileLease, CraftHubRuntime, getCraftHubConfigDir, loadCraftHubPlugins } from 'craft-hub'
 import microsoftTodoManifest from '../../../packages/craft-hub-plugin-microsoft-todo/package.json' with { type: 'json' }
+import xiaomiCloudManifest from '../../../packages/craft-hub-plugin-xiaomi-cloud/package.json' with { type: 'json' }
 import { CodexAgentTaskProvider } from './codex-agent-task-provider.ts'
 import { CodexWorkAssistant } from './codex-work-assistant.ts'
 import { desktopWorkstation } from './workstation-runtime.ts'
@@ -67,12 +68,13 @@ export async function hasMicrosoftTodoConnection(dataDir: string): Promise<boole
 }
 
 /**
- * Create the built-in Codex configuration and Workstation host plugins, and the optional Microsoft To Do plugin.
+ * Create the built-in Codex configuration and Workstation plugins, plus optional cloud integrations.
  * To Do connectors start on the first call and close after an idle period instead of staying resident.
  */
 export function createBuiltinHostPlugins(options: { workstationDirectory: string, workstationExecutable?: string, workstationElectronNodeMode?: boolean, dataDir: string, configurationEnvironment?: NodeJS.ProcessEnv }): BuiltinHostPlugins {
   const connections: Array<{ close: () => Promise<void> }> = []
   let microsoftTodo: Promise<CraftHubPlugin> | undefined
+  let xiaomiCloud: Promise<CraftHubPlugin> | undefined
   const workstation = desktopWorkstation({ directory: options.workstationDirectory, executable: options.workstationExecutable, electronNodeMode: options.workstationElectronNodeMode, configurationEnvironment: options.configurationEnvironment })
   const loadMicrosoftTodo = (): Promise<CraftHubPlugin> => microsoftTodo ??= (async () => {
     const { createMicrosoftTodoPlugin, createMicrosoftTodoTransport } = await import('@craft-hub/craft-hub-plugin-microsoft-todo')
@@ -88,9 +90,18 @@ export function createBuiltinHostPlugins(options: { workstationDirectory: string
       statePath: join(options.dataDir, 'integrations', 'microsoft-todo', 'connection.json'),
     })
   })()
+  const loadXiaomiCloud = (): Promise<CraftHubPlugin> => xiaomiCloud ??= (async () => {
+    const { createXiaomiCloudPlugin } = await import('@craft-hub/craft-hub-plugin-xiaomi-cloud')
+    const plugin = createXiaomiCloudPlugin({ dataDir: options.dataDir })
+    connections.push(plugin)
+    return plugin
+  })()
   return {
     plugins: [codexConfigurationPlugin, workstation.plugin],
-    optionalPlugins: [{ id: microsoftTodoBundledId, name: 'Microsoft To Do', version: microsoftTodoManifest.version, load: loadMicrosoftTodo, enabledByDefault: () => hasMicrosoftTodoConnection(options.dataDir) }],
+    optionalPlugins: [
+      { id: microsoftTodoBundledId, name: 'Microsoft To Do', version: microsoftTodoManifest.version, load: loadMicrosoftTodo, enabledByDefault: () => hasMicrosoftTodoConnection(options.dataDir) },
+      { id: 'xiaomi-cloud', name: 'Xiaomi Cloud', version: xiaomiCloudManifest.version, load: loadXiaomiCloud, enabledByDefault: async () => false },
+    ],
     workstation,
     closeConnections: () => connections.map(connection => connection.close()),
   }

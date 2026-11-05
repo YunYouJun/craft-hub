@@ -151,12 +151,25 @@ export interface IntegrationProviderContext {
   projectPath?: string
 }
 
+/** Declarative policy for an isolated, host-owned browser sign-in; scripts and credentials are never declarations. */
+export interface IntegrationBrowserAuthorization {
+  title: string
+  url: string
+  allowedOrigins: string[]
+  cookieOrigin: string
+  cookieNames: string[]
+  requiredCookieGroups: string[][]
+  cookieField: string
+  originField: string
+}
+
 /** Display-safe setup form; credentials are submitted once and never returned. */
 export interface IntegrationConnectionForm {
   id: string
   title: string
   description?: string
   submitLabel: string
+  browserAuthorization?: IntegrationBrowserAuthorization
   fields: Array<{ id: string, label: string, type: 'text' | 'password', required?: boolean, value?: string, placeholder?: string }>
 }
 
@@ -528,6 +541,32 @@ function validateWorkItem(item: IntegrationEntity, providerId: string, instanceI
 }
 
 function validateConnectionStatus(status: IntegrationConnectionStatus): IntegrationConnectionStatus {
+  for (const form of status.forms ?? []) {
+    if (!form.browserAuthorization)
+      continue
+    const origin = z.url().max(2048).refine((value) => {
+      const url = new URL(value)
+      return url.protocol === 'https:' && url.origin === value && !url.username && !url.password
+    })
+    const browser = z.object({
+      title: z.string().min(1).max(200),
+      url: z.url().max(2048),
+      allowedOrigins: z.array(origin).min(1).max(8),
+      cookieOrigin: origin,
+      cookieNames: z.array(z.string().regex(/^[\w.-]{1,100}$/)).min(1).max(16),
+      requiredCookieGroups: z.array(z.array(z.string()).min(1).max(16)).min(1).max(16),
+      cookieField: z.string().regex(/^[a-z]\w{0,99}$/i),
+      originField: z.string().regex(/^[a-z]\w{0,99}$/i),
+    }).strict().parse(form.browserAuthorization)
+    const url = new URL(browser.url)
+    if (url.protocol !== 'https:' || url.username || url.password || url.hash || url.origin !== browser.cookieOrigin
+      || !browser.allowedOrigins.includes(url.origin) || new Set(browser.cookieNames).size !== browser.cookieNames.length
+      || browser.requiredCookieGroups.some(group => group.some(name => !browser.cookieNames.includes(name)))
+      || !form.fields.some(field => field.id === browser.cookieField && field.type === 'password')
+      || !form.fields.some(field => field.id === browser.originField && field.type === 'text' && field.value === browser.cookieOrigin)) {
+      throw new Error('Invalid browser authorization declaration')
+    }
+  }
   if (status.session) {
     z.object({
       cacheKey: z.string().min(1).max(512).optional(),
