@@ -1,6 +1,10 @@
 # ADR 0012: Make a macOS native client the primary desktop host
 
+Update, 2026-11-04: [ADR 0014](0014-keep-electron-and-use-an-optional-resident-companion.md) keeps Electron primary and reuses Augma for optional resident entry points. The full-host migration plan below is historical; preserve its candidate, profiles, drafts and evidence.
+
 Date: 2026-10-22. Status: accepted for implementation. The maintainer's native-client Goal authorizes the engineering work. Electron remains the shipped default host; daily-use acceptance, real-data migration and the distribution switch retain their separate gates.
+
+Update, 2026-11-04: [ADR 0013](0013-share-business-pages-across-desktop-hosts.md) supersedes the plan to port business pages to SwiftUI. The macOS host retains native system capabilities and uses the shared Vue renderer for workflow groups as they converge. Environment and configuration pages are the first group; the remainder below records the original implementation decision and its dated acceptance evidence. Electron supports tray icons, global shortcuts and native notifications; their availability alone is not a reason to rewrite business pages.
 
 Update, 2026-10-22: the `apps/macos` prototype (M1) runs the shared runtime sidecar from `apps/desktop/src/sidecar.ts`, which Electron and the native host compose through `createDesktopHostRuntime`. The Tauri trial is retired and removed (question 9). Native environment inspection and software browsing now consume the public API through a separate per-process bearer token delivered over the parent pipe. Configuration and installation remain in the embedded workbench; this does not complete the M0 decisions or M1 daily-use acceptance.
 

@@ -90,12 +90,12 @@ it('refuses overlapping build and install paths before touching the app', async 
   expect(operations.copy).not.toHaveBeenCalled()
 })
 
-it('routes the local reinstall aliases and Codex Run wrapper through the same native workflow', async () => {
+it('uses Electron for default Run while preserving the explicit native reinstall workflow', async () => {
   const workspace = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'))
-  expect(workspace.scripts['reinstall:mac']).toBe('pnpm reinstall:macos')
+  expect(workspace.scripts['reinstall:mac']).toBe('pnpm reinstall:electron:mac')
   expect(workspace.scripts['reinstall:macos']).toBe('tsx scripts/reinstall-native-macos.ts')
   expect(workspace.scripts['reinstall:electron:mac']).toBe('tsx scripts/reinstall-macos.ts')
   const wrapper = await readFile(new URL('../script/build_and_run.sh', import.meta.url), 'utf8')
-  expect(wrapper).toContain('exec pnpm reinstall:macos "$@"')
+  expect(wrapper).toContain('exec pnpm reinstall:electron:mac "$@"')
   expect(wrapper).not.toContain('open -n')
 })

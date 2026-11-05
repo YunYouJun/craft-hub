@@ -1,6 +1,10 @@
 # macOS 原生客户端目标
 
+2026-11-04 当前决定：[ADR 0014](../adr/0014-keep-electron-and-use-an-optional-resident-companion.md) 保持 Electron 主界面，复用 Augma 的原生常驻入口。下文全面原生化与独立主宿主计划保留为历史；不继续执行剩余页面迁移，也不删除原生候选、资料或草稿。
+
 日期：2026-10-22。状态：目标已提出；架构决定见 [ADR 0012](../adr/0012-make-a-macos-native-client-the-primary-desktop-host.md)，已接受工程实施。`apps/macos` 已有可运行原型，各平台正式发布的仍是 Electron。
+
+2026-11-04 方向更新：[ADR 0013](../adr/0013-share-business-pages-across-desktop-hosts.md) 已接受薄原生宿主与共享 Vue。后续页面归属、保留项和执行顺序以[共享 UI 收敛清单](macos-shared-ui-convergence.md)为准；下文全面原生化的阶段内容保留为历史记录，系统、安全、资料隔离及分发验收要求继续生效。
 
 ## 继续实施 Goal（2026-10-22）
 

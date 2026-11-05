@@ -21,7 +21,7 @@
     "format:macos": "swift format format --in-place --configuration apps/macos/.swift-format --recursive apps/macos/Sources apps/macos/Tests apps/macos/Package.swift apps/runtime-macos/Sources apps/runtime-macos/Tests apps/runtime-macos/Package.swift scripts/native-macos-lifecycle.swift",
     "package:mac": "tsx scripts/run-package-macos.ts",
     "package:macos": "tsx apps/macos/scripts/package-release.ts",
-    "reinstall:mac": "pnpm reinstall:macos",
+    "reinstall:mac": "pnpm reinstall:electron:mac",
     "reinstall:macos": "tsx scripts/reinstall-native-macos.ts",
     "reinstall:electron:mac": "tsx scripts/reinstall-macos.ts",
     "prepublishOnly": "nr build",

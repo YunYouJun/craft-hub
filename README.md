@@ -121,13 +121,13 @@ For local native development, rebuild the current Mac architecture, install it a
 pnpm reinstall:macos
 ```
 
-The Codex Run button and `pnpm reinstall:mac` use this same native workflow. It retains the previous app, uses normal quit guards and checks the actual running executable and sidecar. Set `CRAFT_HUB_NATIVE_INSTALL_DIR` to choose another installation directory. Local builds do not update automatically; rerun this command after source changes.
+This explicit native-candidate workflow retains the previous app, uses normal quit guards and checks the running executable and sidecar. Set `CRAFT_HUB_NATIVE_INSTALL_DIR` to choose another installation directory. Local builds do not update automatically.
 
-To rebuild and reinstall the Electron fallback in `/Applications`, use `pnpm reinstall:electron:mac`; its installation override remains `CRAFT_HUB_DESKTOP_INSTALL_DIR`.
+The Codex Run button, `pnpm reinstall:mac` and `pnpm reinstall:electron:mac` rebuild and reinstall the primary Electron interface in `/Applications`; override the installation directory with `CRAFT_HUB_DESKTOP_INSTALL_DIR`.
 
 The lower-level `package:mac` script packages existing build output and is used by the release workflow.
 
-A native SwiftUI host for macOS is in prototype ([ADR 0012](./docs/adr/0012-make-a-macos-native-client-the-primary-desktop-host.md)). It wraps the Web UI in native window chrome and runs the same runtime as a sidecar on your own Node. Run `pnpm build:macos` to build it; it uses separate prototype data and does not yet replace the Electron distribution. See the [prototype guide](./apps/macos/README.md).
+A preserved SwiftUI macOS candidate remains in `apps/macos` with isolated data. [ADR 0014](./docs/adr/0014-keep-electron-and-use-an-optional-resident-companion.md) keeps Electron primary and reuses Augma for the optional menu-bar companion, durable capture and cached Today summary. See the [companion guide](./docs/guide/resident-companion.md); `pnpm build:macos` still builds the historical candidate without migrating its data.
 
 ## CLI
 

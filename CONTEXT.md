@@ -4,6 +4,14 @@ Craft Hub brings software, development environments and configuration migration 
 
 ## Language
 
+**Resident Companion**:
+An optional small application that keeps quick entry points and local capture available independently of the full workbench. It does not become a second owner of project trust or work-source accounts.
+_Avoid_: Primary desktop host, background execution service
+
+**Companion Summary**:
+A dated, bounded, read-only view of selected work-item facts and their source coverage. Its continued availability does not establish that the source is currently connected or unchanged.
+_Avoid_: Live task list, authoritative task store
+
 **Shared Runtime**:
 The single authoritative executor of configured capabilities for one local writable data scope, shared by its connected clients. A client does not become another owner of that scope by connecting.
 _Avoid_: Desktop window, Resident Companion, cloud service
