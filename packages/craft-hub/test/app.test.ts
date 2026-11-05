@@ -1,11 +1,14 @@
 import type { ChildProcess } from 'node:child_process'
 import { execFile, spawn } from 'node:child_process'
-import { mkdir, mkdtemp, realpath, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join, relative, resolve } from 'node:path'
+import { performance } from 'node:perf_hooks'
+import { setTimeout as delay } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
-import { describe, expect, it } from 'vitest'
+import { FSWatcher } from 'chokidar'
+import { describe, expect, it, vi } from 'vitest'
 import { craftHubCelebrationDesktopUrl, craftHubProjectDesktopUrl, launchCraftHubApp, launchCraftHubProject } from '../src/app'
 import { CraftHubRuntime } from '../src/runtime'
 
@@ -75,6 +78,55 @@ async function readChunk<T>(reader: ReadableStreamDefaultReader<T>, timeoutMs = 
   }
   finally {
     clearTimeout(timer)
+  }
+}
+
+async function readUntilEvent(reader: ReadableStreamDefaultReader<Uint8Array>, expected: string, timeoutMs: number): Promise<string> {
+  const deadline = Date.now() + timeoutMs
+  const decoder = new TextDecoder()
+  let output = ''
+  while (!output.includes(expected)) {
+    const chunk = await readChunk(reader, Math.max(deadline - Date.now(), 1))
+    if (chunk.done)
+      throw new Error(`Event stream closed before ${expected}`)
+    output += decoder.decode(chunk.value, { stream: true })
+  }
+  return output
+}
+
+const watcherProbeIntervalMs = 500
+const watcherStartupTimeoutMs = 1_500
+
+async function acknowledgeProjectWatcher(reader: ReadableStreamDefaultReader<Uint8Array>, projectPath: string): Promise<void> {
+  // Chokidar ready completes the scan; macOS can still drop the first native callbacks.
+  // Confirm a real overview notification before making the single capabilities edit.
+  const stop = new AbortController()
+  const probing = (async () => {
+    let attempt = 0
+    while (!stop.signal.aborted) {
+      await writeFile(join(projectPath, 'README.md'), `# Watcher startup ${++attempt}\n`)
+      try {
+        // Space probes beyond the event coalescing window so they can be acknowledged.
+        await delay(watcherProbeIntervalMs, undefined, { signal: stop.signal })
+      }
+      catch (error) {
+        if (!stop.signal.aborted)
+          throw error
+      }
+    }
+  })()
+  try {
+    await Promise.race([
+      readUntilEvent(reader, '"scopes":["overview"]', watcherStartupTimeoutMs),
+      probing,
+    ])
+  }
+  catch (error) {
+    throw new Error('Project watcher did not acknowledge startup', { cause: error })
+  }
+  finally {
+    stop.abort()
+    await probing
   }
 }
 
@@ -193,29 +245,80 @@ describe('app launcher', () => {
       runtime: new CraftHubRuntime(join(projectPath, '.event-data')),
     })
     const abort = new AbortController()
+    const nativeEmit = FSWatcher.prototype.emit
+    let dropStartupNotification = true
+    // Model the native startup window: ready can precede the first OS callback.
+    const nativeEvents = vi.spyOn(FSWatcher.prototype, 'emit').mockImplementation(function (this: FSWatcher, event, ...args) {
+      if (event === 'all' && dropStartupNotification
+        && (args[0] === 'add' || args[0] === 'change')
+        && (args[1] === join(projectPath, 'README.md') || args[1] === join(projectPath, 'package.json'))) {
+        dropStartupNotification = false
+        return false
+      }
+      return nativeEmit.call(this, event, ...args)
+    })
 
     try {
       const response = await fetch(new URL('/api/events', launched.url), { signal: abort.signal })
       expect(response.headers.get('content-type')).toContain('text/event-stream')
       const reader = response.body!.getReader()
+      await acknowledgeProjectWatcher(reader, projectPath)
       await writeFile(join(projectPath, 'package.json'), JSON.stringify({ scripts: { dev: 'vite --host' } }))
 
-      let output = ''
-      const timeout = Date.now() + 3_000
-      while (!output.includes('event: project-change') && Date.now() < timeout) {
-        const chunk = await readChunk(reader, Math.max(timeout - Date.now(), 1))
-        if (chunk.done)
-          break
-        output += new TextDecoder().decode(chunk.value)
-      }
+      const output = await readUntilEvent(reader, '"scopes":["capabilities"]', 3_000)
       expect(output).toContain('event: project-change')
       expect(output).toContain(`"projectId":"${launched.project.id}"`)
       expect(output).toContain('"scopes":["capabilities"]')
+      expect(dropStartupNotification).toBe(false)
       await reader.cancel()
     }
     finally {
       abort.abort()
-      await launched.close()
+      try {
+        await launched.close()
+      }
+      finally {
+        nativeEvents.mockRestore()
+        await rm(projectPath, { recursive: true, force: true })
+      }
+    }
+  })
+
+  it('bounds watcher startup failure and stops probe writes after timeout', async () => {
+    const projectPath = await projectFixture()
+    const launched = await launchCraftHubApp(projectPath, {
+      open: false,
+      runtime: new CraftHubRuntime(join(projectPath, '.event-data')),
+    })
+    const abort = new AbortController()
+    const nativeEmit = FSWatcher.prototype.emit
+    const nativeEvents = vi.spyOn(FSWatcher.prototype, 'emit').mockImplementation(function (this: FSWatcher, event, ...args) {
+      if (event === 'all' && args[1] === join(projectPath, 'README.md'))
+        return false
+      return nativeEmit.call(this, event, ...args)
+    })
+    try {
+      const response = await fetch(new URL('/api/events', launched.url), { signal: abort.signal })
+      const reader = response.body!.getReader()
+      const started = performance.now()
+      await expect(acknowledgeProjectWatcher(reader, projectPath)).rejects.toThrow('Project watcher did not acknowledge startup')
+      const elapsed = performance.now() - started
+      expect(elapsed).toBeGreaterThanOrEqual(watcherStartupTimeoutMs - 50)
+      expect(elapsed).toBeLessThan(watcherStartupTimeoutMs * 2)
+      const probePath = join(projectPath, 'README.md')
+      const stoppedContent = await readFile(probePath, 'utf8')
+      await delay(watcherProbeIntervalMs + 50)
+      expect(await readFile(probePath, 'utf8')).toBe(stoppedContent)
+    }
+    finally {
+      abort.abort()
+      try {
+        await launched.close()
+      }
+      finally {
+        nativeEvents.mockRestore()
+        await rm(projectPath, { recursive: true, force: true })
+      }
     }
   })
 
