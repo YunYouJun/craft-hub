@@ -1,0 +1,60 @@
+name: Compatibility
+
+on:
+  workflow_dispatch:
+    inputs:
+      suite:
+        description: Compatibility checks to run
+        type: choice
+        default: all
+        options:
+          - all
+          - macos
+          - node26
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ inputs.suite }}
+  cancel-in-progress: true
+
+jobs:
+  macos:
+    name: macOS build, tests, and shared runtime
+    if: inputs.suite == 'all' || inputs.suite == 'macos'
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-workspace
+      - run: pnpm build
+      - name: Run unit tests
+        run: pnpm test --run --maxWorkers=2 --exclude scripts/dev-vite.test.ts
+      - name: Run Vite process integration test
+        run: pnpm test --run scripts/dev-vite.test.ts
+      - run: swift test --package-path apps/runtime-macos
+      - run: pnpm test:shared-runtime
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: shared-runtime-macos-evidence
+          path: apps/macos/build/shared-runtime-*/
+          retention-days: 7
+
+  node-compatibility:
+    name: Runtime on Node ${{ matrix.node }}
+    if: inputs.suite == 'all' || inputs.suite == 'node26'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [26]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-workspace
+        with:
+          node-version: ${{ matrix.node }}
+      - run: pnpm build
+      - run: pnpm test --run --maxWorkers=2 packages/craft-hub/test apps/desktop/test
