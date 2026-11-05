@@ -161,7 +161,7 @@
   --workbench-activity-button-size: 36px;
   --workbench-activity-button-radius: 10px;
   --workbench-sidebar-width: 216px;
-  --workbench-sidebar-min-width: 188px;
+  --workbench-sidebar-min-width: 216px;
   --workbench-sidebar-max-width: 346px;
   /* Navigation sits below the canvas; cards and command lists use the raised surface. */
   --workbench-sidebar-background: color-mix(in srgb, var(--text) 3%, var(--surface-muted));

@@ -63,6 +63,15 @@ describe('shared workbench splitter', () => {
     wrapper.unmount()
   })
 
+  it('clamps an older narrow preference to the current minimum', async () => {
+    document.documentElement.style.setProperty('--workbench-sidebar-min-width', '216px')
+    localStorage.setItem(preferenceKey, '188')
+    const wrapper = mount(Fixture, { props: { home: true, activityWidth: 176 }, attachTo: document.body })
+    await flushPromises()
+    expect(sidebarSize(wrapper)).toBeCloseTo(392, 1)
+    wrapper.unmount()
+  })
+
   it('reclaims hidden sidebar space without replacing the saved width', async () => {
     localStorage.setItem(preferenceKey, '280')
     const wrapper = mount(Fixture, { props: { home: true, activityWidth: 176 }, attachTo: document.body })
