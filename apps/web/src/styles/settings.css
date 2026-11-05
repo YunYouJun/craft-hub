@@ -10,7 +10,7 @@
   grid-template-rows: auto minmax(0, 1fr);
   overflow: hidden;
   transform: translate(-50%, -50%);
-  border: 1px solid var(--border-strong);
+  border: 1px solid var(--dialog-border);
   border-radius: var(--settings-window-radius);
   background: var(--settings-window-background);
   box-shadow: var(--settings-window-shadow);
@@ -25,7 +25,7 @@
   justify-content: space-between;
   gap: var(--settings-row-gap);
   border-bottom: 1px solid var(--border);
-  background: var(--workbench-chrome);
+  background: var(--settings-header-background);
   padding: var(--settings-header-padding-block) var(--settings-header-padding-inline);
 }
 
@@ -52,7 +52,7 @@
 .ui-settings-section-title { margin: 0; color: var(--text); font-size: var(--settings-section-title-size); font-weight: var(--settings-section-title-weight); line-height: var(--settings-row-line-height); }
 .ui-settings-section-description { margin: var(--settings-metadata-gap) 0 0; color: var(--muted); font-size: var(--settings-metadata-size); line-height: var(--settings-metadata-line-height); overflow-wrap: anywhere; }
 .ui-settings-section-controls, .ui-settings-status-actions { display: flex; flex: none; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: var(--space-2); }
-.ui-settings-group { min-width: 0; overflow: hidden; border: 1px solid var(--settings-group-border); border-radius: var(--settings-group-radius); background: var(--settings-group-background); }
+.ui-settings-group { min-width: 0; overflow: hidden; border: 1px solid var(--settings-group-outline); border-radius: var(--settings-group-radius); background: var(--settings-group-background); }
 .ui-settings-section-footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2); margin-top: var(--space-2); color: var(--muted); font-size: var(--settings-metadata-size); line-height: var(--settings-metadata-line-height); }
 .ui-settings-section-footer > p { margin: 0; }
 
@@ -129,9 +129,6 @@
 .shortcut-recorder.recording { outline: var(--control-focus-width) solid var(--focus-ring); outline-offset: var(--control-focus-offset); color: var(--accent); }
 .shortcut-reference-keys { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: var(--settings-metadata-gap); }
 .shortcut-reference-keys kbd { font-size: var(--settings-metadata-size); line-height: var(--settings-metadata-line-height); }
-
-.settings-choice-options { display: flex; min-width: 0; flex-wrap: wrap; align-items: center; gap: var(--space-1); }
-.settings-choice-options .ui-button[aria-pressed='true'] { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
 
 .dotfiles-command { display: grid; min-width: 0; grid-template-columns: max-content minmax(0, 1fr); align-items: start; gap: var(--space-2); }
 .dotfiles-command code { padding: 0 var(--space-1); line-height: inherit; }

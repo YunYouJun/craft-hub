@@ -64,16 +64,17 @@ const route = useRoute()
 const router = useRouter()
 const compactViewport = useMediaQuery('(max-width: 760px)')
 const desktopSidebarCollapsed = useLocalStorage('craft-hub-desktop-sidebar-collapsed', false)
+const desktopMac = window.craftHubDesktop?.platform === 'darwin'
+const desktopSidebarHidden = computed(() => desktopMac && desktopSidebarCollapsed.value && !compactViewport.value)
 const reducedMotion = useMediaQuery('(prefers-reduced-motion: reduce)')
 // The rail glides between its widths like a native sidebar; the grid and the home splitter both follow every frame.
 // Compact layouts and reduced motion switch at once.
 const activityRailWidth = useTransition(
-  computed(() => compactViewport.value ? 48 : desktopSidebarCollapsed.value ? 52 : 176),
+  computed(() => compactViewport.value ? 48 : desktopSidebarCollapsed.value ? desktopMac ? 0 : 52 : 176),
   { duration: computed(() => compactViewport.value || reducedMotion.value ? 0 : 220), transition: TransitionPresets.easeOutCubic },
 )
 const mobileNavigationOpen = ref(false)
 watch(() => route.fullPath, () => { mobileNavigationOpen.value = false })
-const desktopMac = window.craftHubDesktop?.platform === 'darwin'
 const shortcutPlatform = window.craftHubDesktop?.platform ?? navigator.platform
 const historyState = ref({ ...router.options.history.state })
 const canGoBack = computed(() => typeof historyState.value.back === 'string')
@@ -698,7 +699,7 @@ onBeforeUnmount(() => {
 
 <template>
   <QuickCaptureDialog v-if="quickCaptureMounted" v-model:open="quickCaptureOpen" @saved="refreshCurrentView" />
-  <div class="app-shell" :style="{ '--workbench-activity-width': `${activityRailWidth}px` }" :class="{ 'mobile-navigation-open': mobileNavigationOpen, 'has-app-notices': toolbarRefreshError || store.runtimeSchemaMismatch || (store.projectsLoadState === 'error' && store.projects.length) }">
+  <div class="app-shell" :style="{ '--workbench-activity-width': `${activityRailWidth}px` }" :class="{ 'desktop-sidebar-hidden': desktopSidebarHidden, 'mobile-navigation-open': mobileNavigationOpen, 'has-app-notices': toolbarRefreshError || store.runtimeSchemaMismatch || (store.projectsLoadState === 'error' && store.projects.length) }">
     <WorkbenchToolbar
       :title="toolbarTitle"
       :project-name="store.selectedProject?.name ?? store.applicationName"
@@ -735,6 +736,7 @@ onBeforeUnmount(() => {
     </section>
     <section v-if="overviewOpen || subscriptionsOpen || navigationOpen || toolsOpen || workbenchesOpen || marketplaceOpen || integrationOpen || pluginWorkbenchOpen || softwareOpen || environmentOpen || diagnosticsOpen" class="navigation-view-shell">
       <ProjectRail
+        v-if="!desktopSidebarHidden"
         :collapsed="desktopSidebarCollapsed"
         :active-view="overviewOpen ? 'overview' : subscriptionsOpen ? 'subscriptions' : pluginWorkbenchOpen ? 'plugin-workbench' : integrationOpen ? 'integration' : navigationOpen ? 'navigation' : toolsOpen ? 'tools' : workbenchesOpen ? 'workbenches' : softwareOpen ? 'software' : environmentOpen ? 'environment' : diagnosticsOpen ? 'diagnostics' : 'marketplace'"
         :active-integration-id="activeIntegrationId"
@@ -790,6 +792,7 @@ onBeforeUnmount(() => {
       class="workbench-splitter"
       :class="{ 'empty-projects': !store.projects.length }"
       :compact="compactViewport"
+      :sidebar-hidden="desktopSidebarHidden"
       includes-activity-rail
       :activity-rail-width="activityRailWidth"
       sidebar-id="projects-panel"

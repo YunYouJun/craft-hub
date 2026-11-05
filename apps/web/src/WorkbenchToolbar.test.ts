@@ -69,7 +69,7 @@ it('reflects history boundaries, an in-flight refresh, and collapsed sidebar sta
   expect(wrapper.get('.toolbar-refresh').attributes('disabled')).toBeDefined()
   expect(wrapper.get('.toolbar-refresh').attributes('aria-busy')).toBe('true')
   expect(wrapper.get('.sidebar-toggle').attributes('aria-expanded')).toBe('false')
-  expect(wrapper.get('.sidebar-toggle').attributes('aria-label')).toBe('Expand sidebar')
+  expect(wrapper.get('.sidebar-toggle').attributes('aria-label')).toBe('Show sidebar')
   await wrapper.get('.toolbar-back').trigger('click')
   await wrapper.get('.toolbar-refresh').trigger('click')
   await wrapper.get('.toolbar-forward').trigger('click')

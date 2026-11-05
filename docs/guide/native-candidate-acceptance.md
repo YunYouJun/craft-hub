@@ -46,7 +46,9 @@ open -n "$PWD/apps/macos/build/Craft Hub Prototype.app" \
 
 下表的“证据入口”指可执行验证或真实走查记录。单元测试、源码和声明文件不代替系统交互验证。
 
-当前 CI 策略（2026-10-27）：保留跨平台构建/测试和 Node 26 兼容任务，移除日常原生 macOS 任务及 Node 22/24 兼容任务。Node 22/24/26 支持范围不变，原生检查和跨版本复验继续在本机完成；`native-v*` 发布工作流保留。下文带日期的 CI 矩阵描述记录当时配置。
+当前 CI 策略（2026-11-05）：PR 和 `main` 保留 5 个常规任务：lint/类型检查、Linux/Windows 构建测试、文档构建、Chromium/Firefox/WebKit 浏览器回归。生产依赖审计、Schema 一致性及公共边界检查继续执行。macOS 构建测试、共享运行时 Swift/隔离签名验收和 Node 26 兼容检查移至手动 `Compatibility` 工作流，可选择 `all`、`macos` 或 `node26`。Node 22/24/26 支持范围不变，原生候选的本机验收与 `native-v*` 发布工作流保留。下文带日期的 CI 矩阵描述记录当时配置。
+
+合入默认分支后，可在 Actions → Compatibility → Run workflow 选择检查范围，或运行 `gh workflow run compatibility.yml --ref <branch> -f suite=all`。修改 macOS/共享运行时边界或 Node 兼容合同时，应执行对应按需检查或本机验收。分支保护保留 `Lint and typecheck`、`Build docs`、`Build and test (ubuntu-latest)` 和 `Build and test (windows-latest)`，不再要求常规 CI 已移出的 macOS 检查。
 
 2026-10-29 的[普通命令与原生终端验收](native-projects.md#普通命令-release-验收2026-10-29)补齐参数、一次性信任/执行审阅、基本 PTY 输入/尺寸/停止和历史恢复。该独立候选的产物、完整检查、真实界面范围及生命周期回执单独保留；发布计划、复杂交接及完整系统验收继续使用各自边界。
 

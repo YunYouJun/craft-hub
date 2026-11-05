@@ -42,10 +42,10 @@ const { forwardRef } = useForwardExpose()
   align-items: center;
   gap: var(--navigation-segmented-gap);
   overflow-x: auto;
-  border: var(--navigation-list-border-width) solid var(--border);
+  border: var(--navigation-list-border-width) solid var(--navigation-track-border);
   border-radius: var(--navigation-list-radius);
   padding: var(--navigation-segmented-list-inset);
-  background: var(--surface-muted);
+  background: var(--navigation-track-background);
   scrollbar-width: none;
 }
 
@@ -70,9 +70,9 @@ const { forwardRef } = useForwardExpose()
   left: 0;
   width: var(--reka-tabs-indicator-size);
   height: var(--reka-tabs-indicator-thickness);
-  border-radius: var(--navigation-item-radius);
-  background: var(--surface);
-  box-shadow: 0 1px 2px var(--shadow);
+  border-radius: var(--navigation-segmented-item-radius);
+  background: var(--navigation-selection-background);
+  box-shadow: var(--navigation-selection-shadow);
   transform: translate(var(--reka-tabs-indicator-position), -50%);
   transition:
     transform var(--motion-duration-slow) var(--motion-ease-spring),

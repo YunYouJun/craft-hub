@@ -13,7 +13,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -23,15 +23,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
-        with:
-          run_install: false
-      - uses: actions/setup-node@v7
-        with:
-          node-version-file: .node-version
-          cache: pnpm
-
-      - run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/setup-workspace
       - run: pnpm audit --prod --audit-level high
       - run: pnpm schema:project:check
       - run: pnpm schema:source:check
@@ -45,23 +37,16 @@ jobs:
 
     strategy:
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        os: [ubuntu-latest, windows-latest]
       fail-fast: false
 
     steps:
       - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
-        with:
-          run_install: false
-      - uses: actions/setup-node@v7
-        with:
-          node-version-file: .node-version
-          cache: pnpm
-
-      - run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/setup-workspace
       - run: pnpm build
       - name: Run unit tests
-        run: pnpm test --run --exclude scripts/dev-vite.test.ts
+        # Bound file/process fixture contention on hosted VMs without relaxing assertions or timeouts.
+        run: pnpm test --run --maxWorkers=2 --exclude scripts/dev-vite.test.ts
       - name: Run Vite process integration test
         run: pnpm test --run scripts/dev-vite.test.ts
 
@@ -71,37 +56,9 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
-        with:
-          run_install: false
-      - uses: actions/setup-node@v7
-        with:
-          node-version-file: .node-version
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/setup-workspace
       - run: pnpm exec playwright install --with-deps chromium firefox webkit
       - run: pnpm test:browser
-
-  node-compatibility:
-    name: Runtime on Node ${{ matrix.node }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    strategy:
-      fail-fast: false
-      matrix:
-        node: [26]
-    steps:
-      - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
-        with:
-          run_install: false
-      - uses: actions/setup-node@v7
-        with:
-          node-version: ${{ matrix.node }}
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm build
-      - run: pnpm test --run packages/craft-hub/test apps/desktop/test
 
   docs:
     name: Build docs
@@ -109,36 +66,5 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
-        with:
-          run_install: false
-      - uses: actions/setup-node@v7
-        with:
-          node-version-file: .node-version
-          cache: pnpm
-
-      - run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/setup-workspace
       - run: pnpm docs:build
-
-  shared-runtime-macos:
-    name: Shared runtime macOS
-    runs-on: macos-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
-        with:
-          run_install: false
-      - uses: actions/setup-node@v7
-        with:
-          node-version-file: .node-version
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: swift test --package-path apps/runtime-macos
-      - run: pnpm test:shared-runtime
-      - uses: actions/upload-artifact@v7
-        if: always()
-        with:
-          name: shared-runtime-macos-evidence
-          path: apps/macos/build/shared-runtime-*/
-          retention-days: 7

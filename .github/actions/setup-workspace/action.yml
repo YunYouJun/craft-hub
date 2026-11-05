@@ -1,0 +1,21 @@
+name: Set up workspace
+description: Install the workspace Node version, pnpm, and frozen dependencies
+
+inputs:
+  node-version:
+    description: Override the Node version from .node-version
+    required: false
+
+runs:
+  using: composite
+  steps:
+    - uses: pnpm/action-setup@v6
+      with:
+        run_install: false
+    - uses: actions/setup-node@v7
+      with:
+        node-version: ${{ inputs.node-version }}
+        node-version-file: ${{ inputs.node-version == '' && '.node-version' || '' }}
+        cache: pnpm
+    - run: pnpm install --frozen-lockfile
+      shell: bash

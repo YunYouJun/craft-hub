@@ -24,8 +24,9 @@ describe('runtime Node compatibility contract', () => {
     }
   })
 
-  it('runs compatibility CI on supported Node majors', async () => {
-    const ci = parse(await readFile(new URL('../../../.github/workflows/ci.yml', import.meta.url), 'utf8'))
+  it('runs on-demand compatibility CI on supported Node majors', async () => {
+    const ci = parse(await readFile(new URL('../../../.github/workflows/compatibility.yml', import.meta.url), 'utf8'))
+    expect(ci.on).toHaveProperty('workflow_dispatch')
     const testedMajors = ci.jobs['node-compatibility'].strategy.matrix.node
     expect(testedMajors.length).toBeGreaterThan(0)
     for (const major of testedMajors) {

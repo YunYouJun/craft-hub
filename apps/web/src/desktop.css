@@ -70,8 +70,8 @@
   }
 
   :root[data-desktop-platform='darwin'][data-desktop-window-material='sidebar'][data-theme='dark'] {
-    --desktop-sidebar-edge: rgb(255 255 255 / 11%);
-    --desktop-sidebar-lift: rgb(0 0 0 / 30%);
+    --desktop-sidebar-edge: rgb(255 255 255 / 4%);
+    --desktop-sidebar-lift: rgb(0 0 0 / 18%);
   }
 
   :root[data-desktop-platform='darwin'][data-desktop-window-material='sidebar'],
@@ -97,6 +97,41 @@
     background: transparent;
   }
 
+  /* Reserve a real sidebar header: history and page context must clear the floating panel's rounded edge. */
+  :root[data-desktop-platform='darwin'][data-desktop-window-material='sidebar'] .workbench-titlebar.desktop-mac {
+    --toolbar-sidebar-width: max(calc(var(--workbench-activity-width) + var(--desktop-sidebar-inset)), 132px);
+
+    display: grid;
+    grid-template-columns: var(--toolbar-sidebar-width) auto minmax(0, 1fr) auto;
+    gap: 0;
+    padding-inline: 0 12px;
+  }
+
+  :root[data-desktop-platform='darwin'][data-desktop-window-material='sidebar'] .toolbar-leading {
+    display: contents;
+  }
+
+  :root[data-desktop-platform='darwin'][data-desktop-window-material='sidebar'] .toolbar-sidebar-controls {
+    padding-inline-start: 86px;
+  }
+
+  :root[data-desktop-platform='darwin'][data-desktop-window-material='sidebar'] .toolbar-context-controls {
+    gap: 6px;
+    margin-inline: 12px;
+  }
+
+  :root[data-desktop-platform='darwin'][data-desktop-window-material='sidebar'] .toolbar-section-title {
+    margin-inline-start: 0;
+  }
+
+  :root[data-desktop-platform='darwin'][data-desktop-window-material='sidebar'] .toolbar-palette-controls {
+    padding-inline: 12px;
+  }
+
+  :root[data-desktop-platform='darwin'][data-desktop-window-material='sidebar'] .toolbar-trailing {
+    margin-inline-start: 0;
+  }
+
   :root[data-desktop-platform='darwin'][data-desktop-window-material='sidebar'] .app-notices {
     padding-top: var(--workbench-toolbar-height);
     background: var(--surface);
@@ -112,6 +147,15 @@
 
   :root[data-desktop-platform='darwin'][data-desktop-window-material='sidebar'] .navigation-view-shell {
     grid-template-columns: calc(var(--workbench-activity-width) + var(--desktop-sidebar-inset)) minmax(0, 1fr);
+  }
+
+  /* Hiding a macOS sidebar removes its panel and material instead of leaving an icon strip under the traffic lights. */
+  :root[data-desktop-platform='darwin'] .app-shell.desktop-sidebar-hidden {
+    background: var(--surface);
+  }
+
+  :root[data-desktop-platform='darwin'] .desktop-sidebar-hidden .navigation-view-shell {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   /*

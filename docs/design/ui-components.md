@@ -40,7 +40,19 @@ Callers must not override button colors or reconstruct a variant with local clas
 
 The initial migration covers every generic primary, secondary, warning, and destructive action plus every Reka dialog scaffold. Specialized controls—toolbar buttons, palette results, theme choices, and icon swatches—keep purpose-specific markup rather than pretending to be generic buttons.
 
-Keyboard focus uses `:focus-visible` with a one-pixel surface isolation layer and a two-pixel `--focus-ring`. This keeps the ring legible against both solid actions and surrounding surfaces without showing it for pointer interaction.
+Keyboard focus uses `:focus-visible` with a two-pixel `--focus-ring` and a two-pixel offset, shared by buttons, inputs, selects, checkboxes and switches. The offset separates the ring from both solid actions and surrounding surfaces without showing it for pointer interaction.
+
+## Desktop presentation
+
+The shared Vue UI uses [MacVue](https://macvue.dev/) as a visual reference for control proportions and states while retaining Reka UI and source-owned semantic CSS. No additional component package or utility-CSS engine is required. The browser and Electron use the same 32px normal control height, 28px compact button height, 8px control radius, 12px group radius and 14px dialog radius. Narrow and coarse-pointer surfaces retain the existing 44px control floor.
+
+Neutral push buttons and selects have a fine edge and slight elevation; text fields have an inset edge. Segmented preference choices and tabs use a neutral recessed track and a raised selected segment. Immediate preferences keep native button and `aria-pressed` semantics; only actual tab panels use Reka Tabs. Sidebar selection retains its existing accent tint. Focus, disabled state and reduced-motion behavior remain shared across pages and portals.
+
+Accent text and solid fills have separate tokens: use `--accent` for text and focus, and `--accent-fill` with `--on-accent` for primary controls and highlighted menu rows. This keeps dark-theme accent text bright without weakening white labels on filled controls. Shared menu geometry and elevation also cover portaled Select and DropdownMenu content. Native adapters keep supplying semantic system colors; window materials remain the host's responsibility.
+
+Dark appearance is reviewed separately from light appearance, against [Apple's Dark Mode guidance](https://developer.apple.com/design/human-interface-guidelines/dark-mode) and actual AppKit controls. Use neutral window/content/group layers, filled secondary buttons, recessed editable fields, subtle separators and black shadows. Group outlines and row dividers have separate tokens, so reducing card framing does not erase the internal structure. The modal scrim stays neutral and leaves the parent view recognizable. CSS fallback values are Craft Hub choices; an offscreen control comparison does not establish parity with an active native window, desktop tinting or system accessibility preferences.
+
+In the macOS material host, the titlebar reserves a sidebar control column using the same live activity-width token as the sidebar. The sidebar toggle follows the system window controls; history and page context start beyond the floating sidebar's edge. Following Apple's [sidebar show/hide guidance](https://developer.apple.com/design/human-interface-guidelines/sidebars), hiding the macOS sidebar removes the complete navigation panel and its material, including the project tree and resize handle on project pages. Content reclaims that space; the toolbar keeps a minimum window-control reserve, and reopening restores the saved project-tree width. Ordinary browsers retain their compact icon rail, and narrow layouts keep mobile navigation. Keep small toolbar symbols free of decorative details that become indistinct at their displayed size.
 
 ## Settings contract
 
