@@ -143,6 +143,25 @@ it('serves the same readonly projection over the public API and rejects invalid 
   finally { await app.close() }
 })
 
+it('notifies a host cache only for an authorized requested snapshot and isolates cache failures', async () => {
+  const f = await fixture()
+  const observed = vi.fn(async () => {
+    throw new Error('Private export path failed')
+  })
+  const app = await startCraftHubServer({ port: 0, runtime: f.runtime, authorizeRequest: request => request.headers.authorization === 'Bearer fixture', onTodayFocusSnapshot: observed })
+  try {
+    expect((await fetch(`${app.url}/api/workbench/today`)).status).toBe(403)
+    expect(observed).not.toHaveBeenCalled()
+    const response = await fetch(`${app.url}/api/workbench/today`, { headers: { authorization: 'Bearer fixture' } })
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({ version: 1, total: 1 })
+    expect(observed).toHaveBeenCalledTimes(1)
+    expect(f.list).toHaveBeenCalledTimes(1)
+    expect(f.write).not.toHaveBeenCalled()
+  }
+  finally { await app.close() }
+})
+
 it('invalidates observers after attempted writes, never discovery or denied confirmation, and releases listeners', async () => {
   const f = await fixture()
   const changed = vi.fn()

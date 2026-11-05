@@ -7,12 +7,13 @@ import { isAbsolute, join, resolve } from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { PersonalCloudController } from '@craft-hub/personal-cloud'
-import { communityDistribution, HostExtensionManager, ProfileMigrationGuardError, startCraftHubServer } from 'craft-hub'
+import { communityDistribution, HostExtensionManager, ProfileMigrationGuardError, startCraftHubServer, todayFocusSnapshot } from 'craft-hub'
 import { app, BrowserWindow, clipboard, dialog, globalShortcut, ipcMain, Menu, nativeImage, nativeTheme, safeStorage, screen, shell } from 'electron'
 import { aboutDocument, aboutPanelOptions } from './about.ts'
 import { createApplicationMenu, createEditContextMenu, createWorkbenchMenuShortcutMatcher, isDesktopMenuLocale } from './application-menu.ts'
 import { loadDesktopBuildInfo } from './build-info.ts'
 import { CodexActivityMonitor } from './codex-activity.ts'
+import { CompanionSummaryPublisher } from './companion-summary.ts'
 import { resolveDesktopDataDirectories } from './data-directories.ts'
 import { DesktopLinkCoordinator, DesktopLinkError, findDesktopLinkArgument } from './deep-links.ts'
 import { DeviceVault } from './device-vault.ts'
@@ -91,6 +92,42 @@ const desktopProtocol = developmentUrl
   ? desktopDistribution?.desktop.developmentProtocol ?? communityDesktopDevelopmentProtocol
   : desktopDistribution?.desktop.protocol ?? communityDesktopProtocol
 const desktopLinks = new DesktopLinkCoordinator()
+const companionSummaryPublisher = new CompanionSummaryPublisher(join(app.getPath('userData'), 'companion-sharing.json'))
+
+async function shareCompanionSummary(): Promise<void> {
+  if (!craftHubServer || shuttingDown)
+    return
+  const chinese = desktopMenuLocale === 'zh-CN'
+  try {
+    const selection = await dialog.showSaveDialog({
+      title: chinese ? '共享今日重点摘要' : 'Share Today Summary',
+      message: chinese
+        ? '将最多五项标题、来源和更新时间保存到所选文件，供 Augma 等本机常驻应用读取。可通过“刷新共享摘要”更新；退出后保留缓存。'
+        : 'Share up to five titles, sources and an update time with a local companion such as Augma. Use Refresh Shared Summary to update; quitting leaves the cached summary.',
+      defaultPath: join(app.getPath('documents'), 'craft-hub-today.json'),
+      filters: [{ name: 'JSON', extensions: ['json'] }],
+    })
+    if (selection.canceled || !selection.filePath)
+      return
+    await companionSummaryPublisher.share(selection.filePath, await todayFocusSnapshot(craftHubServer.runtime, desktopMenuLocale))
+    installApplicationMenu()
+    shell.showItemInFolder(selection.filePath)
+  }
+  catch {
+    dialog.showErrorBox(chinese ? '无法共享摘要' : 'Could Not Share Summary', chinese ? '摘要未能保存，请检查所选文件的位置后重试。' : 'The summary could not be saved. Check the selected file location and try again.')
+  }
+}
+
+async function refreshCompanionSummary(): Promise<void> {
+  if (!craftHubServer || shuttingDown || !companionSummaryPublisher.enabled)
+    return
+  try {
+    await companionSummaryPublisher.publish(await todayFocusSnapshot(craftHubServer.runtime, desktopMenuLocale))
+  }
+  catch {
+    dialog.showErrorBox('Craft Hub', desktopMenuLocale === 'zh-CN' ? '无法更新共享摘要，请检查文件位置后重试。' : 'Could not update the shared summary. Check the file location and try again.')
+  }
+}
 
 type DesktopTheme = 'system' | 'light' | 'dark'
 
@@ -178,6 +215,15 @@ function installApplicationMenu(): void {
       void openSettings().then(() => desktopUpdater?.checkNow())
     },
     onSettings: () => void openSettings(),
+    onShareCompanionSummary: () => void shareCompanionSummary(),
+    ...(companionSummaryPublisher.enabled ? { onRefreshCompanionSummary: () => void refreshCompanionSummary() } : {}),
+    ...(companionSummaryPublisher.enabled
+      ? { onStopCompanionSharing: () => {
+          void companionSummaryPublisher.stop().then(installApplicationMenu).catch(() => {
+            dialog.showErrorBox('Craft Hub', desktopMenuLocale === 'zh-CN' ? '无法保存共享设置，请重试。' : 'Could not save sharing preferences. Try again.')
+          })
+        } }
+      : {}),
     ...(app.isPackaged ? { onNativeMigration: () => void openNativeMigration() } : {}),
     onHelp: () => void openHelp(),
     onReplayOnboarding: () => void replayOnboarding(),
@@ -525,7 +571,9 @@ async function createWindow(): Promise<void> {
       hostExtensions: hostExtensionManager,
       logError: message => writeApplicationLog('error', message),
     })
-    craftHubServer = await startCraftHubServer({ port: developmentUrl ? 4318 : 0, runtime, staticDir })
+    craftHubServer = await startCraftHubServer({ port: developmentUrl ? 4318 : 0, runtime, staticDir, onTodayFocusSnapshot: snapshot => companionSummaryPublisher.publish(snapshot).catch(() => {
+      writeApplicationLog('error', 'Shared today summary could not be updated')
+    }) })
     traceDesktopPerformance('runtime-ready')
     runtime.settings.onChanged(snapshot => applyDesktopMenuLocale(snapshot.settings['workbench.locale']))
     writeApplicationLog('info', `Local server started at ${craftHubServer.url}`)
@@ -657,6 +705,7 @@ async function showMainWindow(): Promise<void> {
 async function startDesktopApp(): Promise<void> {
   await app.whenReady()
   traceDesktopPerformance('app-launched')
+  await companionSummaryPublisher.restore()
   installApplicationMenu()
   if (process.platform === 'darwin')
     app.dock?.setIcon(applicationIcon)

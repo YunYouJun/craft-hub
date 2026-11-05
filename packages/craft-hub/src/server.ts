@@ -2,6 +2,7 @@ import type { IncomingMessage, Server, ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import type { LocalApplicationLauncher } from './local-applications'
 import type { PersonalGitSyncResolution } from './personal-git-sync'
+import type { TodayFocusSnapshot } from './today-focus-snapshot'
 import type { CommandInputValues, ProjectAccentColor, ProjectCatalogSnapshot, ProjectDescriptionChange, WorkspaceManifest } from './types'
 import type { UserConfigStatus } from './user-config'
 import type { ProjectChangeEvent } from './watcher'
@@ -157,6 +158,8 @@ export interface CraftHubServerOptions {
   handleHostRequest?: (request: IncomingMessage, response: ServerResponse) => boolean | Promise<boolean>
   /** Override the local process launcher used by fixed, built-in application shortcuts. */
   applicationLauncher?: LocalApplicationLauncher
+  /** Observe an already requested today snapshot; hosts may persist an explicitly shared summary without polling. */
+  onTodayFocusSnapshot?: (snapshot: TodayFocusSnapshot) => void | Promise<void>
 }
 
 export interface CraftHubServerCloseOptions {
@@ -318,7 +321,13 @@ async function startProtectedServer(options: CraftHubServerOptions, runtime: Cra
         const locale = url.searchParams.get('locale') ?? 'en'
         if (locale !== 'en' && locale !== 'zh-CN')
           return sendJson(response, 400, { error: 'Locale must be en or zh-CN' })
-        return sendJson(response, 200, await todayFocusSnapshot(runtime, locale))
+        const snapshot = await todayFocusSnapshot(runtime, locale)
+        // An optional host cache must never turn a successful read into a failed business request.
+        try {
+          await options.onTodayFocusSnapshot?.(snapshot)
+        }
+        catch { /* The host reports its own cache errors without exposing paths or credentials here. */ }
+        return sendJson(response, 200, snapshot)
       }
 
       if (parts[0] === 'api' && parts[1] === 'work-assistant') {

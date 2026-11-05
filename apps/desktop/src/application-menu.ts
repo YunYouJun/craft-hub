@@ -75,6 +75,9 @@ interface ApplicationMenuOptions {
   onAbout: () => void
   onCheckForUpdates?: () => void
   onNativeMigration?: () => void
+  onShareCompanionSummary?: () => void
+  onRefreshCompanionSummary?: () => void
+  onStopCompanionSharing?: () => void
   onSettings: () => void
   onHelp: () => void
   onReplayOnboarding: () => void
@@ -92,6 +95,9 @@ export function createApplicationMenu(options: ApplicationMenuOptions): MenuItem
         ...(options.onCheckForUpdates ? [{ label: label('Check for Updates…', '检查更新…'), click: options.onCheckForUpdates }] : []),
         { type: 'separator' },
         { label: label('Settings…', '设置…'), accelerator: desktopSettingsAccelerator, click: options.onSettings },
+        ...(options.onShareCompanionSummary ? [{ label: label('Share Today Summary…', '共享今日重点摘要…'), click: options.onShareCompanionSummary }] : []),
+        ...(options.onRefreshCompanionSummary ? [{ label: label('Refresh Shared Summary', '刷新共享摘要'), click: options.onRefreshCompanionSummary }] : []),
+        ...(options.onStopCompanionSharing ? [{ label: label('Stop Updating Shared Summary', '停止更新共享摘要'), click: options.onStopCompanionSharing }] : []),
         ...(platform === 'darwin' && options.onNativeMigration ? [{ label: label('Migrate to Native App…', '原生版资料迁移…'), click: options.onNativeMigration }] : []),
         { type: 'separator' },
         { role: 'services', label: label('Services', '服务') },
