@@ -26,12 +26,6 @@ public final class RuntimeAPIClient {
 
   deinit { session?.invalidateAndCancel() }
 
-  public func environment() async throws -> EnvironmentSnapshot {
-    let result: EnvironmentSnapshot = try await fetch(path: "/api/environment")
-    guard result.schemaVersion == 1 else { throw RuntimeAPIError.incompatibleVersion }
-    return result
-  }
-
   /// Launch the runtime-owned To Do application shortcut, with its official website fallback.
   public func openMicrosoftTodo() async throws {
     struct Result: Decodable { let destination: String }

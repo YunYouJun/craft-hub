@@ -108,7 +108,7 @@ private final class EventHTTPFixture: @unchecked Sendable {
     server.requests.contains {
       $0.hasPrefix("POST /api/software/shared-source/open HTTP/")
     })
-  #expect(try RuntimeAPIClient.configurationSegment("provider-v1.read") == "provider-v1.read")
+  #expect(try RuntimeAPIClient.segment("provider-v1.read") == "provider-v1.read")
   #expect(try RuntimeAPIClient.segment("part/other?query#fragment") == "part%2Fother%3Fquery%23fragment")
   #expect(throws: (any Error).self) { try RuntimeAPIClient.segment("..") }
 }

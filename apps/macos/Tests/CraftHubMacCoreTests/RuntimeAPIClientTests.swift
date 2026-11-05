@@ -49,19 +49,6 @@ private func response(_ request: URLRequest, _ json: String, status: Int = 200) 
   }
 }
 
-@Test func decodesRuntimeEnvironmentWithoutRequiringOptionalToolFields() async throws {
-  let client = RuntimeAPIClient(connection: try connection()) { request in
-    #expect(request.url?.path == "/api/environment")
-    return response(
-      request,
-      #"{"schemaVersion":1,"checkedAt":"2026-10-22T00:00:00Z","host":{"platform":"darwin","arch":"arm64","osRelease":"25.0"},"runtime":{"version":"v24.11.0","executablePath":"/opt/homebrew/bin/node","arch":"arm64"},"searchDirectories":["/usr/bin"],"tools":[{"id":"git","name":"Git","status":"missing"}]}"#
-    )
-  }
-  let snapshot = try await client.environment()
-  #expect(snapshot.tools.first?.executablePath == nil)
-  #expect(snapshot.tools.first?.status == "missing")
-}
-
 @Test func nativeSettingsProjectionRejectsUnsupportedThemeAndLocale() async throws {
   for json in [
     #"{"settings":{"workbench.theme":"sepia","workbench.locale":"en"}}"#,

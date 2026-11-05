@@ -11,6 +11,7 @@ const WorkbenchesOverview = lazyComponent(() => import('./WorkbenchesOverview.vu
 const SoftwareCenter = lazyComponent(() => import('./SoftwareCenter.vue'))
 const SetupProfileWorkbench = lazyComponent(() => import('./SetupProfileWorkbench.vue'))
 const EnvironmentWorkbench = lazyComponent(() => import('./EnvironmentWorkbench.vue'))
+const EnvironmentSourcesWorkbench = lazyComponent(() => import('./EnvironmentSourcesWorkbench.vue'))
 const DiagnosticsWorkbench = lazyComponent(() => import('./DiagnosticsWorkbench.vue'))
 const IntegrationWorkbench = lazyComponent(() => import('./IntegrationWorkbench.vue'))
 const NavigationWorkbench = lazyComponent(() => import('./NavigationWorkbench.vue'))
@@ -54,7 +55,7 @@ import WorkbenchSplitter from './WorkbenchSplitter.vue'
 import WorkspaceProjectList from './WorkspaceProjectList.vue'
 import { useWorkbenchStore } from './store'
 import { prefetchLazyComponents, useOpenedOnce } from './lazy-components'
-import { nativeCommandEvent, nativeSelectionEvent, nativeWorkbenchReady, requestNativePanel } from './native-host'
+import { nativeCommandEvent, nativeSelectionEvent, nativeWorkbenchReady, reportNativeRoute, requestNativePanel } from './native-host'
 
 const quickCaptureOpen = ref(false)
 let stopQuickCapture: (() => void) | undefined
@@ -70,7 +71,13 @@ const reducedMotion = useMediaQuery('(prefers-reduced-motion: reduce)')
 // The rail glides between its widths like a native sidebar; the grid and the home splitter both follow every frame.
 // Compact layouts and reduced motion switch at once.
 const activityRailWidth = useTransition(
-  computed(() => compactViewport.value ? 48 : desktopSidebarCollapsed.value ? desktopMac ? 0 : 52 : 176),
+  computed(() => {
+    if (compactViewport.value)
+      return 48
+    if (desktopSidebarCollapsed.value)
+      return desktopMac ? 0 : 52
+    return 176
+  }),
   { duration: computed(() => compactViewport.value || reducedMotion.value ? 0 : 220), transition: TransitionPresets.easeOutCubic },
 )
 const mobileNavigationOpen = ref(false)
@@ -168,7 +175,8 @@ const navigationOpen = computed(() => route.name === 'navigation')
 const overviewOpen = computed(() => route.name === 'overview')
 const diagnosticsOpen = computed(() => route.name === 'diagnostics')
 const setupProfileOpen = computed(() => route.name === 'setup-profile')
-const environmentOpen = computed(() => route.name === 'environment' || setupProfileOpen.value)
+const environmentSourcesOpen = computed(() => route.name === 'environment-sources')
+const environmentOpen = computed(() => route.name === 'environment' || setupProfileOpen.value || environmentSourcesOpen.value)
 const softwareOpen = computed(() => route.name === 'software')
 const toolsOpen = computed(() => route.name === 'tools')
 const workbenchesOpen = computed(() => route.name === 'workbenches')
@@ -177,6 +185,7 @@ const pluginWorkbenchOpen = computed(() => route.name === 'plugin-workbench')
 const copy = (zh: string, en: string) => locale.value === 'zh-CN' ? zh : en
 const currentIntegrationView = computed(() => store.integrationViews.find(view => view.integrationId === route.params.integrationId && view.id === route.params.viewId))
 const activeSection = computed(() => classifyWorkbenchSection(route.name, currentIntegrationView.value))
+watch([() => route.path, activeSection], ([path, section]) => reportNativeRoute(path, section), { immediate: true, flush: 'post' })
 const sectionTitle = computed(() => ({
   home: copy('首页', 'Home'),
   projects: copy('项目', 'Projects'),
@@ -208,6 +217,7 @@ const sectionGroups = computed<WorkbenchNavigationGroup[]>(() => {
       { entries: [
         { key: 'environment', title: copy('本机检测', 'Machine checks'), icon: 'builtin:terminal', to: '/environment' },
         { key: 'setup-profile', title: copy('我的环境方案', 'My environment profile'), icon: 'builtin:settings', to: '/environment/setup' },
+        { key: 'environment-sources', title: copy('配置源连接', 'Source connections'), icon: 'builtin:folder', to: '/environment/sources' },
       ] },
       { title: copy('环境配置', 'Environment configuration'), entries: store.integrationViews.filter(isEnvironmentView).map(view => ({
         key: `${view.integrationId}:${view.id}`, title: view.title, icon: view.icon ?? 'builtin:settings', to: integrationPath(view.integrationId, view.id),
@@ -230,7 +240,7 @@ const sectionGroups = computed<WorkbenchNavigationGroup[]>(() => {
 })
 const pageBreadcrumbs = computed(() => {
   const pluginWorkbench = store.pluginWorkbenches.find(workbench => workbench.pluginId === route.params.pluginId && workbench.id === route.params.workbenchId)
-  const label = overviewOpen.value ? copy('首页', 'Home') : marketplaceOpen.value ? copy('插件管理', 'Plugins') : navigationOpen.value ? copy('网站导航', 'Website navigation') : softwareOpen.value ? copy('软件中心', 'Software center') : toolsOpen.value ? copy('常用工具', 'Favorite tools') : workbenchesOpen.value ? copy('全部工作台', 'All workbenches') : setupProfileOpen.value ? copy('我的环境方案', 'My environment profile') : environmentOpen.value ? copy('本机检测', 'Machine checks') : diagnosticsOpen.value ? t('diagnostics') : integrationOpen.value ? (currentIntegrationView.value?.title ?? copy('集成', 'Integration')) : (pluginWorkbench?.title ?? copy('插件工作台', 'Plugin workbench'))
+  const label = overviewOpen.value ? copy('首页', 'Home') : marketplaceOpen.value ? copy('插件管理', 'Plugins') : navigationOpen.value ? copy('网站导航', 'Website navigation') : softwareOpen.value ? copy('软件中心', 'Software center') : toolsOpen.value ? copy('常用工具', 'Favorite tools') : workbenchesOpen.value ? copy('全部工作台', 'All workbenches') : setupProfileOpen.value ? copy('我的环境方案', 'My environment profile') : environmentSourcesOpen.value ? copy('配置源连接', 'Source connections') : environmentOpen.value ? copy('本机检测', 'Machine checks') : diagnosticsOpen.value ? t('diagnostics') : integrationOpen.value ? (currentIntegrationView.value?.title ?? copy('集成', 'Integration')) : (pluginWorkbench?.title ?? copy('插件工作台', 'Plugin workbench'))
   return [
     { label: store.applicationName, to: '/overview' },
     ...(activeSection.value && activeSection.value !== 'home' ? [{ label: sectionTitle.value, to: sectionPath.value }] : []),
@@ -778,6 +788,7 @@ onBeforeUnmount(() => {
         <WorkbenchesOverview v-else-if="workbenchesOpen" @vue:mounted="completePageTrace" />
         <SoftwareCenter v-else-if="softwareOpen" ref="activePage" @vue:mounted="completePageTrace" />
         <SetupProfileWorkbench v-else-if="setupProfileOpen" @vue:mounted="completePageTrace" />
+        <EnvironmentSourcesWorkbench v-else-if="environmentSourcesOpen" @vue:mounted="completePageTrace" />
         <EnvironmentWorkbench v-else-if="environmentOpen" @vue:mounted="completePageTrace" />
         <DiagnosticsWorkbench v-else-if="diagnosticsOpen" @vue:mounted="completePageTrace" @open-target="openDiagnosticTarget" />
         <IntegrationWorkbench v-else-if="integrationOpen" ref="activePage" :integration-id="activeIntegrationId" :view-id="activeIntegrationViewId" :initial-scope="route.query.scope === 'global' ? 'global' : undefined" :initial-project-id="typeof route.query.project === 'string' ? route.query.project : undefined" @vue:mounted="completePageTrace" @vue:updated="completePageTrace" />

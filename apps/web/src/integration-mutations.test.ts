@@ -87,3 +87,32 @@ it('keeps ordinary reads available in browsers without claiming a native mutatio
   expect(report).not.toHaveBeenCalled()
   expect(integrationMutationPending()).toBe(false)
 })
+
+it.each(['source', 'profile'] as const)('protects shared environment %s writes until success or failure is known', async (kind) => {
+  const report = vi.fn().mockResolvedValue(undefined)
+  window.craftHubDesktop = { setWorkbenchOperationPending: report }
+  const response = deferred<Response>()
+  const fetcher = vi.fn(() => response.promise)
+  vi.stubGlobal('fetch', fetcher)
+  const save = () => kind === 'source'
+    ? api.connectEnvironmentSource({ operation: 'connect', providerId: 'fixture', kind: 'public', repository: 'https://example.com/config.git' })
+    : api.saveSetupProfile({ operation: 'save', revision: 'a'.repeat(64), name: 'Fixture', software: [{ sourceId: 'fixture', softwareId: 'editor' }], configurations: [] })
+  const router = createWorkbenchRouter(createMemoryHistory())
+  await router.push('/environment/setup')
+  const saving = save()
+  await flushPromises()
+  expect(report).toHaveBeenCalledWith(true)
+  expect(integrationMutationPending()).toBe(true)
+  await router.push('/software')
+  expect(router.currentRoute.value.path).toBe('/environment/setup')
+  response.resolve(new Response('{}'))
+  await saving
+  expect(report).toHaveBeenLastCalledWith(false)
+  expect(integrationMutationPending()).toBe(false)
+  fetcher.mockRejectedValueOnce(new Error('connection lost'))
+  await expect(save()).rejects.toThrow('connection lost')
+  expect(report).toHaveBeenLastCalledWith(false)
+  expect(integrationMutationPending()).toBe(false)
+  await router.push('/software')
+  expect(router.currentRoute.value.path).toBe('/software')
+})

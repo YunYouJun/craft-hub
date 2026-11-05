@@ -198,6 +198,9 @@ describe('app startup', () => {
 
   it.each(['/environment', '/integrations/profile/setup'])('groups declared configuration views under development environment from %s', async (initialPath) => {
     stubStartupData()
+    const postMessage = vi.fn()
+    vi.stubGlobal('__craftHubNativeHost', 'macos')
+    vi.stubGlobal('webkit', { messageHandlers: { craftHubNative: { postMessage } } })
     const contribution: ResolvedIntegrationContribution = {
       id: 'profile',
       pluginId: 'profile',
@@ -242,6 +245,7 @@ describe('app startup', () => {
     expect(wrapper.get('.section-navigation a[href="/integrations/profile/setup"]').attributes('aria-current')).toBe('page')
     expect(wrapper.get('[data-testid="open-environment"]').attributes('aria-current')).toBe('page')
     expect(invoke).toHaveBeenCalledWith('profile', 'read', {}, undefined)
+    expect(postMessage).toHaveBeenCalledWith({ type: 'route', path: '/integrations/profile/setup', section: 'environment' })
     expect(wrapper.find('[data-testid="open-integration-profile-setup"]').exists()).toBe(false)
     wrapper.unmount()
   })

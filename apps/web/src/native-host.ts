@@ -1,4 +1,5 @@
 import type { Router } from 'vue-router'
+import type { WorkbenchSection } from './workbench-navigation'
 
 /** Window event carrying a command from a native host's toolbar or menu to the workbench. */
 export const nativeCommandEvent = 'craft-hub:native-command'
@@ -6,6 +7,13 @@ export const nativeSelectionEvent = 'craft-hub:native-selection'
 
 /** Selection only: the existing workbench still owns trust, review and execution. */
 export interface NativeSelection { projectId: string, capabilityId?: string }
+
+/** Let native chrome follow the shared page classification after integration declarations finish loading. */
+export function reportNativeRoute(path: string, section?: WorkbenchSection, target: Window = window): void {
+  const host = target as NativeHostWindow
+  if (host.__craftHubNativeHost === 'macos')
+    host.webkit?.messageHandlers?.craftHubNative?.postMessage({ type: 'route', path, ...(section ? { section } : {}) })
+}
 
 /** Ask the macOS host for an independent panel; ordinary browsers keep their web dialogs. */
 export function requestNativePanel(type: 'palette' | 'capture', mode?: string, target: Window = window): boolean {

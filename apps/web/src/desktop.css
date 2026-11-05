@@ -4,6 +4,9 @@
 
 :root[data-desktop-platform='darwin'] {
   --workbench-toolbar-height: 48px;
+  /* Shared business pages keep the same compact controls and grouped surfaces in either macOS host. */
+  --page-padding-inline: 20px;
+  --page-padding-block: 20px;
   font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif;
   /* Match AppKit's grayscale text rendering, most visible on light text in dark mode. */
   -webkit-font-smoothing: antialiased;

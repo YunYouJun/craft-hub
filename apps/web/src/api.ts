@@ -126,11 +126,11 @@ async function invokeIntegrationAction<T extends IntegrationActionResult = Integ
 export const api = {
   environmentSetup: () => request<import('craft-hub').EnvironmentSetupSnapshot>('/api/environment/setup'),
   environmentSources: () => request<import('craft-hub').EnvironmentSourceSnapshot>('/api/environment/sources'),
-  connectEnvironmentSource: (input: import('craft-hub').EnvironmentSourceCommand) => request<import('craft-hub').EnvironmentSourceSnapshot>('/api/environment/sources', { method: 'POST', body: JSON.stringify(input) }),
+  connectEnvironmentSource: (input: import('craft-hub').EnvironmentSourceCommand) => withIntegrationMutation(() => request<import('craft-hub').EnvironmentSourceSnapshot>('/api/environment/sources', { method: 'POST', body: JSON.stringify(input) })),
   setupProfile: () => request<SetupProfileSnapshot>('/api/setup-profile'),
   setupProfileInventory: () => request<SetupProfileInventory>('/api/setup-profile', { method: 'POST', body: JSON.stringify({ operation: 'inventory' }) }),
   reviewSetupProfile: () => request<SetupProfileReview>('/api/setup-profile', { method: 'POST', body: JSON.stringify({ operation: 'review' }) }),
-  saveSetupProfile: (input: Extract<SetupProfileCommand, { operation: 'save' | 'import' }>) => request<SetupProfileSnapshot>('/api/setup-profile', { method: 'POST', body: JSON.stringify(input) }),
+  saveSetupProfile: (input: Extract<SetupProfileCommand, { operation: 'save' | 'import' }>) => withIntegrationMutation(() => request<SetupProfileSnapshot>('/api/setup-profile', { method: 'POST', body: JSON.stringify(input) })),
   workAssistantStatus: () => request<{ available: boolean, provider?: string }>('/api/work-assistant'),
   parseCapture: (input: { text: string, localNow: string, timeZone: string, lists: Array<{ id: string, title: string }>, locale: 'en' | 'zh-CN' }) => request<import('craft-hub').CaptureDraft>('/api/work-assistant/capture', { method: 'POST', body: JSON.stringify(input) }),
   analyzeFocus: (input: { candidates: import('craft-hub').FocusCandidate[], localNow: string, locale: 'en' | 'zh-CN', coverage: string }) => request<import('craft-hub').FocusAnalysis>('/api/work-assistant/focus', { method: 'POST', body: JSON.stringify(input) }),

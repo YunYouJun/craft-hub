@@ -49,6 +49,45 @@ import Testing
   #expect(!model.presentsNativeContent)
 }
 
+@MainActor @Test func environmentNavigationUsesSharedPagesAndRestoresAfterRuntimeReplacement() throws {
+  let suite = "craft-hub-shared-environment-\(UUID())"
+  let defaults = UserDefaults(suiteName: suite)!
+  defer { defaults.removePersistentDomain(forName: suite) }
+  let model = WorkbenchModel(defaults: defaults)
+  defer { model.connect(nil) }
+  model.selectSidebar(.builtin(.environment))
+  #expect(model.selection == .environment && model.webContentRequested && !model.presentsNativeContent)
+  model.navigateToWebPath("/environment/setup?tab=review")
+  model.routeChanged("/environment/setup?tab=review")
+  #expect(model.selection == .environment && !model.presentsNativeContent)
+  model.openConfiguration("/integrations/fixture/configuration?scope=global")
+  model.routeChanged("/integrations/fixture/configuration", section: "environment")
+  #expect(model.selection == .environment && !model.presentsNativeContent)
+  model.routeChanged("/integrations/fixture/configuration")
+  #expect(model.selection == .environment)
+  model.setWebOperationPending(true)
+  model.selectSidebar(.builtin(.software))
+  #expect(model.selection == .environment && !model.presentsNativeContent)
+  model.setWebOperationPending(false)
+  model.selectSidebar(.builtin(.software))
+  #expect(model.selection == .software && model.presentsNativeContent)
+  model.selectSidebar(.builtin(.environment))
+  let reopened = WorkbenchModel(defaults: defaults)
+  defer { reopened.connect(nil) }
+  #expect(reopened.selection == .environment && !reopened.presentsNativeContent)
+  let token = String(repeating: "a", count: 64)
+  let connection = try RuntimeConnection(
+    handshake: JSONSerialization.data(withJSONObject: [
+      "version": 1, "url": "http://127.0.0.1:49218/__craft_hub_host/bootstrap?token=\(token)",
+      "nativeApiToken": token,
+    ]))
+  reopened.connect(connection)
+  #expect(reopened.webContentRequested && !reopened.presentsNativeContent)
+  reopened.connect(nil)
+  reopened.connect(connection)
+  #expect(reopened.selection == .environment && reopened.webContentRequested && !reopened.presentsNativeContent)
+}
+
 @MainActor
 @Test func lateWebRoutesCannotStealANativeSelection() {
   let suite = "craft-hub-navigation-test-\(UUID().uuidString)"
@@ -56,14 +95,14 @@ import Testing
   defer { defaults.removePersistentDomain(forName: suite) }
   let model = WorkbenchModel(defaults: defaults)
   model.routeChanged("/overview")
-  model.selection = .environment
-  model.select(.environment)
+  model.selection = .software
+  model.select(.software)
   model.routeChanged("/software")
-  #expect(model.selection == .environment)
+  #expect(model.selection == .software)
   #expect(model.presentsNativeContent)
   model.run("palette")
   model.routeChanged("/tools")
-  #expect(model.selection == .environment)
+  #expect(model.selection == .software)
   model.showWebWorkbench()
   model.routeChanged("/tools")
   #expect(model.selection == .tools)
@@ -97,9 +136,7 @@ import Testing
   #expect(model.presentsNativeContent)
   #expect(model.machine != nil)
   model.navigateToWebPath("/environment/setup")
-  #expect(model.selection == .environment && model.presentsNativeContent)
-  #expect(model.machine?.environmentTab == "profile")
-  #expect(model.machine?.environmentProfile.snapshot == nil)
+  #expect(model.selection == .environment && !model.presentsNativeContent && model.webContentRequested)
   model.showWebWorkbench()
   model.select(.software)
   #expect(model.presentsNativeContent)

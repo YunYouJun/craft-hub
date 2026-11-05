@@ -23,7 +23,7 @@ let package = Package(
         .product(name: "SwiftTerm", package: "SwiftTerm"),
       ],
       resources: [
-        .copy("Resources/EnvironmentTools"), .copy("Resources/ThirdPartyLicenses"), .copy("Resources/BrowserImport"),
+        .copy("Resources/ThirdPartyLicenses"), .copy("Resources/BrowserImport"),
       ],
       swiftSettings: [.swiftLanguageMode(.v5)],
       linkerSettings: [.unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "@executable_path/../Frameworks"])]),

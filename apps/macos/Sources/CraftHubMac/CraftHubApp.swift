@@ -390,9 +390,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       || model.machine?.installations.installing == true
       || model.machine?.installations.uncertain != nil
       || model.machine?.softwareSources.busy == true
-      || model.machine?.environmentProfile.busy == true || model.machine?.environmentProfile.uncertain == true
-      || model.machine?.environmentSources.busy == true || model.machine?.environmentSources.uncertain == true
-      || model.machine?.configuration.busy == true || model.machine?.configuration.uncertain != nil
       || model.machine?.favorites.busy == true || model.machine?.favorites.uncertain == true
       || model.workItemActions.pending
   }

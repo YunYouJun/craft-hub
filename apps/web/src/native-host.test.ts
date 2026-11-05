@@ -2,7 +2,7 @@
 /// <reference lib="dom" />
 import { afterEach, expect, it, vi } from 'vitest'
 import { createMemoryHistory } from 'vue-router'
-import { installNativeHost, nativeCommandEvent, nativeSelectionEvent, nativeWorkbenchReady, requestNativePanel } from './native-host'
+import { installNativeHost, nativeCommandEvent, nativeSelectionEvent, nativeWorkbenchReady, reportNativeRoute, requestNativePanel } from './native-host'
 import { createWorkbenchRouter } from './router'
 
 type TestWindow = Window & Record<string, unknown>
@@ -58,6 +58,17 @@ it('ignores a host marker that is not a plain identifier', () => {
   host.__craftHubNativeHost = 'macos"><script>'
   expect(installNativeHost(createWorkbenchRouter(createMemoryHistory()))).toBe(false)
   expect(document.documentElement.dataset.nativeHost).toBeUndefined()
+})
+
+it('reports the shared page section only to a macOS host', () => {
+  const postMessage = vi.fn()
+  const host = window as unknown as TestWindow
+  host.webkit = { messageHandlers: { craftHubNative: { postMessage } } }
+  reportNativeRoute('/integrations/fixture/configuration', 'environment')
+  expect(postMessage).not.toHaveBeenCalled()
+  host.__craftHubNativeHost = 'macos'
+  reportNativeRoute('/integrations/fixture/configuration', 'environment')
+  expect(postMessage).toHaveBeenLastCalledWith({ type: 'route', path: '/integrations/fixture/configuration', section: 'environment' })
 })
 
 it('opens native panels only with a macOS bridge and reports application readiness', () => {

@@ -23,15 +23,17 @@ import Testing
   #expect(model.results.isEmpty)
 }
 
-@MainActor @Test func nativeCommandsNeverSwitchToTheEmbeddedWebPalette() {
+@MainActor @Test(arguments: [Destination.software, .environment])
+func nativeCommandsNeverSwitchToTheEmbeddedWebPalette(_ destination: Destination) {
   let model = WorkbenchModel()
   var panels: [String] = []
   model.presentPanel = { name, _ in panels.append(name) }
-  model.selection = .environment
+  model.selection = destination
   model.run("palette")
   model.run("capture")
   #expect(panels == ["palette", "capture"])
-  #expect(model.presentsNativeContent)
+  #expect(model.presentsNativeContent == destination.isNative)
+  #expect(!model.webContentRequested)
 }
 
 @MainActor @Test func offlineCaptureRetainsReviewedDraftAcrossStoreRecreation() throws {

@@ -46,6 +46,11 @@ final class WorkbenchModel {
   private(set) var findRequest = 0
   /// The route the web workbench last reported; the sidebar follows it without navigating again.
   private(set) var route = "/overview"
+  private var routeSection: String?
+  private var routeDestination: Destination? {
+    route.hasPrefix("/integrations/") && routeSection == "environment"
+      ? .environment : Destination.matching(path: route)
+  }
   var webView: WKWebView? { retainedWebSession?.webView }
   @ObservationIgnored private var retainedWebSession: WorkbenchWebSession?
   @ObservationIgnored var restartRuntime: (() async throws -> Void)?
@@ -78,7 +83,7 @@ final class WorkbenchModel {
 
   func select(_ destination: Destination?, path: String? = nil) {
     guard canLeaveWebOperation() else {
-      selection = Destination.matching(path: route)
+      selection = routeDestination
       return
     }
     guard projectCommand.canChangeContext else {
@@ -172,8 +177,9 @@ final class WorkbenchModel {
         await today.load()
       }
     }
-    if connection != nil, selection == .workbenches, pendingSelection == nil, !desktopLinksPending {
-      pendingSelection = "window.__craftHubNavigate?.(\(Self.jsonString(Destination.workbenches.path)))"
+    if connection != nil, let selection, !selection.isNative, pendingSelection == nil, !desktopLinksPending {
+      let path = routeDestination == selection ? route : selection.path
+      pendingSelection = "window.__craftHubNavigate?.(\(Self.jsonString(path)))"
     }
     showsWebContent = pendingSelection != nil || desktopLinksPending
     webContentRequested = showsWebContent
@@ -214,11 +220,6 @@ final class WorkbenchModel {
       if destination == .projects, projectCommand.capabilityID != nil { await projectCommand.load() }
       if destination == .marketplace { await plugins.load() }
       if destination == .diagnostics { await diagnostics.load() }
-      if destination == .environment {
-        await machine.loadEnvironment()
-        if machine.environmentTab == "profile" { await machine.environmentProfile.load() }
-        if machine.environmentTab == "configuration" { await machine.configuration.refreshIfIdle() }
-      }
       if destination == .software {
         await machine.loadSoftware()
         await machine.softwareSources.load()
@@ -239,7 +240,7 @@ final class WorkbenchModel {
       return
     }
     // Returning to the same section resumes its current detail/editor rather than navigating away from a draft.
-    if let selection, Destination.matching(path: route) != selection {
+    if let selection, routeDestination != selection {
       let path = selection == .tools ? toolsPage.path : selection.path
       requestWebContent("window.__craftHubNavigate?.(\(Self.jsonString(path)))")
     } else {
@@ -247,8 +248,15 @@ final class WorkbenchModel {
     }
   }
 
-  func routeChanged(_ path: String) {
-    if route != path { resourceBridge.invalidate() }
+  func routeChanged(_ path: String, section: String? = nil) {
+    if route != path {
+      resourceBridge.invalidate()
+    }
+    if let section {
+      routeSection = section
+    } else if route != path {
+      routeSection = nil
+    }
     route = path
     // The hidden web page may finish an earlier navigation while a native page is already selected.
     guard !presentsNativeContent else { return }
@@ -261,8 +269,11 @@ final class WorkbenchModel {
       openNativePlugin(package: plugin.package, source: plugin.source)
       return
     }
-    let destination = Destination.matching(path: path)
-    if destination != selection { selection = destination }
+    let destination = routeDestination
+    if destination != selection {
+      selection = destination
+      if let destination { defaults.set(destination.rawValue, forKey: Self.lastDestinationKey) }
+    }
   }
 
   func historyChanged(back: Bool, forward: Bool) {
@@ -371,7 +382,6 @@ final class WorkbenchModel {
           }
         }
         if selection == .overview { await today.load(force: true) }
-        if selection == .environment { await machine?.loadEnvironment(force: true) }
         if selection == .software { await machine?.loadSoftware(force: true) }
         if selection == .tools {
           if toolsPage == .navigation {
@@ -534,12 +544,6 @@ final class WorkbenchModel {
       openNativePlugin(package: plugin.package, source: plugin.source)
       return
     }
-    if path == "/environment/setup", let machine {
-      machine.environmentTab = "profile"
-      selection = .environment
-      select(.environment)
-      return
-    }
     if ["/overview", "/marketplace", "/diagnostics", "/tools", "/software"].contains(path),
       let destination = Destination.matching(path: path)
     {
@@ -576,8 +580,8 @@ final class WorkbenchModel {
   /// Plugin views share the browser renderer; the URL retains their declared project scope.
   func showIntegrationWeb(_ path: String) {
     guard canLeaveWebOperation() else { return }
-    if Destination.matching(path: path) == .workbenches {
-      select(.workbenches, path: path)
+    if let destination = Destination.matching(path: path), !destination.isNative {
+      select(destination, path: path)
     } else {
       requestWebContent("window.__craftHubNavigate?.(\(Self.jsonString(path)))")
     }
@@ -586,12 +590,6 @@ final class WorkbenchModel {
   /// Plugin configuration links use the same scoped Web page as workbench and diagnostic entries.
   func openConfiguration(_ path: String) {
     guard canLeaveWebOperation() else { return }
-    if let configuration = machine?.configuration,
-      configuration.busy || configuration.loading || configuration.uncertain != nil
-    {
-      navigationError = L10n.text.copy("请等待当前配置操作完成后继续。", "Wait for the current configuration operation to finish.")
-      return
-    }
     navigateToWebPath(path)
   }
   /// Called only after the sidecar validates a desktop link. Import links fill a draft without fetching or adding it.

@@ -128,7 +128,8 @@ final class WorkbenchWebSession {
       else { return }
       guard let body = message.body as? [String: Any] else { return }
       switch body["type"] as? String {
-      case "route": if let path = body["path"] as? String { model.routeChanged(path) }
+      case "route":
+        if let path = body["path"] as? String { model.routeChanged(path, section: body["section"] as? String) }
       case "ready": model.webBecameReady()
       case "palette": model.presentPanel?("palette", body["mode"] as? String)
       case "capture": model.presentPanel?("capture", nil)

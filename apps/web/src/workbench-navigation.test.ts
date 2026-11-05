@@ -16,6 +16,7 @@ describe('workbench navigation sections', () => {
     ['software', 'tools'],
     ['environment', 'environment'],
     ['setup-profile', 'environment'],
+    ['environment-sources', 'environment'],
     ['workbenches', 'workbenches'],
     ['plugin-workbench', 'workbenches'],
     ['integration', 'workbenches'],
