@@ -154,6 +154,21 @@ export const softwareGroups: SoftwareGroup[] = [
     },
     items: [
       {
+        id: 'deepseek-harness',
+        platforms: ['macos', 'windows'],
+        iconUrl: 'https://www.deepseek.com/harness/favicon.svg',
+        name: {
+          en: 'DeepSeek Harness',
+        },
+        url: 'https://www.deepseek.com/en/harness/',
+        downloadUrl: 'https://www.deepseek.com/en/harness/',
+        repositoryUrl: 'https://github.com/deepseek-ai/deepseek-harness',
+        app: 'DeepSeek Harness.app',
+        aliases: ['deepseek', 'dsh', 'harness'],
+        defaultInstall: false,
+        note: 'Open-source agent harness with composable plugins. Download the desktop app from the official site.',
+      },
+      {
         id: 'magpie',
         platforms: ['macos', 'windows', 'linux'],
         iconScale: 1.25,
@@ -188,6 +203,21 @@ export const softwareGroups: SoftwareGroup[] = [
         note: 'Desktop workspace for running coding agents in parallel. Agent configuration and projects stay managed by Orca.',
       },
       {
+        id: 'paseo',
+        platforms: ['macos', 'windows', 'linux'],
+        iconUrl: 'https://paseo.sh/favicon.svg',
+        name: {
+          en: 'Paseo',
+        },
+        url: 'https://paseo.sh/',
+        downloadUrl: 'https://paseo.sh/download',
+        repositoryUrl: 'https://github.com/getpaseo/paseo',
+        cask: 'paseo',
+        app: 'Paseo.app',
+        defaultInstall: false,
+        note: 'Run coding agents on your own machines and manage their workspaces from desktop or mobile.',
+      },
+      {
         id: 'codebuddy-cn',
         platforms: ['macos', 'windows', 'linux'],
         iconUrl: 'https://download.codebuddy.cn/web/website/41d9f07cb6de7881ba06d46982d3876c0cbc1a98/assets/logo.svg',
@@ -200,18 +230,6 @@ export const softwareGroups: SoftwareGroup[] = [
         app: 'CodeBuddy CN.app',
         defaultInstall: false,
         note: 'CodeBuddy desktop IDE for the China region. Download from the official page.',
-      },
-      {
-        id: 'codebuddy-vscode',
-        iconUrl: 'https://download.codebuddy.cn/web/website/41d9f07cb6de7881ba06d46982d3876c0cbc1a98/assets/logo.svg',
-        name: {
-          en: 'CodeBuddy for VS Code',
-          zh: 'CodeBuddy VS Code 插件',
-        },
-        url: 'https://www.codebuddy.cn/',
-        downloadUrl: 'https://www.codebuddy.cn/setup/',
-        defaultInstall: false,
-        note: 'Install the CodeBuddy extension separately in VS Code. Detecting VS Code does not verify that this extension is installed.',
       },
       {
         id: 'codex',
