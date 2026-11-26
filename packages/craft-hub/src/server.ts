@@ -23,6 +23,14 @@ import { CommandReviewError } from './command-review'
 import { CommandRunGuardError } from './command-run-guard'
 import { projectConfigSchemaRevision } from './config'
 import { startDeliveryConnection } from './delivery/connection'
+import {
+  documentCreateInputSchema,
+  documentDailyInputSchema,
+  documentMoveInputSchema,
+  DocumentSpaceError,
+  documentWriteInputSchema,
+  localDocumentSpaceInputSchema,
+} from './document-spaces'
 import { dotfilesOperations, DotfilesTrustError, DotfilesValidationError } from './dotfiles-manager'
 import { environmentSourceCommandSchema, EnvironmentSourceError } from './environment-sources'
 import { GitIntegrationConflictError, GitIntegrationValidationError } from './git-integration'
@@ -214,6 +222,7 @@ async function startProtectedServer(options: CraftHubServerOptions, runtime: Cra
   const stopAgentTaskEvents = runtime.agentTasks.onChanged(task => broadcastEvent('agent-task-change', task))
   const stopSettingsEvents = runtime.settings.onChanged(snapshot => broadcastEvent('settings-change', snapshot))
   const stopPluginEvents = runtime.pluginManager.onChanged(() => broadcastEvent('plugin-change', { changedAt: new Date().toISOString() }))
+  const stopDocumentSpaceEvents = runtime.documentSpaces.onChanged(event => broadcastEvent('document-space-change', event))
   const localConfigStatus = async (): Promise<UserConfigStatus> => {
     await Promise.allSettled([runtime.ownerScopes.list(), runtime.workspaces.list()])
     return runtime.userConfig.status()
@@ -947,7 +956,103 @@ async function startProtectedServer(options: CraftHubServerOptions, runtime: Cra
         return sendJson(response, 200, await runtime.pluginManager.navigationPanels(url.searchParams.get('locale') ?? 'en'))
 
       if (request.method === 'GET' && url.pathname === '/api/workbenches')
-        return sendJson(response, 200, await runtime.pluginManager.workbenches(url.searchParams.get('locale') ?? 'en'))
+        return sendJson(response, 200, await runtime.workbenches(url.searchParams.get('locale') ?? 'en'))
+
+      if (parts[0] === 'api' && parts[1] === 'document-spaces') {
+        const sameSiteJson = (): boolean => request.headers['content-type']?.split(';')[0]?.trim().toLowerCase() === 'application/json'
+          && request.headers['sec-fetch-site'] !== 'cross-site'
+        if (request.method === 'GET' && parts.length === 2)
+          return sendJson(response, 200, await runtime.documentSpaces.listSpaces())
+        if (request.method === 'POST' && parts.length === 3 && parts[2] === 'local') {
+          if (!sameSiteJson())
+            return sendJson(response, 403, { error: 'Document space mutations require a same-site JSON request' })
+          const input = localDocumentSpaceInputSchema.parse(await jsonBody(request, 16 * 1024))
+          return sendJson(response, 201, await runtime.documentSpaces.addLocalSpace(input))
+        }
+        if (request.method === 'DELETE' && parts.length === 4 && parts[2] === 'local' && parts[3]) {
+          if (request.headers['sec-fetch-site'] === 'cross-site')
+            return sendJson(response, 403, { error: 'Document space mutations require a same-site request' })
+          await runtime.documentSpaces.removeLocalSpace(decodeURIComponent(parts[3]))
+          return sendJson(response, 200, { deleted: true })
+        }
+        const spaceId = parts[2] ? decodeURIComponent(parts[2]) : ''
+        if (spaceId) {
+          if (request.method === 'GET' && parts.length === 4 && parts[3] === 'nodes') {
+            const parent = url.searchParams.get('parent') ?? ''
+            return sendJson(response, 200, await runtime.documentSpaces.listNodes(spaceId, parent))
+          }
+          if (request.method === 'GET' && parts.length === 4 && parts[3] === 'document') {
+            const docPath = url.searchParams.get('path')
+            if (!docPath)
+              return sendJson(response, 400, { error: 'path is required' })
+            return sendJson(response, 200, await runtime.documentSpaces.readDocument(spaceId, docPath))
+          }
+          if (request.method === 'PUT' && parts.length === 4 && parts[3] === 'document') {
+            if (!sameSiteJson())
+              return sendJson(response, 403, { error: 'Document updates require a same-site JSON request' })
+            const input = documentWriteInputSchema.parse(await jsonBody(request, 2 * 1024 * 1024))
+            const result = await runtime.documentSpaces.writeDocument(spaceId, input.path, {
+              markdown: input.markdown,
+              frontmatter: input.frontmatter,
+              expectedRevision: input.expectedRevision,
+            })
+            return sendJson(response, result.status === 'conflict' ? 409 : 200, result)
+          }
+          if (request.method === 'DELETE' && parts.length === 4 && parts[3] === 'document') {
+            if (request.headers['sec-fetch-site'] === 'cross-site')
+              return sendJson(response, 403, { error: 'Document deletions require a same-site request' })
+            const docPath = url.searchParams.get('path')
+            if (!docPath)
+              return sendJson(response, 400, { error: 'path is required' })
+            await runtime.documentSpaces.deleteDocument(spaceId, docPath)
+            return sendJson(response, 200, { deleted: true })
+          }
+          if (request.method === 'POST' && parts.length === 4 && parts[3] === 'documents') {
+            if (!sameSiteJson())
+              return sendJson(response, 403, { error: 'Document creation requires a same-site JSON request' })
+            const input = documentCreateInputSchema.parse(await jsonBody(request, 1024 * 1024))
+            return sendJson(response, 201, await runtime.documentSpaces.createDocument(spaceId, input))
+          }
+          if (request.method === 'POST' && parts.length === 5 && parts[3] === 'documents' && parts[4] === 'move') {
+            if (!sameSiteJson())
+              return sendJson(response, 403, { error: 'Document moves require a same-site JSON request' })
+            const input = documentMoveInputSchema.parse(await jsonBody(request, 16 * 1024))
+            return sendJson(response, 200, await runtime.documentSpaces.moveDocument(spaceId, input))
+          }
+          if (request.method === 'POST' && parts.length === 4 && parts[3] === 'daily') {
+            if (!sameSiteJson())
+              return sendJson(response, 403, { error: 'Daily note creation requires a same-site JSON request' })
+            const input = documentDailyInputSchema.parse(await jsonBody(request, 4096))
+            return sendJson(response, 200, await runtime.documentSpaces.openOrCreateDailyNote(spaceId, input.date))
+          }
+          if (request.method === 'GET' && parts.length === 4 && parts[3] === 'asset') {
+            const assetPath = url.searchParams.get('path')
+            if (!assetPath)
+              return sendJson(response, 400, { error: 'path is required' })
+            const asset = await runtime.documentSpaces.resolveAsset(spaceId, assetPath)
+            if ('redirectUrl' in asset) {
+              const target = new URL(asset.redirectUrl)
+              if (target.protocol !== 'https:')
+                return sendJson(response, 400, { error: 'Asset redirects must use HTTPS' })
+              response.writeHead(302, {
+                'cache-control': 'private, no-store',
+                'location': target.toString(),
+              })
+              response.end()
+              return
+            }
+            response.writeHead(200, {
+              'cache-control': 'private, no-store',
+              'content-length': asset.content.byteLength,
+              'content-type': asset.mimeType,
+              'x-content-type-options': 'nosniff',
+              ...(asset.mimeType === 'image/svg+xml' ? { 'content-security-policy': 'default-src \'none\'; sandbox' } : {}),
+            })
+            response.end(asset.content)
+            return
+          }
+        }
+      }
 
       if (request.method === 'GET' && parts[0] === 'api' && parts[1] === 'integrations' && parts[2] && parts[3] === 'callback' && parts.length === 4) {
         response.setHeader('cache-control', 'no-store')
@@ -1574,7 +1679,7 @@ async function startProtectedServer(options: CraftHubServerOptions, runtime: Cra
         return sendJson(response, 409, { error: error.message, actualRevision: error.actualRevision })
       if (error instanceof WorkItemProjectError)
         return sendJson(response, error.status, { error: error.message })
-      if (error instanceof SoftwareOperationError || error instanceof SoftwareSourceError || error instanceof SetupProfileError || error instanceof EnvironmentSourceError || error instanceof ProjectSpaceError)
+      if (error instanceof SoftwareOperationError || error instanceof SoftwareSourceError || error instanceof SetupProfileError || error instanceof EnvironmentSourceError || error instanceof ProjectSpaceError || error instanceof DocumentSpaceError)
         return sendJson(response, error.status, { error: error.message })
       if (error instanceof PluginInstallPlanChangedError)
         return sendJson(response, 409, { error: error.message, reviewRequired: true })
@@ -1690,6 +1795,7 @@ async function startProtectedServer(options: CraftHubServerOptions, runtime: Cra
       stopAgentTaskEvents()
       stopSettingsEvents()
       stopPluginEvents()
+      stopDocumentSpaceEvents()
       stopUserConfigEvents()
       for (const client of eventClients)
         client.end()
@@ -1730,6 +1836,7 @@ async function startProtectedServer(options: CraftHubServerOptions, runtime: Cra
     await watchProjects()
     await runtime.settings.startWatching()
     await runtime.userConfig.startWatching()
+    await runtime.documentSpaces.startWatching()
     heartbeat = setInterval(() => {
       for (const client of eventClients)
         client.write(': keep-alive\n\n')

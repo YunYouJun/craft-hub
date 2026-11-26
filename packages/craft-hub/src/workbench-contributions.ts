@@ -26,7 +26,7 @@ export const workbenchViewReferenceSchema = z.discriminatedUnion('type', [
   }),
   z.strictObject({
     type: z.literal('host'),
-    view: z.enum(['work-items', 'projects']),
+    view: z.enum(['work-items', 'projects', 'document-spaces']),
     group: localizedWorkbenchTextSchema.optional(),
     integrations: z.array(workbenchIdSchema).max(100).optional(),
   }).superRefine((reference, context) => {

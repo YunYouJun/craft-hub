@@ -13,6 +13,7 @@ import type { ProfileLease } from './profile-lease'
 import type { ProjectSpaceSnapshot } from './project-space'
 import type { SoftwareApplicationOpen, SoftwareCatalogSnapshot, SoftwareFavoritesSnapshot, SoftwareInstallationPlan, SoftwareInstallationRun, SoftwareInstallationRuns } from './software-catalog'
 import type { Capability, CapabilityDiscoveryDiagnostic, CapabilityDiscoveryResult, CapabilityPins, CapabilityReference, CommandCapability, CommandInputValues, CommandInvocation, CommandPackage, LocalSkillActivationSettings, ProjectConfigInitializationMode, ProjectConfigInitializationResult, ProjectOverview, ProjectRecord, ProjectRunSummary, ProjectSkillsState, ReleasePlan, RunCleanupOptions, RunCleanupResult, RunOutputEvent, RunRecord } from './types'
+import type { InstalledPluginWorkbench, WorkbenchContribution } from './workbench-contributions'
 import { randomUUID } from 'node:crypto'
 import { isAbsolute, resolve } from 'node:path'
 import process from 'node:process'
@@ -28,6 +29,7 @@ import { assertCommandRunGuardActive, assertCommandRunGuardMatches } from './com
 import { applyProjectConfigInitialization, loadProjectConfig, previewProjectConfigInitialization } from './config'
 import { presentConfigurationManagement } from './configuration-management'
 import { collectWorkbenchDiagnostics, readHostDiagnosticProviders } from './diagnostics'
+import { DocumentSpaceService } from './document-spaces'
 import { DotfilesManager } from './dotfiles-manager'
 import { EnvironmentSetupService } from './environment-setup'
 import { EnvironmentSourceService } from './environment-sources'
@@ -64,6 +66,7 @@ import { TeamManager } from './teams'
 import { UserConfigService } from './user-config'
 import { WorkAssistant } from './work-assistant'
 import { WorkItemProjectService } from './work-item-projects'
+import { localizeWorkbench, workbenchContributionSchema } from './workbench-contributions'
 import { WorkspaceCatalogService } from './workspace-catalog'
 import { WorkspaceImportService } from './workspace-import'
 import { publicWorkspaceRepositoryProvider } from './workspace-repository'
@@ -120,7 +123,9 @@ export class CraftHubRuntime {
   readonly agentActions: AgentActionService
   readonly pluginManager: PluginManager
   readonly integrationRegistry: IntegrationRegistry
+  readonly documentSpaces: DocumentSpaceService
   private readonly hostIntegrations: InstalledIntegrationContribution[]
+  private readonly hostWorkbenches: Array<{ pluginId: string, pluginName: string, pluginVersion: string, workbench: WorkbenchContribution }>
   readonly releasePlanner = new ReleasePlanner()
   readonly gitIntegration = new GitIntegration()
   readonly distribution: DistributionConfig
@@ -187,6 +192,17 @@ export class CraftHubRuntime {
       pluginId: plugin.id,
       source: `host:${plugin.id}`,
     })))
+    this.hostWorkbenches = plugins.flatMap(plugin => (plugin.workbenches ?? []).map(workbench => ({
+      pluginId: plugin.id,
+      pluginName: plugin.name ?? plugin.id,
+      pluginVersion: plugin.version ?? '1.0.0',
+      workbench: workbenchContributionSchema.parse(workbench),
+    })))
+    this.documentSpaces = new DocumentSpaceService(
+      this.store.dataDir,
+      plugins.flatMap(plugin => plugin.documentSpaceProviders ?? []),
+      this.hostEnvironment.capabilities.localProjectDirectories,
+    )
     this.integrationRegistry = new IntegrationRegistry(plugins.flatMap(plugin => plugin.integrationProviders ?? []))
     this.diagnosticProviders = plugins.flatMap(plugin => (plugin.diagnosticProviders ?? []).map(provider => ({ pluginId: plugin.id, provider })))
     this.capabilityProviders = [
@@ -283,6 +299,19 @@ export class CraftHubRuntime {
   /** Resolve installed marketplace integration declarations against trusted host providers. */
   async integrationContributions(): Promise<{ integrations: ResolvedIntegrationContribution[], diagnostics: IntegrationDiagnostic[] }> {
     return this.integrationRegistry.resolve([...this.hostIntegrations, ...await this.pluginManager.integrationContributions()])
+  }
+
+  /** Return localized product workbenches contributed by trusted host plugins and active marketplace plugins. */
+  async workbenches(locale = 'en'): Promise<InstalledPluginWorkbench[]> {
+    const marketplaceWorkbenches = await this.pluginManager.workbenches(locale)
+    const hostEntries: InstalledPluginWorkbench[] = this.hostWorkbenches.map(entry => ({
+      ...localizeWorkbench(entry.workbench, locale),
+      pluginId: entry.pluginId,
+      pluginName: entry.pluginName,
+      pluginVersion: entry.pluginVersion,
+    }))
+    return [...hostEntries, ...marketplaceWorkbenches]
+      .sort((left, right) => (left.order ?? 100) - (right.order ?? 100) || left.title.localeCompare(right.title))
   }
 
   /** Collect current host, extension, and configuration failures for client presentation. */
@@ -901,6 +930,7 @@ export class CraftHubRuntime {
       scan.controller.abort()
     await Promise.allSettled(scans.map(scan => scan.completion))
     await this.environmentSources.close()
+    await this.documentSpaces.close()
     await this.agentTasks.cancelAll()
     await this.cancelAllRuns()
     await this.configurationQueue.catch(() => {})

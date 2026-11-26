@@ -49,7 +49,7 @@ export function homeWorkSources(contributions: ResolvedIntegrationContribution[]
         if (block.type !== 'entity-list' || block.requiresProject || action?.operation !== 'work-items.list' || !['local-read', 'remote-read'].includes(action.effect) || action.effectiveConfirmation !== 'never')
           continue
         const input = { ...block.input, ...(contribution.translations ? { locale } : {}) }
-        const connection = connectionBlock ? { actionId: connectionBlock.actionId, input: { ...connectionBlock.input, locale } } : undefined
+        const connection = connectionBlock?.actionId ? { actionId: connectionBlock.actionId, input: { ...connectionBlock.input, locale } } : undefined
         const key = JSON.stringify([
           contribution.pluginId,
           contribution.provider.id,

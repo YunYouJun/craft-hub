@@ -21,7 +21,8 @@ export function describeHostEnvironment(kind: HostEnvironmentKind = 'local'): Ho
 export function isLocalDirectoryMutation(method: string, pathname: string): boolean {
   if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(method))
     return false
-  return (method === 'POST' && ['/api/projects', '/api/workspaces/register-member'].includes(pathname))
+  return (method === 'POST' && ['/api/projects', '/api/workspaces/register-member', '/api/document-spaces/local'].includes(pathname))
+    || /^\/api\/document-spaces\/local\/[^/]+$/.test(pathname)
     || /^\/api\/personal-git-sync(?:\/synchronize)?$/.test(pathname)
     || /^\/api\/owner-scopes\/[^/]+\/git-sync(?:\/synchronize)?$/.test(pathname)
     || /^\/api\/dotfiles-manager(?:\/|$)/.test(pathname)

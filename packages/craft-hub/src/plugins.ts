@@ -1,19 +1,23 @@
 import type { AccountProvider } from './accounts'
 import type { HostDiagnosticProvider } from './diagnostics'
+import type { DocumentSpaceProvider } from './document-spaces'
 import type { EnvironmentSetupProvider } from './environment-setup'
 import type { EnvironmentSourceProvider } from './environment-sources'
 import type { CapabilityProvider } from './extensions'
 import type { IntegrationContribution, IntegrationProvider } from './integrations'
 import type { RepositoryValidationProvider } from './repository-validation'
 import type { SoftwareCatalogProvider } from './software-catalog'
+import type { WorkbenchContribution } from './workbench-contributions'
 import type { WorkspaceCatalogProvider } from './workspace-catalog'
 import type { WorkspaceRepositoryProvider } from './workspace-repository'
 import { createRequire } from 'node:module'
 import { isAbsolute, resolve } from 'node:path'
 import process from 'node:process'
 import { pathToFileURL } from 'node:url'
+import { assertDocumentSpaceProviders } from './document-spaces'
 import { integrationContributionSchema } from './integrations'
 import { assertRepositoryValidationProviders } from './repository-validation'
+import { workbenchContributionSchema } from './workbench-contributions'
 
 /** A trusted, host-installed extension to the Craft Hub runtime. */
 export interface CraftHubPlugin {
@@ -27,6 +31,8 @@ export interface CraftHubPlugin {
   accountProvider?: AccountProvider
   workspaceRepositoryProviders?: WorkspaceRepositoryProvider[]
   workspaceCatalogProviders?: WorkspaceCatalogProvider[]
+  /** Pluggable Document Space providers exposed in `/spaces` and embedded blocks. */
+  documentSpaceProviders?: DocumentSpaceProvider[]
   /** Read-only software catalogs supplied by the trusted local host. */
   softwareCatalogProviders?: SoftwareCatalogProvider[]
   capabilityProviders?: CapabilityProvider[]
@@ -37,6 +43,8 @@ export interface CraftHubPlugin {
   repositoryValidationProviders?: RepositoryValidationProvider[]
   /** Declarative views shipped with an explicitly loaded trusted Host Plugin. */
   integrations?: IntegrationContribution[]
+  /** Product-level workbenches composed by an explicitly loaded trusted Host Plugin. */
+  workbenches?: WorkbenchContribution[]
 }
 
 export interface PluginDiagnostic {
@@ -117,6 +125,13 @@ function assertPlugin(value: unknown, specifier: string): asserts value is Craft
       throw new TypeError(`Plugin ${specifier} integrations must be an array`)
     plugin.integrations.forEach(contribution => integrationContributionSchema.parse(contribution))
   }
+  if (plugin.workbenches !== undefined) {
+    if (!Array.isArray(plugin.workbenches))
+      throw new TypeError(`Plugin ${specifier} workbenches must be an array`)
+    plugin.workbenches.forEach(workbench => workbenchContributionSchema.parse(workbench))
+  }
+  if (plugin.documentSpaceProviders !== undefined)
+    assertDocumentSpaceProviders(plugin.documentSpaceProviders, specifier)
   if (plugin.integrationProviders !== undefined && !Array.isArray(plugin.integrationProviders))
     throw new TypeError(`Plugin ${specifier} integrationProviders must be an array`)
   if (plugin.softwareCatalogProviders !== undefined && !Array.isArray(plugin.softwareCatalogProviders))

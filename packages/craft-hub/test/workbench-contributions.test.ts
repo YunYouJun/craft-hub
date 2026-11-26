@@ -78,6 +78,7 @@ describe('workbench contributions', () => {
     const result = pluginManifestV1Schema.parse(manifest({ ...workbench, views: [
       { type: 'host', view: 'work-items', integrations: ['issues'], group: { 'default': 'Work', 'zh-CN': '工作事项' } },
       { type: 'host', view: 'projects', group: 'Projects' },
+      { type: 'host', view: 'document-spaces', group: 'Documents' },
     ] }))
     expect(result.permissions).toEqual([])
     expect(localizeWorkbench(result.contributes.workbenches[0]!, 'zh-CN').views[0]?.group).toBe('工作事项')

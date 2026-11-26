@@ -88,11 +88,25 @@ describe('integration contracts', () => {
     expect(() => integrationContributionSchema.parse(declaration)).toThrow(/require an action form/)
   })
 
-  it('validates action references in declarative views', () => {
+  it('validates action references in declarative views and allows action-free document-space blocks', () => {
     expect(() => integrationContributionSchema.parse({
       ...contribution(),
       views: [{ ...contribution().views[0], blocks: [{ id: 'missing', type: 'entity-list', actionId: 'missing' }] }],
     })).toThrow(/Unknown integration action/)
+    expect(() => integrationContributionSchema.parse({
+      ...contribution(),
+      views: [{ ...contribution().views[0], blocks: [{ id: 'no-action', type: 'entity-list' }] }],
+    })).toThrow(/requires an actionId/)
+
+    const parsedDocSpace = integrationContributionSchema.parse({
+      ...contribution(),
+      views: [{
+        ...contribution().views[0],
+        scope: 'global',
+        blocks: [{ id: 'docs', type: 'document-space', spaceId: 'notes', rootPath: 'drafts' }],
+      }],
+    })
+    expect(parsedDocSpace.views[0]?.blocks[0]).toMatchObject({ type: 'document-space', spaceId: 'notes', rootPath: 'drafts' })
   })
 
   it('rejects write operations disguised as remote reads', () => {

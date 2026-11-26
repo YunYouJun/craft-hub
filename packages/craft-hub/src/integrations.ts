@@ -43,10 +43,12 @@ const remoteWriteOperations = new Set<IntegrationOperation>([
 ])
 const integrationViewBlockSchema = z.object({
   id: integrationIdSchema,
-  type: z.enum(['connection-status', 'entity-search', 'entity-list', 'action-form', 'resource-browser', 'configuration-manager']),
+  type: z.enum(['connection-status', 'entity-search', 'entity-list', 'action-form', 'resource-browser', 'configuration-manager', 'document-space']),
   title: z.string().min(1).optional(),
   description: z.string().min(1).optional(),
-  actionId: integrationIdSchema,
+  actionId: integrationIdSchema.optional(),
+  spaceId: z.string().min(1).optional(),
+  rootPath: z.string().min(1).optional(),
   collapsible: z.boolean().optional(),
   requiresProject: z.boolean().optional(),
   statusFilter: z.enum(['active', 'all']).optional(),
@@ -120,11 +122,13 @@ export const integrationContributionSchema = z.object({
         context.addIssue({ code: 'custom', message: 'Form presentation options require an action form', path: ['views', viewIndex, 'blocks', blockIndex] })
       if (block.type === 'action-form' && !block.fields?.length)
         context.addIssue({ code: 'custom', message: 'Action forms require fields', path: ['views', viewIndex, 'blocks', blockIndex, 'fields'] })
-      if (block.type !== 'action-form' && integration.actions.find(action => action.id === block.actionId)?.effect.endsWith('write'))
+      if (block.type !== 'document-space' && !block.actionId)
+        context.addIssue({ code: 'custom', message: 'Integration block requires an actionId', path: ['views', viewIndex, 'blocks', blockIndex, 'actionId'] })
+      if (block.actionId && block.type !== 'action-form' && integration.actions.find(action => action.id === block.actionId)?.effect.endsWith('write'))
         context.addIssue({ code: 'custom', message: 'Writes require an explicit action form', path: ['views', viewIndex, 'blocks', blockIndex, 'actionId'] })
-      if (block.previewInput && integration.actions.find(action => action.id === block.actionId)?.effect !== 'local-read')
+      if (block.previewInput && (block.type === 'document-space' || integration.actions.find(action => action.id === block.actionId)?.effect !== 'local-read'))
         context.addIssue({ code: 'custom', message: 'Preview inputs require a local-read action', path: ['views', viewIndex, 'blocks', blockIndex, 'previewInput'] })
-      if (!actionIds.has(block.actionId))
+      if (block.actionId && !actionIds.has(block.actionId))
         context.addIssue({ code: 'custom', message: `Unknown integration action: ${block.actionId}`, path: ['views', viewIndex, 'blocks', blockIndex, 'actionId'] })
     }
   }
