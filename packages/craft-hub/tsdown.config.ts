@@ -22,7 +22,11 @@ export default defineConfig({
     'src/skill-prompts.ts',
   ],
   dts: true,
-  exports: true,
+  exports: {
+    customExports: {
+      './docs-tokens.css': './styles/docs-tokens.css',
+    },
+  },
   publint: true,
   onSuccess: buildSignalPath ? () => writeFile(buildSignalPath, randomUUID(), 'utf8') : undefined,
 })

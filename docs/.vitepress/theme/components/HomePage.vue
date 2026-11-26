@@ -121,18 +121,13 @@ function updateGrid(event: PointerEvent): void {
 
 <style scoped>
 .craft-home {
-  --craft-accent: #1558e8;
-  --craft-accent-hover: #0d49c8;
-  --craft-border: #dfe5ef;
-  --craft-grid: rgb(21 88 232 / 10%);
-  --craft-muted: #526079;
   overflow: hidden;
-  color: #090d16;
-  background: #fff;
+  color: var(--ch-text);
+  background: var(--ch-bg);
 }
 
 .craft-shell {
-  width: min(1440px, calc(100% - 72px));
+  width: min(var(--ch-shell-max), calc(100% - 72px));
   margin: 0 auto;
 }
 
@@ -141,14 +136,14 @@ function updateGrid(event: PointerEvent): void {
   --grid-y: 35%;
   position: relative;
   min-height: min(790px, calc(100vh - var(--vp-nav-height)));
-  border-bottom: 1px solid var(--craft-border);
-  background: #fff;
+  border-bottom: 1px solid var(--ch-border);
+  background: var(--ch-bg);
 }
 
 .craft-grid {
   position: absolute;
   pointer-events: none;
-  background-image: linear-gradient(var(--craft-grid) 1px, transparent 1px), linear-gradient(90deg, var(--craft-grid) 1px, transparent 1px);
+  background-image: linear-gradient(var(--ch-grid-line) 1px, transparent 1px), linear-gradient(90deg, var(--ch-grid-line) 1px, transparent 1px);
   background-position: center;
   background-size: 72px 72px;
   inset: 0 0 0 42%;
@@ -182,7 +177,7 @@ function updateGrid(event: PointerEvent): void {
 .craft-hero-copy > p:not(.craft-release-note) {
   max-width: 590px;
   margin: 34px 0 0;
-  color: var(--craft-muted);
+  color: var(--ch-text-secondary);
   font-size: clamp(18px, 1.45vw, 22px);
   line-height: 1.55;
 }
@@ -201,13 +196,13 @@ function updateGrid(event: PointerEvent): void {
   gap: 10px;
   min-height: 56px;
   border: 1px solid transparent;
-  border-radius: 8px;
+  border-radius: var(--ch-radius-control);
   padding: 0 22px;
   font-size: 16px;
   font-weight: 650;
   line-height: 1;
   text-decoration: none;
-  transition: border-color 160ms ease, background-color 160ms ease, box-shadow 160ms ease, color 160ms ease, transform 160ms ease;
+  transition: border-color var(--ch-duration-fast) var(--ch-ease-standard), background-color var(--ch-duration-fast) var(--ch-ease-standard), box-shadow var(--ch-duration-fast) var(--ch-ease-standard), color var(--ch-duration-fast) var(--ch-ease-standard), transform var(--ch-duration-fast) var(--ch-ease-standard);
 }
 
 .craft-button:hover {
@@ -215,7 +210,7 @@ function updateGrid(event: PointerEvent): void {
 }
 
 .craft-button:focus-visible {
-  outline: 3px solid rgb(21 88 232 / 24%);
+  outline: 3px solid var(--ch-focus-ring);
   outline-offset: 3px;
 }
 
@@ -230,32 +225,32 @@ function updateGrid(event: PointerEvent): void {
 }
 
 .craft-button-primary {
-  color: #fff;
-  background: var(--craft-accent);
-  box-shadow: 0 8px 22px rgb(21 88 232 / 18%);
+  color: var(--ch-on-brand);
+  background: var(--ch-brand-fill);
+  box-shadow: var(--ch-shadow-cta);
 }
 
 .craft-button-primary:hover {
-  color: #fff;
-  background: var(--craft-accent-hover);
-  box-shadow: 0 12px 28px rgb(21 88 232 / 24%);
+  color: var(--ch-on-brand);
+  background: var(--ch-brand-fill-hover);
+  box-shadow: var(--ch-shadow-cta-hover);
 }
 
 .craft-button-secondary {
-  border-color: #cfd7e4;
-  color: var(--craft-accent);
-  background: #fff;
+  border-color: var(--ch-border-strong);
+  color: var(--ch-brand);
+  background: var(--ch-surface);
 }
 
 .craft-button-secondary:hover {
-  border-color: #9fb3d5;
-  color: var(--craft-accent-hover);
-  background: #f8faff;
+  border-color: var(--ch-border-hover);
+  color: var(--ch-brand-hover);
+  background: var(--ch-surface-subtle);
 }
 
 .craft-release-note {
   margin: 28px 0 0;
-  color: #68748a;
+  color: var(--ch-text-muted);
   font-size: 15px;
   line-height: 1.5;
 }
@@ -265,17 +260,17 @@ function updateGrid(event: PointerEvent): void {
   z-index: 1;
   min-width: 0;
   margin: 0 -7vw 0 0;
-  border: 1px solid #b9c8e2;
-  border-radius: 14px;
-  background: #fff;
-  box-shadow: 0 34px 80px rgb(30 53 91 / 16%), 0 8px 24px rgb(30 53 91 / 10%);
+  border: 1px solid var(--ch-border-frame);
+  border-radius: var(--ch-radius-card);
+  background: var(--ch-surface);
+  box-shadow: var(--ch-shadow-hero);
 }
 
 .craft-product-frame::after {
   position: absolute;
   z-index: -2;
-  border: 1px dashed rgb(21 88 232 / 34%);
-  border-radius: 20px;
+  border: 1px dashed var(--ch-beam-dashed);
+  border-radius: var(--ch-radius-frame);
   content: '';
   inset: -30px -26px 30px 10%;
 }
@@ -284,7 +279,7 @@ function updateGrid(event: PointerEvent): void {
   display: block;
   width: 100%;
   height: auto;
-  border-radius: 13px;
+  border-radius: calc(var(--ch-radius-card) - 1px);
 }
 
 .craft-product-beam {
@@ -293,16 +288,16 @@ function updateGrid(event: PointerEvent): void {
   pointer-events: none;
   border: 1px solid transparent;
   border-radius: inherit;
-  background: linear-gradient(105deg, transparent 28%, rgb(21 88 232 / 78%) 45%, rgb(80 200 255 / 88%) 50%, transparent 66%) border-box;
+  background: linear-gradient(105deg, transparent 28%, var(--ch-beam-from) 45%, var(--ch-beam-to) 50%, transparent 66%) border-box;
   background-size: 280% 100%;
   inset: -1px;
   mask: linear-gradient(#000 0 0) padding-box, linear-gradient(#000 0 0);
   mask-composite: exclude;
-  animation: craft-beam 6s linear infinite;
+  animation: craft-beam var(--ch-duration-beam) linear infinite;
 }
 
 .craft-proof {
-  background: #fff;
+  background: var(--ch-bg);
 }
 
 .craft-proof-list {
@@ -319,14 +314,14 @@ function updateGrid(event: PointerEvent): void {
 }
 
 .craft-proof-item + .craft-proof-item {
-  border-left: 1px solid var(--craft-border);
+  border-left: 1px solid var(--ch-border);
 }
 
 .craft-proof-item svg {
   width: 42px;
   height: 42px;
   fill: none;
-  stroke: var(--craft-accent);
+  stroke: var(--ch-brand);
   stroke-width: 1.8;
   stroke-linecap: round;
   stroke-linejoin: round;
@@ -342,35 +337,9 @@ function updateGrid(event: PointerEvent): void {
 
 .craft-proof-item p {
   margin: 13px 0 0;
-  color: var(--craft-muted);
+  color: var(--ch-text-secondary);
   font-size: 15px;
   line-height: 1.55;
-}
-
-.dark .craft-home {
-  --craft-accent: #79a2ff;
-  --craft-accent-hover: #9ab8ff;
-  --craft-border: #2c3442;
-  --craft-grid: rgb(121 162 255 / 12%);
-  --craft-muted: #a9b2c2;
-  color: #f5f7fb;
-  background: #0d1016;
-}
-
-.dark .craft-hero,
-.dark .craft-proof {
-  background: #0d1016;
-}
-
-.dark .craft-button-secondary,
-.dark .craft-product-frame {
-  border-color: #3d4657;
-  color: #a9c0ff;
-  background: #131821;
-}
-
-.dark .craft-button-secondary:hover {
-  background: #192131;
 }
 
 .dark .craft-product-frame img {
@@ -447,7 +416,7 @@ function updateGrid(event: PointerEvent): void {
   }
 
   .craft-proof-item + .craft-proof-item {
-    border-top: 1px solid var(--craft-border);
+    border-top: 1px solid var(--ch-border);
     border-left: 0;
   }
 }

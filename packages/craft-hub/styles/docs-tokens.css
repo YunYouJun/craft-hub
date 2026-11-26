@@ -1,0 +1,208 @@
+/**
+ * Craft Hub Docs Design Tokens
+ *
+ * Shared semantic token layer (`--ch-*`) and VitePress bridge (`--vp-*`) for
+ * Craft Hub documentation sites and downstream distributions.
+ *
+ * Contract:
+ * - Use `--ch-brand` / `--ch-brand-hover` for links, icons, and text accents.
+ * - Use `--ch-brand-fill` / `--ch-brand-fill-hover` paired with `--ch-on-brand`
+ *   for solid primary actions so light and dark modes both keep >= 4.5:1 contrast.
+ */
+
+:root {
+  /* Surfaces & canvas */
+  --ch-bg: #ffffff;
+  --ch-bg-subtle: #f7f9fc;
+  --ch-surface: #ffffff;
+  --ch-surface-subtle: #f8faff;
+  --ch-surface-hover: #f4f7ff;
+  --ch-code-surface: #fbfcff;
+
+  /* Typography */
+  --ch-text: #090d16;
+  --ch-text-secondary: #526079;
+  --ch-text-muted: #647189;
+  --ch-text-code: #131b2b;
+
+  /* Borders & dividers */
+  --ch-border: #dfe5ef;
+  --ch-border-strong: #c6d2e4;
+  --ch-border-hover: #9fb3d5;
+  --ch-border-frame: #b9c8e2;
+
+  /* Brand text/icon vs solid fill (separated contrast contract) */
+  --ch-brand: #1558e8;
+  --ch-brand-hover: #0d49c8;
+  --ch-brand-active: #073cae;
+  --ch-brand-soft: rgb(21 88 232 / 10%);
+  --ch-brand-fill: #1558e8;
+  --ch-brand-fill-hover: #0d49c8;
+  --ch-brand-fill-active: #073cae;
+  --ch-on-brand: #ffffff;
+
+  /* Focus & decorative motifs */
+  --ch-focus-ring: rgb(21 88 232 / 24%);
+  --ch-grid-line: rgb(21 88 232 / 9%);
+  --ch-beam-from: rgb(21 88 232 / 78%);
+  --ch-beam-to: rgb(80 200 255 / 88%);
+  --ch-beam-dashed: rgb(21 88 232 / 34%);
+  --ch-glow-bg: #edf3ff;
+  --ch-glow-accent: rgb(21 88 232 / 14%);
+
+  /* Semantic statuses */
+  --ch-success: #15803d;
+  --ch-success-soft: rgb(21 128 61 / 12%);
+  --ch-success-dot: #22c55e;
+  --ch-warning: #b45309;
+  --ch-warning-soft: rgb(180 83 9 / 12%);
+  --ch-danger: #b34e52;
+  --ch-danger-soft: rgb(179 78 82 / 12%);
+
+  /* Legacy VitePress accent palette compatibility (UnoCSS shortcuts) */
+  --ch-yellow-1: #edb253;
+  --ch-yellow-2: #daac61;
+  --ch-yellow-3: #e6cc78;
+  --ch-red-1: #b34e52;
+  --ch-red-2: #bc6063;
+  --ch-red-3: #cb7676;
+
+  /* Layout & geometry */
+  --ch-shell-max: 1440px;
+  --ch-shell-compact: 1320px;
+  --ch-radius-xs: 4px;
+  --ch-radius-sm: 6px;
+  --ch-radius-control: 8px;
+  --ch-radius-card: 14px;
+  --ch-radius-frame: 20px;
+  --ch-radius-pill: 999px;
+
+  /* Elevation */
+  --ch-shadow-cta: 0 8px 22px rgb(21 88 232 / 18%);
+  --ch-shadow-cta-hover: 0 12px 28px rgb(21 88 232 / 24%);
+  --ch-shadow-card: 0 18px 48px rgb(30 53 91 / 10%), 0 4px 14px rgb(30 53 91 / 6%);
+  --ch-shadow-hero: 0 34px 80px rgb(30 53 91 / 16%), 0 8px 24px rgb(30 53 91 / 10%);
+
+  /* Motion */
+  --ch-duration-fast: 160ms;
+  --ch-duration-beam: 6s;
+  --ch-ease-standard: ease;
+
+  /* VitePress bridge */
+  --vp-c-brand-1: var(--ch-brand);
+  --vp-c-brand-2: var(--ch-brand-hover);
+  --vp-c-brand-3: var(--ch-brand-active);
+  --vp-c-brand-soft: var(--ch-brand-soft);
+
+  --vp-c-bg: var(--ch-bg);
+  --vp-c-bg-alt: var(--ch-bg-subtle);
+  --vp-c-bg-soft: var(--ch-bg-subtle);
+  --vp-c-bg-elv: var(--ch-surface);
+
+  --vp-c-text-1: var(--ch-text);
+  --vp-c-text-2: var(--ch-text-secondary);
+  --vp-c-text-3: var(--ch-text-muted);
+
+  --vp-c-divider: var(--ch-border);
+  --vp-c-border: var(--ch-border-strong);
+
+  --vp-c-yellow-1: var(--ch-yellow-1);
+  --vp-c-yellow-2: var(--ch-yellow-2);
+  --vp-c-yellow-3: var(--ch-yellow-3);
+
+  --vp-c-red-1: var(--ch-red-1);
+  --vp-c-red-2: var(--ch-red-2);
+  --vp-c-red-3: var(--ch-red-3);
+
+  --vp-c-default-1: var(--vp-c-gray-1);
+  --vp-c-default-2: var(--vp-c-gray-2);
+  --vp-c-default-3: var(--vp-c-gray-3);
+  --vp-c-default-soft: var(--vp-c-gray-soft);
+
+  --vp-c-tip-1: var(--vp-c-brand-1);
+  --vp-c-tip-2: var(--vp-c-brand-2);
+  --vp-c-tip-3: var(--vp-c-brand-3);
+  --vp-c-tip-soft: var(--vp-c-brand-soft);
+
+  --vp-c-warning-1: var(--ch-warning);
+  --vp-c-warning-2: var(--ch-yellow-2);
+  --vp-c-warning-3: var(--ch-yellow-3);
+  --vp-c-warning-soft: var(--ch-warning-soft);
+
+  --vp-c-danger-1: var(--ch-danger);
+  --vp-c-danger-2: var(--ch-red-2);
+  --vp-c-danger-3: var(--ch-red-3);
+  --vp-c-danger-soft: var(--ch-danger-soft);
+
+  --vp-button-brand-border: transparent;
+  --vp-button-brand-text: var(--ch-on-brand);
+  --vp-button-brand-bg: var(--ch-brand-fill);
+  --vp-button-brand-hover-border: transparent;
+  --vp-button-brand-hover-text: var(--ch-on-brand);
+  --vp-button-brand-hover-bg: var(--ch-brand-fill-hover);
+  --vp-button-brand-active-border: transparent;
+  --vp-button-brand-active-text: var(--ch-on-brand);
+  --vp-button-brand-active-bg: var(--ch-brand-fill-active);
+
+  --vp-home-hero-name-color: var(--ch-brand);
+
+  --vp-custom-block-tip-border: transparent;
+  --vp-custom-block-tip-text: var(--vp-c-text-1);
+  --vp-custom-block-tip-bg: var(--vp-c-brand-soft);
+  --vp-custom-block-tip-code-bg: var(--vp-c-brand-soft);
+}
+
+.dark {
+  --ch-bg: #0d1016;
+  --ch-bg-subtle: #141923;
+  --ch-surface: #131821;
+  --ch-surface-subtle: #181f2c;
+  --ch-surface-hover: #1d2636;
+  --ch-code-surface: #171d27;
+
+  --ch-text: #f3f6fc;
+  --ch-text-secondary: #a9b2c2;
+  --ch-text-muted: #8b96ab;
+  --ch-text-code: #edf2fb;
+
+  --ch-border: #2c3442;
+  --ch-border-strong: #3e4859;
+  --ch-border-hover: #59647a;
+  --ch-border-frame: #3e4859;
+
+  --ch-brand: #79a2ff;
+  --ch-brand-hover: #9ab8ff;
+  --ch-brand-active: #b8ccff;
+  --ch-brand-soft: rgb(121 162 255 / 15%);
+  --ch-brand-fill: #1558e8;
+  --ch-brand-fill-hover: #2467f2;
+  --ch-brand-fill-active: #0d49c8;
+  --ch-on-brand: #ffffff;
+
+  --ch-focus-ring: rgb(121 162 255 / 32%);
+  --ch-grid-line: rgb(121 162 255 / 12%);
+  --ch-beam-from: rgb(121 162 255 / 72%);
+  --ch-beam-to: rgb(80 200 255 / 85%);
+  --ch-beam-dashed: rgb(121 162 255 / 28%);
+  --ch-glow-bg: #17264c;
+  --ch-glow-accent: rgb(121 162 255 / 18%);
+
+  --ch-success: #4ade80;
+  --ch-success-soft: rgb(74 222 128 / 15%);
+  --ch-warning: #e6cc78;
+  --ch-warning-soft: rgb(230 204 120 / 15%);
+  --ch-danger: #f08a8d;
+  --ch-danger-soft: rgb(240 138 141 / 15%);
+
+  --ch-yellow-1: #e6cc78;
+  --ch-yellow-2: #daac61;
+  --ch-yellow-3: #edb253;
+  --ch-red-1: #cb7676;
+  --ch-red-2: #bc6063;
+  --ch-red-3: #b34e52;
+
+  --ch-shadow-cta: 0 8px 22px rgb(0 0 0 / 32%);
+  --ch-shadow-cta-hover: 0 12px 28px rgb(0 0 0 / 42%);
+  --ch-shadow-card: 0 18px 48px rgb(0 0 0 / 34%);
+  --ch-shadow-hero: 0 34px 80px rgb(0 0 0 / 45%);
+}

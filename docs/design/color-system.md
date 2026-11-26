@@ -39,3 +39,11 @@ Solid action colors and their `on-*` foreground are one contract. A component mu
 Add a semantic token only when at least one product role cannot be expressed by the current interface. Add a component token only when a reusable UI module has a stable need that should not spread to its callers. Validate rendered combinations before changing token values.
 
 Community options and adoption tradeoffs are recorded in [Color tokens and dark theme research](../research/color-tokens-and-dark-theme.md).
+
+## Documentation site tokens
+
+Documentation sites and downstream distributions share a separate CSS token contract at `packages/craft-hub/styles/docs-tokens.css` (exported as `craft-hub/docs-tokens.css`), decoupled from the desktop workbench UI tokens in `apps/web/src/styles/tokens.css`.
+
+- **Semantic layer (`--ch-*`)**: Defines surfaces (`--ch-bg`, `--ch-bg-subtle`, `--ch-surface`, `--ch-surface-subtle`), typography (`--ch-text`, `--ch-text-secondary`, `--ch-text-muted`), borders, geometry (`--ch-radius-control`, `--ch-radius-card`), shadows, and decorative beam/grid accents.
+- **Brand contrast contract**: `--ch-brand` is used for text, links, and icons (`#1558e8` in light mode, `#79a2ff` in dark mode), while solid primary actions pair `--ch-brand-fill` (`#1558e8`) with `--ch-on-brand` (`#ffffff`) so both themes maintain at least 4.5:1 contrast.
+- **VitePress bridge (`--vp-*`)**: Maps `--vp-c-brand-*`, `--vp-c-bg*`, `--vp-c-text-*`, `--vp-c-divider`, and `--vp-button-brand-*` to `--ch-*` so standard Markdown pages and custom Vue landing components stay visually aligned.

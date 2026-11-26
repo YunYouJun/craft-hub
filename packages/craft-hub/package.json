@@ -18,7 +18,9 @@
     "command-palette",
     "agent-skills"
   ],
-  "sideEffects": false,
+  "sideEffects": [
+    "*.css"
+  ],
   "exports": {
     ".": "./dist/index.mjs",
     "./cli": "./dist/cli.mjs",
@@ -33,7 +35,8 @@
     "./skill-inputs": "./dist/skill-inputs.mjs",
     "./skill-prompts": "./dist/skill-prompts.mjs",
     "./work-items": "./dist/work-items.mjs",
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./docs-tokens.css": "./styles/docs-tokens.css"
   },
   "types": "./dist/index.d.mts",
   "bin": {
@@ -43,6 +46,7 @@
     "catalogs",
     "dist",
     "schema",
+    "styles",
     "web"
   ],
   "engines": {

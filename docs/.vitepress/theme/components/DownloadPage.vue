@@ -188,21 +188,17 @@ async function copyCommand(): Promise<void> {
 
 <style scoped>
 .download-page {
-  --download-accent: #1558e8;
-  --download-accent-hover: #0d49c8;
-  --download-border: #dce3ee;
-  --download-muted: #56647c;
   position: relative;
   overflow: hidden;
   min-height: calc(100vh - var(--vp-nav-height));
-  color: #090d16;
-  background: #fff;
+  color: var(--ch-text);
+  background: var(--ch-bg);
 }
 
 .download-grid {
   position: absolute;
   pointer-events: none;
-  background-image: linear-gradient(rgb(21 88 232 / 8%) 1px, transparent 1px), linear-gradient(90deg, rgb(21 88 232 / 8%) 1px, transparent 1px);
+  background-image: linear-gradient(var(--ch-grid-line) 1px, transparent 1px), linear-gradient(90deg, var(--ch-grid-line) 1px, transparent 1px);
   background-size: 72px 72px;
   inset: 0 0 auto 34%;
   height: 620px;
@@ -239,7 +235,7 @@ async function copyCommand(): Promise<void> {
 .download-intro p {
   max-width: 470px;
   margin: 30px 0 0;
-  color: var(--download-muted);
+  color: var(--ch-text-secondary);
   font-size: clamp(19px, 1.6vw, 23px);
   line-height: 1.55;
 }
@@ -247,17 +243,17 @@ async function copyCommand(): Promise<void> {
 .download-intro span {
   display: block;
   margin-top: 26px;
-  color: #647189;
+  color: var(--ch-text-muted);
   font-size: 16px;
 }
 
 .download-surface {
   position: relative;
   z-index: 1;
-  border: 1px solid #aebfdb;
-  border-radius: 15px;
-  background: #fff;
-  box-shadow: 0 24px 70px rgb(31 50 86 / 12%);
+  border: 1px solid var(--ch-border-frame);
+  border-radius: var(--ch-radius-card);
+  background: var(--ch-surface);
+  box-shadow: var(--ch-shadow-card);
 }
 
 .download-beam {
@@ -266,12 +262,12 @@ async function copyCommand(): Promise<void> {
   pointer-events: none;
   border: 1px solid transparent;
   border-radius: inherit;
-  background: linear-gradient(105deg, transparent 28%, rgb(21 88 232 / 76%) 45%, rgb(80 200 255 / 88%) 50%, transparent 66%) border-box;
+  background: linear-gradient(105deg, transparent 28%, var(--ch-beam-from) 45%, var(--ch-beam-to) 50%, transparent 66%) border-box;
   background-size: 280% 100%;
   inset: -1px;
   mask: linear-gradient(#000 0 0) padding-box, linear-gradient(#000 0 0);
   mask-composite: exclude;
-  animation: download-beam 6s linear infinite;
+  animation: download-beam var(--ch-duration-beam) linear infinite;
 }
 
 .download-surface > header {
@@ -285,7 +281,7 @@ async function copyCommand(): Promise<void> {
   width: 32px;
   height: 32px;
   fill: none;
-  stroke: var(--download-accent);
+  stroke: var(--ch-brand);
   stroke-width: 1.8;
   stroke-linecap: round;
   stroke-linejoin: round;
@@ -308,7 +304,7 @@ async function copyCommand(): Promise<void> {
   gap: 24px;
   align-items: center;
   min-height: 132px;
-  border-bottom: 1px solid var(--download-border);
+  border-bottom: 1px solid var(--ch-border);
   padding: 24px 10px;
 }
 
@@ -317,11 +313,11 @@ async function copyCommand(): Promise<void> {
   width: 62px;
   height: 62px;
   place-items: center;
-  border: 1px solid #b9c9e4;
+  border: 1px solid var(--ch-border-frame);
   border-radius: 12px;
-  color: var(--download-accent);
-  background: #f8faff;
-  box-shadow: inset 0 0 0 4px #fff, inset 0 0 0 5px rgb(21 88 232 / 24%);
+  color: var(--ch-brand);
+  background: var(--ch-surface-subtle);
+  box-shadow: inset 0 0 0 4px var(--ch-surface), inset 0 0 0 5px var(--ch-focus-ring);
   font-size: 18px;
   font-weight: 760;
   letter-spacing: -.04em;
@@ -335,7 +331,7 @@ async function copyCommand(): Promise<void> {
 
 .download-option p {
   margin: 6px 0 0;
-  color: var(--download-muted);
+  color: var(--ch-text-secondary);
   font-size: 15px;
   line-height: 1.4;
 }
@@ -346,21 +342,21 @@ async function copyCommand(): Promise<void> {
   align-items: center;
   justify-content: center;
   min-height: 54px;
-  border-radius: 8px;
+  border-radius: var(--ch-radius-control);
   padding: 0 21px;
-  color: #fff;
-  background: var(--download-accent);
-  box-shadow: 0 8px 22px rgb(21 88 232 / 17%);
+  color: var(--ch-on-brand);
+  background: var(--ch-brand-fill);
+  box-shadow: var(--ch-shadow-cta);
   font-size: 15px;
   font-weight: 650;
   text-decoration: none;
-  transition: background-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+  transition: background-color var(--ch-duration-fast) var(--ch-ease-standard), box-shadow var(--ch-duration-fast) var(--ch-ease-standard), transform var(--ch-duration-fast) var(--ch-ease-standard);
 }
 
 .download-option > a:hover {
-  color: #fff;
-  background: var(--download-accent-hover);
-  box-shadow: 0 12px 28px rgb(21 88 232 / 24%);
+  color: var(--ch-on-brand);
+  background: var(--ch-brand-fill-hover);
+  box-shadow: var(--ch-shadow-cta-hover);
   transform: translateY(-1px);
 }
 
@@ -368,7 +364,7 @@ async function copyCommand(): Promise<void> {
 .command-copy button:focus-visible,
 .download-support a:focus-visible,
 .release-link:focus-visible {
-  outline: 3px solid rgb(21 88 232 / 24%);
+  outline: 3px solid var(--ch-focus-ring);
   outline-offset: 3px;
 }
 
@@ -396,14 +392,14 @@ async function copyCommand(): Promise<void> {
   margin: 0 34px;
   min-height: 68px;
   padding: 0 12px;
-  color: var(--download-accent);
+  color: var(--ch-brand);
   font-size: 15px;
   font-weight: 650;
   text-decoration: none;
 }
 
 .release-link:hover {
-  color: var(--download-accent-hover);
+  color: var(--ch-brand-hover);
 }
 
 .release-link svg {
@@ -417,10 +413,10 @@ async function copyCommand(): Promise<void> {
   gap: 64px;
   align-items: center;
   margin-top: 58px;
-  border: 1px solid var(--download-border);
-  border-radius: 14px;
+  border: 1px solid var(--ch-border);
+  border-radius: var(--ch-radius-card);
   padding: 32px 40px;
-  background: #fff;
+  background: var(--ch-surface);
 }
 
 .cli-panel h2 {
@@ -437,15 +433,15 @@ async function copyCommand(): Promise<void> {
   align-items: center;
   max-width: 650px;
   margin-top: 18px;
-  border: 1px solid #ccd6e5;
-  border-radius: 8px;
+  border: 1px solid var(--ch-border-strong);
+  border-radius: var(--ch-radius-control);
   padding: 9px 10px 9px 16px;
-  background: #fbfcff;
+  background: var(--ch-code-surface);
 }
 
 .command-copy code {
   overflow-x: auto;
-  color: #131b2b;
+  color: var(--ch-text-code);
   background: transparent;
   font-size: 15px;
   white-space: nowrap;
@@ -456,19 +452,19 @@ async function copyCommand(): Promise<void> {
   gap: 8px;
   align-items: center;
   min-height: 38px;
-  border: 1px solid #b9c8e0;
-  border-radius: 7px;
+  border: 1px solid var(--ch-border-strong);
+  border-radius: var(--ch-radius-sm);
   padding: 0 12px;
-  color: var(--download-accent);
-  background: #fff;
+  color: var(--ch-brand);
+  background: var(--ch-surface);
   font-size: 13px;
   font-weight: 650;
   cursor: pointer;
 }
 
 .command-copy button:hover {
-  border-color: #92a9cc;
-  background: #f4f7ff;
+  border-color: var(--ch-border-hover);
+  background: var(--ch-surface-hover);
 }
 
 .command-copy button svg {
@@ -478,7 +474,7 @@ async function copyCommand(): Promise<void> {
 
 .cli-panel p {
   margin: 15px 0 0;
-  color: var(--download-muted);
+  color: var(--ch-text-secondary);
   font-size: 14px;
 }
 
@@ -486,7 +482,7 @@ async function copyCommand(): Promise<void> {
   width: 100%;
   max-height: 170px;
   fill: none;
-  stroke: rgb(21 88 232 / 33%);
+  stroke: color-mix(in srgb, var(--ch-brand) 33%, transparent);
   stroke-width: 1.5;
   stroke-linecap: round;
   stroke-linejoin: round;
@@ -505,19 +501,19 @@ async function copyCommand(): Promise<void> {
   align-items: center;
   min-height: 82px;
   padding: 0 28px;
-  color: var(--download-accent);
+  color: var(--ch-brand);
   font-size: 15px;
   font-weight: 650;
   text-decoration: none;
 }
 
 .download-support a + a {
-  border-left: 1px solid var(--download-border);
+  border-left: 1px solid var(--ch-border);
 }
 
 .download-support a:hover {
-  color: var(--download-accent-hover);
-  background: #f8faff;
+  color: var(--ch-brand-hover);
+  background: var(--ch-surface-subtle);
 }
 
 .download-support svg {
@@ -527,39 +523,6 @@ async function copyCommand(): Promise<void> {
 
 .download-support span {
   font-size: 20px;
-}
-
-.dark .download-page {
-  --download-accent: #79a2ff;
-  --download-accent-hover: #9ab8ff;
-  --download-border: #2d3543;
-  --download-muted: #a9b2c2;
-  color: #f5f7fb;
-  background: #0d1016;
-}
-
-.dark .download-surface,
-.dark .cli-panel {
-  border-color: #3e4859;
-  background: #121720;
-}
-
-.dark .architecture-mark,
-.dark .command-copy,
-.dark .command-copy button {
-  border-color: #3e4859;
-  color: #a9c0ff;
-  background: #171d27;
-  box-shadow: none;
-}
-
-.dark .command-copy code {
-  color: #edf2fb;
-}
-
-.dark .command-copy button:hover,
-.dark .download-support a:hover {
-  background: #1c2533;
 }
 
 @keyframes download-beam {
@@ -647,7 +610,7 @@ async function copyCommand(): Promise<void> {
   }
 
   .download-support a + a {
-    border-top: 1px solid var(--download-border);
+    border-top: 1px solid var(--ch-border);
     border-left: 0;
   }
 }

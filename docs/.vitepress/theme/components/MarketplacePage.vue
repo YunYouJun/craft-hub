@@ -243,23 +243,19 @@ const showcaseItems = computed(() => isZh.value
 
 <style scoped>
 .marketplace-landing {
-  --market-accent: #1558e8;
-  --market-accent-hover: #0b49c9;
-  --market-border: #dfe4ec;
-  --market-muted: #59657a;
   overflow: hidden;
-  color: #0d1424;
-  background: #fff;
+  color: var(--ch-text);
+  background: var(--ch-bg);
 }
 
 .marketplace-shell {
-  width: min(1320px, calc(100% - 48px));
+  width: min(var(--ch-shell-compact), calc(100% - 48px));
   margin: 0 auto;
 }
 
 .marketplace-hero {
-  border-bottom: 1px solid var(--market-border);
-  background: #fff;
+  border-bottom: 1px solid var(--ch-border);
+  background: var(--ch-bg);
 }
 
 .marketplace-hero-layout {
@@ -288,7 +284,7 @@ const showcaseItems = computed(() => isZh.value
 .marketplace-hero-copy p {
   max-width: 560px;
   margin: 34px 0 0;
-  color: var(--market-muted);
+  color: var(--ch-text-secondary);
   font-size: clamp(19px, 1.8vw, 24px);
   line-height: 1.55;
 }
@@ -307,17 +303,24 @@ const showcaseItems = computed(() => isZh.value
   gap: 10px;
   min-height: 54px;
   border: 1px solid transparent;
-  border-radius: 8px;
+  border-radius: var(--ch-radius-control);
   padding: 0 22px;
   font-size: 15px;
   font-weight: 650;
   line-height: 1;
   text-decoration: none;
-  transition: border-color 160ms ease, background-color 160ms ease, color 160ms ease, transform 160ms ease;
+  transition: border-color var(--ch-duration-fast) var(--ch-ease-standard), background-color var(--ch-duration-fast) var(--ch-ease-standard), color var(--ch-duration-fast) var(--ch-ease-standard), transform var(--ch-duration-fast) var(--ch-ease-standard);
 }
 
 .marketplace-button:hover {
   transform: translateY(-1px);
+}
+
+.marketplace-button:focus-visible,
+.marketplace-plugin-action:focus-visible,
+.marketplace-interactive a:focus-visible {
+  outline: 3px solid var(--ch-focus-ring);
+  outline-offset: 3px;
 }
 
 .marketplace-button svg,
@@ -338,24 +341,25 @@ const showcaseItems = computed(() => isZh.value
 }
 
 .marketplace-button-primary {
-  color: #fff;
-  background: var(--market-accent);
+  color: var(--ch-on-brand);
+  background: var(--ch-brand-fill);
 }
 
 .marketplace-button-primary:hover {
-  color: #fff;
-  background: var(--market-accent-hover);
+  color: var(--ch-on-brand);
+  background: var(--ch-brand-fill-hover);
 }
 
 .marketplace-button-secondary {
-  border-color: var(--market-border);
-  color: #121a29;
-  background: #fff;
+  border-color: var(--ch-border-strong);
+  color: var(--ch-text);
+  background: var(--ch-surface);
 }
 
 .marketplace-button-secondary:hover {
-  border-color: #bec8d7;
-  color: #121a29;
+  border-color: var(--ch-border-hover);
+  color: var(--ch-text);
+  background: var(--ch-surface-subtle);
 }
 
 .marketplace-hero-media {
@@ -371,7 +375,7 @@ const showcaseItems = computed(() => isZh.value
   bottom: 7%;
   left: 4%;
   border-radius: 28px;
-  background: #edf3ff;
+  background: var(--ch-glow-bg);
   content: '';
   filter: blur(32px);
   opacity: .72;
@@ -381,15 +385,15 @@ const showcaseItems = computed(() => isZh.value
   display: block;
   width: 100%;
   height: auto;
-  border: 1px solid #d8dee8;
+  border: 1px solid var(--ch-border);
   border-radius: 11px;
-  background: #fff;
-  box-shadow: 0 24px 70px rgb(31 50 86 / 13%), 0 4px 16px rgb(31 50 86 / 8%);
+  background: var(--ch-surface);
+  box-shadow: var(--ch-shadow-hero);
 }
 
 .marketplace-showcase {
   padding: 80px 0 90px;
-  background: #fff;
+  background: var(--ch-bg);
 }
 
 .marketplace-section-heading h2,
@@ -403,7 +407,7 @@ const showcaseItems = computed(() => isZh.value
 
 .marketplace-section-heading p {
   margin: 20px 0 0;
-  color: var(--market-muted);
+  color: var(--ch-text-secondary);
   font-size: 20px;
   line-height: 1.6;
 }
@@ -418,24 +422,24 @@ const showcaseItems = computed(() => isZh.value
   gap: 30px;
   align-items: center;
   min-height: 172px;
-  border-bottom: 1px solid var(--market-border);
+  border-bottom: 1px solid var(--ch-border);
   padding: 30px 32px;
-  transition: background-color 160ms ease;
+  transition: background-color var(--ch-duration-fast) var(--ch-ease-standard);
 }
 
 .marketplace-plugin:hover {
-  background: #f8faff;
+  background: var(--ch-surface-subtle);
 }
 
 .marketplace-plugin-featured {
   min-height: 206px;
   margin-bottom: 8px;
-  border: 1px solid #d4dbe7;
-  border-radius: 14px;
+  border: 1px solid var(--ch-border-strong);
+  border-radius: var(--ch-radius-card);
 }
 
 .marketplace-plugin-featured:hover {
-  border-color: #bec9da;
+  border-color: var(--ch-border-hover);
 }
 
 .marketplace-plugin-icon {
@@ -462,7 +466,7 @@ const showcaseItems = computed(() => isZh.value
   width: 58px;
   height: 58px;
   fill: none;
-  stroke: var(--market-accent);
+  stroke: var(--ch-brand);
   stroke-width: 1.8;
   stroke-linecap: round;
   stroke-linejoin: round;
@@ -487,7 +491,7 @@ const showcaseItems = computed(() => isZh.value
 }
 
 .marketplace-plugin-title span {
-  color: var(--market-muted);
+  color: var(--ch-text-secondary);
   font-size: 15px;
 }
 
@@ -496,19 +500,19 @@ const showcaseItems = computed(() => isZh.value
   flex-wrap: wrap;
   gap: 0;
   margin-top: 13px;
-  color: var(--market-muted);
+  color: var(--ch-text-secondary);
   font-size: 14px;
 }
 
 .marketplace-plugin-meta span + span::before {
   margin: 0 12px;
-  color: #c0c8d4;
+  color: var(--ch-border-strong);
   content: '/';
 }
 
 .marketplace-plugin-copy > p {
   margin: 13px 0 0;
-  color: var(--market-muted);
+  color: var(--ch-text-secondary);
   font-size: 17px;
   line-height: 1.55;
 }
@@ -517,7 +521,7 @@ const showcaseItems = computed(() => isZh.value
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  color: var(--market-accent);
+  color: var(--ch-brand);
   font-size: 15px;
   font-weight: 650;
   text-decoration: none;
@@ -525,20 +529,20 @@ const showcaseItems = computed(() => isZh.value
 }
 
 .marketplace-plugin-action:hover {
-  color: var(--market-accent-hover);
+  color: var(--ch-brand-hover);
 }
 
 .marketplace-plugin-action-featured {
   min-height: 48px;
-  border-radius: 8px;
+  border-radius: var(--ch-radius-control);
   padding: 0 18px;
-  color: #fff;
-  background: var(--market-accent);
+  color: var(--ch-on-brand);
+  background: var(--ch-brand-fill);
 }
 
 .marketplace-plugin-action-featured:hover {
-  color: #fff;
-  background: var(--market-accent-hover);
+  color: var(--ch-on-brand);
+  background: var(--ch-brand-fill-hover);
 }
 
 .marketplace-alpha-note {
@@ -546,7 +550,7 @@ const showcaseItems = computed(() => isZh.value
   gap: 12px;
   align-items: center;
   margin: 30px 0 0;
-  color: var(--market-muted);
+  color: var(--ch-text-secondary);
   font-size: 15px;
   line-height: 1.5;
 }
@@ -562,8 +566,8 @@ const showcaseItems = computed(() => isZh.value
 }
 
 .marketplace-interactive {
-  border-top: 1px solid var(--market-border);
-  background: #f7f9fc;
+  border-top: 1px solid var(--ch-border);
+  background: var(--ch-bg-subtle);
 }
 
 .marketplace-interactive-layout {
@@ -581,7 +585,7 @@ const showcaseItems = computed(() => isZh.value
 .marketplace-interactive p {
   max-width: 780px;
   margin: 17px 0 0;
-  color: var(--market-muted);
+  color: var(--ch-text-secondary);
   font-size: 17px;
   line-height: 1.65;
 }
@@ -590,45 +594,19 @@ const showcaseItems = computed(() => isZh.value
   display: inline-flex;
   align-items: center;
   gap: 9px;
-  color: var(--market-accent);
+  color: var(--ch-brand);
   font-size: 16px;
   font-weight: 650;
   text-decoration: none;
   white-space: nowrap;
 }
 
-.dark .marketplace-landing {
-  --market-accent: #7aa2ff;
-  --market-accent-hover: #9ab8ff;
-  --market-border: #30394a;
-  --market-muted: #a7b0c1;
-  color: #f1f4fa;
-  background: #10131a;
-}
-
-.dark .marketplace-hero,
-.dark .marketplace-showcase {
-  background: #10131a;
-}
-
-.dark .marketplace-button-secondary {
-  color: #f1f4fa;
-  background: #151a23;
-}
-
-.dark .marketplace-button-secondary:hover {
-  border-color: #59647a;
-  color: #fff;
+.marketplace-interactive a:hover {
+  color: var(--ch-brand-hover);
 }
 
 .dark .marketplace-hero-media::before {
-  background: #17264c;
   opacity: .52;
-}
-
-.dark .marketplace-plugin:hover,
-.dark .marketplace-interactive {
-  background: #151a23;
 }
 
 @media (max-width: 1100px) {
@@ -649,7 +627,7 @@ const showcaseItems = computed(() => isZh.value
 
 @media (max-width: 720px) {
   .marketplace-shell {
-    width: min(100% - 32px, 1320px);
+    width: min(100% - 32px, var(--ch-shell-compact));
   }
 
   .marketplace-hero-layout {
@@ -703,7 +681,7 @@ const showcaseItems = computed(() => isZh.value
   }
 
   .marketplace-plugin-featured {
-    border-top: 1px solid var(--market-border);
+    border-top: 1px solid var(--ch-border);
   }
 
   .marketplace-plugin-icon,
@@ -747,13 +725,13 @@ const showcaseItems = computed(() => isZh.value
     justify-self: start;
     min-height: 0;
     padding: 0;
-    color: var(--market-accent);
+    color: var(--ch-brand);
     background: transparent;
     font-size: 14px;
   }
 
   .marketplace-plugin-action-featured:hover {
-    color: var(--market-accent-hover);
+    color: var(--ch-brand-hover);
     background: transparent;
   }
 
