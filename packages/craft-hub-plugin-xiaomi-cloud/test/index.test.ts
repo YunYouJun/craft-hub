@@ -2,6 +2,7 @@ import type { CloudNote, CloudSession, XiaomiCloudPlugin, XiaomiCloudTransport }
 import { mkdtemp, readdir, readFile, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import process from 'node:process'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { CraftHubRuntime } from '../../craft-hub/src/runtime'
 import { createXiaomiCloudPlugin, XiaomiCloudError } from '../src/index'
@@ -103,7 +104,8 @@ describe('xiaomi cloud host plugin', () => {
     const exportDirectory = join(root, pointer.directory, 'notes')
     expect(await readdir(exportDirectory)).toHaveLength(2)
     const filename = (await readdir(exportDirectory))[0]!
-    expect((await stat(join(exportDirectory, filename))).mode & 0o777).toBe(0o600)
+    if (process.platform !== 'win32')
+      expect((await stat(join(exportDirectory, filename))).mode & 0o777).toBe(0o600)
     expect(await readFile(join(root, pointer.directory, 'snapshot.json'), 'utf8')).not.toContain('fixture-token')
     note.mockClear()
     page.mockClear()
