@@ -203,7 +203,7 @@ kbd { white-space: nowrap; flex-shrink: 0; border: 1px solid var(--border-strong
 .activity-button > .app-icon, .activity-button > .visual-icon { opacity: .8; transition: opacity 160ms ease; }
 .activity-button:is(.active, :hover, :focus-visible) > .app-icon, .activity-button:is(.active, :hover, :focus-visible) > .visual-icon { opacity: 1; }
 .activity-button .app-icon { width: 20px; height: 20px; }
-.activity-badge { position: absolute; top: -5px; right: -7px; display: grid; min-width: 16px; height: 16px; place-items: center; border: 2px solid var(--rail); border-radius: 9px; background: var(--danger-fill); padding: 0 3px; color: var(--on-danger); font-size: 9px; font-weight: 700; line-height: 1; }
+.activity-badge { position: absolute; top: -5px; right: -7px; display: grid; min-width: 16px; height: 16px; place-items: center; border: 2px solid var(--rail); border-radius: 9px; background: var(--danger); padding: 0 3px; color: var(--surface); font-size: 9px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1; }
 .activity-rail > .marketplace-button { margin-top: auto; }
 .project-section-tabs.ui-navigation-list[data-variant='segmented'] { width: 100%; margin-block: var(--space-2); }
 .project-section-tabs .ui-navigation-item[data-variant='segmented'] { flex: 1 1 0; min-width: 0; padding-inline: 6px; }
