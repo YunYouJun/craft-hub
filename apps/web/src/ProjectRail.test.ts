@@ -48,6 +48,7 @@ describe('project rail', () => {
     ['tools', 'open-tools'],
     ['workbench', 'open-workbench'],
     ['subscriptions', 'open-workbench'],
+    ['spaces', 'open-spaces'],
     ['environment', 'open-environment'],
     ['integration', 'open-workbenches'],
     ['plugin-workbench', 'open-workbenches'],
@@ -61,14 +62,14 @@ describe('project rail', () => {
     wrapper.unmount()
   })
 
-  it('keeps five main destinations and collects software and navigation under tools', async () => {
+  it('keeps six main destinations and collects software and navigation under tools', async () => {
     const wrapper = mount(ProjectRail, { props: { activeView: 'software' } })
     const button = wrapper.get('[data-testid="open-tools"]')
     expect(button.attributes('aria-current')).toBe('page')
     expect(button.attributes('aria-label')).toBe('Tools')
     const identifiers = wrapper.findAll('.activity-button:not(.sidebar-more)').map(item => item.attributes('data-testid')).filter(Boolean)
-    expect(identifiers.slice(0, 5)).toEqual(['open-overview', 'open-workbench', 'open-tools', 'open-environment', 'open-workbenches'])
-    expect(identifiers.slice(5)).toEqual(['open-marketplace', 'open-diagnostics', 'open-settings'])
+    expect(identifiers.slice(0, 6)).toEqual(['open-overview', 'open-workbench', 'open-spaces', 'open-tools', 'open-environment', 'open-workbenches'])
+    expect(identifiers.slice(6)).toEqual(['open-marketplace', 'open-diagnostics', 'open-settings'])
     expect(wrapper.find('[data-testid="open-navigation"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="open-software"]').exists()).toBe(false)
     expect(wrapper.get('[data-testid="open-workspace-sources"]').element.closest('.activity-rail')).toBeNull()
@@ -83,6 +84,7 @@ describe('project rail', () => {
     expect(buttons.map(button => button.get('.activity-label').text())).toEqual([
       'Home',
       'Projects',
+      'Spaces',
       'Tools',
       'Environment',
       'Workbenches',

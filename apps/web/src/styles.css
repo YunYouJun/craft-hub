@@ -44,6 +44,7 @@ kbd { white-space: nowrap; flex-shrink: 0; border: 1px solid var(--border-strong
 .runtime-schema-warning button:hover, .project-refresh-warning button:hover { background: var(--surface-hover); }
 
 .navigation-view-shell { display: grid; min-width: 0; min-height: 0; grid-template-columns: var(--workbench-activity-width) minmax(0, 1fr); overflow: hidden; }
+.navigation-view-shell.spaces-focus-mode { grid-template-columns: minmax(0, 1fr); }
 .navigation-view-shell .project-rail { min-width: 0; grid-template-columns: var(--workbench-activity-width) 0; overflow: hidden; }
 .navigation-view-shell .rail-content { visibility: hidden; }
 .workbench-resize-handle { position: relative; z-index: 2; width: 1px; flex: 0 0 1px; outline: none; background: var(--workbench-sidebar-border); cursor: col-resize; }

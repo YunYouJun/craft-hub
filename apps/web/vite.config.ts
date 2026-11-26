@@ -52,6 +52,7 @@ export default defineConfig({
       '/api/setup-profile': localOnly,
       '/api/environment/setup': localOnly,
       '/api/environment/sources': localOnly,
+      '/api/document-spaces': localOnly,
       '/api': 'http://127.0.0.1:4318',
     },
   },

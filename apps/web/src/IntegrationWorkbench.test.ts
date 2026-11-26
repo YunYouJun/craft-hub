@@ -4,7 +4,7 @@
 import type { IntegrationContribution, IntegrationEntity, IntegrationEntityPage, ResourcePage } from 'craft-hub'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { api } from './api'
 import { FormSelect } from './components/ui/select'
 import { useI18n } from './i18n'
@@ -13,10 +13,13 @@ import IntegrationActionForm from './IntegrationActionForm.vue'
 import IntegrationEntityList from './IntegrationEntityList.vue'
 import IntegrationStatusTransitionControl from './IntegrationStatusTransitionControl.vue'
 import IntegrationWorkbench from './IntegrationWorkbench.vue'
+import { loadLazyComponents } from './lazy-components'
 import { useWorkbenchStore } from './store'
 
 describe('integration workbench', () => {
   let pinia: ReturnType<typeof createPinia>
+
+  beforeAll(loadLazyComponents)
 
   beforeEach(() => {
     pinia = createPinia()
@@ -870,6 +873,40 @@ describe('integration workbench', () => {
     expect(wrapper.text()).toContain('Local cache · authorization expired · read-only')
     expect(wrapper.getComponent(IntegrationEntityList).props('readOnly')).toBe(true)
     expect(wrapper.findComponent(IntegrationStatusTransitionControl).exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('renders an embedded DocumentSpacesWorkbench for document-space blocks without invoking actions', async () => {
+    const store = useWorkbenchStore()
+    store.integrationContributions = [{
+      id: 'studio-docs',
+      pluginId: 'studio-docs',
+      source: 'host:studio-docs',
+      provider: { id: 'docs', requires: '^1.0.0' },
+      providerVersion: '1.0.0',
+      actions: [],
+      views: [{
+        id: 'spaces',
+        title: 'Embedded Docs',
+        icon: 'builtin:docs',
+        placement: 'primary-sidebar',
+        scope: 'global',
+        blocks: [{ id: 'docs-block', type: 'document-space', spaceId: 'notes-1234', title: 'Space Drafts' }],
+      }],
+    }]
+    const invokeSpy = vi.spyOn(api, 'invokeIntegrationAction')
+    const spacesSpy = vi.spyOn(api, 'documentSpaces').mockResolvedValue([])
+
+    const wrapper = mount(IntegrationWorkbench, {
+      props: { integrationId: 'studio-docs', viewId: 'spaces' },
+      global: { plugins: [pinia] },
+    })
+    await flushPromises()
+
+    await vi.waitFor(() => expect(wrapper.find('[data-testid="document-spaces-workbench"]').exists()).toBe(true))
+    expect(wrapper.get('[data-testid="integration-block-docs-block"] h2').text()).toBe('Space Drafts')
+    expect(spacesSpy).toHaveBeenCalledOnce()
+    expect(invokeSpy).not.toHaveBeenCalled()
     wrapper.unmount()
   })
 })

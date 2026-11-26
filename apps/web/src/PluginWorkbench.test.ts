@@ -3,14 +3,17 @@
 
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { api } from './api'
 import { useI18n } from './i18n'
+import { loadLazyComponents } from './lazy-components'
 import PluginWorkbench from './PluginWorkbench.vue'
 import { useWorkbenchStore } from './store'
 
 describe('plugin workbench', () => {
   let pinia: ReturnType<typeof createPinia>
+
+  beforeAll(loadLazyComponents)
 
   beforeEach(() => {
     vi.restoreAllMocks()
@@ -148,6 +151,31 @@ describe('plugin workbench', () => {
     expect(wrapper.text()).toContain('This view is unavailable')
     await wrapper.get('[role="tablist"]').trigger('keydown', { key: 'ArrowRight' })
     expect(tabs[0]!.attributes('aria-selected')).toBe('true')
+    wrapper.unmount()
+  })
+
+  it('mounts embedded DocumentSpacesWorkbench for host document-spaces views', async () => {
+    const store = useWorkbenchStore()
+    store.pluginWorkbenches = [{
+      id: 'creator-notes',
+      pluginId: '@acme/craft-hub-plugin-notes',
+      pluginName: 'Acme Notes',
+      pluginVersion: '1.0.0',
+      title: 'Creator Notes',
+      views: [{ type: 'host', view: 'document-spaces' }],
+    }]
+    vi.spyOn(api, 'navigationPanels').mockResolvedValue([])
+    const spacesSpy = vi.spyOn(api, 'documentSpaces').mockResolvedValue([])
+
+    const wrapper = mount(PluginWorkbench, {
+      props: { pluginId: '@acme/craft-hub-plugin-notes', workbenchId: 'creator-notes' },
+      global: { plugins: [pinia] },
+    })
+    await flushPromises()
+
+    await vi.waitFor(() => expect(wrapper.find('[data-testid="document-spaces-workbench"]').exists()).toBe(true))
+    expect(wrapper.get('[role="tab"]').text()).toContain('Document Spaces')
+    expect(spacesSpy).toHaveBeenCalledOnce()
     wrapper.unmount()
   })
 })

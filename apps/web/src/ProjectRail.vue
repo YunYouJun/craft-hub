@@ -24,13 +24,13 @@ import { classifyWorkbenchSection } from './workbench-navigation'
 
 const props = withDefaults(defineProps<{
   collapsed?: boolean
-  activeView?: 'diagnostics' | 'tools' | 'software' | 'environment' | 'integration' | 'marketplace' | 'navigation' | 'overview' | 'plugin-workbench' | 'subscriptions' | 'workbench' | 'workbenches'
+  activeView?: 'diagnostics' | 'tools' | 'software' | 'environment' | 'integration' | 'marketplace' | 'navigation' | 'overview' | 'plugin-workbench' | 'spaces' | 'subscriptions' | 'workbench' | 'workbenches'
   activeIntegrationId?: string
   activeIntegrationViewId?: string
   activePluginWorkbenchId?: string
   activePluginWorkbenchPluginId?: string
 }>(), { collapsed: false, activeView: 'workbench', activeIntegrationId: '', activeIntegrationViewId: '', activePluginWorkbenchId: '', activePluginWorkbenchPluginId: '' })
-const emit = defineEmits<{ openDiagnostics: [], openEnvironment: [], openTools: [], openWorkbenches: [], openPluginWorkbench: [pluginId: string, workbenchId: string], openIntegration: [integrationId: string, viewId: string], openMarketplace: [], openOverview: [], openSettings: [], openWorkbench: [] }>()
+const emit = defineEmits<{ openDiagnostics: [], openEnvironment: [], openTools: [], openWorkbenches: [], openPluginWorkbench: [pluginId: string, workbenchId: string], openIntegration: [integrationId: string, viewId: string], openMarketplace: [], openOverview: [], openSettings: [], openSpaces: [], openWorkbench: [] }>()
 const store = useWorkbenchStore()
 const { t, locale } = useI18n()
 const router = useRouter()
@@ -136,6 +136,7 @@ const activeSection = computed(() => activePluginWorkbench.value
 const sidebarItems = computed<ActivityNavigationItem[]>(() => [
   { id: 'builtin:home', title: locale.value === 'zh-CN' ? '首页' : 'Home', builtinIcon: 'home', testId: 'open-overview', className: 'overview-button', active: activeSection.value === 'home' },
   { id: 'builtin:projects', title: locale.value === 'zh-CN' ? '项目' : 'Projects', builtinIcon: 'folder', testId: 'open-workbench', className: 'projects-button', active: activeSection.value === 'projects' },
+  { id: 'builtin:spaces', title: locale.value === 'zh-CN' ? '文档' : 'Spaces', builtinIcon: 'docs', testId: 'open-spaces', className: 'spaces-button', active: activeSection.value === 'spaces' },
   { id: 'builtin:tools', title: locale.value === 'zh-CN' ? '工具' : 'Tools', builtinIcon: 'package', testId: 'open-tools', className: 'tools-button', active: activeSection.value === 'tools' },
   { id: 'builtin:environment', title: locale.value === 'zh-CN' ? '开发环境' : 'Development environment', shortTitle: locale.value === 'zh-CN' ? '开发环境' : 'Environment', builtinIcon: 'terminal', testId: 'open-environment', className: 'environment-button', active: activeSection.value === 'environment' },
   { id: 'builtin:workbenches', title: locale.value === 'zh-CN' ? '工作台' : 'Workbenches', builtinIcon: 'hub', testId: 'open-workbenches', className: 'workbenches-button', active: activeSection.value === 'workbenches' },
@@ -156,6 +157,9 @@ function activateSidebarItem(id: string): void {
       break
     case 'builtin:projects':
       emit('openWorkbench')
+      break
+    case 'builtin:spaces':
+      emit('openSpaces')
       break
     case 'builtin:tools':
       emit('openTools')

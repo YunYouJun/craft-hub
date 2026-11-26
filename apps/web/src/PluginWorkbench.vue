@@ -1,3 +1,9 @@
+<script lang="ts">
+import { lazyComponent } from './lazy-components'
+
+const DocumentSpacesWorkbench = lazyComponent(() => import('./DocumentSpacesWorkbench.vue'))
+</script>
+
 <script setup lang="ts">
 import type { InstalledNavigationPanel, IntegrationEntity, WorkbenchViewReference } from 'craft-hub'
 import type { HomeWorkSource } from './personal-workbench'
@@ -42,12 +48,18 @@ function referenceKey(reference: WorkbenchViewReference): string {
 
 const members = computed(() => (workbench.value?.views ?? []).map((reference) => {
   if (reference.type === 'host') {
+    const icon = reference.view === 'projects' ? 'builtin:folder' : reference.view === 'document-spaces' ? 'builtin:docs' : 'builtin:list'
+    const title = reference.view === 'projects'
+      ? (locale.value === 'zh-CN' ? '项目' : 'Projects')
+      : reference.view === 'document-spaces'
+        ? (locale.value === 'zh-CN' ? '文档空间' : 'Document Spaces')
+        : (locale.value === 'zh-CN' ? '我的工作' : 'My work')
     return {
       available: true,
-      icon: reference.view === 'projects' ? 'builtin:folder' : 'builtin:list',
+      icon,
       key: referenceKey(reference),
       reference,
-      title: reference.view === 'projects' ? (locale.value === 'zh-CN' ? '项目' : 'Projects') : (locale.value === 'zh-CN' ? '我的工作' : 'My work'),
+      title,
     }
   }
   if (reference.type === 'integration') {
@@ -172,6 +184,10 @@ onMounted(() => void loadPanels())
         <WorkbenchProjectCatalog
           v-else-if="activeMember?.reference.type === 'host' && activeMember.reference.view === 'projects'"
           @open-project="emit('openProject', $event)"
+        />
+        <DocumentSpacesWorkbench
+          v-else-if="activeMember?.reference.type === 'host' && activeMember.reference.view === 'document-spaces'"
+          embedded
         />
         <IntegrationWorkbench
           v-else-if="activeMember?.reference.type === 'integration' && activeMember.available"

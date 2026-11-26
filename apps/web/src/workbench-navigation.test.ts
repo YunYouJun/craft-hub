@@ -11,6 +11,8 @@ describe('workbench navigation sections', () => {
     ['subscriptions-new', 'projects'],
     ['subscriptions-preview', 'projects'],
     ['subscriptions-detail', 'projects'],
+    ['spaces', 'spaces'],
+    ['space-document', 'spaces'],
     ['tools', 'tools'],
     ['navigation', 'tools'],
     ['software', 'tools'],

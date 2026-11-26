@@ -1,6 +1,6 @@
 import type { IntegrationContribution } from 'craft-hub'
 
-export type WorkbenchSection = 'home' | 'projects' | 'tools' | 'environment' | 'workbenches'
+export type WorkbenchSection = 'home' | 'projects' | 'spaces' | 'tools' | 'environment' | 'workbenches'
 export type WorkbenchNavigationView = Pick<IntegrationContribution['views'][number], 'blocks'>
 
 export interface WorkbenchNavigationEntry {
@@ -27,6 +27,8 @@ export function classifyWorkbenchSection(routeName: string | symbol | null | und
     return 'home'
   if (routeName === 'workbench' || (typeof routeName === 'string' && (routeName === 'subscriptions' || routeName.startsWith('subscriptions-'))))
     return 'projects'
+  if (routeName === 'spaces' || routeName === 'space-document')
+    return 'spaces'
   if (routeName === 'tools' || routeName === 'software' || routeName === 'navigation')
     return 'tools'
   if (routeName === 'environment' || routeName === 'setup-profile' || routeName === 'environment-sources' || (routeName === 'integration' && isEnvironmentView(integrationView)))

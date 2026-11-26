@@ -23,6 +23,8 @@ export function createWorkbenchRouter(history: RouterHistory = createWebHistory(
       { path: '/environment/setup', name: 'setup-profile', component: App },
       { path: '/environment/sources', name: 'environment-sources', component: App },
       { path: '/workbenches/:pluginId/:workbenchId', name: 'plugin-workbench', component: App },
+      { path: '/spaces', name: 'spaces', component: App },
+      { path: '/spaces/:spaceId/:docPath(.*)*', name: 'space-document', component: App },
       { path: '/integrations/:integrationId/:viewId', name: 'integration', component: App },
       { path: '/marketplace', name: 'marketplace', component: App },
       { path: '/marketplace/plugins/:sourceId/:packageName', name: 'plugin-detail', component: App },

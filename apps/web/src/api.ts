@@ -1,4 +1,4 @@
-import type { AgentActionId, AgentActionSummary, AgentConnectionStatus, AgentTaskRecord, ApplyGitIntegrationRequest, Capability, CapabilityDiscoveryResult, CapabilityPins, CatalogPluginV1, CommandInputValues, CommandInvocation, DotfilesManagerStatus, DotfilesOperation, DotfilesOperationResult, GitIntegrationPlan, GitIntegrationRequest, GitIntegrationResult, InstalledNavigationPanel, InstalledPlugin, InstalledPluginWorkbench, IntegrationActionResult, IntegrationDiagnostic, LocalEnvironmentSnapshot, LocalPlugin, LocalSkillActivationSettings, ManagedPlugin, MarketplaceSource, MarketplaceSourcePreview, OwnerScope, OwnerScopeUiState, PersonalGitSyncResolution, PersonalGitSyncStatus, PluginDocumentPreview, PluginInstallPlan, PluginUpdatePlanItem, PluginUpdateResult, ProjectCatalogSnapshot, ProjectChangeEvent, ProjectConfigInitializationResult, ProjectDescriptionApplication, ProjectDescriptionAudit, ProjectDescriptionChange, ProjectOverview, ProjectRecord, ProjectRunSummary, ProjectSkillsState, ProjectVisualInput, ReleasePlan, ResolvedIntegrationContribution, RunCleanupOptions, RunCleanupResult, RunRecord, RunStreamEvent, RuntimeHealth, SettingsExportEnvelope, SettingsExportMode, SettingsImportPreview, SettingsImportStrategy, SettingsSnapshot, SetupProfileCommand, SetupProfileInventory, SetupProfileReview, SetupProfileSnapshot, SoftwareApplicationOpen, SoftwareCatalogSnapshot, SoftwareInstallationPlan, SoftwareInstallationRun, SoftwareInstallationRuns, SoftwareSourceInput, SoftwareSourcePreview, SoftwareSourceRefreshPolicy, SoftwareSourceSnapshot, TeamDeletionResult, TeamGitSyncStatus, UserConfigStatus, WorkbenchDiagnosticSnapshot, WorkbenchLocale, WorkItemProjectDeleteRequest, WorkItemProjectSnapshot, WorkItemProjectUpdateRequest, WorkspaceCatalog, WorkspaceGroup, WorkspaceImportPreview, WorkspaceImportResult, WorkspaceManifest, WorkspaceRecord, WorkspaceUiState } from 'craft-hub'
+import type { AgentActionId, AgentActionSummary, AgentConnectionStatus, AgentTaskRecord, ApplyGitIntegrationRequest, Capability, CapabilityDiscoveryResult, CapabilityPins, CatalogPluginV1, CommandInputValues, CommandInvocation, DocumentCreateInput, DocumentMoveInput, DocumentNode, DocumentRecord, DocumentSpace, DocumentSpaceChangeEvent, DocumentWriteInput, DocumentWriteResult, DotfilesManagerStatus, DotfilesOperation, DotfilesOperationResult, GitIntegrationPlan, GitIntegrationRequest, GitIntegrationResult, InstalledNavigationPanel, InstalledPlugin, InstalledPluginWorkbench, IntegrationActionResult, IntegrationDiagnostic, LocalDocumentSpaceInput, LocalEnvironmentSnapshot, LocalPlugin, LocalSkillActivationSettings, ManagedPlugin, MarketplaceSource, MarketplaceSourcePreview, OwnerScope, OwnerScopeUiState, PersonalGitSyncResolution, PersonalGitSyncStatus, PluginDocumentPreview, PluginInstallPlan, PluginUpdatePlanItem, PluginUpdateResult, ProjectCatalogSnapshot, ProjectChangeEvent, ProjectConfigInitializationResult, ProjectDescriptionApplication, ProjectDescriptionAudit, ProjectDescriptionChange, ProjectOverview, ProjectRecord, ProjectRunSummary, ProjectSkillsState, ProjectVisualInput, ReleasePlan, ResolvedIntegrationContribution, RunCleanupOptions, RunCleanupResult, RunRecord, RunStreamEvent, RuntimeHealth, SettingsExportEnvelope, SettingsExportMode, SettingsImportPreview, SettingsImportStrategy, SettingsSnapshot, SetupProfileCommand, SetupProfileInventory, SetupProfileReview, SetupProfileSnapshot, SoftwareApplicationOpen, SoftwareCatalogSnapshot, SoftwareInstallationPlan, SoftwareInstallationRun, SoftwareInstallationRuns, SoftwareSourceInput, SoftwareSourcePreview, SoftwareSourceRefreshPolicy, SoftwareSourceSnapshot, TeamDeletionResult, TeamGitSyncStatus, UserConfigStatus, WorkbenchDiagnosticSnapshot, WorkbenchLocale, WorkItemProjectDeleteRequest, WorkItemProjectSnapshot, WorkItemProjectUpdateRequest, WorkspaceCatalog, WorkspaceGroup, WorkspaceImportPreview, WorkspaceImportResult, WorkspaceManifest, WorkspaceRecord, WorkspaceUiState } from 'craft-hub'
 import { emitIntegrationChange } from './integration-action-events'
 import { withIntegrationMutation } from './integration-mutations'
 
@@ -245,6 +245,29 @@ export const api = {
     body: JSON.stringify({ projectId }),
   }),
   removeWorkspaceProject: (workspaceId: string, projectIdOrKey: string, ownerScopeId = 'personal') => request<WorkspaceRecord>(scopedPath(`/api/workspaces/${workspaceId}/members/${encodeURIComponent(projectIdOrKey)}`, ownerScopeId), { method: 'DELETE' }),
+  documentSpaces: () => request<DocumentSpace[]>('/api/document-spaces'),
+  registerLocalDocumentSpace: (input: LocalDocumentSpaceInput) => request<DocumentSpace>('/api/document-spaces/local', { method: 'POST', body: JSON.stringify(input) }),
+  unregisterLocalDocumentSpace: (spaceId: string) => request<{ deleted: true }>(`/api/document-spaces/local/${encodeURIComponent(spaceId)}`, { method: 'DELETE' }),
+  documentSpaceNodes: (spaceId: string, parent = '') => request<DocumentNode[]>(`/api/document-spaces/${encodeURIComponent(spaceId)}/nodes${parent ? `?parent=${encodeURIComponent(parent)}` : ''}`),
+  readDocument: (spaceId: string, path: string) => request<DocumentRecord>(`/api/document-spaces/${encodeURIComponent(spaceId)}/document?path=${encodeURIComponent(path)}`),
+  writeDocument: async (spaceId: string, input: DocumentWriteInput & { path: string }): Promise<DocumentWriteResult> => {
+    const response = await fetch(`/api/document-spaces/${encodeURIComponent(spaceId)}/document`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(input),
+    })
+    const body = await response.json() as DocumentWriteResult & { error?: string }
+    if (response.status === 409)
+      return body
+    if (!response.ok)
+      throw new ApiRequestError(body.error ?? `Request failed: ${response.status}`, response.status)
+    return body
+  },
+  createDocument: (spaceId: string, input: DocumentCreateInput) => request<DocumentRecord>(`/api/document-spaces/${encodeURIComponent(spaceId)}/documents`, { method: 'POST', body: JSON.stringify(input) }),
+  moveDocument: (spaceId: string, input: DocumentMoveInput) => request<DocumentRecord>(`/api/document-spaces/${encodeURIComponent(spaceId)}/documents/move`, { method: 'POST', body: JSON.stringify(input) }),
+  deleteDocument: (spaceId: string, path: string) => request<{ deleted: true }>(`/api/document-spaces/${encodeURIComponent(spaceId)}/document?path=${encodeURIComponent(path)}`, { method: 'DELETE' }),
+  openDailyNote: (spaceId: string, date?: string) => request<DocumentRecord>(`/api/document-spaces/${encodeURIComponent(spaceId)}/daily`, { method: 'POST', body: JSON.stringify(date ? { date } : {}) }),
+  documentAssetUrl: (spaceId: string, path: string) => `/api/document-spaces/${encodeURIComponent(spaceId)}/asset?path=${encodeURIComponent(path)}`,
   capabilities: (projectId: string) => request<Capability[]>(`/api/projects/${projectId}/capabilities`),
   capabilityDiscovery,
   projectSkills: (projectId: string) => request<ProjectSkillsState>(`/api/projects/${projectId}/skills`),
@@ -334,6 +357,7 @@ export interface ProjectChangeSubscription {
   onConfigurationSync?: () => void
   onPluginChange?: () => void
   onSoftwareSourcesChange?: () => void
+  onDocumentSpaceChange?: (event: DocumentSpaceChangeEvent) => void
   onError?: () => void
   onOpen?: () => void
 }
@@ -396,5 +420,13 @@ export function subscribeToProjectChanges(subscription: ProjectChangeSubscriptio
   })
   events.addEventListener('plugin-change', () => subscription.onPluginChange?.())
   events.addEventListener('software-source-change', () => subscription.onSoftwareSourcesChange?.())
+  events.addEventListener('document-space-change', (event) => {
+    try {
+      subscription.onDocumentSpaceChange?.(JSON.parse((event as MessageEvent<string>).data) as DocumentSpaceChangeEvent)
+    }
+    catch {
+      // Ignore malformed local events and wait for the next valid update.
+    }
+  })
   return () => events.close()
 }

@@ -1266,4 +1266,61 @@ describe('app startup', () => {
     expect(FakeEventSource.instances[0]?.closed).toBe(true)
     expect(stopReplayOnboarding).toHaveBeenCalledOnce()
   })
+
+  it('navigates to Document Spaces via sidebar and toggles Focus Mode', async () => {
+    stubStartupData()
+    const space = {
+      id: 'notes-1',
+      title: 'Notes',
+      rootPath: '/Users/demo/Notes',
+      providerId: 'local',
+      kind: 'local' as const,
+      capabilities: { create: true, write: true, delete: true, move: true, snapshot: false, resolveAsset: true },
+    }
+    const spacesSpy = vi.spyOn(api, 'documentSpaces').mockResolvedValue([space])
+    vi.spyOn(api, 'documentSpaceNodes').mockResolvedValue([
+      { path: 'hello.md', name: 'hello.md', title: 'Hello', kind: 'document' },
+    ])
+    vi.spyOn(api, 'readDocument').mockResolvedValue({
+      spaceId: 'notes-1',
+      path: 'hello.md',
+      title: 'Hello',
+      frontmatter: { title: 'Hello' },
+      markdown: '# Hello\n\nFocus test.',
+      rawContent: '# Hello\n\nFocus test.',
+      revision: 'rev-1',
+      updatedAt: '2026-11-27T00:00:00.000Z',
+      cards: [],
+      breadcrumbs: [{ path: 'hello.md', title: 'Hello' }],
+    })
+
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    const { wrapper, router } = await mountApp(pinia, '/overview')
+    await flushPromises()
+
+    await wrapper.get('[data-testid="open-spaces"]').trigger('click')
+    await flushPromises()
+    await vi.waitFor(() => expect(wrapper.find('[data-testid="document-spaces-workbench"]').exists()).toBe(true))
+    expect(router.currentRoute.value.path).toBe('/spaces/notes-1')
+    expect(wrapper.get('[data-testid="open-spaces"]').attributes('aria-current')).toBe('page')
+    expect(spacesSpy).toHaveBeenCalled()
+
+    await wrapper.get('[data-testid="collection-node-hello.md"]').trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.path).toBe('/spaces/notes-1/hello.md')
+    await wrapper.get('[data-testid="toggle-focus-mode"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('.navigation-view-shell').classes()).toContain('spaces-focus-mode')
+    expect(wrapper.find('.project-rail').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="spaces-sidebar"]').exists()).toBe(false)
+
+    await wrapper.get('[data-testid="exit-focus-mode"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('.navigation-view-shell').classes()).not.toContain('spaces-focus-mode')
+    expect(wrapper.find('.project-rail').exists()).toBe(true)
+
+    wrapper.unmount()
+  })
 })

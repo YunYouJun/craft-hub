@@ -1,3 +1,9 @@
+<script lang="ts">
+import { lazyComponent } from './lazy-components'
+
+const DocumentSpacesWorkbench = lazyComponent(() => import('./DocumentSpacesWorkbench.vue'))
+</script>
+
 <script setup lang="ts">
 import type { ConfigurationManagementPage, IntegrationActionResult, IntegrationConnectionStatus, IntegrationEntityPage } from 'craft-hub'
 import type { WorkbenchIntegrationView } from './store'
@@ -275,7 +281,8 @@ function needsConnection(block: WorkbenchIntegrationView['blocks'][number]): boo
 
 async function invoke(block: WorkbenchIntegrationView['blocks'][number], extraInput?: Record<string, unknown>, append = false): Promise<void> {
   const currentView = view.value
-  if (!currentView || projectUnavailable.value || !readBlock(block) || blockNeedsProject(block))
+  const actionId = block.actionId
+  if (!currentView || !actionId || projectUnavailable.value || !readBlock(block) || blockNeedsProject(block))
     return
   const state = stateFor(block.id)
   if (needsConnection(block)) {
@@ -313,7 +320,7 @@ async function invoke(block: WorkbenchIntegrationView['blocks'][number], extraIn
     const callInput = { ...(block.input ?? {}), ...input, ...(cursor ? { cursor } : {}), ...(contribution.value?.translations || contribution.value?.actions.find(action => action.id === block.actionId)?.operation === 'configuration.list' ? { locale: locale.value } : {}) }
     if (!state.result && (block.previewInput || (currentSession()?.cacheReads && block.type === 'entity-list'))) {
       try {
-        const preview = await api.invokeIntegrationAction(integrationId, block.actionId, { ...callInput, ...(block.previewInput ?? { cacheOnly: true }) }, projectId)
+        const preview = await api.invokeIntegrationAction(integrationId, actionId, { ...callInput, ...(block.previewInput ?? { cacheOnly: true }) }, projectId)
         if (!current())
           return
         if (!('items' in preview) || preview.items.length) {
@@ -330,7 +337,7 @@ async function invoke(block: WorkbenchIntegrationView['blocks'][number], extraIn
       return
     const result = await api.invokeIntegrationAction(
       integrationId,
-      block.actionId,
+      actionId,
       callInput,
       projectId,
     )
@@ -459,7 +466,7 @@ defineExpose({ refresh })
 
       <div v-else class="integration-blocks">
         <component :is="block.collapsible ? 'details' : 'article'" v-for="block in view.blocks" :key="block.id" class="integration-block" :class="{ 'integration-block-collapsible': block.collapsible }" :data-testid="`integration-block-${block.id}`">
-          <component :is="block.collapsible ? 'summary' : 'header'" v-if="!['resource-browser', 'configuration-manager'].includes(block.type)" class="integration-block-heading">
+          <component :is="block.collapsible ? 'summary' : 'header'" v-if="!['resource-browser', 'configuration-manager'].includes(block.type) && (block.type !== 'document-space' || block.title)" class="integration-block-heading">
             <Icon v-if="block.collapsible" class="integration-block-chevron" name="arrowRight" />
             <div>
               <h2>{{ actionTitle(block) }}</h2>
@@ -467,7 +474,7 @@ defineExpose({ refresh })
                 {{ translate(block.description) }}
               </p>
             </div>
-            <UiButton v-if="block.type !== 'entity-search' && block.type !== 'action-form'" size="compact" :disabled="stateFor(block.id).loading" @click="block.type === 'connection-status' ? refresh() : invoke(block)">
+            <UiButton v-if="block.type !== 'entity-search' && block.type !== 'action-form' && block.type !== 'document-space'" size="compact" :disabled="stateFor(block.id).loading" @click="block.type === 'connection-status' ? refresh() : invoke(block)">
               <Icon :name="stateFor(block.id).loading ? 'loading' : 'refresh'" />
               {{ t('refresh') }}
             </UiButton>
@@ -479,6 +486,13 @@ defineExpose({ refresh })
           <p v-if="needsConnection(block)" class="integration-empty-copy" role="status">
             {{ copy('请先连接账号，完成后会自动读取事项。', 'Connect your account first. Items will load when authorization completes.') }}
           </p>
+
+          <DocumentSpacesWorkbench
+            v-if="block.type === 'document-space'"
+            embedded
+            :initial-space-id="block.spaceId"
+            :root-path="block.rootPath"
+          />
 
           <IntegrationResourceBrowser
             v-if="block.type === 'resource-browser' && contribution"
@@ -568,7 +582,7 @@ defineExpose({ refresh })
             :work-item-actions="workItemActionsFor(block)"
             :loading="stateFor(block.id).loading"
             :configuration-action-id="contribution?.actions.find(action => action.operation === 'configuration.list' && action.id === block.actionId) ? contribution.actions.find(action => action.operation === 'configuration.update')?.id : undefined"
-            :source-context="{ integrationId, actionId: block.actionId, projectId: view.scope === 'global' ? undefined : inspectedProjectId || undefined }"
+            :source-context="block.actionId ? { integrationId, actionId: block.actionId, projectId: view.scope === 'global' ? undefined : inspectedProjectId || undefined } : undefined"
             @filters-changed="saveFilters(block.id, $event)"
             @configuration-updated="stateFor(block.id).result = $event"
             @updated="applyEntityUpdate(block.id, $event)"

@@ -5,6 +5,7 @@ import { lazyComponent } from './lazy-components'
 // while idle so first navigation still feels immediate. Module scope keeps one wrapper per view for the app's life.
 const MarketplaceDialog = lazyComponent(() => import('./MarketplaceDialog.vue'))
 const ConfigurationSubscriptions = lazyComponent(() => import('./ConfigurationSubscriptions.vue'))
+const DocumentSpacesWorkbench = lazyComponent(() => import('./DocumentSpacesWorkbench.vue'))
 const PluginWorkbench = lazyComponent(() => import('./PluginWorkbench.vue'))
 const ToolsWorkbench = lazyComponent(() => import('./ToolsWorkbench.vue'))
 const WorkbenchesOverview = lazyComponent(() => import('./WorkbenchesOverview.vue'))
@@ -40,6 +41,7 @@ import { Button as UiButton } from './components/ui/button'
 import DetailPanel from './DetailPanel.vue'
 import Icon from './NavigationIcon.vue'
 import { useI18n } from './i18n'
+import { emitDocumentSpaceChange } from './document-space-events'
 import { emitIntegrationChange } from './integration-action-events'
 import { beginInteractionTrace } from './interaction-trace'
 import WorkbenchSectionNavigation from './WorkbenchSectionNavigation.vue'
@@ -182,6 +184,12 @@ const toolsOpen = computed(() => route.name === 'tools')
 const workbenchesOpen = computed(() => route.name === 'workbenches')
 const integrationOpen = computed(() => route.name === 'integration')
 const pluginWorkbenchOpen = computed(() => route.name === 'plugin-workbench')
+const spacesOpen = computed(() => route.name === 'spaces' || route.name === 'space-document')
+const spacesFocusMode = ref(false)
+watch(spacesOpen, (open) => {
+  if (!open)
+    spacesFocusMode.value = false
+})
 const copy = (zh: string, en: string) => locale.value === 'zh-CN' ? zh : en
 const currentIntegrationView = computed(() => store.integrationViews.find(view => view.integrationId === route.params.integrationId && view.id === route.params.viewId))
 const activeSection = computed(() => classifyWorkbenchSection(route.name, currentIntegrationView.value))
@@ -189,12 +197,13 @@ watch([() => route.path, activeSection], ([path, section]) => reportNativeRoute(
 const sectionTitle = computed(() => ({
   home: copy('首页', 'Home'),
   projects: copy('项目', 'Projects'),
+  spaces: copy('文档', 'Spaces'),
   tools: copy('工具', 'Tools'),
   environment: copy('开发环境', 'Development environment'),
   workbenches: copy('工作台', 'Workbenches'),
 })[activeSection.value ?? 'home'])
-const sectionIcon = computed(() => ({ home: 'builtin:hub', projects: 'builtin:folder', tools: 'builtin:package', environment: 'builtin:terminal', workbenches: 'builtin:hub' })[activeSection.value ?? 'home'])
-const sectionPath = computed(() => ({ home: '/overview', projects: '/', tools: '/tools', environment: '/environment', workbenches: '/workbenches' })[activeSection.value ?? 'home'])
+const sectionIcon = computed(() => ({ home: 'builtin:hub', projects: 'builtin:folder', spaces: 'builtin:docs', tools: 'builtin:package', environment: 'builtin:terminal', workbenches: 'builtin:hub' })[activeSection.value ?? 'home'])
+const sectionPath = computed(() => ({ home: '/overview', projects: '/', spaces: '/spaces', tools: '/tools', environment: '/environment', workbenches: '/workbenches' })[activeSection.value ?? 'home'])
 function integrationPath(integrationId: string, viewId: string): string {
   return `/integrations/${encodeURIComponent(integrationId)}/${encodeURIComponent(viewId)}`
 }
@@ -240,7 +249,7 @@ const sectionGroups = computed<WorkbenchNavigationGroup[]>(() => {
 })
 const pageBreadcrumbs = computed(() => {
   const pluginWorkbench = store.pluginWorkbenches.find(workbench => workbench.pluginId === route.params.pluginId && workbench.id === route.params.workbenchId)
-  const label = overviewOpen.value ? copy('首页', 'Home') : marketplaceOpen.value ? copy('插件管理', 'Plugins') : navigationOpen.value ? copy('网站导航', 'Website navigation') : softwareOpen.value ? copy('软件中心', 'Software center') : toolsOpen.value ? copy('常用工具', 'Favorite tools') : workbenchesOpen.value ? copy('全部工作台', 'All workbenches') : setupProfileOpen.value ? copy('我的环境方案', 'My environment profile') : environmentSourcesOpen.value ? copy('配置源连接', 'Source connections') : environmentOpen.value ? copy('本机检测', 'Machine checks') : diagnosticsOpen.value ? t('diagnostics') : integrationOpen.value ? (currentIntegrationView.value?.title ?? copy('集成', 'Integration')) : (pluginWorkbench?.title ?? copy('插件工作台', 'Plugin workbench'))
+  const label = overviewOpen.value ? copy('首页', 'Home') : spacesOpen.value ? copy('文档空间', 'Document Spaces') : marketplaceOpen.value ? copy('插件管理', 'Plugins') : navigationOpen.value ? copy('网站导航', 'Website navigation') : softwareOpen.value ? copy('软件中心', 'Software center') : toolsOpen.value ? copy('常用工具', 'Favorite tools') : workbenchesOpen.value ? copy('全部工作台', 'All workbenches') : setupProfileOpen.value ? copy('我的环境方案', 'My environment profile') : environmentSourcesOpen.value ? copy('配置源连接', 'Source connections') : environmentOpen.value ? copy('本机检测', 'Machine checks') : diagnosticsOpen.value ? t('diagnostics') : integrationOpen.value ? (currentIntegrationView.value?.title ?? copy('集成', 'Integration')) : (pluginWorkbench?.title ?? copy('插件工作台', 'Plugin workbench'))
   return [
     { label: store.applicationName, to: '/overview' },
     ...(activeSection.value && activeSection.value !== 'home' ? [{ label: sectionTitle.value, to: sectionPath.value }] : []),
@@ -252,6 +261,13 @@ const activeIntegrationId = computed(() => typeof route.params.integrationId ===
 const activeIntegrationViewId = computed(() => typeof route.params.viewId === 'string' ? route.params.viewId : '')
 const activePluginWorkbenchPluginId = computed(() => typeof route.params.pluginId === 'string' ? route.params.pluginId : '')
 const activePluginWorkbenchId = computed(() => typeof route.params.workbenchId === 'string' ? route.params.workbenchId : '')
+const activeSpaceId = computed(() => typeof route.params.spaceId === 'string' ? route.params.spaceId : undefined)
+const activeSpaceDocPath = computed(() => {
+  const raw = route.params.docPath
+  if (Array.isArray(raw))
+    return raw.filter(Boolean).join('/') || undefined
+  return typeof raw === 'string' && raw ? raw : undefined
+})
 const navigationRevision = ref(0)
 const toolbarTitle = computed(() => route.name === 'workbench' ? sectionTitle.value : pageBreadcrumbs.value.at(-1)?.label ?? sectionTitle.value)
 const activePage = ref<{ refresh: () => Promise<void> }>()
@@ -295,8 +311,22 @@ async function openMarketplace(): Promise<void> {
 }
 
 async function openWorkbench(): Promise<void> {
-  if (overviewOpen.value || subscriptionsOpen.value || marketplaceOpen.value || navigationOpen.value || toolsOpen.value || workbenchesOpen.value || softwareOpen.value || environmentOpen.value || diagnosticsOpen.value || integrationOpen.value || pluginWorkbenchOpen.value)
+  if (overviewOpen.value || spacesOpen.value || subscriptionsOpen.value || marketplaceOpen.value || navigationOpen.value || toolsOpen.value || workbenchesOpen.value || softwareOpen.value || environmentOpen.value || diagnosticsOpen.value || integrationOpen.value || pluginWorkbenchOpen.value)
     await router.push({ name: 'workbench' })
+}
+
+async function openSpaces(): Promise<void> {
+  if (!spacesOpen.value)
+    await router.push({ name: 'spaces' })
+}
+
+async function navigateSpace(spaceId: string, docPath?: string): Promise<void> {
+  const encodedSpace = encodeURIComponent(spaceId)
+  const targetPath = docPath
+    ? `/spaces/${encodedSpace}/${docPath.split('/').filter(Boolean).map(encodeURIComponent).join('/')}`
+    : `/spaces/${encodedSpace}`
+  if (route.path !== targetPath)
+    await router.push(targetPath)
 }
 
 async function openOverview(): Promise<void> {
@@ -629,6 +659,7 @@ onBeforeMount(async () => {
     },
     onAgentTaskChange: task => store.applyAgentTask(task),
     onSoftwareSourcesChange: () => store.notifySoftwareSourcesChanged(),
+    onDocumentSpaceChange: event => emitDocumentSpaceChange(event),
     onPluginChange: () => {
       navigationRevision.value++
       void Promise.all([store.refreshProjects(), store.loadIntegrations(), store.loadPluginWorkbenches(), store.loadWorkbenchDiagnostics()]).catch(() => {})
@@ -744,11 +775,11 @@ onBeforeUnmount(() => {
         <button type="button" @click="retryProjects">{{ t('retry') }}</button>
       </div>
     </section>
-    <section v-if="overviewOpen || subscriptionsOpen || navigationOpen || toolsOpen || workbenchesOpen || marketplaceOpen || integrationOpen || pluginWorkbenchOpen || softwareOpen || environmentOpen || diagnosticsOpen" class="navigation-view-shell">
+    <section v-if="overviewOpen || spacesOpen || subscriptionsOpen || navigationOpen || toolsOpen || workbenchesOpen || marketplaceOpen || integrationOpen || pluginWorkbenchOpen || softwareOpen || environmentOpen || diagnosticsOpen" class="navigation-view-shell" :class="{ 'spaces-focus-mode': spacesOpen && spacesFocusMode }">
       <ProjectRail
-        v-if="!desktopSidebarHidden"
+        v-if="!desktopSidebarHidden && !(spacesOpen && spacesFocusMode)"
         :collapsed="desktopSidebarCollapsed"
-        :active-view="overviewOpen ? 'overview' : subscriptionsOpen ? 'subscriptions' : pluginWorkbenchOpen ? 'plugin-workbench' : integrationOpen ? 'integration' : navigationOpen ? 'navigation' : toolsOpen ? 'tools' : workbenchesOpen ? 'workbenches' : softwareOpen ? 'software' : environmentOpen ? 'environment' : diagnosticsOpen ? 'diagnostics' : 'marketplace'"
+        :active-view="overviewOpen ? 'overview' : spacesOpen ? 'spaces' : subscriptionsOpen ? 'subscriptions' : pluginWorkbenchOpen ? 'plugin-workbench' : integrationOpen ? 'integration' : navigationOpen ? 'navigation' : toolsOpen ? 'tools' : workbenchesOpen ? 'workbenches' : softwareOpen ? 'software' : environmentOpen ? 'environment' : diagnosticsOpen ? 'diagnostics' : 'marketplace'"
         :active-integration-id="activeIntegrationId"
         :active-integration-view-id="activeIntegrationViewId"
         :active-plugin-workbench-id="activePluginWorkbenchId"
@@ -762,11 +793,22 @@ onBeforeUnmount(() => {
         @open-marketplace="openMarketplace"
         @open-overview="openOverview"
         @open-settings="openSettings()"
+        @open-spaces="openSpaces"
         @open-workbench="openWorkbench"
       />
       <ConfigurationSubscriptions v-if="subscriptionsOpen" ref="activePage" @vue:mounted="completePageTrace" @vue:updated="completePageTrace">
         <template #sidebar><WorkbenchSectionNavigation :title="sectionTitle" :icon="sectionIcon" :groups="sectionGroups" /></template>
       </ConfigurationSubscriptions>
+      <DocumentSpacesWorkbench
+        v-else-if="spacesOpen"
+        ref="activePage"
+        v-model:focus-mode="spacesFocusMode"
+        :initial-space-id="activeSpaceId"
+        :initial-doc-path="activeSpaceDocPath"
+        @navigate="navigateSpace"
+        @vue:mounted="completePageTrace"
+        @vue:updated="completePageTrace"
+      />
       <PluginWorkbench v-else-if="pluginWorkbenchOpen" ref="activePage" :breadcrumbs="pageBreadcrumbs" :plugin-id="activePluginWorkbenchPluginId" :workbench-id="activePluginWorkbenchId" :refresh-key="navigationRevision" @vue:mounted="completePageTrace" @vue:updated="completePageTrace" @manage-plugins="openMarketplace" @open-project="openProject" @open-integration="openIntegration" />
       <WorkbenchPageShell v-else :breadcrumbs="pageBreadcrumbs">
         <template v-if="sectionGroups.length" #sidebar><WorkbenchSectionNavigation :title="sectionTitle" :icon="sectionIcon" :groups="sectionGroups" /></template>
@@ -824,6 +866,7 @@ onBeforeUnmount(() => {
           @open-marketplace="openMarketplace"
           @open-overview="openOverview"
           @open-settings="openSettings()"
+          @open-spaces="openSpaces"
           @open-workbench="openWorkbench"
         />
       </template>
