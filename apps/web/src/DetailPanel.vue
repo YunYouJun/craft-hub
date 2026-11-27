@@ -11,6 +11,7 @@ import { Button as UiButton } from './components/ui/button'
 import { DialogShell } from './components/ui/dialog'
 import { FormSelect } from './components/ui/select'
 import { commandInputInitialValues, rememberCommandInputValues } from './command-input-history'
+import { formatDisplayPath } from './display-path'
 import { Icon } from './icons'
 import { useI18n } from './i18n'
 import { useWorkbenchStore } from './store'
@@ -405,22 +406,28 @@ function openSkillThread(): Promise<void> {
   <main class="detail-panel">
     <ProjectOverviewPanel v-if="store.selectedProject && (!store.activeCapability || (store.packageCapabilityDrawerOpen && !packageDrawerContent))" />
     <div v-else-if="!store.activeCapability" class="detail-empty">{{ t('selectCapability') }}</div>
-    <template v-else>
+    <div v-else class="detail-document">
       <button v-if="store.workspaceCapability" class="workspace-capability-back" type="button" @click="store.clearWorkspaceCapability">
         <Icon name="arrowRight" /> {{ t('backToWorkspace') }}
       </button>
-      <header class="detail-heading">
-        <span class="detail-icon"><Icon :name="store.activeCapability.kind === 'command' ? 'terminal' : 'skill'" /></span>
-        <div>
-          <h2>{{ store.activeCapability.name }}</h2>
-          <p>{{ store.activeProject?.name }} · {{ store.activeCapability.source }}</p>
+      <header class="detail-header-bar">
+        <div class="detail-heading">
+          <span class="detail-icon" :class="store.activeCapability.kind === 'skill' ? 'detail-icon--skill' : 'detail-icon--command'"><Icon :name="store.activeCapability.kind === 'command' ? 'terminal' : 'skill'" /></span>
+          <div>
+            <h2>{{ store.activeCapability.name }}</h2>
+            <p>{{ store.activeProject?.name }} · {{ store.activeCapability.source }}</p>
+          </div>
+        </div>
+        <div v-if="store.activeProject" class="detail-actions">
+          <span class="detail-trust-indicator" :data-trust="store.activeProject.trust" data-testid="detail-trust-indicator">
+            <Icon :name="store.activeProject.trust === 'trusted' ? 'trusted' : 'untrusted'" />
+            {{ t(store.activeProject.trust === 'trusted' ? 'trusted' : 'untrusted') }}
+          </span>
+          <UiButton v-if="desktopActions && sourcePath" class="compact-action" size="compact" variant="ghost" data-testid="open-source-editor" :aria-label="openSourceLabel" :title="openSourceLabel" @click="openSource">
+            <Icon name="source" /> {{ t('source') }}
+          </UiButton>
         </div>
       </header>
-      <div v-if="desktopActions && store.activeProject" class="detail-actions">
-        <UiButton v-if="sourcePath" class="compact-action" size="compact" variant="ghost" data-testid="open-source-editor" :aria-label="openSourceLabel" :title="openSourceLabel" @click="openSource">
-          <Icon name="source" /> {{ t('source') }}
-        </UiButton>
-      </div>
       <p v-if="openError" class="error-message">{{ openError }}</p>
 
       <template v-if="store.activeCapability.kind === 'command'">
@@ -436,9 +443,9 @@ function openSkillThread(): Promise<void> {
             <dt>{{ t('sourceFile') }}</dt>
             <dd class="source-path">
               <button v-if="desktopActions" class="preview-path-link" type="button" data-testid="open-source-location" :aria-label="openSourceLabel" :title="openSourceLabel" @click="openSource">
-                {{ sourceLocation }}
+                {{ formatDisplayPath(sourceLocation) }}
               </button>
-              <template v-else>{{ sourceLocation }}</template>
+              <template v-else>{{ formatDisplayPath(sourceLocation) }}</template>
             </dd>
           </template>
           <dt>{{ t('command') }}</dt>
@@ -451,9 +458,9 @@ function openSkillThread(): Promise<void> {
           <dt>{{ t('workingDirectory') }}</dt>
           <dd>
             <button v-if="desktopActions" class="preview-path-link" type="button" data-testid="open-working-directory" :aria-label="openWorkingDirectoryLabel" :title="openWorkingDirectoryLabel" @click="openWorkingDirectory">
-              {{ displayedInvocation?.cwd }}
+              {{ formatDisplayPath(displayedInvocation?.cwd) }}
             </button>
-            <template v-else>{{ displayedInvocation?.cwd }}</template>
+            <template v-else>{{ formatDisplayPath(displayedInvocation?.cwd) }}</template>
           </dd>
           <dt>{{ t('requiredEnvironment') }}</dt><dd>{{ displayedInvocation?.requiredEnv.join(', ') || t('none') }}</dd>
         </dl>
@@ -502,7 +509,7 @@ function openSkillThread(): Promise<void> {
             </UiButton>
           </div>
         </form>
-        <UiButton v-if="store.activeProject?.trust !== 'trusted'" data-testid="review-trust" variant="warning" :disabled="store.busy || Boolean(previewError) || store.activeCapability.availability?.available === false" @click="trustRunOpen = true">
+        <UiButton v-if="store.activeProject?.trust !== 'trusted'" data-testid="review-trust" variant="primary" :disabled="store.busy || Boolean(previewError) || store.activeCapability.availability?.available === false" @click="trustRunOpen = true">
           <Icon name="trusted" /> {{ t('reviewTrustAndRun') }}
         </UiButton>
         <UiButton v-else-if="!commandInputs.length" variant="primary" :disabled="store.busy || store.activeCapability.availability?.available === false" @click="runCommand">
@@ -637,7 +644,7 @@ function openSkillThread(): Promise<void> {
           <SkillContentPreview v-if="skillContentExpanded" id="skill-source-content" :content="store.activeCapability.content" />
         </section>
       </template>
-    </template>
+    </div>
     <TrustRunDialog v-model:open="trustRunOpen" :invocation="displayedInvocation" :inputs="inputValues" :source="sourceLocation" />
     <DialogShell v-model:open="backgroundSkillTrustOpen" content-class="trust-run-dialog" data-testid="background-skill-trust-dialog">
       <template #title>{{ t('trustAndStartSkillTitle') }}</template>

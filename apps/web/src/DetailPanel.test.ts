@@ -746,4 +746,26 @@ describe('detail panel desktop actions', () => {
     expect(store.run).toEqual(historyRun)
     expect(store.terminalVisible).toBe(true)
   })
+
+  it('shows the active project trust indicator in the capability header', async () => {
+    useI18n().setLocale('en')
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    useI18n().setLocale('en')
+    const store = useWorkbenchStore()
+    store.projects = [{ ...project, trust: 'untrusted' }]
+    store.selectedProjectId = project.id
+    store.capabilities = [command]
+    store.selectedCapabilityId = command.id
+
+    const wrapper = mount(DetailPanel, { global: { plugins: [pinia] } })
+    const indicator = wrapper.get('[data-testid="detail-trust-indicator"]')
+    expect(indicator.attributes('data-trust')).toBe('untrusted')
+    expect(indicator.text()).toContain('Untrusted project')
+
+    store.projects = [{ ...project, trust: 'trusted' }]
+    await flushPromises()
+    expect(indicator.attributes('data-trust')).toBe('trusted')
+    expect(indicator.text()).toContain('Trusted project')
+  })
 })

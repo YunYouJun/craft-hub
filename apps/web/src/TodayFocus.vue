@@ -13,7 +13,7 @@ import VisualIcon from './VisualIcon.vue'
 import { localDateTime } from './quick-capture'
 import { focusCandidates, rankTodayFocus } from './today-focus'
 
-const props = defineProps<{ entries: FocusEntry[], coverage: string, loading: boolean, wide?: boolean }>()
+const props = defineProps<{ entries: FocusEntry[], coverage: string, loading: boolean, wide?: boolean, hideDate?: boolean }>()
 const emit = defineEmits<{ capture: [], refresh: [], handoff: [entry: FocusEntry] }>()
 const { locale } = useI18n()
 const copy = (zh: string, en: string) => locale.value === 'zh-CN' ? zh : en
@@ -59,7 +59,7 @@ onUnmounted(() => { generation++; clearInterval(timer) })
 <template>
   <section class="today-focus" :class="{ 'is-wide': wide }" :aria-label="copy('今日重点', 'Today’s focus')">
     <header class="focus-heading">
-      <div class="focus-title"><Icon name="sun" /><h2>{{ copy('今日重点', 'Today’s focus') }}</h2><time>{{ new Date(now).toLocaleDateString(locale, { month: 'numeric', day: 'numeric' }) }}</time></div>
+      <div class="focus-title"><Icon name="sun" /><h2>{{ copy('今日重点', 'Today’s focus') }}</h2><time v-if="!props.hideDate">{{ new Date(now).toLocaleDateString(locale, { month: 'numeric', day: 'numeric' }) }}</time></div>
       <div class="focus-actions">
         <UiButton variant="primary" size="compact" :title="formatShortcut('Mod+Shift+Space', windowPlatform)" @click="emit('capture')"><Icon name="plus" />{{ copy('快速记录', 'Quick capture') }}</UiButton>
         <UiButton variant="ghost" size="compact" :disabled="analyzing || !ranked.length || !available" @click="analyze"><Icon :name="analyzing ? 'loading' : 'skill'" />{{ analyzing ? copy('分析中…', 'Analyzing…') : copy('AI 分析', 'AI analysis') }}</UiButton>
@@ -92,9 +92,9 @@ onUnmounted(() => { generation++; clearInterval(timer) })
 </template>
 
 <style scoped>
-.today-focus { padding: 0 12px; border: 1px solid var(--border); border-radius: var(--panel-radius); background: var(--surface); margin-bottom: 12px; }
+.today-focus { padding: 0 18px 4px; border: 1px solid var(--border); border-radius: var(--panel-radius); background: var(--surface); box-shadow: var(--surface-shadow); margin-bottom: 16px; }
 .focus-heading, .focus-title, .focus-actions { display: flex; align-items: center; gap: 8px; }
-.focus-heading { min-height: 42px; justify-content: space-between; flex-wrap: wrap; gap: 4px 8px; padding-block: 6px; border-bottom: 1px solid var(--border); }
+.focus-heading { min-height: 48px; justify-content: space-between; flex-wrap: wrap; gap: 4px 8px; padding-block: 6px; border-bottom: 1px solid var(--border); }
 .focus-title { min-width: 0; }
 .focus-title > .app-icon { flex: none; width: 16px; height: 16px; color: var(--muted); }
 .focus-title h2 { margin: 0; font-size: 14px; font-weight: 600; white-space: nowrap; }
@@ -104,9 +104,10 @@ onUnmounted(() => { generation++; clearInterval(timer) })
 .focus-list { list-style: none; padding: 0; margin: 0; }
 .focus-list li { display: flex; align-items: flex-start; min-width: 0; gap: 10px; border-bottom: 1px solid var(--border); }
 .focus-list li:last-child { border-bottom: 0; }
-.focus-number { display: flex; flex: none; align-items: center; justify-content: center; width: 24px; height: 24px; margin-top: 12px; border-radius: 6px; background: var(--surface-subtle); color: var(--text-secondary); font-size: 12px; font-variant-numeric: tabular-nums; }
+.focus-number { display: flex; flex: none; align-items: center; justify-content: center; width: 24px; height: 24px; margin-top: 12px; border-radius: 7px; background: var(--surface-muted); color: var(--text-secondary); font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .focus-item { flex: 1; min-width: 0; }
-.focus-item summary { display: flex; align-items: center; gap: 8px; min-height: 48px; padding: 6px 0; cursor: pointer; box-sizing: border-box; }
+.focus-item summary { display: flex; align-items: center; gap: 8px; min-height: 48px; margin-inline: -8px; padding: 8px; border-radius: 9px; cursor: pointer; box-sizing: border-box; transition: background-color var(--motion-duration-fast) var(--motion-ease-standard); }
+.focus-item summary:hover { background: var(--surface-hover); }
 .focus-item-copy { min-width: 0; flex: 1; }
 .focus-item strong { display: block; font-size: 14px; font-weight: 500; line-height: 20px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .focus-item[open] strong { white-space: normal; overflow-wrap: anywhere; }
@@ -114,7 +115,7 @@ onUnmounted(() => { generation++; clearInterval(timer) })
 .focus-item small .visual-icon { flex: none; width: 12px; height: 12px; }
 .focus-disclosure { flex: none; width: 14px; height: 14px; color: var(--muted); transition: transform var(--motion-duration-enter) var(--motion-ease-standard); }
 .focus-item[open] .focus-disclosure { transform: rotate(90deg); }
-.focus-detail { padding: 0 0 10px; }
+.focus-detail { margin: 2px 0 10px; border-radius: 10px; background: var(--surface-subtle); padding: 10px 12px; }
 .focus-detail p { margin: 0 0 6px; color: var(--muted); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
 .focus-detail .focus-next { color: var(--text); }
 .focus-detail button { padding-left: 0; color: var(--accent); }
@@ -137,5 +138,9 @@ summary:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2p
 .focus-empty { padding: 12px 0; color: var(--muted); font-size: 12px; }
 /* Mirror the ranked rows: number column, title and source caption. */
 .focus-skeleton { --skeleton-row-height: 48px; --skeleton-row-padding: 6px 0 6px 34px; }
-@media (max-width: 400px) { .focus-title time { display: none; } .focus-actions { margin-left: auto; } }
+@media (max-width: 480px) {
+  .focus-heading { align-items: flex-start; gap: 8px; padding-block: 10px; }
+  .focus-actions { width: 100%; margin-left: 0; justify-content: flex-start; }
+  .focus-actions .ui-button--icon { margin-left: auto; }
+}
 </style>

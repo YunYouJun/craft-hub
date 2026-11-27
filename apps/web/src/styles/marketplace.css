@@ -4,18 +4,18 @@
  * Every color aliases a semantic token, so the dark theme follows without a second definition.
  */
 .marketplace-page {
-  --plugin-card-radius: 12px;
+  --plugin-card-radius: var(--panel-radius);
   --plugin-card-padding: 16px;
   --plugin-card-gap: 12px;
   --plugin-card-min-width: 400px;
   --plugin-card-background: var(--surface);
   --plugin-card-border: var(--border);
   --plugin-card-hover-border: color-mix(in srgb, var(--accent) 36%, var(--border));
-  --plugin-card-shadow: 0 1px 2px color-mix(in srgb, var(--shadow) 5%, transparent);
-  --plugin-card-hover-shadow: 0 10px 28px -12px color-mix(in srgb, var(--shadow) 60%, transparent), 0 2px 6px -2px color-mix(in srgb, var(--shadow) 18%, transparent);
+  --plugin-card-shadow: var(--surface-shadow);
+  --plugin-card-hover-shadow: var(--surface-shadow-hover);
   --plugin-card-lift: -2px;
   --plugin-mark-size: 44px;
-  --plugin-mark-radius: 11px;
+  --plugin-mark-radius: 12px;
   --plugin-mark-image: 34px;
   --plugin-mark-background: linear-gradient(145deg, color-mix(in srgb, var(--accent) 16%, var(--surface)), color-mix(in srgb, var(--accent) 5%, var(--surface)));
   --plugin-pack: var(--status-review);
@@ -223,7 +223,7 @@
 .source-row p { margin: 0; color: var(--danger); font-size: var(--font-size-caption); }
 .source-error { display: flex; align-items: flex-start; gap: 6px; }
 .source-error .app-icon { width: 13px; height: 13px; flex: 0 0 13px; margin-top: 2px; }
-.source-form { margin-top: 20px; border: 1px solid var(--border); border-radius: var(--plugin-card-radius); background: var(--surface); padding: var(--space-4); }
+.source-form { margin-top: 20px; border: 1px solid var(--border); border-radius: var(--plugin-card-radius); background: var(--surface); box-shadow: var(--surface-shadow); padding: var(--space-4); }
 .source-form h3 { display: flex; align-items: center; gap: 10px; margin: 0 0 14px; font-size: var(--font-size-subheading); }
 .source-form-mark { display: grid; width: 28px; height: 28px; place-items: center; border-radius: 8px; background: var(--accent-soft); color: var(--accent); }
 .source-form-mark .app-icon { width: 16px; height: 16px; }
@@ -292,7 +292,7 @@
 
 .plugin-detail-body { display: grid; min-height: 0; grid-template-columns: minmax(250px, 300px) minmax(0, 1fr); overflow: hidden; }
 .plugin-detail-sidebar { display: grid; align-content: start; gap: 12px; overflow-y: auto; border-right: 1px solid var(--border); padding: 18px 16px 32px var(--plugin-detail-inline); scrollbar-width: thin; }
-.plugin-detail-sidebar > section { border: 1px solid var(--border); border-radius: var(--plugin-card-radius); background: var(--surface); padding: 14px; }
+.plugin-detail-sidebar > section { border: 1px solid var(--border); border-radius: var(--plugin-card-radius); background: var(--surface); box-shadow: var(--surface-shadow); padding: 14px; }
 .plugin-detail-sidebar > .marketplace-error { margin: 0; }
 .plugin-detail-sidebar h2, .plugin-detail-main h2 { display: flex; align-items: center; gap: 6px; margin: 0 0 10px; color: var(--text); font-size: var(--font-size-body); font-weight: 650; }
 .plugin-detail-sidebar h2 small { border-radius: var(--plugin-chip-radius); background: var(--surface-subtle); padding: 0 6px; color: var(--muted); font-size: var(--font-size-micro); font-weight: 650; line-height: 16px; }
@@ -346,7 +346,7 @@
 .plugin-relation-copy strong { overflow: hidden; font-size: var(--font-size-control); text-overflow: ellipsis; white-space: nowrap; }
 .plugin-relation-copy code, .plugin-relation-copy span { overflow-wrap: anywhere; color: var(--muted); font-size: var(--font-size-caption); }
 .plugin-relation-copy code { font-family: var(--font-mono); }
-.plugin-readme { border: 1px solid var(--border); border-radius: var(--plugin-card-radius); background: var(--surface); padding: 18px clamp(18px, 3vw, 32px) 28px; }
+.plugin-readme { border: 1px solid var(--border); border-radius: var(--plugin-card-radius); background: var(--surface); box-shadow: var(--surface-shadow); padding: 18px clamp(18px, 3vw, 32px) 28px; }
 .plugin-readme > header { display: flex; align-items: start; justify-content: space-between; gap: 12px; border-bottom: 1px solid var(--border); padding-bottom: 12px; }
 .plugin-readme > header h2 { margin-bottom: 2px; font-size: var(--font-size-subheading); }
 .plugin-readme > header h2 .app-icon { width: 17px; height: 17px; color: var(--muted); }

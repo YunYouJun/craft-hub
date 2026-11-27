@@ -118,7 +118,7 @@ const recheck = () => void machine.refresh({ force: true, refreshKey: props.refr
 </template>
 
 <style scoped>
-.machine-readiness { display: grid; gap: 12px; min-width: 0; border: 1px solid var(--border); border-radius: var(--panel-radius); padding: 14px 16px; background: var(--surface); }
+.machine-readiness { container-type: inline-size; display: grid; gap: 14px; min-width: 0; border: 1px solid var(--border); border-radius: var(--panel-radius); padding: 16px 18px; background: var(--surface); box-shadow: var(--surface-shadow); }
 .readiness-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
 .readiness-header h2 { margin: 0; font-size: var(--font-size-subheading); font-weight: 600; line-height: 22px; }
 .readiness-header p { margin: 2px 0 0; color: var(--muted); font-size: var(--font-size-caption); line-height: 16px; }
@@ -134,7 +134,7 @@ const recheck = () => void machine.refresh({ force: true, refreshKey: props.refr
 .readiness-stages li small { margin-left: auto; color: var(--muted); font-size: inherit; font-variant-numeric: tabular-nums; }
 .readiness-stages li :deep(.app-icon) { flex: none; width: 13px; height: 13px; color: var(--muted); }
 .readiness-stages li.done :deep(.app-icon) { color: var(--success); }
-.readiness-next { display: grid; justify-items: start; gap: 4px; border-top: 1px solid var(--border); padding: 12px 0 0; }
+.readiness-next { display: grid; justify-items: start; gap: 4px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-subtle); padding: 12px 14px; }
 .readiness-label { color: var(--muted); font-size: var(--font-size-caption); font-weight: 500; }
 .readiness-next strong { font-size: var(--font-size-emphasis); font-weight: 600; line-height: 1.4; overflow-wrap: anywhere; }
 .readiness-next p { display: -webkit-box; margin: 0; overflow: hidden; color: var(--muted); font-size: var(--font-size-caption); line-height: 1.6; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
@@ -154,5 +154,5 @@ const recheck = () => void machine.refresh({ force: true, refreshKey: props.refr
 .readiness-differences dt { color: var(--text); font-weight: 500; }
 .readiness-differences dd { margin: 0; min-width: 0; color: var(--muted); overflow-wrap: anywhere; }
 .readiness-note { margin: 0; color: var(--muted); font-size: var(--font-size-caption); line-height: 1.6; overflow-wrap: anywhere; }
-@media (min-width: 1100px) { .machine-readiness:has(.readiness-overview) { grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); column-gap: 28px; } .readiness-header, .readiness-header ~ .readiness-note { grid-column: 1 / -1; } .readiness-details { grid-template-columns: 1fr; align-content: start; } }
+@container (min-width: 640px) { .machine-readiness:has(.readiness-overview) { grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); column-gap: 28px; } .readiness-header, .readiness-header ~ .readiness-note { grid-column: 1 / -1; } .readiness-details { grid-template-columns: 1fr; align-content: start; } }
 </style>

@@ -565,4 +565,23 @@ describe('personal workbench', () => {
     await submitTools()
     expect(update).toHaveBeenCalledWith({ 'workbench.home': { tools: [{ ...tool, launch: { application: 'raycast' } }] } }, 'initial')
   })
+
+  it('renders the workbench masthead and places machine readiness inside the companion column', async () => {
+    const store = useWorkbenchStore()
+    store.ownerScopes = [{ id: 'team-1', kind: 'team', name: 'Design Systems' }]
+    store.activeOwnerScopeId = 'team-1'
+    await openHome()
+
+    expect(wrapper!.get('.home-masthead h2').text()).toBe('Workbench')
+    expect(wrapper!.get('.home-masthead p').text()).toContain('Design Systems')
+    expect(wrapper!.find('.home-support-column [data-testid="machine-readiness"]').exists()).toBe(true)
+  })
+
+  it('abbreviates home directory paths in project rows while keeping full path titles', async () => {
+    useWorkbenchStore().projects = [{ id: 'project-home', name: 'App', path: '/Users/alice/Projects/app', trust: 'untrusted', addedAt: '2026-10-08T00:00:00.000Z' }]
+    await openHome()
+
+    expect(wrapper!.get('.home-project-open small').text()).toBe('~/Projects/app')
+    expect(wrapper!.get('.home-project-open').attributes('title')).toBe('/Users/alice/Projects/app')
+  })
 })

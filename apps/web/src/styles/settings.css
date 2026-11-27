@@ -52,7 +52,7 @@
 .ui-settings-section-title { margin: 0; color: var(--text); font-size: var(--settings-section-title-size); font-weight: var(--settings-section-title-weight); line-height: var(--settings-row-line-height); }
 .ui-settings-section-description { margin: var(--settings-metadata-gap) 0 0; color: var(--muted); font-size: var(--settings-metadata-size); line-height: var(--settings-metadata-line-height); overflow-wrap: anywhere; }
 .ui-settings-section-controls, .ui-settings-status-actions { display: flex; flex: none; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: var(--space-2); }
-.ui-settings-group { min-width: 0; overflow: hidden; border: 1px solid var(--settings-group-outline); border-radius: var(--settings-group-radius); background: var(--settings-group-background); }
+.ui-settings-group { min-width: 0; overflow: hidden; border: 1px solid var(--settings-group-outline); border-radius: var(--settings-group-radius); background: var(--settings-group-background); box-shadow: var(--surface-shadow); }
 .ui-settings-section-footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2); margin-top: var(--space-2); color: var(--muted); font-size: var(--settings-metadata-size); line-height: var(--settings-metadata-line-height); }
 .ui-settings-section-footer > p { margin: 0; }
 
@@ -88,6 +88,7 @@
   border: 1px solid var(--settings-group-border);
   border-radius: var(--settings-group-radius);
   background: var(--settings-group-background);
+  box-shadow: var(--surface-shadow);
   padding: var(--settings-row-padding-block) var(--settings-row-padding-inline);
 }
 
@@ -106,7 +107,7 @@
 .ui-settings-status-detail { min-width: 0; grid-column: 1 / -1; }
 .ui-settings-status-detail > p { margin: 0; }
 .ui-settings-status progress { width: 100%; accent-color: var(--accent); }
-.ui-settings-group > .ui-settings-status { border: 0; border-radius: 0; }
+.ui-settings-group > .ui-settings-status { border: 0; border-radius: 0; box-shadow: none; }
 .ui-settings-group > :is(.ui-settings-row, .ui-settings-status) + :is(.ui-settings-row, .ui-settings-status),
 .ui-settings-group > form > .ui-settings-row + .ui-settings-row { border-top: 1px solid var(--settings-group-border); }
 

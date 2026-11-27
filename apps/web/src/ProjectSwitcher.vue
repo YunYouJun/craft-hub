@@ -20,6 +20,7 @@ import {
 } from 'reka-ui'
 import { Button as UiButton } from './components/ui/button'
 import { DialogShell } from './components/ui/dialog'
+import { formatDisplayPath } from './display-path'
 import { Icon } from './icons'
 import { useI18n } from './i18n'
 import ProjectIcon from './ProjectIcon.vue'
@@ -185,7 +186,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onShortcut))
           <ProjectIcon :project="currentProject" />
           <span class="project-toolbar-copy">
             <strong>{{ currentProject.name }}</strong>
-            <small>{{ currentProject.path }}</small>
+            <small>{{ formatDisplayPath(currentProject.path) }}</small>
           </span>
           <Icon name="arrowDown" />
         </button>
@@ -218,7 +219,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onShortcut))
               :style="projectAccentStyle(project.color)"
             >
               <ProjectIcon :project="project" />
-              <span><strong>{{ project.name }}</strong><small>{{ workspaceLabel(project) || project.path }}</small></span>
+              <span><strong>{{ project.name }}</strong><small>{{ workspaceLabel(project) || formatDisplayPath(project.path) }}</small></span>
               <ComboboxItemIndicator><Icon name="check" /></ComboboxItemIndicator>
             </ComboboxItem>
           </ComboboxGroup>
@@ -228,7 +229,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onShortcut))
               <ComboboxLabel class="project-switcher-label">{{ t('currentProject') }}</ComboboxLabel>
               <ComboboxItem class="project-switcher-item" :value="currentProject.id" :style="projectAccentStyle(currentProject.color)">
                 <ProjectIcon :project="currentProject" />
-                <span><strong>{{ currentProject.name }}</strong><small>{{ workspaceLabel(currentProject) || currentProject.path }}</small></span>
+                <span><strong>{{ currentProject.name }}</strong><small>{{ workspaceLabel(currentProject) || formatDisplayPath(currentProject.path) }}</small></span>
                 <ComboboxItemIndicator><Icon name="check" /></ComboboxItemIndicator>
               </ComboboxItem>
             </ComboboxGroup>
@@ -245,7 +246,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onShortcut))
                   :style="projectAccentStyle(project.color)"
                 >
                   <ProjectIcon :project="project" />
-                  <span><strong>{{ project.name }}</strong><small>{{ workspaceLabel(project) || project.path }}</small></span>
+                  <span><strong>{{ project.name }}</strong><small>{{ workspaceLabel(project) || formatDisplayPath(project.path) }}</small></span>
                 </ComboboxItem>
               </ComboboxGroup>
             </template>
@@ -262,7 +263,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onShortcut))
                   :style="projectAccentStyle(project.color)"
                 >
                   <ProjectIcon :project="project" />
-                  <span><strong>{{ project.name }}</strong><small>{{ workspaceLabel(project) || project.path }}</small></span>
+                  <span><strong>{{ project.name }}</strong><small>{{ workspaceLabel(project) || formatDisplayPath(project.path) }}</small></span>
                 </ComboboxItem>
               </ComboboxGroup>
             </template>

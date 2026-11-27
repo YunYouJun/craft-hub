@@ -235,11 +235,11 @@ async function save(patch: Partial<Preferences>): Promise<void> {
 </template>
 
 <style scoped>
-.collection-controls { display: grid; gap: var(--space-2); padding: var(--space-1) var(--space-4) var(--space-3); }
-.smart-filters { display: flex; flex-wrap: wrap; gap: 3px; padding: 3px; border-radius: 9px; background: var(--surface-subtle); }
+.collection-controls { display: grid; gap: var(--space-2); padding: var(--space-2) var(--space-4) var(--space-3); }
+.smart-filters { display: flex; flex-wrap: wrap; gap: 3px; padding: 3px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-muted); }
 .collection-status-filter { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: var(--space-3); font-size: var(--font-size-control); }
 .collection-filter-summary { display: flex; justify-content: space-between; align-items: center; min-height: 24px; }
-.smart-filter, .collection-choice { display: flex; align-items: center; gap: 6px; min-width: 0; min-height: 32px; padding: 4px 8px; border: 1px solid transparent; border-radius: var(--control-radius); background: transparent; color: var(--text); cursor: pointer; font-size: 13px; }
+.smart-filter, .collection-choice { display: flex; align-items: center; gap: 6px; min-width: 0; min-height: 32px; padding: 4px 8px; border: 1px solid transparent; border-radius: 8px; background: transparent; color: var(--text); cursor: pointer; font-size: 13px; transition: background-color var(--motion-duration-fast) var(--motion-ease-standard), color var(--motion-duration-fast) var(--motion-ease-standard); }
 .smart-filter { flex: 1 1 auto; max-width: 100%; min-height: 30px; white-space: nowrap; }
 .smart-filter > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .smart-filter > .app-icon, .collection-choice > .app-icon { flex: none; width: 15px; height: 15px; color: var(--accent); }

@@ -175,7 +175,7 @@ function coverageLabel(source: HomeWorkSource): string {
 </script>
 
 <template>
-  <TodayFocus v-if="compact" :wide="tabbed" :entries="focusEntries" :coverage="focusCoverage" :loading="loading || ['idle', 'loading'].includes(store.integrationsLoadState)" @capture="emit('capture')" @refresh="refresh" @handoff="work => emit('prepareHandoff', work)" />
+  <TodayFocus v-if="compact" :wide="tabbed" :hide-date="tabbed" :entries="focusEntries" :coverage="focusCoverage" :loading="loading || ['idle', 'loading'].includes(store.integrationsLoadState)" @capture="emit('capture')" @refresh="refresh" @handoff="work => emit('prepareHandoff', work)" />
   <section class="home-work work-items-overview daily-section" :class="{ 'is-tabbed': tabbed }">
     <div v-if="compact && !tabbed" class="home-section-heading daily-section-heading">
       <h2>{{ copy('我的工作', 'My work') }}</h2>
@@ -371,9 +371,9 @@ function coverageLabel(source: HomeWorkSource): string {
 .home-source-title { display: flex; align-items: center; gap: 8px; }
 .home-source-title > .visual-icon { flex: none; width: 20px; height: 20px; }
 .home-item-symbol { flex: none; width: 18px; height: 18px; color: var(--accent); }
-.home-complete { display: grid; flex: none; place-items: center; width: 28px; height: 28px; margin-left: -5px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--text-secondary); cursor: pointer; }
+.home-complete { display: grid; flex: none; place-items: center; width: 28px; height: 28px; margin-left: -5px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--text-secondary); cursor: pointer; transition: background-color var(--motion-duration-fast) var(--motion-ease-standard), color var(--motion-duration-fast) var(--motion-ease-standard); }
 .home-complete > .app-icon { width: 18px; height: 18px; }
-.home-complete:hover, .home-complete[aria-checked='true'] { color: var(--accent); }
+.home-complete:hover, .home-complete[aria-checked='true'] { background: var(--accent-soft); color: var(--accent); }
 .home-complete:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
 .home-complete:disabled { cursor: progress; }
 .is-completing .daily-row-title { color: var(--text-secondary); text-decoration: line-through; }
@@ -400,7 +400,7 @@ function coverageLabel(source: HomeWorkSource): string {
 .home-work-copy { flex: 1; }
 .home-work-item:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; border-radius: var(--control-radius); }
 .home-section-heading > .home-icon-button { margin-left: auto; }
-.home-source-notice { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--space-2); padding: var(--space-3) var(--space-4); }
+.home-source-notice { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--space-2); border-top: 1px solid var(--border); padding: var(--space-3) var(--space-4); }
 .home-source-notice > .app-icon { flex: none; width: 16px; height: 16px; }
 .home-connection { background: var(--surface-subtle); font-size: var(--font-size-control); }
 .home-connection > div, .home-source-notice > div:first-child { min-width: 0; overflow-wrap: anywhere; }

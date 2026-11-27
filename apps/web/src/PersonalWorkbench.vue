@@ -4,6 +4,7 @@ import type { HomeWorkSource } from './personal-workbench'
 import { computed, ref } from 'vue'
 import { api } from './api'
 import { SkeletonList } from './components/ui/skeleton'
+import { formatDisplayPath } from './display-path'
 import { Icon } from './icons'
 import { useI18n } from './i18n'
 import MachineReadiness from './MachineReadiness.vue'
@@ -83,6 +84,8 @@ async function addProject(): Promise<void> {
 const entries = computed(() => store.standaloneIntegrationViews.filter(view => view.scope !== 'project'))
 const workspaces = computed(() => store.allWorkspaces.filter(workspace => (workspace.ownerScopeId ?? 'personal') === store.activeOwnerScopeId).slice(0, 4))
 const diagnosticsCount = computed(() => store.workbenchDiagnostics?.summary?.errors ?? 0)
+const todayLabel = computed(() => new Date().toLocaleDateString(locale.value, { month: 'long', day: 'numeric', weekday: 'short' }))
+const scopeLabel = computed(() => store.activeOwnerScope?.name || (store.activeOwnerScopeId === 'personal' ? copy('个人空间', 'Personal') : store.activeOwnerScopeId))
 const handoffOpen = ref(false)
 const handoffProjectId = ref('')
 const handoffWork = ref<{ source: HomeWorkSource, item: IntegrationEntity }>()
@@ -96,17 +99,23 @@ function prepareHandoff(projectId = '', work?: { source: HomeWorkSource, item: I
 <template>
   <WorkbenchViewFrame :title="copy('首页', 'Home')" icon="builtin:hub" hide-heading>
     <div class="personal-home" data-testid="personal-workbench">
-      <MachineReadiness :refresh-key="props.refreshKey" />
+      <header class="home-masthead">
+        <div class="home-masthead-copy">
+          <h2>{{ copy('工作台', 'Workbench') }}</h2>
+          <p>{{ todayLabel }} · {{ scopeLabel }}</p>
+        </div>
+      </header>
       <div class="home-work-column"><WorkItemsOverview compact tabbed @capture="emit('capture')" :refresh-key="props.refreshKey" @prepare-handoff="work => prepareHandoff('', work)" @open-integration="(id, view, scope) => emit('openIntegration', id, view, scope)" @open-marketplace="emit('openMarketplace')" /></div>
 
       <aside class="home-support-column" :aria-label="copy('项目与工具', 'Projects and tools')">
+        <MachineReadiness :refresh-key="props.refreshKey" />
         <section class="home-card home-projects">
           <div class="home-section-heading"><h2>{{ copy('常用项目', 'Projects') }}</h2><button v-if="store.hostEnvironment.capabilities.localProjectDirectories" class="home-text-button" :disabled="addingProject" @click="addProject"><Icon name="plus" />{{ copy('添加项目', 'Add project') }}</button></div>
           <SkeletonList v-if="['idle', 'loading'].includes(store.projectsLoadState) && !displayedProjects.length" class="home-project-skeleton" :label="copy('正在读取项目…', 'Loading projects…')" icon />
           <p v-else-if="store.projectsLoadState === 'error'" class="home-error" role="alert">{{ copy('项目未载入。', 'Projects could not be loaded.') }}<button class="home-text-button" @click="store.loadProjects()">{{ copy('重试', 'Retry') }}</button></p>
           <div v-else-if="!displayedProjects.length" class="home-empty"><Icon name="folder" /><strong>{{ copy('把项目放到工作台', 'Bring your projects here') }}</strong><p>{{ copy('添加本机项目，或从工作区订阅中导入。', 'Add a local project or import a workspace subscription.') }}</p></div>
           <div class="home-project-list motion-reveal-list"><div v-for="project in displayedProjects" :key="project.id" class="home-project-row">
-            <button class="home-project-open" :title="project.path" @click="emit('openProject', project.id)"><span class="home-project-icon"><VisualIcon :icon="project.icon" fallback="folder" /></span><span><strong>{{ project.name }}</strong><small>{{ project.path }}</small></span></button>
+            <button class="home-project-open" :title="project.path" @click="emit('openProject', project.id)"><span class="home-project-icon"><VisualIcon :icon="project.icon" fallback="folder" /></span><span><strong>{{ project.name }}</strong><small>{{ formatDisplayPath(project.path) }}</small></span></button>
             <button class="home-icon-button" :aria-label="`${copy('准备交接', 'Prepare handoff')} ${project.name}`" @click="prepareHandoff(project.id)"><Icon name="copy" /></button>
             <button class="home-pin" :class="{ pinned: home.pinnedProjectIds?.includes(project.id) }" :disabled="saving || !store.settings" :aria-pressed="home.pinnedProjectIds?.includes(project.id) ?? false" :aria-label="`${home.pinnedProjectIds?.includes(project.id) ? copy('取消收藏', 'Unpin') : copy('收藏', 'Pin')} ${project.name}`" @click="togglePin(project.id)"><Icon :name="home.pinnedProjectIds?.includes(project.id) ? 'starFilled' : 'star'" /></button>
           </div></div>
@@ -129,11 +138,15 @@ function prepareHandoff(projectId = '', work?: { source: HomeWorkSource, item: I
 </template>
 
 <style scoped>
-.personal-home { display: grid; gap: 12px; }
-.home-support-column { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; gap: 12px; min-width: 0; }
-.home-card, .home-integrations { min-width: 0; border: 1px solid var(--border); border-radius: var(--panel-radius); padding: 0 12px; background: var(--surface); }
+.personal-home { display: grid; gap: 16px; min-width: 0; }
+.home-masthead { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding-bottom: 2px; }
+.home-masthead-copy h2 { margin: 0; font-size: var(--page-title-size); font-weight: 650; line-height: var(--page-title-line-height); letter-spacing: -.02em; color: var(--text); }
+.home-masthead-copy p { margin: 3px 0 0; color: var(--muted); font-size: var(--font-size-control); line-height: var(--line-height-control); }
+.home-support-column { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; gap: 16px; min-width: 0; }
+.home-support-column > :deep(.machine-readiness) { grid-column: 1 / -1; }
+.home-card, .home-integrations { min-width: 0; border: 1px solid var(--border); border-radius: var(--panel-radius); padding: 0 16px 8px; background: var(--surface); box-shadow: var(--surface-shadow); }
 .home-work-column { min-width: 0; }
-.home-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 40px; border-bottom: 1px solid var(--border); }
+.home-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 46px; border-bottom: 1px solid var(--border); }
 .home-section-heading h2 { margin: 0; font-size: 14px; font-weight: 600; line-height: 20px; }
 .home-text-button { display: inline-flex; align-items: center; justify-content: center; gap: 5px; min-height: 28px; border: 0; border-radius: 4px; padding: 3px 0; background: none; color: var(--accent); font: inherit; font-size: var(--font-size-control); cursor: pointer; }
 .home-text-button:hover { text-decoration: underline; }
@@ -145,11 +158,12 @@ function prepareHandoff(projectId = '', work?: { source: HomeWorkSource, item: I
 .home-pin.pinned { color: var(--accent); }
 .home-pin:disabled { opacity: .5; cursor: default; }
 .home-text-button:focus-visible, .home-icon-button:focus-visible, .home-pin:focus-visible, .home-project-open:focus-visible, .home-work-item:focus-visible, .home-workspaces > button:focus-visible, .home-entry-grid > button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.home-project-list { display: grid; }
+.home-project-list { display: grid; padding-block: 4px; }
 .home-project-skeleton { --skeleton-row-height: 48px; --skeleton-row-padding: 6px 0; }
-.home-project-row { display: flex; align-items: center; min-width: 0; min-height: 48px; gap: 2px; }
-.home-project-row + .home-project-row { border-top: 1px solid var(--border); }
-.home-project-row:hover { background: var(--surface-subtle); }
+.home-project-row { position: relative; display: flex; align-items: center; min-width: 0; min-height: 50px; gap: 2px; margin-inline: -8px; padding-inline: 8px; border-radius: 9px; transition: background-color var(--motion-duration-fast) var(--motion-ease-standard); }
+.home-project-row + .home-project-row::before { content: ''; position: absolute; top: 0; right: 8px; left: 8px; border-top: 1px solid var(--border); transition: opacity var(--motion-duration-fast) var(--motion-ease-standard); }
+.home-project-row:hover, .home-project-row:focus-within { background: var(--surface-hover); }
+.home-project-row:is(:hover, :focus-within)::before, .home-project-row:is(:hover, :focus-within) + .home-project-row::before { opacity: 0; }
 .home-project-open { display: flex; flex: 1; gap: 8px; align-items: center; min-width: 0; min-height: 48px; padding: 6px 4px 6px 0; border: 0; border-radius: 4px; background: none; text-align: left; color: var(--text); cursor: pointer; font: inherit; }
 .home-project-icon { display: flex; flex: none; align-items: center; justify-content: center; width: 28px; height: 28px; color: var(--muted); }
 .home-project-icon :deep(.app-icon) { width: 18px; height: 18px; }
@@ -160,9 +174,9 @@ function prepareHandoff(projectId = '', work?: { source: HomeWorkSource, item: I
 .home-show-projects { width: 100%; margin-block: 4px; }
 .home-workspaces { display: grid; grid-template-columns: 1fr; margin-top: 4px; padding-top: 8px; border-top: 1px solid var(--border); }
 .home-workspaces > span { margin-bottom: 2px; color: var(--muted); font-size: 12px; font-weight: 500; line-height: 18px; }
-.home-workspaces > button, .home-entry-grid > button { display: flex; align-items: center; gap: 8px; min-width: 0; min-height: 38px; padding: 6px 0; border: 0; border-radius: 4px; background: none; color: var(--text); text-align: left; font: inherit; font-size: 14px; cursor: pointer; }
+.home-workspaces > button, .home-entry-grid > button { display: flex; align-items: center; gap: 10px; min-width: 0; min-height: 38px; padding: 6px 8px; border: 0; border-radius: 8px; background: none; color: var(--text); text-align: left; font: inherit; font-size: 14px; cursor: pointer; }
 .home-workspaces > button + button { border-top: 1px solid var(--border); border-radius: 0; }
-.home-workspaces > button:hover, .home-entry-grid > button:hover { background: var(--surface-subtle); }
+.home-workspaces > button:hover { background: var(--surface-subtle); }
 .home-workspaces > button :deep(.app-icon) { flex: none; width: 16px; height: 16px; color: var(--muted); }
 .home-workspaces > button > .app-icon:last-child { margin-left: auto; width: 13px; height: 13px; }
 .home-empty { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; padding: 22px 0; color: var(--muted); }
@@ -184,18 +198,18 @@ function prepareHandoff(projectId = '', work?: { source: HomeWorkSource, item: I
 .home-work-item > span { flex: 1; min-width: 0; }
 .home-work-item strong { display: block; font-weight: 500; line-height: 20px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .home-work-item small { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 3px; color: var(--muted); font-size: var(--font-size-caption); line-height: 16px; }
-.home-entry-grid { display: grid; grid-template-columns: 1fr; }
-.home-entry-grid > button { min-height: 48px; border-radius: 0; }
-.home-entry-grid > button + button { border-top: 1px solid var(--border); }
+.home-entry-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 240px), 1fr)); gap: 10px; padding: 12px 0 10px; }
+.home-entry-grid > button { min-height: 56px; border: 1px solid var(--border); border-radius: 11px; padding: 12px 14px; background: var(--surface-subtle); transition: background-color 140ms ease, border-color 140ms ease, box-shadow 140ms ease, transform 140ms ease; }
+.home-entry-grid > button:hover { background: var(--surface); border-color: var(--border-strong); box-shadow: var(--surface-shadow); transform: translateY(-1px); }
 .home-entry-grid > button > .visual-icon { flex: none; width: 28px; height: 28px; }
 .home-entry-grid > button :deep(.visual-icon-emoji) { font-size: 22px; }
 .home-entry-grid > button :deep(.app-icon) { flex: none; width: 18px; height: 18px; color: var(--muted); }
-.home-entry-grid > button > .app-icon:last-child { width: 13px; height: 13px; }
+.home-entry-grid > button > .app-icon:last-child { margin-left: auto; width: 13px; height: 13px; }
 .home-entry-grid > button > span:nth-child(2) { flex: 1; min-width: 0; }
 .home-entry-grid strong, .home-entry-grid small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .home-entry-grid strong { font-size: 14px; font-weight: 500; line-height: 20px; }
 .home-entry-grid small { margin-top: 1px; color: var(--muted); font-size: 12px; line-height: 16px; }
-.home-status { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; border-top: 1px solid var(--border); padding: 12px 0 0; font-size: var(--font-size-caption); }
+.home-status { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface-subtle); padding: 10px 16px; font-size: var(--font-size-caption); }
 .home-status > strong { font-weight: 500; }
 .home-status > span { flex: 1; color: var(--muted); }
 .home-status > button { flex: none; }
@@ -203,7 +217,16 @@ function prepareHandoff(projectId = '', work?: { source: HomeWorkSource, item: I
 .home-handoff-form label { display: grid; gap: 6px; font-size: var(--font-size-body); }
 .home-handoff-preview { resize: vertical; font-size: var(--font-size-control) !important; line-height: 1.6; }
 .home-handoff-tools { display: flex; flex-wrap: wrap; gap: 16px; }
+@media (min-width: 1080px) {
+  .personal-home { grid-template-columns: minmax(0, 1.55fr) minmax(320px, 0.92fr); gap: 20px; align-items: start; }
+  .home-masthead, .home-integrations, .home-status { grid-column: 1 / -1; }
+  .home-support-column { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .home-project-row, .home-project-row + .home-project-row::before, .home-entry-grid > button { transition: none; }
+  .home-entry-grid > button:hover { transform: none; }
+}
 @media (max-width: 767.9px), (pointer: coarse) { .home-tool-editor input, .home-tool-editor select, .home-handoff-form select, .home-handoff-form textarea { font-size: 16px; } }
 @media (max-width: 680px) { .home-support-column { grid-template-columns: 1fr; } }
-@media (max-width: 600px) { .home-card, .home-integrations { padding-inline: 12px; } .home-status { gap: 10px; } .home-status > span { flex-basis: calc(100% - 120px); } }
+@media (max-width: 600px) { .home-card, .home-integrations { padding-inline: 12px; } .home-status { gap: 10px; padding: 10px 12px; } .home-status > span { flex-basis: calc(100% - 120px); } }
 </style>

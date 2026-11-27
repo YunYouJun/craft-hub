@@ -2,6 +2,7 @@
 import { ref } from 'vue'
 import { Button as UiButton } from './components/ui/button'
 import { SkeletonList } from './components/ui/skeleton'
+import { formatDisplayPath } from './display-path'
 import { Icon } from './icons'
 import { useI18n } from './i18n'
 import { useWorkbenchStore } from './store'
@@ -32,7 +33,7 @@ const handoffProjectId = ref('')
           <Icon name="folder" />
           <span class="daily-row-copy">
             <strong class="daily-row-title">{{ project.name }}</strong>
-            <span class="daily-row-meta" :title="project.path">{{ project.path }}</span>
+            <span class="daily-row-meta" :title="project.path">{{ formatDisplayPath(project.path) }}</span>
           </span>
           <Icon name="arrowRight" />
         </button>

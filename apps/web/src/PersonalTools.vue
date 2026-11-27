@@ -200,7 +200,7 @@ async function reloadDraft(): Promise<void> {
 </template>
 
 <style scoped>
-.home-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 40px; border-bottom: 1px solid var(--border); }
+.home-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 46px; border-bottom: 1px solid var(--border); }
 .home-section-heading h2 { margin: 0; font-size: 14px; font-weight: 600; line-height: 20px; }
 .home-text-button { display: inline-flex; align-items: center; justify-content: center; gap: 5px; min-height: 28px; border: 0; border-radius: 4px; padding: 3px 0; background: none; color: var(--accent); font: inherit; font-size: var(--font-size-control); cursor: pointer; }
 .home-text-button:hover { text-decoration: underline; }
@@ -222,7 +222,7 @@ async function reloadDraft(): Promise<void> {
 .home-tool-group h3 { display: flex; align-items: center; gap: 8px; margin: 0; padding-block: 6px 2px; color: var(--text-secondary); font-size: 12px; font-weight: 500; line-height: 18px; }
 .home-tool-grid { display: grid; grid-template-columns: 1fr; }
 .home-tool { display: flex; flex: 1; align-items: center; gap: 10px; min-width: 0; min-height: 48px; padding: 6px 0; border: 0; border-radius: var(--control-radius); color: var(--text); background: transparent; text-decoration: none; }
-.home-tool-card { position: relative; display: flex; align-items: center; min-width: 0; margin-inline: -8px; padding-inline: 8px; border-radius: var(--control-radius); transition: background-color .12s ease; }
+.home-tool-card { position: relative; display: flex; align-items: center; min-width: 0; margin-inline: -8px; padding-inline: 8px; border-radius: 9px; transition: background-color .12s ease; }
 .home-tool-card + .home-tool-card::before { content: ''; position: absolute; top: 0; right: 8px; left: 8px; border-top: 1px solid var(--border); transition: opacity .12s ease; }
 .home-tool-card:hover, .home-tool-card:focus-within { background: var(--surface-hover); }
 .home-tool-card:is(:hover, :focus-within)::before, .home-tool-card:is(:hover, :focus-within) + .home-tool-card::before { opacity: 0; }
@@ -246,7 +246,7 @@ async function reloadDraft(): Promise<void> {
 .home-tool-editor input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .home-url-field { grid-column: 1 / -1; }
 .home-remove-tool { justify-self: start; border: 0; padding: 4px 0; background: none; color: var(--danger); font: inherit; font-size: var(--font-size-control); cursor: pointer; }
-.home-tools { min-width: 0; border: 1px solid var(--border); border-radius: var(--panel-radius); padding: 0 12px; background: var(--surface); }
+.home-tools { min-width: 0; border: 1px solid var(--border); border-radius: var(--panel-radius); padding: 0 16px 8px; background: var(--surface); box-shadow: var(--surface-shadow); }
 .compact .home-section-heading { gap: 8px; }
 .compact .home-tool > .app-icon { display: none; }
 .compact .home-tool-links { min-width: 0; }

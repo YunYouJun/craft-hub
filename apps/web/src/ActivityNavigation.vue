@@ -292,8 +292,8 @@ function dragClasses(id: string): Record<string, boolean> {
 .sidebar-primary, .sidebar-utilities, .sidebar-builtins-entries, .sidebar-plugins-entries, .sidebar-utilities-entries { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .sidebar-primary { min-height: 0; overflow-y: auto; scrollbar-width: none; }
 .sidebar-utilities { flex: none; margin-top: auto; padding-top: 8px; }
-.sidebar-navigation .activity-button { display: flex; align-items: center; gap: 9px; width: 100%; height: 32px; min-width: 0; padding: 0 10px; border-radius: 6px; text-align: start; transition: background-color 160ms ease, color 160ms ease, padding 220ms var(--motion-ease-standard); }
-.sidebar-navigation .activity-button.active { background: var(--workbench-sidebar-active-background); color: var(--workbench-sidebar-active-color); font-weight: var(--workbench-sidebar-active-weight); }
+.sidebar-navigation .activity-button { display: flex; align-items: center; gap: 9px; width: 100%; height: 32px; min-width: 0; padding: 0 10px; border-radius: 8px; text-align: start; transition: background-color 160ms ease, color 160ms ease, box-shadow 160ms ease, padding 220ms var(--motion-ease-standard); }
+.sidebar-navigation .activity-button.active { background: var(--workbench-sidebar-active-background); color: var(--workbench-sidebar-active-color); font-weight: var(--workbench-sidebar-active-weight); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text) 6%, transparent); }
 .sidebar-navigation .activity-button > .app-icon, .sidebar-navigation .activity-button > .visual-icon { width: 16px; height: 16px; flex: none; }
 .activity-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; line-height: 1.3; transition: opacity 120ms ease 100ms; }
 .sidebar-navigation .activity-badge { position: static; flex: none; height: 18px; min-width: 18px; border: 0; border-radius: 9px; padding: 0 5px; font-size: 11px; }

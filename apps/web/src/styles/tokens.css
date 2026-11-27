@@ -45,14 +45,16 @@
   --form-control-height: var(--control-height-default);
   --form-control-font-size: var(--font-size-body);
   --form-control-padding-inline: 10px;
-  --font-body: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', 'Segoe UI', sans-serif;
+  --font-body: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', 'Segoe UI', sans-serif;
   --font-mono: var(--ylf-font-mono);
   --control-icon-gap: var(--ylf-admin-icon-gap);
   --control-icon-size: 16px;
   --control-icon-size-compact: 14px;
   --placeholder: var(--muted);
-  --panel-radius: 12px;
+  --panel-radius: 14px;
   --control-radius: 8px;
+  --surface-shadow: 0 1px 2px rgb(29 29 31 / 4%), 0 6px 20px -6px rgb(29 29 31 / 6%);
+  --surface-shadow-hover: 0 2px 6px rgb(29 29 31 / 6%), 0 10px 26px -8px rgb(29 29 31 / 9%);
   /* Artwork keeps its original colors on a neutral plate, independently of menu selection and window appearance. */
   --logo-surface-light: #fff;
   --logo-surface-dark: #3a3a3c;
@@ -71,7 +73,7 @@
   --field-background: var(--surface);
   --field-border: var(--control-border);
   --control-highlight: rgb(255 255 255 / 70%);
-  --control-shadow: inset 0 1px 0 var(--control-highlight), 0 1px 2px rgb(0 0 0 / 7%);
+  --control-shadow: inset 0 1px 0 var(--control-highlight), 0 1px 2px rgb(28 25 23 / 6%);
   --control-inset-shadow: inset 0 1px 2px rgb(0 0 0 / 5%);
   --checkbox-size: 16px;
   --checkbox-icon-size: 12px;
@@ -85,16 +87,16 @@
   --select-option-min-height: var(--menu-item-height);
   --select-option-padding-end: calc(var(--select-option-indicator-inset) + var(--select-option-indicator-size) + 6px);
   --select-chevron-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23687184' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
-  --dialog-radius: 14px;
+  --dialog-radius: 16px;
   --dialog-border: var(--border-strong);
-  --dialog-shadow: 0 20px 60px rgb(30 38 50 / 25%);
+  --dialog-shadow: 0 24px 64px -12px rgb(29 29 31 / 22%), 0 6px 20px -4px rgb(29 29 31 / 10%);
   --dialog-panel-width: 640px;
   --dialog-panel-padding: var(--space-5);
   --dialog-title-size: var(--font-size-glyph);
   --dialog-action-min-width: 72px;
   --dialog-action-pair-min-width: 112px;
-  --font-size-tiny: 8px;
-  --font-size-micro: 9px;
+  --font-size-tiny: 10px;
+  --font-size-micro: 11px;
   --font-size-caption: 12px;
   --font-size-control: 13px;
   --font-size-body: 13px;
@@ -105,7 +107,7 @@
   --font-size-heading-md: 20px;
   --font-size-heading-lg: 22px;
   --font-size-heading-xl: 24px;
-  --line-height-micro: 12px;
+  --line-height-micro: 15px;
   --line-height-tight: 13px;
   --line-height-caption: 18px;
   --line-height-control: 18px;
@@ -140,13 +142,13 @@
   --integration-status-attention: var(--danger);
   /* Page geometry shared by every primary workbench view. */
   --page-content-max-width: 1180px;
-  --page-padding-inline: 22px;
-  --page-padding-block: 16px;
+  --page-padding-inline: 26px;
+  --page-padding-block: 22px;
   --page-content-bottom: 24px;
-  --page-section-gap: 18px;
-  --page-title-size: 20px;
+  --page-section-gap: 20px;
+  --page-title-size: 22px;
   --page-title-weight: 600;
-  --page-title-line-height: 26px;
+  --page-title-line-height: 28px;
   --page-description-size: var(--font-size-body);
   --page-description-line-height: var(--line-height-body);
   --page-heading-gap: 2px;
@@ -164,7 +166,7 @@
   --workbench-sidebar-min-width: 216px;
   --workbench-sidebar-max-width: 346px;
   /* Navigation sits below the canvas; cards and command lists use the raised surface. */
-  --workbench-sidebar-background: color-mix(in srgb, var(--text) 3%, var(--surface-muted));
+  --workbench-sidebar-background: color-mix(in srgb, var(--text) 2.2%, var(--surface-muted));
   --workbench-sidebar-border: var(--border);
   --workbench-sidebar-color: var(--text);
   --workbench-sidebar-header-height: 40px;
@@ -175,7 +177,7 @@
   --workbench-sidebar-font-weight: 400;
   --workbench-sidebar-active-weight: 500;
   --workbench-sidebar-heading-weight: 600;
-  --workbench-sidebar-active-background: color-mix(in srgb, var(--accent) 11%, var(--workbench-sidebar-background));
+  --workbench-sidebar-active-background: color-mix(in srgb, var(--accent) 10%, var(--surface));
   --workbench-sidebar-active-color: var(--text);
   --workbench-sidebar-group-gap: 12px;
   --workbench-sidebar-row-height: 32px;
@@ -244,40 +246,40 @@
   --settings-control-min-width: 144px;
   --settings-status-dot-size: 6px;
   --settings-output-max-height: 260px;
-  --menu-background: var(--surface);
+  --menu-background: color-mix(in srgb, var(--surface) 88%, transparent);
   --menu-border: color-mix(in srgb, var(--text) 16%, transparent);
   --menu-shadow: 0 8px 24px rgb(0 0 0 / 12%), 0 2px 6px rgb(0 0 0 / 8%);
-  --menu-radius: 10px;
+  --menu-radius: 12px;
   --menu-padding: 4px;
-  --menu-item-radius: 6px;
+  --menu-item-radius: 7px;
   --menu-item-height: 28px;
-  --accent: #0a64d6;
-  --accent-hover: #0858bd;
-  --accent-fill: #0a64d6;
-  --accent-fill-hover: #0858bd;
-  --accent-soft: #e5effd;
-  --border: #e2e2e7;
-  --border-strong: #c6c6cc;
+  --accent: #0066cc;
+  --accent-hover: #0051a8;
+  --accent-fill: #0071e3;
+  --accent-fill-hover: #0062c4;
+  --accent-soft: rgb(0 113 227 / 10%);
+  --border: rgb(29 29 31 / 8%);
+  --border-strong: rgb(29 29 31 / 15%);
   /* Status text and solid fills use separate upstream color pairs. */
   --danger-fill: var(--ylf-status-danger);
   --danger-fill-hover: var(--ylf-status-danger-hover);
   --success-fill: var(--ylf-status-success);
-  --warning-fill: var(--ylf-status-warning);
-  --warning-fill-hover: var(--ylf-status-warning-hover);
+  --warning-fill: #e59400;
+  --warning-fill-hover: #cf8500;
   --danger: var(--ylf-status-danger-text);
   --danger-hover: var(--ylf-status-danger-hover);
   --danger-soft: var(--ylf-status-danger-soft);
   --focus-ring: var(--accent);
-  --muted: #6e6e73;
+  --muted: #5f5b55;
   --on-accent: #fff;
   --on-danger: var(--ylf-status-danger-on);
   --on-success: var(--ylf-status-success-on);
-  --on-warning: var(--ylf-status-warning-on);
+  --on-warning: #1d1d1f;
   --overlay: var(--ylf-c-overlay);
   --palette-overlay: color-mix(in srgb, var(--overlay) 50%, transparent);
   --rail: var(--surface-muted);
   --activity-rail: var(--surface-subtle);
-  --palette-backdrop-blur: 4px;
+  --palette-backdrop-blur: 6px;
   --shadow: color-mix(in srgb, var(--ylf-admin-fg) 18%, transparent);
   --success: var(--ylf-status-success-text);
   --status-planning: #64748b;
@@ -285,9 +287,9 @@
   --status-releasing: #7c3eac;
   --status-resolved: #0f766e;
   --surface: #fff;
-  --surface-hover: #ededf0;
-  --surface-muted: #f5f5f7;
-  --surface-subtle: #f8f8fa;
+  --surface-hover: #eeece7;
+  --surface-muted: #f5f4f0;
+  --surface-subtle: #faf9f6;
   /* Neutral window chrome separates native navigation from grouped content in both themes. */
   --workbench-canvas: var(--surface-muted);
   --workbench-chrome: var(--surface-subtle);
@@ -303,21 +305,23 @@
 }
 
 :root[data-theme='dark'] {
-  --accent: #74b4ff;
-  --accent-hover: #9ccaff;
+  --accent: #4da3ff;
+  --accent-hover: #72b7ff;
   /* Accent text can be lighter; filled controls keep enough contrast with white labels. */
-  --accent-fill: #0a64d6;
-  --accent-fill-hover: #0858bd;
-  --accent-soft: #24364e;
+  --accent-fill: #0071e3;
+  --accent-fill-hover: #0064cc;
+  --accent-soft: rgb(77 163 255 / 15%);
   /* Neutral Dark Aqua-inspired fallbacks; host-injected semantic system colors still take precedence. */
-  --border: rgb(255 255 255 / 9%);
-  --border-strong: rgb(255 255 255 / 16%);
-  --muted: #b0b0b0;
-  --surface: #2b2b2b;
-  --surface-hover: #3a3a3a;
-  --surface-muted: #222;
-  --surface-subtle: #262626;
-  --text: #dedede;
+  --border: rgb(255 255 255 / 8.5%);
+  --border-strong: rgb(255 255 255 / 15%);
+  --muted: #a19e99;
+  --surface: #212124;
+  --surface-hover: #2c2c30;
+  --surface-muted: #161618;
+  --surface-subtle: #1b1b1e;
+  --text: #f5f5f3;
+  --surface-shadow: inset 0 1px 0 rgb(255 255 255 / 5%), 0 2px 10px rgb(0 0 0 / 28%);
+  --surface-shadow-hover: inset 0 1px 0 rgb(255 255 255 / 8%), 0 8px 22px rgb(0 0 0 / 40%);
   /* Push-button bezels are filled; editable fields sit below their surrounding surface. */
   --control-background: color-mix(in srgb, var(--text) 12%, var(--surface));
   --control-border: rgb(255 255 255 / 6%);
@@ -335,8 +339,10 @@
   --settings-group-background: color-mix(in srgb, var(--text) 4%, var(--surface));
   --settings-group-outline: transparent;
   --dialog-border: rgb(255 255 255 / 12%);
-  --dialog-shadow: 0 16px 48px var(--shadow);
-  --menu-background: color-mix(in srgb, var(--text) 4%, var(--surface));
+  --dialog-shadow: 0 24px 64px -8px rgb(0 0 0 / 56%), 0 6px 18px rgb(0 0 0 / 32%);
+  --warning-fill: #f0a116;
+  --warning-fill-hover: #d98e0c;
+  --menu-background: color-mix(in srgb, var(--surface) 86%, transparent);
   --menu-shadow: 0 8px 24px rgb(0 0 0 / 30%), 0 2px 6px rgb(0 0 0 / 20%);
   /* A modal must not inherit the upstream blue-black scrim or derive a light shadow from foreground text. */
   --overlay: rgb(0 0 0 / 24%);
@@ -393,6 +399,12 @@
     --motion-reveal-offset: 0px;
     --motion-stagger: 0ms;
     --switch-thumb-stretch: 0px;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  :root {
+    --menu-background: var(--surface);
   }
 }
 

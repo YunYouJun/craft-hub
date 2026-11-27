@@ -95,17 +95,18 @@ const sidebarLabel = computed(() => props.desktopMac
 .workbench-toolbar.workbench-titlebar .toolbar-icon-button { flex: none; width: var(--control-height-default); padding: 0; }
 .toolbar-icon, .workbench-toolbar :deep(.app-icon) { flex: none; width: 16px; height: 16px; }
 .sidebar-toggle .toolbar-icon { width: 18px; height: 18px; }
-.toolbar-section-title { display: block; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-left: 6px; color: var(--text); font-size: 13px; font-weight: 600; }
+.toolbar-section-title { display: block; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-left: 6px; color: var(--text); font-size: 13px; font-weight: 600; letter-spacing: -0.015em; }
 .workbench-toolbar.workbench-titlebar .titlebar-project { flex: 0 1 220px; max-width: 220px; justify-content: flex-start; }
 .workbench-toolbar.workbench-titlebar .titlebar-project > span:not(.app-icon) { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.workbench-toolbar.workbench-titlebar .titlebar-search { position: static; transform: none; flex: 1 1 320px; width: auto; max-width: 360px; border-color: var(--border); background: var(--surface-muted); justify-content: flex-start; }
+.workbench-toolbar.workbench-titlebar .titlebar-search { position: static; transform: none; flex: 1 1 320px; width: auto; max-width: 380px; border-color: var(--border); border-radius: 999px; background: color-mix(in srgb, var(--surface) 78%, var(--surface-muted)); box-shadow: 0 1px 2px rgb(29 29 31 / 4%); justify-content: flex-start; padding: 0 12px; transition: background-color var(--motion-duration-fast) var(--motion-ease-standard), border-color var(--motion-duration-fast) var(--motion-ease-standard), box-shadow var(--motion-duration-fast) var(--motion-ease-standard), color var(--motion-duration-fast) var(--motion-ease-standard); }
 @media (hover: hover) and (pointer: fine) {
   .workbench-toolbar.workbench-titlebar button:hover:not(:disabled) { background: var(--toolbar-control-hover-background); color: var(--text); }
+  .workbench-toolbar.workbench-titlebar .titlebar-search:hover:not(:disabled) { background: var(--surface); border-color: var(--border-strong); color: var(--text); }
 }
 .workbench-toolbar.workbench-titlebar button[aria-expanded='true']:not(:disabled) { background: var(--toolbar-control-active-background); color: var(--text); }
 .workbench-toolbar.workbench-titlebar button:active:not(:disabled) { background: var(--toolbar-control-pressed-background); color: var(--text); transition-duration: var(--motion-duration-press); }
 .titlebar-label { flex: 1; min-width: 0; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.workbench-toolbar kbd { flex: none; border-color: transparent; background: transparent; padding: 0 1px; color: var(--muted); font-size: 11px; font-weight: 400; }
+.workbench-toolbar kbd { flex: none; border-color: transparent; border-radius: 5px; background: color-mix(in srgb, var(--text) 6%, transparent); padding: 1px 5px; color: var(--muted); font-size: 11px; font-weight: 400; }
 .workbench-toolbar.workbench-titlebar .mobile-navigation-toggle { display: none; }
 @media (min-width: 761px) and (max-width: 1080px) { .toolbar-section-title { display: none; } .toolbar-palette-controls { gap: 6px; } .workbench-toolbar.workbench-titlebar { gap: 8px; } .workbench-toolbar.workbench-titlebar .titlebar-project { max-width: 200px; } }
 @media (max-width: 760px) {
@@ -116,7 +117,7 @@ const sidebarLabel = computed(() => props.desktopMac
   .toolbar-palette-controls { flex: 1; gap: 4px; }
   .workbench-toolbar.workbench-titlebar button { height: 44px; min-height: 44px; }
   .workbench-toolbar.workbench-titlebar .titlebar-project { flex: 1; max-width: none; padding-inline: 8px; }
-  .workbench-toolbar.workbench-titlebar .titlebar-search { flex: none; width: 44px; padding: 0; justify-content: center; border-color: transparent; background: transparent; }
+  .workbench-toolbar.workbench-titlebar .titlebar-search { flex: none; width: 44px; padding: 0; justify-content: center; border-radius: var(--control-radius); border-color: transparent; background: transparent; box-shadow: none; }
   .workbench-toolbar kbd, .workbench-toolbar .titlebar-label { display: none; }
 }
 @media (pointer: coarse) and (min-width: 761px) {
