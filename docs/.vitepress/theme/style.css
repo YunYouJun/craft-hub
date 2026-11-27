@@ -12,6 +12,99 @@
   }
 }
 
+html,
+body {
+  background-color: var(--ch-bg);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+}
+
+/* Apple-style frosted navigation bar */
+.VPNavBar {
+  border-bottom: 1px solid var(--ch-border);
+  background-color: rgb(250 249 246 / 82%) !important;
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  backdrop-filter: saturate(180%) blur(20px);
+}
+
+.dark .VPNavBar {
+  background-color: rgb(22 22 24 / 82%) !important;
+}
+
+.VPNavBar .divider {
+  display: none;
+}
+
+.VPNavBar.has-sidebar .curtain {
+  display: none;
+}
+
+@media (min-width: 960px) {
+  .VPNavBar.has-sidebar .content-body {
+    background: transparent !important;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .VPNavBar {
+    background-color: var(--ch-bg) !important;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+/* Editorial document hierarchy matching Craft paper surfaces */
+.vp-doc h1,
+.vp-doc h2,
+.vp-doc h3 {
+  letter-spacing: -0.024em;
+  font-weight: 650;
+}
+
+.vp-doc .custom-block {
+  border: 1px solid var(--ch-border);
+  border-radius: 12px;
+}
+
+.vp-doc div[class*='language-'] {
+  border: 1px solid var(--ch-border);
+  border-radius: 12px;
+  background-color: var(--vp-code-block-bg);
+  transition: background-color var(--ch-duration-fast) var(--ch-ease-standard);
+}
+
+.vp-doc :not(pre) > code {
+  border: 1px solid var(--ch-border);
+  border-radius: 6px;
+  padding: 2px 6px;
+  color: var(--vp-code-color);
+  background-color: var(--vp-code-bg);
+  transition:
+    color var(--ch-duration-fast) var(--ch-ease-standard),
+    background-color var(--ch-duration-fast) var(--ch-ease-standard);
+}
+
+.vp-doc a > code {
+  color: var(--vp-code-link-color);
+}
+
+.VPLastUpdated time {
+  margin-inline-start: 0.35em;
+}
+
+.VPSidebarItem.is-active > .item {
+  border-radius: 8px;
+}
+
 .DocSearch {
   --docsearch-primary-color: var(--vp-c-brand-1) !important;
+}
+
+html.dark .ch-window-viewport img.ch-preview-light {
+  display: none;
+}
+
+html.dark .ch-window-viewport img.ch-preview-dark {
+  display: block;
 }

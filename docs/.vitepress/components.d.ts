@@ -16,5 +16,6 @@ declare module 'vue' {
     DownloadPage: typeof import('./theme/components/DownloadPage.vue')['default']
     HomePage: typeof import('./theme/components/HomePage.vue')['default']
     MarketplacePage: typeof import('./theme/components/MarketplacePage.vue')['default']
+    WorkbenchWindowFrame: typeof import('./theme/components/WorkbenchWindowFrame.vue')['default']
   }
 }

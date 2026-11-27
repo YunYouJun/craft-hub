@@ -11,84 +11,87 @@
  */
 
 :root {
-  /* Surfaces & canvas */
-  --ch-bg: #ffffff;
-  --ch-bg-subtle: #f7f9fc;
+  /* Surfaces & canvas (Apple-structured warm alabaster & crisp paper sheets) */
+  --ch-bg: #faf9f6;
+  --ch-bg-subtle: #f5f4f0;
   --ch-surface: #ffffff;
-  --ch-surface-subtle: #f8faff;
-  --ch-surface-hover: #f4f7ff;
-  --ch-code-surface: #fbfcff;
+  --ch-surface-subtle: #f5f4f0;
+  --ch-surface-hover: #eeece7;
+  --ch-code-surface: #f5f4f0;
 
   /* Typography */
-  --ch-text: #090d16;
-  --ch-text-secondary: #526079;
-  --ch-text-muted: #647189;
-  --ch-text-code: #131b2b;
+  --ch-text: #1d1d1f;
+  --ch-text-secondary: #5f5b55;
+  --ch-text-muted: #66625c;
+  --ch-text-code: #1d1d1f;
 
-  /* Borders & dividers */
-  --ch-border: #dfe5ef;
-  --ch-border-strong: #c6d2e4;
-  --ch-border-hover: #9fb3d5;
-  --ch-border-frame: #b9c8e2;
+  /* Borders & hairline dividers */
+  --ch-border: rgb(29 29 31 / 9%);
+  --ch-border-strong: rgb(29 29 31 / 16%);
+  --ch-border-hover: rgb(29 29 31 / 26%);
+  --ch-border-frame: rgb(29 29 31 / 12%);
 
-  /* Brand text/icon vs solid fill (separated contrast contract) */
-  --ch-brand: #1558e8;
-  --ch-brand-hover: #0d49c8;
-  --ch-brand-active: #073cae;
-  --ch-brand-soft: rgb(21 88 232 / 10%);
-  --ch-brand-fill: #1558e8;
-  --ch-brand-fill-hover: #0d49c8;
-  --ch-brand-fill-active: #073cae;
+  /* Brand text/icon vs solid fill (Apple Accessible Blue + Apple.com CTA fill) */
+  --ch-brand: #0066cc;
+  --ch-brand-hover: #0051a8;
+  --ch-brand-active: #00408a;
+  --ch-brand-soft: rgb(0 113 227 / 10%);
+  --ch-brand-fill: #0071e3;
+  --ch-brand-fill-hover: #0062c4;
+  --ch-brand-fill-active: #0051a8;
   --ch-on-brand: #ffffff;
 
-  /* Focus & decorative motifs */
-  --ch-focus-ring: rgb(21 88 232 / 24%);
-  --ch-grid-line: rgb(21 88 232 / 9%);
-  --ch-beam-from: rgb(21 88 232 / 78%);
-  --ch-beam-to: rgb(80 200 255 / 88%);
-  --ch-beam-dashed: rgb(21 88 232 / 34%);
-  --ch-glow-bg: #edf3ff;
-  --ch-glow-accent: rgb(21 88 232 / 14%);
+  /* Focus & quiet ambient accents */
+  --ch-focus-ring: rgb(0 113 227 / 28%);
+  --ch-grid-line: rgb(29 29 31 / 4%);
+  --ch-beam-from: rgb(0 113 227 / 32%);
+  --ch-beam-to: rgb(77 163 255 / 40%);
+  --ch-beam-dashed: rgb(29 29 31 / 12%);
+  --ch-glow-bg: rgb(0 113 227 / 8%);
+  --ch-glow-accent: rgb(0 113 227 / 10%);
 
   /* Semantic statuses */
-  --ch-success: #15803d;
-  --ch-success-soft: rgb(21 128 61 / 12%);
-  --ch-success-dot: #22c55e;
-  --ch-warning: #b45309;
-  --ch-warning-soft: rgb(180 83 9 / 12%);
-  --ch-danger: #b34e52;
-  --ch-danger-soft: rgb(179 78 82 / 12%);
+  --ch-success: #1a7f37;
+  --ch-success-soft: rgb(26 127 55 / 11%);
+  --ch-success-dot: #28cd41;
+  --ch-warning: #a65200;
+  --ch-warning-soft: rgb(166 82 0 / 11%);
+  --ch-danger: #c9342b;
+  --ch-danger-soft: rgb(201 52 43 / 11%);
 
   /* Legacy VitePress accent palette compatibility (UnoCSS shortcuts) */
-  --ch-yellow-1: #edb253;
-  --ch-yellow-2: #daac61;
-  --ch-yellow-3: #e6cc78;
-  --ch-red-1: #b34e52;
-  --ch-red-2: #bc6063;
-  --ch-red-3: #cb7676;
+  --ch-yellow-1: #e59400;
+  --ch-yellow-2: #d98200;
+  --ch-yellow-3: #f0b342;
+  --ch-red-1: #c9342b;
+  --ch-red-2: #d94b43;
+  --ch-red-3: #e56b64;
 
   /* Layout & geometry */
   --ch-shell-max: 1440px;
-  --ch-shell-compact: 1320px;
-  --ch-radius-xs: 4px;
-  --ch-radius-sm: 6px;
-  --ch-radius-control: 8px;
-  --ch-radius-card: 14px;
-  --ch-radius-frame: 20px;
+  --ch-shell-compact: 1200px;
+  --ch-radius-xs: 5px;
+  --ch-radius-sm: 8px;
+  --ch-radius-control: 10px;
+  --ch-radius-card: 16px;
+  --ch-radius-frame: 18px;
   --ch-radius-pill: 999px;
 
   /* Elevation */
-  --ch-shadow-cta: 0 8px 22px rgb(21 88 232 / 18%);
-  --ch-shadow-cta-hover: 0 12px 28px rgb(21 88 232 / 24%);
-  --ch-shadow-card: 0 18px 48px rgb(30 53 91 / 10%), 0 4px 14px rgb(30 53 91 / 6%);
-  --ch-shadow-hero: 0 34px 80px rgb(30 53 91 / 16%), 0 8px 24px rgb(30 53 91 / 10%);
+  --ch-shadow-cta: 0 1px 2px rgb(29 29 31 / 8%), 0 6px 16px -4px rgb(0 113 227 / 24%);
+  --ch-shadow-cta-hover: 0 2px 4px rgb(29 29 31 / 10%), 0 10px 22px -6px rgb(0 113 227 / 32%);
+  --ch-shadow-card: 0 1px 2px rgb(29 29 31 / 4%), 0 8px 24px -8px rgb(29 29 31 / 8%);
+  --ch-shadow-hero: 0 2px 6px rgb(29 29 31 / 6%), 0 28px 72px -16px rgb(29 29 31 / 18%), 0 0 0 1px rgb(29 29 31 / 8%);
 
   /* Motion */
   --ch-duration-fast: 160ms;
   --ch-duration-beam: 6s;
-  --ch-ease-standard: ease;
+  --ch-ease-standard: cubic-bezier(0.22, 1, 0.36, 1);
 
   /* VitePress bridge */
+  --vp-font-family-base: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', 'Segoe UI', sans-serif;
+  --vp-font-family-mono: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+
   --vp-c-brand-1: var(--ch-brand);
   --vp-c-brand-2: var(--ch-brand-hover);
   --vp-c-brand-3: var(--ch-brand-active);
@@ -146,6 +149,19 @@
 
   --vp-home-hero-name-color: var(--ch-brand);
 
+  --vp-code-color: var(--ch-text-code);
+  --vp-code-bg: var(--ch-surface-subtle);
+  --vp-code-link-color: var(--ch-brand);
+  --vp-code-link-hover-color: var(--ch-brand-hover);
+  --vp-code-block-color: var(--ch-text-code);
+  --vp-code-block-bg: var(--ch-code-surface);
+  --vp-code-block-divider-color: var(--ch-border);
+  --vp-code-lang-color: var(--ch-text-muted);
+  --vp-code-copy-code-bg: var(--ch-surface);
+  --vp-code-copy-code-hover-bg: var(--ch-surface-hover);
+  --vp-code-copy-code-border-color: var(--ch-border);
+  --vp-code-copy-code-hover-border-color: var(--ch-border-strong);
+
   --vp-custom-block-tip-border: transparent;
   --vp-custom-block-tip-text: var(--vp-c-text-1);
   --vp-custom-block-tip-bg: var(--vp-c-brand-soft);
@@ -153,56 +169,56 @@
 }
 
 .dark {
-  --ch-bg: #0d1016;
-  --ch-bg-subtle: #141923;
-  --ch-surface: #131821;
-  --ch-surface-subtle: #181f2c;
-  --ch-surface-hover: #1d2636;
-  --ch-code-surface: #171d27;
+  --ch-bg: #161618;
+  --ch-bg-subtle: #1b1b1e;
+  --ch-surface: #212124;
+  --ch-surface-subtle: #27272b;
+  --ch-surface-hover: #2f2f34;
+  --ch-code-surface: #1b1b1e;
 
-  --ch-text: #f3f6fc;
-  --ch-text-secondary: #a9b2c2;
-  --ch-text-muted: #8b96ab;
-  --ch-text-code: #edf2fb;
+  --ch-text: #f5f5f3;
+  --ch-text-secondary: #a8a49e;
+  --ch-text-muted: #8c8882;
+  --ch-text-code: #f0efec;
 
-  --ch-border: #2c3442;
-  --ch-border-strong: #3e4859;
-  --ch-border-hover: #59647a;
-  --ch-border-frame: #3e4859;
+  --ch-border: rgb(255 255 255 / 9%);
+  --ch-border-strong: rgb(255 255 255 / 16%);
+  --ch-border-hover: rgb(255 255 255 / 26%);
+  --ch-border-frame: rgb(255 255 255 / 12%);
 
-  --ch-brand: #79a2ff;
-  --ch-brand-hover: #9ab8ff;
-  --ch-brand-active: #b8ccff;
-  --ch-brand-soft: rgb(121 162 255 / 15%);
-  --ch-brand-fill: #1558e8;
-  --ch-brand-fill-hover: #2467f2;
-  --ch-brand-fill-active: #0d49c8;
+  --ch-brand: #4da3ff;
+  --ch-brand-hover: #72b7ff;
+  --ch-brand-active: #96caff;
+  --ch-brand-soft: rgb(77 163 255 / 15%);
+  --ch-brand-fill: #0071e3;
+  --ch-brand-fill-hover: #0064cc;
+  --ch-brand-fill-active: #0055b3;
   --ch-on-brand: #ffffff;
 
-  --ch-focus-ring: rgb(121 162 255 / 32%);
-  --ch-grid-line: rgb(121 162 255 / 12%);
-  --ch-beam-from: rgb(121 162 255 / 72%);
-  --ch-beam-to: rgb(80 200 255 / 85%);
-  --ch-beam-dashed: rgb(121 162 255 / 28%);
-  --ch-glow-bg: #17264c;
-  --ch-glow-accent: rgb(121 162 255 / 18%);
+  --ch-focus-ring: rgb(77 163 255 / 34%);
+  --ch-grid-line: rgb(255 255 255 / 4%);
+  --ch-beam-from: rgb(77 163 255 / 36%);
+  --ch-beam-to: rgb(114 183 255 / 44%);
+  --ch-beam-dashed: rgb(255 255 255 / 14%);
+  --ch-glow-bg: rgb(77 163 255 / 12%);
+  --ch-glow-accent: rgb(77 163 255 / 14%);
 
-  --ch-success: #4ade80;
-  --ch-success-soft: rgb(74 222 128 / 15%);
-  --ch-warning: #e6cc78;
-  --ch-warning-soft: rgb(230 204 120 / 15%);
-  --ch-danger: #f08a8d;
-  --ch-danger-soft: rgb(240 138 141 / 15%);
+  --ch-success: #32d74b;
+  --ch-success-soft: rgb(50 215 75 / 15%);
+  --ch-warning: #ffd60a;
+  --ch-warning-soft: rgb(255 214 10 / 14%);
+  --ch-danger: #ff6961;
+  --ch-danger-soft: rgb(255 105 97 / 15%);
 
-  --ch-yellow-1: #e6cc78;
-  --ch-yellow-2: #daac61;
-  --ch-yellow-3: #edb253;
-  --ch-red-1: #cb7676;
-  --ch-red-2: #bc6063;
-  --ch-red-3: #b34e52;
+  --ch-yellow-1: #ffd60a;
+  --ch-yellow-2: #e5b800;
+  --ch-yellow-3: #ffe354;
+  --ch-red-1: #ff6961;
+  --ch-red-2: #e55b54;
+  --ch-red-3: #ff8a84;
 
-  --ch-shadow-cta: 0 8px 22px rgb(0 0 0 / 32%);
-  --ch-shadow-cta-hover: 0 12px 28px rgb(0 0 0 / 42%);
-  --ch-shadow-card: 0 18px 48px rgb(0 0 0 / 34%);
-  --ch-shadow-hero: 0 34px 80px rgb(0 0 0 / 45%);
+  --ch-shadow-cta: 0 2px 6px rgb(0 0 0 / 32%), 0 8px 20px -4px rgb(0 113 227 / 32%);
+  --ch-shadow-cta-hover: 0 4px 10px rgb(0 0 0 / 40%), 0 12px 26px -4px rgb(0 113 227 / 42%);
+  --ch-shadow-card: inset 0 1px 0 rgb(255 255 255 / 5%), 0 12px 32px -10px rgb(0 0 0 / 48%);
+  --ch-shadow-hero: inset 0 1px 0 rgb(255 255 255 / 8%), 0 36px 88px -16px rgb(0 0 0 / 72%), 0 0 0 1px rgb(255 255 255 / 10%);
 }

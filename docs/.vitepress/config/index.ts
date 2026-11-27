@@ -54,13 +54,13 @@ const ZH_GUIDES: DefaultTheme.NavItemWithLink[] = [
 ]
 
 const EN_VERSIONS: (DefaultTheme.NavItemWithLink | DefaultTheme.NavItemChildren)[] = [
-  { text: `v${version} (current)`, link: '/' },
+  { text: `v${version} (current)`, link: `${REPOSITORY_URL}/releases/tag/v${version}` },
   { text: `Release Notes`, link: `${REPOSITORY_URL}/releases` },
   { text: `Changelog`, link: '/changelog' },
 ]
 
 const ZH_VERSIONS: (DefaultTheme.NavItemWithLink | DefaultTheme.NavItemChildren)[] = [
-  { text: `v${version}（当前版本）`, link: '/zh/' },
+  { text: `v${version}（当前版本）`, link: `${REPOSITORY_URL}/releases/tag/v${version}` },
   { text: `发布说明`, link: `${REPOSITORY_URL}/releases` },
   { text: `更新日志（英文）`, link: '/changelog' },
 ]

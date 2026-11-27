@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
-import workbenchConcept from '../../../design/workbench-concept.webp'
+import { computed } from 'vue'
+import WorkbenchWindowFrame from './WorkbenchWindowFrame.vue'
 
 const props = withDefaults(defineProps<{
   locale?: 'en' | 'zh-CN'
@@ -8,65 +8,63 @@ const props = withDefaults(defineProps<{
   locale: 'en',
 })
 
-const hero = ref<HTMLElement>()
 const isZh = computed(() => props.locale === 'zh-CN')
 const copy = computed(() => isZh.value
   ? {
+      eyebrow: 'macOS · 本地优先开发工作台',
       title: '让每个项目\n随时可用',
       description: '跨本地仓库发现快捷命令与 Agent Skills，预览每一次操作，并在明确的信任边界内执行。',
       download: '下载 macOS 版',
       guide: '阅读指南',
       releaseNote: 'Apple 芯片与 Intel 构建 · 早期 Alpha',
-      screenshotAlt: 'Craft Hub 工作台中的项目、命令面板和运行终端',
+      screenshotAlt: 'Craft Hub 工作台界面：项目管理、Project Palette 命令面板与信任边界控制',
       proofs: [
-        { title: '发现', description: '在本地项目间查找命令与 Skills。', icon: 'search' },
-        { title: '审阅', description: '运行前预览每一项操作与参数。', icon: 'review' },
-        { title: '安全运行', description: '只在你明确授权的信任边界内执行。', icon: 'shield' },
+        { title: '发现', description: '在本地项目间快速查找常用命令与 Agent Skills，无需记忆路径。', icon: 'search' },
+        { title: '审阅', description: '运行前预览每一项命令定义、工作目录与参数表单，细节清晰可控。', icon: 'review' },
+        { title: '安全运行', description: '新项目默认隔离，仅在你明确授权的信任边界内执行脚本或任务。', icon: 'shield' },
       ],
     }
   : {
+      eyebrow: 'macOS · Local-first Workbench',
       title: 'Your projects,\nready to run',
       description: 'Discover commands and agent skills across local repositories, preview every action, and run behind an explicit trust boundary.',
       download: 'Download for macOS',
       guide: 'Read the guide',
       releaseNote: 'Apple silicon and Intel builds · Early alpha',
-      screenshotAlt: 'Craft Hub workbench showing projects, the command palette, and a running terminal',
+      screenshotAlt: 'Craft Hub desktop workbench showing project navigation, Project Palette, and an explicit trust boundary',
       proofs: [
-        { title: 'Discover', description: 'Find commands and skills across your local projects.', icon: 'search' },
-        { title: 'Review', description: 'Preview every action and argument before you run.', icon: 'review' },
-        { title: 'Run safely', description: 'Execute behind an explicit trust boundary you control.', icon: 'shield' },
+        { title: 'Discover', description: 'Find commands and agent skills across every local repository in one palette.', icon: 'search' },
+        { title: 'Review', description: 'Inspect the exact command, working directory, and inputs before execution.', icon: 'review' },
+        { title: 'Run safely', description: 'Execute strictly behind an explicit per-project trust boundary you control.', icon: 'shield' },
       ],
     })
 
 const downloadLink = computed(() => isZh.value ? '/zh/download' : '/download')
 const guideLink = computed(() => isZh.value ? '/zh/guide/getting-started' : '/guide/getting-started')
-
-function updateGrid(event: PointerEvent): void {
-  if (!hero.value)
-    return
-  const bounds = hero.value.getBoundingClientRect()
-  hero.value.style.setProperty('--grid-x', `${event.clientX - bounds.left}px`)
-  hero.value.style.setProperty('--grid-y', `${event.clientY - bounds.top}px`)
-}
 </script>
 
 <template>
   <main class="craft-home">
-    <section ref="hero" class="craft-hero" @pointermove="updateGrid">
-      <div class="craft-grid" aria-hidden="true" />
-      <div class="craft-shell craft-hero-layout">
-        <div class="craft-hero-copy">
+    <section class="craft-hero">
+      <div class="craft-shell">
+        <header class="craft-hero-copy">
+          <p class="craft-eyebrow">
+            <span class="craft-eyebrow-dot" aria-hidden="true" />
+            {{ copy.eyebrow }}
+          </p>
           <h1>
             <template v-for="(line, index) in copy.title.split('\n')" :key="line">
               <br v-if="index">
               {{ line }}
             </template>
           </h1>
-          <p>{{ copy.description }}</p>
+          <p class="craft-hero-description">
+            {{ copy.description }}
+          </p>
           <div class="craft-actions">
             <a class="craft-button craft-button-primary" :href="downloadLink">
               <svg aria-hidden="true" viewBox="0 0 24 24">
-                <path d="M12 3v12m-5-5 5 5 5-5M5 20h14" />
+                <path d="M12 4v11m-4.5-4.5L12 15l4.5-4.5M5 19h14" />
               </svg>
               {{ copy.download }}
             </a>
@@ -80,40 +78,33 @@ function updateGrid(event: PointerEvent): void {
           <p class="craft-release-note">
             {{ copy.releaseNote }}
           </p>
-        </div>
+        </header>
 
-        <figure class="craft-product-frame">
-          <span class="craft-product-beam" aria-hidden="true" />
-          <img
-            :src="workbenchConcept"
-            :alt="copy.screenshotAlt"
-            width="1536"
-            height="1024"
-            fetchpriority="high"
-          >
-        </figure>
+        <WorkbenchWindowFrame class="craft-hero-window" :alt="copy.screenshotAlt" />
       </div>
     </section>
 
-    <section class="craft-proof" aria-label="Craft Hub workflow">
-      <div class="craft-shell craft-proof-list">
-        <article v-for="proof in copy.proofs" :key="proof.title" class="craft-proof-item">
-          <svg v-if="proof.icon === 'search'" aria-hidden="true" viewBox="0 0 32 32">
-            <circle cx="14" cy="14" r="9" />
-            <path d="m21 21 7 7" />
-          </svg>
-          <svg v-else-if="proof.icon === 'review'" aria-hidden="true" viewBox="0 0 32 32">
-            <path d="M5 8h3m4 0h15M5 16h3m4 0h15M5 24h3m4 0h15" />
-          </svg>
-          <svg v-else aria-hidden="true" viewBox="0 0 32 32">
-            <path d="M16 3 27 7v8c0 7-4.4 11.8-11 14-6.6-2.2-11-7-11-14V7l11-4Z" />
-            <path d="m11 16 3 3 7-7" />
-          </svg>
-          <div>
+    <section class="craft-proof" :aria-label="isZh ? 'Craft Hub 核心工作流' : 'Craft Hub workflow'">
+      <div class="craft-shell">
+        <div class="craft-proof-grid">
+          <article v-for="proof in copy.proofs" :key="proof.title" class="craft-proof-card">
+            <span class="craft-proof-icon" aria-hidden="true">
+              <svg v-if="proof.icon === 'search'" viewBox="0 0 24 24">
+                <circle cx="11" cy="11" r="6.5" />
+                <path d="m16 16 4 4" />
+              </svg>
+              <svg v-else-if="proof.icon === 'review'" viewBox="0 0 24 24">
+                <path d="M4 7h2m4 0h10M4 12h2m4 0h10M4 17h2m4 0h10" />
+              </svg>
+              <svg v-else viewBox="0 0 24 24">
+                <path d="M12 3 20 6v6c0 5-3.3 8.8-8 10.5C7.3 20.8 4 17 4 12V6l8-3Z" />
+                <path d="m8.8 12 2.2 2.2 4.4-4.4" />
+              </svg>
+            </span>
             <h2>{{ proof.title }}</h2>
             <p>{{ proof.description }}</p>
-          </div>
-        </article>
+          </article>
+        </div>
       </div>
     </section>
   </main>
@@ -121,102 +112,105 @@ function updateGrid(event: PointerEvent): void {
 
 <style scoped>
 .craft-home {
-  overflow: hidden;
   color: var(--ch-text);
   background: var(--ch-bg);
 }
 
 .craft-shell {
-  width: min(var(--ch-shell-max), calc(100% - 72px));
+  width: min(1120px, calc(100% - 48px));
   margin: 0 auto;
 }
 
 .craft-hero {
-  --grid-x: 75%;
-  --grid-y: 35%;
-  position: relative;
-  min-height: min(790px, calc(100vh - var(--vp-nav-height)));
-  border-bottom: 1px solid var(--ch-border);
-  background: var(--ch-bg);
-}
-
-.craft-grid {
-  position: absolute;
-  pointer-events: none;
-  background-image: linear-gradient(var(--ch-grid-line) 1px, transparent 1px), linear-gradient(90deg, var(--ch-grid-line) 1px, transparent 1px);
-  background-position: center;
-  background-size: 72px 72px;
-  inset: 0 0 0 42%;
-  mask-image: radial-gradient(560px circle at var(--grid-x) var(--grid-y), #000 4%, transparent 72%);
-  transition: mask-position 120ms ease-out;
-}
-
-.craft-hero-layout {
-  display: grid;
-  grid-template-columns: minmax(390px, .78fr) minmax(660px, 1.42fr);
-  gap: clamp(52px, 6vw, 104px);
-  align-items: center;
-  min-height: inherit;
-  padding: 68px 0 78px;
+  padding: clamp(56px, 8vh, 88px) 0 40px;
 }
 
 .craft-hero-copy {
-  position: relative;
-  z-index: 2;
+  max-width: 760px;
+  margin: 0 auto;
+  text-align: center;
+}
+
+.craft-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 22px;
+  border: 1px solid var(--ch-border);
+  border-radius: var(--ch-radius-pill);
+  background: var(--ch-surface);
+  box-shadow: 0 1px 2px rgb(29 29 31 / 4%);
+  padding: 5px 13px;
+  color: var(--ch-text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.craft-eyebrow-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ch-success-dot);
 }
 
 .craft-hero-copy h1 {
-  max-width: 620px;
   margin: 0;
-  font-size: clamp(58px, 5.4vw, 84px);
-  font-weight: 760;
-  line-height: .98;
-  letter-spacing: -.058em;
+  font-size: clamp(44px, 5.4vw, 66px);
+  font-weight: 680;
+  line-height: 1.05;
+  letter-spacing: -0.024em;
 }
 
-.craft-hero-copy > p:not(.craft-release-note) {
-  max-width: 590px;
-  margin: 34px 0 0;
+.craft-hero-description {
+  max-width: 620px;
+  margin: 20px auto 0;
   color: var(--ch-text-secondary);
-  font-size: clamp(18px, 1.45vw, 22px);
+  font-size: clamp(17px, 1.5vw, 20px);
   line-height: 1.55;
 }
 
 .craft-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 14px;
-  margin-top: 38px;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 28px;
 }
 
 .craft-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 10px;
-  min-height: 56px;
+  gap: 8px;
+  min-height: 46px;
   border: 1px solid transparent;
-  border-radius: var(--ch-radius-control);
+  border-radius: var(--ch-radius-pill);
   padding: 0 22px;
-  font-size: 16px;
-  font-weight: 650;
+  font-size: 15px;
+  font-weight: 550;
   line-height: 1;
   text-decoration: none;
-  transition: border-color var(--ch-duration-fast) var(--ch-ease-standard), background-color var(--ch-duration-fast) var(--ch-ease-standard), box-shadow var(--ch-duration-fast) var(--ch-ease-standard), color var(--ch-duration-fast) var(--ch-ease-standard), transform var(--ch-duration-fast) var(--ch-ease-standard);
+  transition:
+    background-color var(--ch-duration-fast) var(--ch-ease-standard),
+    border-color var(--ch-duration-fast) var(--ch-ease-standard),
+    box-shadow var(--ch-duration-fast) var(--ch-ease-standard),
+    color var(--ch-duration-fast) var(--ch-ease-standard),
+    transform 100ms ease;
 }
 
-.craft-button:hover {
-  transform: translateY(-1px);
+.craft-button:active {
+  transform: scale(0.98);
 }
 
 .craft-button:focus-visible {
   outline: 3px solid var(--ch-focus-ring);
-  outline-offset: 3px;
+  outline-offset: 2px;
 }
 
 .craft-button svg {
-  width: 21px;
-  height: 21px;
+  width: 17px;
+  height: 17px;
   fill: none;
   stroke: currentColor;
   stroke-width: 1.8;
@@ -238,197 +232,117 @@ function updateGrid(event: PointerEvent): void {
 
 .craft-button-secondary {
   border-color: var(--ch-border-strong);
-  color: var(--ch-brand);
+  color: var(--ch-text);
   background: var(--ch-surface);
+  box-shadow: var(--ch-shadow-card);
 }
 
 .craft-button-secondary:hover {
   border-color: var(--ch-border-hover);
-  color: var(--ch-brand-hover);
   background: var(--ch-surface-subtle);
 }
 
 .craft-release-note {
-  margin: 28px 0 0;
+  margin: 16px 0 0;
   color: var(--ch-text-muted);
-  font-size: 15px;
+  font-size: 13px;
   line-height: 1.5;
 }
 
-.craft-product-frame {
-  position: relative;
-  z-index: 1;
-  min-width: 0;
-  margin: 0 -7vw 0 0;
-  border: 1px solid var(--ch-border-frame);
-  border-radius: var(--ch-radius-card);
-  background: var(--ch-surface);
-  box-shadow: var(--ch-shadow-hero);
+/* macOS window showcase spacing */
+.craft-hero-window {
+  margin-top: 44px;
 }
 
-.craft-product-frame::after {
-  position: absolute;
-  z-index: -2;
-  border: 1px dashed var(--ch-beam-dashed);
-  border-radius: var(--ch-radius-frame);
-  content: '';
-  inset: -30px -26px 30px 10%;
-}
-
-.craft-product-frame img {
-  display: block;
-  width: 100%;
-  height: auto;
-  border-radius: calc(var(--ch-radius-card) - 1px);
-}
-
-.craft-product-beam {
-  position: absolute;
-  z-index: 2;
-  pointer-events: none;
-  border: 1px solid transparent;
-  border-radius: inherit;
-  background: linear-gradient(105deg, transparent 28%, var(--ch-beam-from) 45%, var(--ch-beam-to) 50%, transparent 66%) border-box;
-  background-size: 280% 100%;
-  inset: -1px;
-  mask: linear-gradient(#000 0 0) padding-box, linear-gradient(#000 0 0);
-  mask-composite: exclude;
-  animation: craft-beam var(--ch-duration-beam) linear infinite;
-}
-
+/* Craft paper workflow proof cards */
 .craft-proof {
-  background: var(--ch-bg);
+  padding: 20px 0 88px;
 }
 
-.craft-proof-list {
+.craft-proof-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px;
 }
 
-.craft-proof-item {
+.craft-proof-card {
+  border: 1px solid var(--ch-border);
+  border-radius: var(--ch-radius-card);
+  background: var(--ch-surface);
+  box-shadow: var(--ch-shadow-card);
+  padding: 24px;
+}
+
+.craft-proof-icon {
   display: grid;
-  grid-template-columns: 48px minmax(0, 1fr);
-  gap: 20px;
-  min-width: 0;
-  padding: 48px 38px 54px;
+  width: 40px;
+  height: 40px;
+  place-items: center;
+  border-radius: 11px;
+  background: var(--ch-brand-soft);
+  color: var(--ch-brand);
 }
 
-.craft-proof-item + .craft-proof-item {
-  border-left: 1px solid var(--ch-border);
-}
-
-.craft-proof-item svg {
-  width: 42px;
-  height: 42px;
+.craft-proof-icon svg {
+  width: 20px;
+  height: 20px;
   fill: none;
-  stroke: var(--ch-brand);
-  stroke-width: 1.8;
+  stroke: currentColor;
+  stroke-width: 1.85;
   stroke-linecap: round;
   stroke-linejoin: round;
 }
 
-.craft-proof-item h2 {
-  margin: 0;
-  font-size: 23px;
-  font-weight: 720;
-  line-height: 1.2;
-  letter-spacing: -.025em;
+.craft-proof-card h2 {
+  margin: 16px 0 0;
+  font-size: 18px;
+  font-weight: 640;
+  line-height: 1.25;
+  letter-spacing: -0.018em;
 }
 
-.craft-proof-item p {
-  margin: 13px 0 0;
+.craft-proof-card p {
+  margin: 8px 0 0;
   color: var(--ch-text-secondary);
-  font-size: 15px;
-  line-height: 1.55;
+  font-size: 14px;
+  line-height: 1.6;
 }
 
-.dark .craft-product-frame img {
-  opacity: .92;
-}
-
-@keyframes craft-beam {
-  from { background-position: 140% 0; }
-  to { background-position: -140% 0; }
-}
-
-@media (max-width: 1180px) {
-  .craft-shell {
-    width: min(100% - 48px, 1080px);
-  }
-
-  .craft-hero-layout {
+@media (max-width: 900px) {
+  .craft-proof-grid {
     grid-template-columns: 1fr;
-    gap: 54px;
-    padding-top: 76px;
-  }
-
-  .craft-hero-copy {
-    max-width: 760px;
-  }
-
-  .craft-product-frame {
-    margin: 0;
   }
 }
 
-@media (max-width: 760px) {
+@media (max-width: 720px) {
   .craft-shell {
     width: calc(100% - 32px);
   }
 
-  .craft-grid {
-    inset-inline-start: 8%;
-  }
-
-  .craft-hero-layout {
-    gap: 42px;
-    padding: 58px 0 48px;
+  .craft-hero {
+    padding: 40px 0 28px;
   }
 
   .craft-hero-copy h1 {
-    font-size: clamp(47px, 14vw, 64px);
-  }
-
-  .craft-hero-copy > p:not(.craft-release-note) {
-    margin-top: 26px;
-    font-size: 18px;
+    font-size: clamp(36px, 10.5vw, 48px);
   }
 
   .craft-actions {
-    display: grid;
-    margin-top: 30px;
+    flex-direction: column;
+    align-items: stretch;
   }
 
-  .craft-button {
-    width: 100%;
+  .craft-hero-window {
+    margin-top: 32px;
   }
 
-  .craft-product-frame::after {
-    inset: -16px -10px 14px 8%;
-  }
-
-  .craft-proof-list {
-    grid-template-columns: 1fr;
-  }
-
-  .craft-proof-item {
-    padding: 34px 8px;
-  }
-
-  .craft-proof-item + .craft-proof-item {
-    border-top: 1px solid var(--ch-border);
-    border-left: 0;
+  .craft-proof {
+    padding: 12px 0 56px;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .craft-product-beam {
-    animation: none;
-    background-position: 50% 0;
-  }
-
-  .craft-button,
-  .craft-grid {
+  .craft-button {
     transition: none;
   }
 }
