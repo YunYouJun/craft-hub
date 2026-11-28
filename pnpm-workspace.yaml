@@ -92,7 +92,7 @@ catalog:
   '@electron/packager': ^20.3.0
   '@floating-ui/dom': ^1.8.0
   '@iconify-json/logos': 1.2.18
-  '@iconify-json/lucide': ^1.2.150
+  '@iconify-json/lucide': ^1.2.159
   '@iconify-json/ri': ^1.2.10
   '@iconify-json/simple-icons': 1.2.101
   '@iconify-json/svg-spinners': ^1.2.4
